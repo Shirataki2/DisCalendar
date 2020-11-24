@@ -1,0 +1,14 @@
+{
+    "python.autoComplete.extraPaths": [
+        "./app"
+    ],
+    "eslint.workingDirectories": [
+        "./web"
+    ],
+    "editor.quickSuggestions": {
+        "strings": true,
+        "comments": true,
+        "other": true,
+    },
+    "vetur.experimental.templateInterpolationService": true
+}

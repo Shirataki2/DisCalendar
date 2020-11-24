@@ -1,0 +1,22 @@
+version: "3.8"
+services:
+  app:
+    build: ./app
+    tty: true
+    env_file:
+      - ./.env
+  api:
+    build: ./api
+    tty: true
+    env_file:
+      - ./.env
+  web:
+    build: ./web
+    tty: true
+    env_file:
+      - ./.env
+  db:
+    build: ./db
+    restart: always
+    env_file:
+      - ./.env

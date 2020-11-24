@@ -1,0 +1,27 @@
+version: "3.8"
+services:
+  app:
+    working_dir: /workspace/app
+    entrypoint: bash ./entrypoint.sh --dev
+    volumes: 
+      - ./app:/workspace/app
+  api:
+    working_dir: /src
+    entrypoint: bash
+    volumes:
+      - ./api:/src
+    ports:
+      - 8855:5000
+  web:
+    working_dir: /app
+    entrypoint: bash
+    volumes:
+      - ./web:/app
+    ports:
+      - 6655:6655
+  db:
+    volumes:
+      - ./data:/var/lib/postgresql/data
+      - ./db/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+    ports:
+      - 24151:5432
