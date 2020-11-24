@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "nuxt-ts",
@@ -9,7 +9,7 @@
     "generate": "nuxt-ts generate",
     "lint:js": "eslint --ext .js,.vue --ignore-path .gitignore .",
     "lint": "yarn lint:js",
-    "test": "yarn test:unit && yarn test:e2e",
+    "test": "echo ok",
     "test:unit": "cross-env TEST=unit ava ./test/specs/**/*",
     "test:e2e": "cross-env TEST=e2e ava ./test/e2e/**/*"
   },
@@ -29,6 +29,7 @@
     "nuxt": "^2.14.6",
     "nuxt-i18n": "^6.15.4",
     "nuxt-property-decorator": "^2.8.8",
+    "ts-node": "^9.0.0",
     "vue-class-component": "^7.2.6",
     "vue-property-decorator": "^9.0.2",
     "vuex-module-decorators": "^1.0.1"

@@ -1,8 +1,8 @@
 import test from 'ava'
 import { mount } from '@vue/test-utils'
-import Logo from '@/components/Logo.vue'
+import AppFooter from '@/components/AppFooter.vue'
 
-test('is a Vue instance', (t) => {
-  const wrapper = mount(Logo)
+test('is work', (t) => {
+  const wrapper = mount(AppFooter)
   t.truthy(wrapper.vm)
 })
