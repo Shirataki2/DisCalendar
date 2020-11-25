@@ -1,5 +1,6 @@
 if [ $1 = '--dev' ]; then
 bash
 else
-bash
+cargo install --path .
+api
 fi

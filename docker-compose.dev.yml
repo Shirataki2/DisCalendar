@@ -7,14 +7,14 @@ services:
       - ./app:/workspace/app
   api:
     working_dir: /src
-    entrypoint: bash
+    entrypoint: bash ./entrypoint.sh --dev
     volumes:
       - ./api:/src
     ports:
       - 8855:5000
   web:
     working_dir: /app
-    entrypoint: bash
+    entrypoint: bash ./entrypoint.sh --dev
     volumes:
       - ./web:/app
     ports:

@@ -1,5 +1,6 @@
 if [ $1 = '--dev' ]; then
 bash
 else
-bash
+yarn install --prod=false
+yarn start
 fi

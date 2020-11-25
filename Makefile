@@ -25,6 +25,9 @@ build-db:
 build-web: 
 	$(cmd) build web
 
+prod-web:
+	$(cmd) 
+
 
 up:
 	$(cmd) up -d

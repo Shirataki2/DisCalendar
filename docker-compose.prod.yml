@@ -2,21 +2,23 @@ version: "3.8"
 services:
   app:
     working_dir: /workspace/app
-    entrypoint: bash ./entrypoint.sh --dev
+    entrypoint: bash ./entrypoint.sh
     volumes: 
       - ./app:/workspace/app
   api:
     working_dir: /src
-    entrypoint: bash
+    entrypoint: bash ./entrypoint.sh 
     volumes:
       - ./api:/src
     ports:
       - 8866:5000
   web:
+    working_dir: /app
+    entrypoint: bash ./entrypoint.sh
     volumes:
       - ./web:/app
     ports:
-      - 6666:6655
+      - 7007:6655
   db:
     volumes:
       - ./prod:/var/lib/postgresql/data
