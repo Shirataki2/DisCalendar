@@ -25,9 +25,13 @@ build-db:
 build-web: 
 	$(cmd) build web
 
-prod-web:
-	$(cmd) 
-
+start:
+	$(prod) up -d db
+	sleep 10
+	$(prod) up -d api
+	sleep 5
+	$(prod) up -d web
+	$(prod) up -d app
 
 up:
 	$(cmd) up -d

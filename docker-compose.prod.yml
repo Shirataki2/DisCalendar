@@ -2,19 +2,19 @@ version: "3.8"
 services:
   app:
     working_dir: /workspace/app
-    entrypoint: bash ./entrypoint.sh
+    entrypoint: bash ./entrypoint.sh --prod
     volumes: 
       - ./app:/workspace/app
   api:
     working_dir: /src
-    entrypoint: bash ./entrypoint.sh 
+    entrypoint: bash ./entrypoint.sh --prod
     volumes:
       - ./api:/src
     ports:
       - 8866:5000
   web:
     working_dir: /app
-    entrypoint: bash ./entrypoint.sh
+    entrypoint: bash ./entrypoint.sh --prod
     volumes:
       - ./web:/app
     ports:

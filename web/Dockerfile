@@ -3,4 +3,5 @@ FROM node:lts
 WORKDIR /app
 ADD . ./
 
-RUN yarn install --production=false
+RUN rm -rf ./node_modules
+RUN yarn
