@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-btn outlined @click="today">
+    <v-btn v-if="isNotXS" outlined @click="today">
       今日
     </v-btn>
     <v-btn icon @click="prev">
@@ -8,14 +8,10 @@
         mdi-chevron-left
       </v-icon>
     </v-btn>
-    <v-menu
-      :close-on-content-click="false"
-    >
+    <v-menu :close-on-content-click="false">
       <template #activator="{ on, attrs }">
-        <v-btn text large v-bind="attrs" v-on="on">
-          <span class="text-h6">
-            {{ year }}年{{ month }}月
-          </span>
+        <v-btn text :large="isNotXS" v-bind="attrs" v-on="on">
+          <span class="text-h6" v-text="getDate" />
         </v-btn>
       </template>
       <v-card>
@@ -29,7 +25,7 @@
     </v-btn>
     <v-menu class="ml-5">
       <template #activator="{ on, attrs }">
-        <v-btn outlined v-bind="attrs" v-on="on" v-text="menu" />
+        <v-btn outlined :small="isXS" v-bind="attrs" v-on="on" v-text="toViewPoint(menu)" />
       </template>
       <v-list offset-y>
         <v-list-item v-for="item in menuItems" :key="item.type" style="cursor: pointer" @click="setType(item)">
@@ -49,15 +45,58 @@ class CalendarController extends Vue {
   month = 1
   day = 1
   menu = '月間表示'
-  menuItems = [
-    { title: '月間表示', type: 'month' },
-    { title: '週間表示', type: 'week' },
-    { title: '4日表示', type: '4day' },
-    { title: '1日表示', type: 'day' }
-  ]
+  get menuItems () {
+    if (this.isXS) {
+      return [
+        { title: '月間表示', type: 'month' },
+        { title: '4日表示', type: '4day' },
+        { title: '1日表示', type: 'day' }
+      ]
+    } else {
+      return [
+        { title: '月間表示', type: 'month' },
+        { title: '週間表示', type: 'week' },
+        { title: '4日表示', type: '4day' },
+        { title: '1日表示', type: 'day' }
+      ]
+    }
+  }
 
   today () {
     this.$store.commit('calendar/TODAY')
+  }
+
+  get isNotXS () {
+    return !this.$vuetify.breakpoint.xs
+  }
+
+  get isXS () {
+    return this.$vuetify.breakpoint.xs
+  }
+
+  toViewPoint (str: string) {
+    if (this.$vuetify.breakpoint.xs) {
+      switch (str) {
+        case '月間表示':
+          return '月'
+        case '週間表示':
+          return '週'
+        case '4日表示':
+          return '4日'
+        default:
+          return '1日'
+      }
+    } else {
+      return str
+    }
+  }
+
+  get getDate () {
+    if (this.$vuetify.breakpoint.xs) {
+      return `${this.month}月`
+    } else {
+      return `${this.year}年${this.month}月`
+    }
   }
 
   setType (item: any) {

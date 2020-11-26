@@ -116,5 +116,5 @@ yarn-dev:
 yarn-build:
 	$(cmd) exec web yarn build
 
-dev-app:
+run-app:
 	$(cmd) exec app nodemon --signal SIGINT -e py,ini --exec python -m discal

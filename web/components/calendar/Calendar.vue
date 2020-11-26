@@ -12,6 +12,7 @@
       :event-name="eventName"
       @change="getEvents"
       @contextmenu:event="editEvent"
+      @touchend:event="editEvent"
       @mousedown:event="clickEvent"
       @mousedown:time="clickTime"
       @mousemove:time="moveEvent"
@@ -58,25 +59,54 @@
 </template>
 
 <script lang="ts">
+/* eslint-disable camelcase */
 import { Component, Vue } from 'nuxt-property-decorator'
 import Edit from '@/components/calendar/SimpleEdit.vue'
+import cloneDeep from 'lodash/cloneDeep'
+
 type dateTypes = 'month' | 'week' | 'day' | '4day'
+
+interface EventAPI {
+  id: number
+  guild_id: string
+  name: string
+  description?: string
+  notifications: Array<string>
+  color: string
+  is_all_day: boolean
+  start_at: Date
+  end_at: Date
+  created_at: Date
+}
+
+interface Event {
+  id: number
+  name: string
+  description?: string
+  notifications: Array<string>
+  color: string
+  is_all_day: boolean
+  start: Date
+  end: Date
+  created_at: Date
+}
 
 @Component({
   components: { Edit }
 })
 class Calendar extends Vue {
+  events: Event[] = []
+  initialEvents: Event[] = []
   date = this.$moment().format('YYYY-MM-DD')
   ready = false
   ref: any = null
   type: dateTypes = 'month'
-  events: any[] = []
   colors = ['#2196F3', '#3F51B5', '#673AB7', '#00BCD4', '#4CAF50', '#FF9800', '#757575']
   names = ['Meeting', 'Holiday', 'PTO', 'Travel', 'Event', 'Birthday', 'Conference', 'Party']
   height = '600px'
   offsetY = '-10px'
   editDialog = false
-  event: any = null
+  event = null
   selectedElement: any = null
 
   calcOffset () {
@@ -191,7 +221,7 @@ class Calendar extends Vue {
   clickTime (tms: any) {
     const mouse = this.toTime(tms)
     if (this.dragEvent && this.dragTime === null) {
-      const start = this.dragEvent.start
+      const start = this.$moment(this.dragEvent.start).toDate().getTime()
       this.dragTime = mouse - start
     }
   }
@@ -218,26 +248,49 @@ class Calendar extends Vue {
   moveEvent (tms: any) {
     const mouse = this.toTime(tms)
     if (this.dragEvent && this.dragTime !== null) {
-      const start = this.dragEvent.start
-      const end = this.dragEvent.end
+      const start = this.$moment(this.dragEvent.start).toDate().getTime()
+      const end = this.$moment(this.dragEvent.end).toDate().getTime()
       const duration = end - start
       const newStartTime = mouse - this.dragTime
       const newStart = this.roundTime(newStartTime)
       const newEnd = newStart + duration
 
-      this.dragEvent.start = newStart
-      this.dragEvent.end = newEnd
+      this.dragEvent.start = this.$moment(newStart).format('YYYY-MM-DDTHH:mm:ss')
+      this.dragEvent.end = this.$moment(newEnd).format('YYYY-MM-DDTHH:mm:ss')
     } else if (this.extendEvent && this.extendStart !== null) {
       const mouseRounded = this.roundTime(mouse, false)
-      const min = Math.min(mouseRounded, this.extendStart)
-      const max = Math.max(mouseRounded, this.extendStart)
+      const start = this.$moment(this.extendStart).toDate().getTime()
+      const min = Math.min(mouseRounded, start)
+      const max = Math.max(mouseRounded, start)
 
-      this.extendEvent.start = min
-      this.extendEvent.end = max
+      this.extendEvent.start = this.$moment(min).format('YYYY-MM-DDTHH:mm:ss')
+      this.extendEvent.end = this.$moment(max).format('YYYY-MM-DDTHH:mm:ss')
     }
   }
 
-  endEvent () {
+  async save () {
+    const dirty = JSON.stringify(this.initialEvents) !== JSON.stringify(this.events)
+    if (dirty) {
+      this.initialEvents = cloneDeep(this.events)
+      const event: Event = this.dragEvent ? this.dragEvent : this.extendEvent
+      await this.$axios.put(
+        `/local/api/events/${this.$route.params.id}/${event.id}`,
+        {
+          name: event.name,
+          description: event.description,
+          notifications: event.notifications,
+          color: event.color,
+          is_all_day: event.is_all_day,
+          start_at: this.$moment(event.start).format('YYYY-MM-DDTHH:mm:ss'),
+          end_at: this.$moment(event.end).format('YYYY-MM-DDTHH:mm:ss'),
+          created_at: event.created_at
+        }
+      )
+    }
+  }
+
+  async endEvent () {
+    await this.save()
     this.dragTime = null
     this.dragEvent = null
     this.extendEvent = null
@@ -245,7 +298,7 @@ class Calendar extends Vue {
     this.extend = null
   }
 
-  cancelDrag () {
+  async cancelDrag () {
     if (this.extendEvent) {
       if (this.extend) {
         this.extendEvent.end = this.extend
@@ -256,6 +309,7 @@ class Calendar extends Vue {
         }
       }
     }
+    await this.save()
 
     this.extendEvent = null
     this.extendStart = null
@@ -281,31 +335,32 @@ class Calendar extends Vue {
     return event.color
   }
 
-  getEvents ({ start, end }: any) {
-    const events = []
-
-    const min = new Date(`${start.date}T00:00:00`).getTime()
-    const max = new Date(`${end.date}T23:59:59`).getTime()
-    const days = (max - min) / 86400000
-    const eventCount = this.rnd(days, days + 20)
-
-    for (let i = 0; i < eventCount; i++) {
-      const timed = this.rnd(0, 3) !== 0
-      const firstTimestamp = this.rnd(min, max)
-      const secondTimestamp = this.rnd(2, timed ? 8 : 288) * 900000
-      const start = firstTimestamp - (firstTimestamp % 900000)
-      const end = start + secondTimestamp
-
-      events.push({
-        name: this.rndElement(this.names),
-        color: this.rndElement(this.colors),
-        start,
-        end,
-        timed
-      })
-    }
-
-    this.events = events
+  async getEvents ({ start }: any) {
+    const start_at = this
+      .$moment(`${start.date}T00:00:00`)
+      .format('YYYY-MM-DDTHH:mm:ss')
+    const type = this.type
+    const { data } = await this.$axios.get<Array<EventAPI>>(
+      `/local/api/events/${this.$route.params.id}`,
+      {
+        params: {
+          start_at,
+          date_type: type
+        }
+      }
+    )
+    this.events = data.map(event => ({
+      id: event.id,
+      name: event.name,
+      notifications: event.notifications,
+      description: event.description,
+      color: event.color,
+      start: event.start_at,
+      end: event.end_at,
+      created_at: event.created_at,
+      is_all_day: event.is_all_day
+    }))
+    this.initialEvents = cloneDeep(this.events)
   }
 
   rnd (a: number, b: number) {

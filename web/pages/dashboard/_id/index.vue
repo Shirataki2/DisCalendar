@@ -7,7 +7,7 @@
         </v-icon>
         新規作成
       </v-btn>
-      <v-dialog v-model="eventDialog" width="80%" persistent>
+      <v-dialog v-model="eventDialog" min-width="80%" persistent>
         <NewEvent @cancel="eventDialog = false" />
       </v-dialog>
     </v-col>

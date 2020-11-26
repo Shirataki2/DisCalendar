@@ -1,5 +1,6 @@
-use actix_web::{HttpResponse, ResponseError};
 use actix_web::http::StatusCode;
+use actix_web::{HttpResponse, ResponseError};
+use actix_web::Error as ActixError;
 use diesel::result::Error as DieselError;
 use std::fmt;
 use reqwest::header;
@@ -46,6 +47,22 @@ impl From<reqwest::Error> for ApiError {
             None => ApiError::new(401, "Unauthorized".to_string()),
             _ => ApiError::new(500, format!("Client Error({:?}): {}", error.status(), error))
         }
+    }
+}
+
+impl From<ActixError> for ApiError {
+    fn from(error: ActixError) -> ApiError {
+        error!("{:?}", error);
+        match error {
+            _ => ApiError::new(500, format!("Client Error({:?})", error))
+        }
+    }
+}
+
+impl From<std::num::ParseIntError> for ApiError {
+    fn from(error: std::num::ParseIntError) -> ApiError {
+        error!("{:?}", error);
+        ApiError::new(400, "Invalid guild id".to_string())
     }
 }
 

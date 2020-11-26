@@ -1,7 +1,7 @@
 <template>
   <v-app-bar elevate-on-scroll app>
     <v-app-bar-nav-icon />
-    <v-toolbar-title style="cursor: pointer" @click="$router.push('/')">
+    <v-toolbar-title :style="visible" @click="$router.push('/')">
       <span id="logo">DisCalendar</span>
     </v-toolbar-title>
     <v-spacer />
@@ -37,6 +37,21 @@ import CalendarController from '@/components/calendar/Controller.vue'
   }
 })
 class AppHeader extends Vue {
+  get visible () {
+    const defaults = {
+      cursor: 'pointer'
+    }
+    if (this.$vuetify.breakpoint.xs && this.$route.params.id) {
+      return {
+        display: 'none',
+        ...defaults
+      }
+    } else {
+      return {
+        ...defaults
+      }
+    }
+  }
 }
 export default AppHeader
 </script>

@@ -1,5 +1,6 @@
 <template>
   <v-card flat>
+    <v-card-title class="text-h5 font-weight-bold" v-text="cardTitle" />
     <v-card-text>
       <v-form ref="form">
         <v-container>
@@ -15,9 +16,7 @@
                 counter="32"
               />
             </v-col>
-          </v-row>
-          <v-row class="mt-n5">
-            <v-col cols="5">
+            <v-col class="mt-n6" cols="12" sm="5">
               <v-menu
                 v-model="startDateMenu"
                 :close-on-content-click="false"
@@ -47,7 +46,7 @@
                 </v-date-picker>
               </v-menu>
             </v-col>
-            <v-col cols="5">
+            <v-col class="mt-n6" cols="12" sm="5">
               <v-menu
                 v-model="startTimeMenu"
                 :disabled="isAllDay"
@@ -79,15 +78,13 @@
                 </v-time-picker>
               </v-menu>
             </v-col>
-            <v-col cols="2">
+            <v-col class="mt-n6" cols="12" sm="2">
               <v-checkbox
                 v-model="isAllDay"
                 label="終日"
               />
             </v-col>
-          </v-row>
-          <v-row class="mt-n9">
-            <v-col cols="5">
+            <v-col class="mt-n9" cols="12" sm="5">
               <v-menu
                 v-model="endDateMenu"
                 :close-on-content-click="false"
@@ -117,7 +114,7 @@
                 </v-date-picker>
               </v-menu>
             </v-col>
-            <v-col cols="5">
+            <v-col class="mt-n9" cols="12" sm="5">
               <v-menu
                 v-model="endTimeMenu"
                 :disabled="isAllDay"
@@ -149,9 +146,23 @@
                 </v-time-picker>
               </v-menu>
             </v-col>
-          </v-row>
-          <v-row>
-            <v-col cols="12">
+            <v-col class="mt-n4" cols="12">
+              <v-icon>mdi-bell</v-icon>
+              <NotificationBtn
+                v-for="notification in notifications"
+                :key="notification.key"
+                class="mx-1"
+                :num.sync="notification.num"
+                :selected.sync="notification.type"
+                @remove="deleteNotification(notification)"
+              />
+              <v-btn icon @click="addNotification">
+                <v-icon>
+                  mdi-plus
+                </v-icon>
+              </v-btn>
+            </v-col>
+            <v-col class="mt-n6" cols="12">
               <v-textarea
                 v-model="description"
                 label="説明"
@@ -188,12 +199,21 @@
 import { Component, Vue, Prop } from 'nuxt-property-decorator'
 import NotificationBtn from '@/components/buttons/NotificationBtn.vue'
 
+interface Notification {
+  key: number
+  num: number
+  type: string
+}
+
 @Component({
   components: { NotificationBtn }
 })
 class New extends Vue {
   @Prop({ type: Boolean, default: false })
   deletable!: boolean
+
+  @Prop({ type: String, default: '新規作成' })
+  cardTitle!: string
 
   title: string = ''
   description: string = ''
@@ -207,9 +227,28 @@ class New extends Vue {
   endTimeMenu: boolean = false
   endTime: string = this.$moment().format('HH:30')
 
+  notifications: Array<Notification> = [
+    { key: 0, num: 1, type: '日前' },
+    { key: 1, num: 1, type: '時間前' }
+  ]
+
+  key = 2
+
   get form () {
     const ref: any = this.$refs.form
     return ref
+  }
+
+  addNotification () {
+    const key = this.key
+    this.key++
+    this.notifications.push({ key, num: key, type: '時間前' })
+  }
+
+  deleteNotification (target: Notification) {
+    this.notifications = this.notifications.filter(
+      notification => notification.key !== target.key
+    )
   }
 
   submit () {}

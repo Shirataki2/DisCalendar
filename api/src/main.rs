@@ -13,11 +13,14 @@ mod schema;
 mod error;
 mod db;
 mod client;
-mod http;
+mod http; 
+
 mod guilds;
+mod events;
 
 use actix_web::{App, HttpServer, get};
 use actix_web::middleware::Logger;
+use actix_session::CookieSession;
 
 use std::env;
 
@@ -39,8 +42,13 @@ async fn main() -> std::io::Result<()> {
     let server = HttpServer::new(|| {
         App::new()
             .service(index)
+            .wrap(Logger::default())
+            .wrap(
+                CookieSession::signed(&[0; 32])
+                              .secure(false)
+            )
             .configure(guilds::router::init_routes)
-            .wrap(Logger::default())  
+            .configure(events::router::init_routes)
     })
     .bind(format!("{}:{}", host, port))?;
     info!("Serving at {}:{}", host, port);
