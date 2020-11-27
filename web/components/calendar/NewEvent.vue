@@ -5,6 +5,15 @@
       <v-form ref="form">
         <v-container>
           <v-row>
+            <v-col v-if="alertText.length" cols="12" class="mt-n5 mb-n10">
+              <v-alert
+                type="error"
+              >
+                <span v-for="text in alertText" :key="text">
+                  ・ {{ text }}<br>
+                </span>
+              </v-alert>
+            </v-col>
             <v-col cols="12">
               <v-text-field
                 v-model="title"
@@ -38,6 +47,7 @@
                   v-model="startDate"
                   no-title
                   scrollable
+                  @change="onStartDateChanged"
                 >
                   <v-spacer />
                   <v-btn text color="primary" @click="startDateMenu = false">
@@ -146,6 +156,18 @@
                 </v-time-picker>
               </v-menu>
             </v-col>
+            <v-col class="mt-n7" cols="12" sm="2">
+              <v-menu :close-on-content-click="false">
+                <template #activator="{ on, attrs }">
+                  <v-chip class="px-8" :color="color" v-bind="attrs" v-on="on" />
+                </template>
+                <v-color-picker
+                  v-model="color"
+                  :swatches="swatches"
+                  show-swatches
+                />
+              </v-menu>
+            </v-col>
             <v-col class="mt-n4" cols="12">
               <v-icon>mdi-bell</v-icon>
               <NotificationBtn
@@ -173,14 +195,29 @@
               />
             </v-col>
           </v-row>
-          <v-btn block outlined color="primary" class="mt-4" @click="submit">
+          <v-btn
+            :disabled="sending"
+            block
+            outlined
+            color="primary"
+            class="mt-4"
+            @click="submit"
+          >
             OK
           </v-btn>
-          <v-btn block outlined color="error" class="mt-4" @click="cancel">
+          <v-btn
+            :disabled="sending"
+            block
+            outlined
+            color="error"
+            class="mt-4"
+            @click="cancel"
+          >
             キャンセル
           </v-btn>
           <v-btn
             v-if="deletable"
+            :disabled="sending"
             block
             outlined
             color="error"
@@ -215,8 +252,20 @@ class New extends Vue {
   @Prop({ type: String, default: '新規作成' })
   cardTitle!: string
 
+  @Prop({ type: String, default: 'POST' })
+  method!: string
+
+  @Prop({ type: String, required: true })
+  endpoint!: string
+
+  @Prop({ type: Object, default: () => ({}) })
+  event!: any
+
+  alertText: Array<String> = []
+
   title: string = ''
   description: string = ''
+  color: string = '#F44336'
   startDateMenu: boolean = false
   startDate: string = this.$moment().format('YYYY-MM-DD')
   startTimeMenu: boolean = false
@@ -232,11 +281,44 @@ class New extends Vue {
     { key: 1, num: 1, type: '時間前' }
   ]
 
+  swatches = [
+    ['#F44336', '#E91E63', '#9C27B0', '#673AB7'],
+    ['#3F51B5', '#2196F3', '#03A9F4', '#00BCD4'],
+    ['#009688', '#4CAF50', '#8BC34A', '#CDDC39'],
+    ['#FFEB3B', '#FFC107', '#FF9800', '#FF5722'],
+    ['#9E9E9E', '#212121', '#FF0000', '#0000FF']
+  ]
+
+  id = -1
   key = 2
+  sending = false
 
   get form () {
     const ref: any = this.$refs.form
     return ref
+  }
+
+  load (event: any) {
+    this.id = event.id
+    this.title = event.name
+    this.description = event.description
+    this.color = event.color
+    this.isAllDay = !event.timed
+    this.startDate = this.$moment(event.start).format('YYYY-MM-DD')
+    this.startTime = this.$moment(event.start).format('HH:mm')
+    this.endDate = this.$moment(event.end).format('YYYY-MM-DD')
+    this.endTime = this.$moment(event.end).format('HH:mm')
+    this.notifications = event.notifications.map(
+      (notification: any) => JSON.parse(notification)
+    )
+  }
+
+  onStartDateChanged (e: string) {
+    const srart = this.$moment(e).toDate().getTime()
+    const end = this.$moment(this.endDate).toDate().getTime()
+    if (end < srart) {
+      this.endDate = e
+    }
   }
 
   addNotification () {
@@ -251,13 +333,78 @@ class New extends Vue {
     )
   }
 
-  submit () {}
+  validateForm () {
+    let valid = true
+    this.alertText = []
+    const formValid: boolean = this.form.validate()
+    valid = valid && formValid
+    if (!formValid) {
+      this.alertText.push('未記入の欄があります')
+    }
+    const invalidNotifications = this.notifications.filter(
+      notification =>
+        notification.num <= 0 || notification.num > 100
+    )
+    valid = valid && invalidNotifications.length === 0
+    if (invalidNotifications.length) {
+      this.alertText.push('通知時間帯の指定が不正です(1以上100以下の値を入力してください)')
+    }
+    const start = this.$moment(`${this.startDate} ${this.startTime}`).toDate().getTime()
+    const end = this.$moment(`${this.endDate} ${this.endTime}`).toDate().getTime()
+    if (start > end) {
+      this.alertText.push('終了時間を開始時間より前に設定することはできません')
+    }
+    valid = valid && start <= end
+    return valid
+  }
+
+  async submit () {
+    if (!this.validateForm()) { return }
+    this.sending = true
+    const notifications = this.notifications.map(notification => JSON.stringify(notification))
+    const fn = this.method === 'POST' ? this.$axios.post : this.$axios.put
+    const additionalElem = this.method === 'PUT' ? { id: this.id } : {}
+    const endpoint = this.method === 'PUT' ? `${this.endpoint}/${this.id}` : this.endpoint
+    await fn(
+      endpoint,
+      {
+        ...additionalElem,
+        guild_id: this.$route.params.id,
+        name: this.title,
+        description: this.description,
+        notifications,
+        color: this.color,
+        is_all_day: this.isAllDay,
+        start_at: this.$moment(`${this.startDate} ${this.startTime}`).format('YYYY-MM-DDTHH:mm:ss'),
+        end_at: this.$moment(`${this.endDate} ${this.endTime}`).format('YYYY-MM-DDTHH:mm:ss'),
+        created_at: this.$moment().format('YYYY-MM-DDTHH:mm:ss')
+      }
+    )
+    this.sending = false
+    this.reset()
+    this.$emit('submitted')
+  }
 
   cancel () {
+    this.reset()
     this.$emit('cancel')
   }
 
-  deleteEvent () {}
+  reset () {
+    this.title = ''
+    this.description = ''
+    this.color = '#F44336'
+    this.startDate = this.$moment().format('YYYY-MM-DD')
+    this.startTime = this.$moment().format('HH:00')
+    this.isAllDay = false
+    this.endDate = this.$moment().format('YYYY-MM-DD')
+    this.endTime = this.$moment().format('HH:30')
+    this.form.resetValidation()
+  }
+
+  deleteEvent () {
+    this.$emit('remove', this.id)
+  }
 }
 export default New
 </script>

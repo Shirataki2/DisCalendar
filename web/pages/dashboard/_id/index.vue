@@ -8,7 +8,12 @@
         新規作成
       </v-btn>
       <v-dialog v-model="eventDialog" min-width="80%" persistent>
-        <NewEvent @cancel="eventDialog = false" />
+        <NewEvent
+          :endpoint="`/local/api/events/${$route.params.id}`"
+          method="POST"
+          @submitted="onSubmitted"
+          @cancel="eventDialog = false"
+        />
       </v-dialog>
     </v-col>
     <v-col v-if="server" class="my-n3 text-right" cols="6">
@@ -20,7 +25,7 @@
     </v-col>
     <v-col v-if="server" class="mt-2 mb-n5 mx-n3" cols="12">
       <div style="width: 100%">
-        <Calendar />
+        <Calendar ref="calendar" @submitted="onSubmitted" />
       </div>
     </v-col>
     <v-col v-else style="text-align: center" cols="12">
@@ -74,6 +79,12 @@ class Index extends Vue {
   get server () {
     const server = this.$store.getters['auth/server']
     return server
+  }
+
+  async onSubmitted () {
+    const cal: any = this.$refs.calendar
+    await cal.updateCalendar()
+    this.eventDialog = false
   }
 }
 export default Index

@@ -6,7 +6,7 @@
     <input
       v-model.number="numVal"
       class="ml-1"
-      style="width: 38px"
+      :style="style"
       type="number"
       min="1"
       max="100"
@@ -53,6 +53,15 @@ class NotificationBtn extends Vue {
     { key: 'hour', title: '時間前' },
     { key: 'minute', title: '分前' }
   ]
+
+  get style () {
+    const base = { width: '38px' }
+    if (this.$vuetify.theme.dark) {
+      return { color: '#ffffff', ...base }
+    } else {
+      return base
+    }
+  }
 
   remove () {
     this.$emit('remove')

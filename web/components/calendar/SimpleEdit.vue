@@ -9,10 +9,30 @@
           <v-icon class="mt-n1 mr-1">
             mdi-alarm
           </v-icon>
-          <span style="word-wrap: break-word" v-text="date" /></span>
+          <span v-text="date" /></span>
+        </v-col>
+        <v-col cols="12">
+          <v-icon class="mt-n1 mr-1">
+            mdi-bell
+          </v-icon>
+          <span v-text="notification" /></span>
+        </v-col>
+        <v-col v-if="event.description" cols="12">
+          <p v-text="event.description" />
         </v-col>
       </v-row>
     </v-container>
+    <v-card-actions class="mt-n4">
+      <v-btn text color="primary" @click="edit">
+        <v-icon>v-pencil</v-icon>
+        編集
+      </v-btn>
+      <v-spacer />
+      <v-btn text color="error" @click="remove">
+        <v-icon>v-erase</v-icon>
+        削除
+      </v-btn>
+    </v-card-actions>
   </v-card>
 </template>
 
@@ -27,7 +47,7 @@ class Edit extends Vue {
   get date () {
     const start = this.$moment(this.event.start)
     const end = this.$moment(this.event.end)
-    if (this.event.is_all_day) {
+    if (!this.event.timed) {
       if (start.format('YYYY-MM-DD') !== end.format('YYYY-MM-DD')) {
         return `${start.format('YYYY/MM/DD')} - ${end.format('YYYY/MM/DD')}`
       } else {
@@ -38,6 +58,27 @@ class Edit extends Vue {
     } else {
       return `${start.format('YYYY/MM/DD HH:mm')} - ${end.format('HH:mm')}`
     }
+  }
+
+  get notification () {
+    const notifications: Array<any> = this.event.notifications
+    if (notifications.length) {
+      return notifications.reduce(
+        (acc, notification) => {
+          const n = JSON.parse(notification)
+          return acc + `${n.num}${n.type}  `
+        }, '')
+    } else {
+      return '-'
+    }
+  }
+
+  edit () {
+    this.$emit('edit', this.event)
+  }
+
+  remove () {
+    this.$emit('remove', this.event.id)
   }
 }
 export default Edit

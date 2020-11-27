@@ -30,7 +30,8 @@
       "cookie-universal-nuxt",
       "@nuxtjs/vuetify",
       "nuxt-i18n",
-      "@nuxtjs/moment"
+      "@nuxtjs/moment",
+      "@types/lodash"
     ]
   },
   "exclude": [

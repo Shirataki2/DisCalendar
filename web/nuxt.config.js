@@ -1,5 +1,5 @@
 import colors from 'vuetify/es5/util/colors'
-
+import config from './siteconfig'
 const ENV = process.env
 
 export default {
@@ -9,12 +9,13 @@ export default {
   },
   // Global page headers (https://go.nuxtjs.dev/config-head)
   head: {
-    titleTemplate: '%s - web',
-    title: 'web',
+    titleTemplate: 'DisCalendar',
+    title: 'DisCalendar',
     meta: [
       { charset: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { hid: 'description', name: 'description', content: '' }
+      { hid: 'description', name: 'description', content: config.description },
+      { hid: 'keywords', name: 'keywords', content: config.kw, 'xml:lang': 'ja', lang: 'ja' }
     ],
     link: [
       { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' }
