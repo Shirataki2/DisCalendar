@@ -1,5 +1,5 @@
 use crate::error::ApiError;
-use crate::events::model::{Events, EventsMessage};
+use crate::events::model::{Events, EventsMessage, EventCreate};
 use crate::http;
 use actix_web::{
     get, post, put, delete,
@@ -61,14 +61,14 @@ async fn get_events(
 ) -> Result<HttpResponse, ApiError> {
     let id = guild_id.into_inner();
     let query = query.into_inner();
-    let start_at = query.start_at + Duration::days(-1);
+    let start_at = query.start_at + Duration::days(-6);
     let date_type = query.date_type;
     let end_at = match date_type.as_str() {
-        "month" => start_at + Duration::days(33),
-        "week"  => start_at + Duration::days(9),
-        "4day"  => start_at + Duration::days(6),
-        "day"   => start_at + Duration::days(3),
-        _       => start_at + Duration::days(33)
+        "month" => start_at + Duration::days(43),
+        "week"  => start_at + Duration::days(19),
+        "4day"  => start_at + Duration::days(16),
+        "day"   => start_at + Duration::days(13),
+        _       => start_at + Duration::days(43)
     };
     check_token(&session, &id, &req).await?;
     Ok(HttpResponse::Ok().json(
@@ -84,11 +84,14 @@ async fn get_events(
 async fn create_event(
     session: Session,
     guild_id: web::Path<String>,
-    event: web::Json<EventsMessage>,
+    event: web::Json<EventCreate>,
     req: HttpRequest
 ) -> Result<HttpResponse, ApiError> {
     let id = guild_id.into_inner();
     let event = event.into_inner();
+    if id != event.guild_id {
+        return Err(ApiError::new(401, "Unauthorized".to_string()))
+    }
     check_token(&session, &id, &req).await?;
     Ok(HttpResponse::Ok().json(
         Events::create(event)?
@@ -112,7 +115,7 @@ async fn update_event(
     ))
 }
 
-#[delete("/events/{guild_id}")]
+#[delete("/events/{guild_id}/{event_id}")]
 async fn delete_event(
     session: Session,
     path: web::Path<EventPath>,

@@ -31,13 +31,13 @@
           class="v-event-draggable"
         >
           <div v-if="type === 'month'">
-            <strong v-text="eventDate(eventParsed)" />
+            <strong v-if="!eventParsed.allDay" v-text="eventDate(eventParsed)" />
             <span v-text="eventName(eventParsed)" />
           </div>
           <div v-else class="mx-1">
             <span v-text="eventName(eventParsed)" />
             <br>
-            <strong v-text="eventDate(eventParsed)" />
+            <strong v-if="!eventParsed.allDay" v-text="eventDate(eventParsed)" />
           </div>
         </div>
         <div
@@ -53,8 +53,20 @@
       :activator="selectedElement"
       offset-x
     >
-      <Edit :event="event" />
+      <Edit :event="event" @edit="edit" @remove="remove" />
     </v-menu>
+    <v-dialog v-model="eventDialog" min-width="80%" persistent>
+      <NewEvent
+        ref="edit"
+        card-title="編集"
+        deletable
+        :endpoint="`/local/api/events/${$route.params.id}`"
+        method="PUT"
+        @submitted="onSubmitted"
+        @cancel="eventDialog = false"
+        @remove="remove"
+      />
+    </v-dialog>
   </v-sheet>
 </template>
 
@@ -85,7 +97,7 @@ interface Event {
   description?: string
   notifications: Array<string>
   color: string
-  is_all_day: boolean
+  timed: boolean
   start: Date
   end: Date
   created_at: Date
@@ -108,6 +120,7 @@ class Calendar extends Vue {
   editDialog = false
   event = null
   selectedElement: any = null
+  eventDialog = false
 
   calcOffset () {
     if (this.ref) {
@@ -151,6 +164,30 @@ class Calendar extends Vue {
     this.scrollToNow()
   }
 
+  async edit (e: Event) {
+    this.eventDialog = true
+    await this.$nextTick()
+    const component: any = this.$refs.edit
+    component.load(e)
+    this.editDialog = false
+    await this.updateCalendar()
+  }
+
+  async remove (id: number) {
+    if (!confirm('削除してもよろしいですか？')) { return }
+    await this.$axios.delete(
+      `/local/api/events/${this.$route.params.id}/${id}`
+    )
+    this.eventDialog = false
+    this.editDialog = false
+    await this.updateCalendar()
+  }
+
+  onSubmitted () {
+    this.eventDialog = false
+    this.$emit('submitted')
+  }
+
   scrollToNow () {
     const now = this.$moment().hour() * 60 + this.$moment().minute()
     this.ref.scrollToTime(Math.max(0, now - (now % 30) - 30))
@@ -180,7 +217,7 @@ class Calendar extends Vue {
 
   setHeight () {
     const c = document.getElementById('calendar')
-    const y = 1.5 * (c?.getBoundingClientRect().y || 0)
+    const y = 1.32 * (c?.getBoundingClientRect().y || 0)
     this.height = `${window.innerHeight - ~~y}px`
   }
 
@@ -280,7 +317,7 @@ class Calendar extends Vue {
           description: event.description,
           notifications: event.notifications,
           color: event.color,
-          is_all_day: event.is_all_day,
+          is_all_day: !event.timed,
           start_at: this.$moment(event.start).format('YYYY-MM-DDTHH:mm:ss'),
           end_at: this.$moment(event.end).format('YYYY-MM-DDTHH:mm:ss'),
           created_at: event.created_at
@@ -335,7 +372,14 @@ class Calendar extends Vue {
     return event.color
   }
 
-  async getEvents ({ start }: any) {
+  async updateCalendar () {
+    const start = {
+      date: this.$moment(this.date).format('YYYY-MM-01')
+    }
+    await this.getEvents({ start }, true)
+  }
+
+  async getEvents ({ start }: any, month: boolean = false) {
     const start_at = this
       .$moment(`${start.date}T00:00:00`)
       .format('YYYY-MM-DDTHH:mm:ss')
@@ -345,7 +389,7 @@ class Calendar extends Vue {
       {
         params: {
           start_at,
-          date_type: type
+          date_type: month ? 'month' : type
         }
       }
     )
@@ -355,10 +399,10 @@ class Calendar extends Vue {
       notifications: event.notifications,
       description: event.description,
       color: event.color,
-      start: event.start_at,
-      end: event.end_at,
+      start: this.$moment(event.start_at).toDate(),
+      end: this.$moment(event.end_at).toDate(),
       created_at: event.created_at,
-      is_all_day: event.is_all_day
+      timed: !event.is_all_day
     }))
     this.initialEvents = cloneDeep(this.events)
   }

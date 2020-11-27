@@ -32,6 +32,20 @@ pub struct EventsMessage {
     pub created_at: NaiveDateTime,
 }
 
+#[derive(Debug, Serialize, Deserialize, AsChangeset, Insertable)]
+#[table_name = "events"]
+pub struct EventCreate {
+    pub guild_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub notifications: Vec<String>,
+    pub color: String,
+    pub is_all_day: bool,
+    pub start_at: NaiveDateTime,
+    pub end_at: NaiveDateTime,
+    pub created_at: NaiveDateTime,
+}
+
 #[derive(Debug, Serialize, Queryable, Deserialize, Insertable)]
 #[table_name = "event_settings"]
 pub struct EventSettings {
@@ -63,7 +77,7 @@ impl Events {
         Ok(events)
     }
 
-    pub fn create(event: EventsMessage) -> Result<Self, ApiError> {
+    pub fn create(event: EventCreate) -> Result<Self, ApiError> {
         let conn = db::connection()?;
         let event = diesel::insert_into(events::table)
                             .values(event)
