@@ -55,7 +55,7 @@
     >
       <Edit :event="event" @edit="edit" @remove="remove" />
     </v-menu>
-    <v-dialog v-model="eventDialog" min-width="80%" persistent>
+    <v-dialog v-model="eventDialog" max-width="1000" min-width="80%" persistent>
       <NewEvent
         ref="edit"
         card-title="編集"

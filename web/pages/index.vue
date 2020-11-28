@@ -10,20 +10,18 @@
       >
         DisCalendar(仮)
       </h1>
-    </v-col>
-    <v-col cols="12" md="10" lg="8" offset-md="1" offset-lg="2">
       <p
         class="
           text-subtitle-1 font-weight-medium
           my-3 my-sm-12 my-md-14 my-lg-16
           py-3 py-sm-6 py-md-8 py-lg-12
+          mx-sm-12 mx-md-14 mx-lg-16
+          px-sm-6 px-md-8 px-lg-12
         "
       >
         DisCalendarはDiscord用のカレンダーアプリです。予定の作成から投稿まで面倒なコマンド操作はほとんど必要ありません。
         使い慣れたブラウザから、どこでも予定の追加や編集することができます。
       </p>
-    </v-col>
-    <v-col cols="12">
       <v-btn rounded x-large color="info" @click="invite">
         BOTを導入する
       </v-btn>

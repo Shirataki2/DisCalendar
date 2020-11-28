@@ -7,7 +7,7 @@
         </v-icon>
         新規作成
       </v-btn>
-      <v-dialog v-model="eventDialog" min-width="80%" persistent>
+      <v-dialog v-model="eventDialog" max-width="1000" min-width="80%" persistent>
         <NewEvent
           :endpoint="`/local/api/events/${$route.params.id}`"
           method="POST"
