@@ -39,7 +39,7 @@ class AccountMenu extends Vue {
     },
     {
       key: 'logout',
-      name: () => 'Logout',
+      name: () => 'ログアウト',
       callback: this.logout
     }
   ]

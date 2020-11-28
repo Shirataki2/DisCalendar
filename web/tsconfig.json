@@ -31,7 +31,8 @@
       "@nuxtjs/vuetify",
       "nuxt-i18n",
       "@nuxtjs/moment",
-      "@types/lodash"
+      "@types/lodash",
+      "@nuxt/content"
     ]
   },
   "exclude": [

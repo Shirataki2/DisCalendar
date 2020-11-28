@@ -1,6 +1,6 @@
 <template>
   <v-row justify="center" align="center">
-    <v-col v-if="server" class="my-n3" cols="6">
+    <v-col v-if="server" class="my-n3" cols="12">
       <v-btn large color="secondary" rounded @click.stop="eventDialog = true">
         <v-icon>
           mdi-plus
@@ -16,7 +16,7 @@
         />
       </v-dialog>
     </v-col>
-    <v-col v-if="server" class="my-n3 text-right" cols="6">
+    <v-col v-if="!server" class="my-n3 text-right" cols="6">
       <v-btn large icon>
         <v-icon>
           mdi-cog

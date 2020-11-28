@@ -18,7 +18,11 @@ export default {
       { hid: 'keywords', name: 'keywords', content: config.kw, 'xml:lang': 'ja', lang: 'ja' }
     ],
     link: [
-      { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' }
+      { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
+      {
+        rel: 'stylesheet',
+        href: 'https://fonts.googleapis.com/css?family=Courier+Prime:wght@700&display=swap'
+      }
     ]
   },
 
@@ -48,7 +52,8 @@ export default {
     // https://go.nuxtjs.dev/axios
     '@nuxtjs/proxy',
     '@nuxtjs/axios',
-    'cookie-universal-nuxt'
+    'cookie-universal-nuxt',
+    '@nuxt/content'
   ],
 
   moment: {
