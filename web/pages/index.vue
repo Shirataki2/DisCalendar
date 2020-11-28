@@ -48,6 +48,7 @@
       </v-btn>
       <v-btn
         rounded
+        dark
         x-large
         class="ma-2"
         color="green"
@@ -93,7 +94,6 @@ class Index extends Vue {
       const timer = setInterval(() => {
         if (win.closed) {
           clearInterval(timer)
-          this.$router.push('/dashboard')
         }
       }, 100)
     } else {
