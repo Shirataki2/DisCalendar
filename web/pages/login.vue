@@ -1,15 +1,19 @@
 <template>
-  <v-row justify="center" align="center">
-    <v-col cols="12" sm="8" md="6">
-      <p>Redirecting...</p>
-    </v-col>
-  </v-row>
+  <div style="text-align: center">
+    <Loading />
+    <p class="mt-5">
+      リダイレクト中...
+    </p>
+  </div>
 </template>
 
 <script lang="ts">
 import { Component, Vue } from 'nuxt-property-decorator'
+import Loading from '@/components/Loading.vue'
 
-@Component
+@Component({
+  components: { Loading }
+})
 class Index extends Vue {
   mounted () {
     location.href = process.env.OAUTH2_URL!

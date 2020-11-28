@@ -10,20 +10,39 @@
       nav
     >
       <div v-for="item in items" :key="item.title">
-        <v-list-item
-          v-if="isShow(item.needLogin, item.needLogout, isLogin)"
-          link
-          nuxt
-          color="blue"
-          :to="item.to"
-        >
-          <v-list-item-icon>
-            <v-icon v-text="item.icon" />
-          </v-list-item-icon>
-          <v-list-item-content>
-            <v-list-item-title v-text="item.title" />
-          </v-list-item-content>
-        </v-list-item>
+        <div v-if="!item.external">
+          <v-list-item
+            v-if="isShow(item.needLogin, item.needLogout, isLogin)"
+            link
+            nuxt
+            color="blue"
+            :to="item.to"
+          >
+            <v-list-item-icon>
+              <v-icon v-text="item.icon" />
+            </v-list-item-icon>
+            <v-list-item-content>
+              <v-list-item-title v-text="item.title" />
+            </v-list-item-content>
+          </v-list-item>
+        </div>
+        <div v-else>
+          <v-list-item
+            v-if="isShow(item.needLogin, item.needLogout, isLogin)"
+            link
+            nuxt
+            color="blue"
+            target="_blank"
+            :href="item.to"
+          >
+            <v-list-item-icon>
+              <v-icon v-text="item.icon" />
+            </v-list-item-icon>
+            <v-list-item-content>
+              <v-list-item-title v-text="item.title" />
+            </v-list-item-content>
+          </v-list-item>
+        </div>
       </div>
     </v-list>
     <template #append>
@@ -62,6 +81,7 @@ class NavigationDrawer extends Vue {
       title: 'ホーム',
       icon: 'mdi-home',
       to: '/',
+      external: false,
       needLogin: false,
       needLogout: false
     },
@@ -69,13 +89,23 @@ class NavigationDrawer extends Vue {
       title: 'ダッシュボード',
       icon: 'mdi-console',
       to: '/dashboard',
+      external: false,
       needLogin: true,
+      needLogout: false
+    },
+    {
+      title: 'サポートサーバー',
+      icon: 'mdi-discord',
+      to: 'https://discord.gg/YF4E8mDr9Z',
+      external: true,
+      needLogin: false,
       needLogout: false
     },
     {
       title: '使い方',
       icon: 'mdi-help-circle-outline',
       to: '/docs/gettingstarted',
+      external: false,
       needLogin: false,
       needLogout: false
     },
@@ -83,6 +113,7 @@ class NavigationDrawer extends Vue {
       title: '利用規約',
       icon: 'mdi-book-open-page-variant',
       to: '/support/tos',
+      external: false,
       needLogin: false,
       needLogout: false
     },
@@ -90,6 +121,7 @@ class NavigationDrawer extends Vue {
       title: 'プライバシーポリシー',
       icon: 'mdi-account-supervisor',
       to: '/support/privacy',
+      external: false,
       needLogin: false,
       needLogout: false
     },
@@ -97,6 +129,7 @@ class NavigationDrawer extends Vue {
       title: 'ログアウト',
       icon: 'mdi-logout',
       to: '/logout',
+      external: false,
       needLogin: true,
       needLogout: false
     },
@@ -104,6 +137,7 @@ class NavigationDrawer extends Vue {
       title: 'ログイン',
       icon: 'mdi-login',
       to: '/login',
+      external: false,
       needLogin: false,
       needLogout: true
     }

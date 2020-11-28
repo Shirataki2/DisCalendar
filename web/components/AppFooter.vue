@@ -1,6 +1,6 @@
 <template>
   <v-footer app>
-    <span>v 0.9.0</span>
+    <span>v 0.9.1</span>
     <v-spacer />
     <span>&copy; 2020</span>
   </v-footer>

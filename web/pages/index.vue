@@ -39,12 +39,24 @@
       <v-btn
         v-else
         rounded
+        class="ma-2"
         x-large
         color="primary"
         to="/dashboard"
         nuxt
       >
-        サーバー一覧へ
+        サーバー一覧
+      </v-btn>
+      <v-btn
+        rounded
+        dark
+        x-large
+        class="ma-2"
+        color="secondary"
+        href="https://discord.gg/YF4E8mDr9Z"
+        target="_blank"
+      >
+        サポートサーバーへ参加
       </v-btn>
       <v-btn
         rounded

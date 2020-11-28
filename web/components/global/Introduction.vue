@@ -14,7 +14,7 @@
         <v-card-title class="title" v-text="item.title" />
         <v-card-text
           class="pt-5 text--primary"
-          style="background-color: #333; text-align: left"
+          :style="style"
         >
           <p v-for="description in item.descriptions" :key="description" v-text="description" />
           <v-btn
@@ -38,11 +38,12 @@ import { Component, Vue } from 'nuxt-property-decorator'
 class Introduction extends Vue {
   items = [
     {
-      title: 'Botをサーバーに導入します',
+      title: 'ログインし Botをサーバーに導入',
       icon: 'mdi-numeric-1',
       color: 'primary',
       descriptions: [
-        'Discordに通知を届けるためにBotをサーバーに導入します．',
+        'まずはこのサイトにDiscordのアカウントを使用してログインします．',
+        '次に，Discordに通知を届けるためにBotをサーバーに導入します．',
         '以下のボタンからBotを招待してください'
       ],
       button: {
@@ -65,7 +66,7 @@ class Introduction extends Vue {
       }
     },
     {
-      title: '初期化のためのコマンドを入力します',
+      title: '初期化のためのコマンドを入力',
       icon: 'mdi-numeric-2',
       color: 'red',
       descriptions: [
@@ -81,7 +82,7 @@ class Introduction extends Vue {
       }
     },
     {
-      title: 'ブラウザで予定を入力します',
+      title: 'ブラウザで予定を入力',
       icon: 'mdi-numeric-3',
       color: 'amber darken-3',
       descriptions: [
@@ -100,6 +101,15 @@ class Introduction extends Vue {
       }
     }
   ]
+
+  get style () {
+    const base = { 'text-align': 'left' }
+    if (this.$vuetify.theme.dark) {
+      return { 'background-color': '#333', color: '#fff', ...base }
+    } else {
+      return { 'background-color': '#f3f3f3', color: '#222', ...base }
+    }
+  }
 }
 export default Introduction
 </script>

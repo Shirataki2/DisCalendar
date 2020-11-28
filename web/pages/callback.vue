@@ -1,12 +1,19 @@
 <template>
-  <p>callback</p>
+  <div style="text-align: center">
+    <Loading />
+    <p class="mt-5">
+      確認中...
+    </p>
+  </div>
 </template>
 
 <script lang="ts">
 import queryString from 'querystring'
 import { Component, Vue } from 'nuxt-property-decorator'
+import Loading from '@/components/Loading.vue'
 
 @Component({
+  components: { Loading },
   asyncData: async ({ store, query, $axios, app }) => {
     const code = query.code
     if (typeof code !== 'string') { return }
