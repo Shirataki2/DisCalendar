@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-app-bar elevate-on-scroll app>
+    <v-app-bar elevate-on-scroll app clipped-left>
       <v-app-bar-nav-icon @click.stop="drawer = !drawer" />
       <v-toolbar-title :style="visible" @click="$router.push('/')">
         <span id="logo">DisCalendar</span>

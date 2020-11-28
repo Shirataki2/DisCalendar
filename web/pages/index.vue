@@ -1,12 +1,60 @@
 <template>
   <v-row justify="center" align="center">
-    <v-col cols="12" sm="8" md="6">
-      <h1>Home Page</h1>
-      <v-btn color="info" to="/login">
-        LOGIN
+    <v-col cols="12" style="text-align: center">
+      <h1
+        class="
+          text-h4 text-sm-h2 text-lg-h2 font-weight-bold
+          my-3 my-sm-12 my-md-14 my-lg-16
+          py-3 py-sm-12 py-md-14 py-lg-16
+        "
+      >
+        DisCalendar(仮)
+      </h1>
+      <p
+        class="
+          text-subtitle-1 font-weight-medium
+          my-3 my-sm-12 my-md-14 my-lg-16
+          py-3 py-sm-6 py-md-8 py-lg-12
+        "
+      >
+        DisCalendarはDiscord用のカレンダーアプリです。予定の作成から投稿まで面倒なコマンド操作はほとんど必要ありません。
+        使い慣れたブラウザから、どこでも予定の追加や編集することができます。
+      </p>
+      <v-btn rounded x-large color="info" @click="invite">
+        BOTを導入する
       </v-btn>
-      <v-btn color="success" to="/authorized">
-        AUTHORIZED
+      <p class="lr-border text-overline my-4">
+        OR 既に導入済みの方は
+      </p>
+      <v-btn
+        v-if="!isLogin"
+        rounded
+        x-large
+        color="primary"
+        to="/login"
+        nuxt
+      >
+        ログイン
+      </v-btn>
+      <v-btn
+        v-else
+        rounded
+        x-large
+        color="primary"
+        to="/dashboard"
+        nuxt
+      >
+        サーバー一覧へ
+      </v-btn>
+      <v-btn
+        rounded
+        x-large
+        class="ma-2"
+        color="green"
+        to="/docs/gettingstarted"
+        nuxt
+      >
+        使い方を見る
       </v-btn>
     </v-col>
   </v-row>
@@ -34,6 +82,47 @@ import { Component, Vue } from 'nuxt-property-decorator'
   }
 })
 class Index extends Vue {
+  get isLogin () {
+    return this.$store.getters['auth/user']
+  }
+
+  invite () {
+    const url = process.env.INVITATION_URL!
+    const win = window.open(url, 'Discord', 'menubar')
+    if (win) {
+      const timer = setInterval(() => {
+        if (win.closed) {
+          clearInterval(timer)
+          this.$router.push('/dashboard')
+        }
+      }, 100)
+    } else {
+      location.href = url
+    }
+  }
 }
 export default Index
 </script>
+
+<style lang="scss">
+.lr-border {
+  display: flex;
+  align-items: center;
+
+  &:before,
+  &:after {
+      content: "";
+      height: 1px;
+      flex-grow: 1;
+      background-color: #666;
+  }
+
+  &:before {
+      margin-right: 1rem;
+  }
+
+  &:after {
+      margin-left: 1rem;
+  }
+}
+</style>

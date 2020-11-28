@@ -19,11 +19,16 @@ ENABLED_COGS = (
 
 class Bot(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
-        super(Bot, self).__init__(*args, **kwargs)
+        super(Bot, self).__init__(
+            help_command=None,
+            *args, **kwargs
+        )
         self.pool = self.loop.run_until_complete(self.initialize_db())
         self.load_cogs()
 
     def load_cogs(self, reload=False):
+        if not reload:
+            self.load_extension('jishaku')
         logger.info(f"{'Rel' if reload else 'L'}oading Cogs...")
         for cog in ENABLED_COGS:
             try:

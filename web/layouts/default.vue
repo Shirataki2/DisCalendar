@@ -1,12 +1,12 @@
 <template>
   <v-app dark>
-    <AppHeader />
     <v-main>
+      <AppHeader />
       <v-container>
         <nuxt />
       </v-container>
+      <AppFooter />
     </v-main>
-    <AppFooter />
   </v-app>
 </template>
 

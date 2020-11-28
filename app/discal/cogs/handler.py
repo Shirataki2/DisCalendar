@@ -26,14 +26,10 @@ class Handler(commands.Cog):
             ),
             record['guild_id']
         )
-        logger.info(str(setting))
-        logger.info(str(self.bot.guilds))
         if setting is None:
             return
         guild = self.bot.get_guild(int(setting['guild_id']))
         channel = guild.get_channel(int(setting['channel_id']))
-        logger.info(setting['channel_id'])
-        logger.info(str(channel))
         notifications = [
             json.loads(notification)
             for notification in record['notifications']
@@ -82,6 +78,7 @@ class Handler(commands.Cog):
                     else:
                         v = f'{start.strftime("%Y/%m/%d %H:%M")} - {end.strftime("%Y/%m/%d %H:%M")}'
                 embed.add_field(name='日時', value=v, inline=False)
+                logger.info(f'Send Notification: {record}')
                 await channel.send(embed=embed)
                 
     @tasks.loop(minutes=1)
@@ -98,8 +95,6 @@ class Handler(commands.Cog):
             self.post_subtask(record)
             for record in records
         ], loop=self.bot.loop)
-        logger.info(str(records))
-        logger.info(str(records[0]['id']))
 
     @postloop.before_loop
     async def wait_ready(self):

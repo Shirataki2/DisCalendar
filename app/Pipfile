@@ -9,6 +9,7 @@ verify_ssl = true
 discord-py = "~=1.5"
 colorama = "*"
 asyncpg = "*"
+jishaku = "*"
 
 [requires]
 python_version = "3.8"

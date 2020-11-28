@@ -1,7 +1,7 @@
 <template>
   <v-app dark>
-    <AppHeader />
     <v-main>
+      <AppHeader />
       <v-container>
         <div v-if="$fetchState.pending">
           <div style="text-align: center">
@@ -18,8 +18,8 @@
           <nuxt />
         </div>
       </v-container>
+      <AppFooter />
     </v-main>
-    <AppFooter />
   </v-app>
 </template>
 
