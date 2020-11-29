@@ -19,10 +19,9 @@ mod http;
 mod guilds;
 mod events;
 
-use actix_web::{App, HttpServer, get};
+use actix_web::{App, HttpServer, get, cookie::SameSite};
 use actix_web::middleware::Logger;
 use actix_session::CookieSession;
-use hex::FromHex;
 
 use std::env;
 
@@ -42,14 +41,12 @@ async fn main() -> std::io::Result<()> {
     let host = env::var("APP_HOST").unwrap_or("0.0.0.0".to_string());
     let port = env::var("APP_PORT").unwrap_or("5000".to_string());
     let server = HttpServer::new(|| {
-        let token = env::var("SESSION_TOKEN").expect("TOKEN must be set");
-        let token = <[u8; 32]>::from_hex(&token).expect("Invalid TOKEN");
         App::new()
             .service(index)
             .wrap(Logger::default())
             .wrap(
-                CookieSession::signed(&token)
-                              .secure(false)
+                CookieSession::signed(&[0; 32])
+                              .same_site(SameSite::Lax)
             )
             .configure(guilds::router::init_routes)
             .configure(events::router::init_routes)

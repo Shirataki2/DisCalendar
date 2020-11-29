@@ -32,8 +32,8 @@ import Loading from '@/components/Loading.vue'
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       }
     )
-    app.$cookies.set('access_token', data.access_token)
-    app.$cookies.set('refresh_token', data.refresh_token)
+    app.$cookies.set('access_token', data.access_token, { sameSite: 'lax', secure: true })
+    app.$cookies.set('refresh_token', data.refresh_token, { sameSite: 'lax', secure: true })
     await store.dispatch('auth/setAccessToken', app.$cookies.get('access_token'))
     await store.dispatch('auth/setRefreshToken', app.$cookies.get('refresh_token'))
     const user = await $axios.get(

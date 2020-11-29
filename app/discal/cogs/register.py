@@ -12,6 +12,12 @@ class Register(commands.Cog):
         self.bot: Bot = bot
 
     @commands.command()
+    @commands.check_any(
+        commands.has_permissions(manage_messages=True),
+        commands.has_permissions(manage_roles=True),
+        commands.has_permissions(manage_guild=True),
+        commands.has_permissions(administrator=True)
+    )
     async def init(self, ctx: commands.Context):
         setting = await self.bot.pool.fetchrow(
             'SELECT * FROM event_settings ' +
