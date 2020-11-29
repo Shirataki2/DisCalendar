@@ -10,6 +10,7 @@ discord-py = "~=1.5"
 colorama = "*"
 asyncpg = "*"
 jishaku = "*"
+jpholiday = "*"
 
 [requires]
 python_version = "3.8"

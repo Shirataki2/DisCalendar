@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "701ea5c370985cb4c48b98b9e30a5d0ce53383eabc1d060c335589c0183a1e1b"
+            "sha256": "0883e715610280cbab1de2f19f8f206471e189594e0dab322ea905a6dd0c4f29"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -150,6 +150,14 @@
             ],
             "index": "pypi",
             "version": "==1.20.0.220"
+        },
+        "jpholiday": {
+            "hashes": [
+                "sha256:34fe7bc16b1c84aa4368157a2d4b9fbf859c238f18365c122303622bcf100d7b",
+                "sha256:59704b8a556715e10631f07da245f9badf686843309dd6cc614ab5bf565437ad"
+            ],
+            "index": "pypi",
+            "version": "==0.1.5"
         },
         "multidict": {
             "hashes": [

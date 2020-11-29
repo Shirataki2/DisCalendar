@@ -14,6 +14,7 @@ ENABLED_COGS = (
     "discal.cogs.miscs",
     "discal.cogs.register",
     "discal.cogs.handler",
+    "discal.cogs.icon_updater",
 )
 
 
