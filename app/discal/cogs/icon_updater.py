@@ -29,13 +29,16 @@ class Updater(commands.Cog):
     @tasks.loop(minutes=1)
     async def postloop(self):
         now = datetime.now() + timedelta(hours=9)
-        if now.hour == 0 and now.minute == 0: 
+        if now.hour == 0 and now.minute == 0:
+            guild = self.bot.get_guild(782168943967469569)
             logger.info('Change Logo')
             suffix = get_datetype(now)
             day = now.day
             fn = f"dates/{day}{suffix}.png"
             with open(fn, 'rb') as fp:
-                await self.bot.user.edit(avatar=fp.read())
+                b = fp.read()
+                await self.bot.user.edit(avatar=b)
+                await guild.edit(icon=b)
 
     @postloop.before_loop
     async def wait_ready(self):
