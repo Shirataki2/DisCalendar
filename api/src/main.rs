@@ -49,8 +49,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .wrap(
                 CookieSession::signed(&token)
-                              .secure(true)
-                              .same_site(SameSite::Lax)
+                              .secure(false)
             )
             .configure(guilds::router::init_routes)
             .configure(events::router::init_routes)

@@ -55,13 +55,13 @@ export default class AuthModule extends VuexModule {
   @Action
   public setAccessToken (token: string) {
     this.SET_ACCESS_TOKEN(token)
-    Cookies.set('access_token', token, { sameSite: 'Lax', secure: true })
+    Cookies.set('access_token', token)
   }
 
   @Action
   public setRefreshToken (token: string) {
     this.SET_REFRESH_TOKEN(token)
-    Cookies.set('refresh_token', token, { sameSite: 'Lax', secure: true })
+    Cookies.set('refresh_token', token)
   }
 
   @Action
