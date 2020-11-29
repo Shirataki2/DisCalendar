@@ -34,8 +34,8 @@ export default ({ $axios, req }: any): void => {
     // CSR のときだけトークンをセットする、 SSR のときは nuxtClientInit でセットしている
     if (!process.client) { return }
     if (token) {
-      if (token.access_token) { Cookies.set('access_token', token.access_token) }
-      if (token.refresh_token) { Cookies.set('refresh_token', token.refresh_token) }
+      if (token.access_token) { Cookies.set('access_token', token.access_token, { sameSite: 'Lax', secure: true }) }
+      if (token.refresh_token) { Cookies.set('refresh_token', token.refresh_token, { sameSite: 'Lax', secure: true }) }
     }
   })
 }

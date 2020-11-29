@@ -7,6 +7,14 @@ description: ''
 
 DisCalendar(以下「本サービス」)は，サービスの利用時にDiscordのユーザID，ユーザネームおよび所属しているDiscordのサーバーのID及び名前を取得及び保存しています．
 
+また，当サイトではホームページの利用状況を把握するためにGoogle Analytics を利用しています．Google Analytics から提供されるCookie を使用していますが，Google Analytics によって個人を特定する情報は取得していません．Google Analytics の利用により収集されたデータは、Google社のプライバシーポリシーに基づいて管理されています。Google Analyticsの利用規約・プライバシーポリシーについてはGoogle Analytics のホームページでご確認ください。
+
+[Google アナリティクス サービス利用規約](https://www.google.co.jp/analytics/terms/jp.html)
+
+[Googleポリシーと規約](https://policies.google.com/)
+
+なお，Google Analyticsのサービス利用による損害については、本運営は責任を負わないものとします．
+
 ## 個人情報の利用目的
 
 本サービスは，収集した個人情報を以下の目的で利用します．
