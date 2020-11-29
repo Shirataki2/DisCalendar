@@ -19,7 +19,7 @@ mod http;
 mod guilds;
 mod events;
 
-use actix_web::{App, HttpServer, get, cookie::SameSite};
+use actix_web::{App, HttpServer, get};
 use actix_web::middleware::Logger;
 use actix_session::CookieSession;
 use hex::FromHex;
