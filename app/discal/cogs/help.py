@@ -16,8 +16,7 @@ class HelpCommand(commands.Cog):
     def __init__(self, bot):
         self.bot: Bot = bot
 
-    @commands.command()
-    async def help(self, ctx: commands.Context):
+    def _create_help(self):
         embed = discord.Embed(color=0x0000ff)
         embed.title = 'DisCalendar - Help'
         embed.description = (
@@ -43,7 +42,19 @@ class HelpCommand(commands.Cog):
         embed.set_footer(text=f'v{discal.__version__}')
         embed.timestamp = datetime.utcnow()
         embed.set_thumbnail(url=self.bot.user.avatar_url)
-        await ctx.send(embed=embed)
+        return embed
+
+    @commands.command()
+    async def help(self, ctx: commands.Context):
+        await ctx.send(embed=self._create_help())
+    
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot:
+            return
+        if self.bot.user in message.mentions:
+            await message.channel.send(embed=self._create_help())
+
 
 def setup(bot):
     bot.add_cog(HelpCommand(bot))
