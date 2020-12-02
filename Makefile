@@ -55,6 +55,16 @@ force-api:
 	$(cmd) up -d --force-recreate api
 
 
+reload-db:
+	$(prod) up -d --force-recreate db
+reload-web:
+	$(prod) up -d --force-recreate web
+reload-app:
+	$(prod) up -d --force-recreate app
+reload-api:
+	$(prod) up -d --force-recreate api
+
+
 renew-db:
 	@make build-db
 	@make force-db

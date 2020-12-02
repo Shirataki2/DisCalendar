@@ -11,7 +11,7 @@ from discal.logger import get_module_logger
 logger = get_module_logger(__name__)
 
 def get_datetype(date):
-    if date.weekday() == 6 or jpholiday.is_holiday(Date):
+    if date.weekday() == 6 or jpholiday.is_holiday(date):
         return "_r"
     elif date.weekday() == 5:
         return "_b"
