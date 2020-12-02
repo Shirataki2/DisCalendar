@@ -13,6 +13,7 @@ logger = get_module_logger(__name__)
 ENABLED_COGS = (
     "discal.cogs.help",
     "discal.cogs.miscs",
+    "discal.cogs.report",
     "discal.cogs.register",
     "discal.cogs.handler",
     "discal.cogs.icon_updater",
