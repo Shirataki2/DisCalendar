@@ -22,7 +22,7 @@
         DisCalendarはDiscord用のカレンダーアプリです。予定の作成から投稿まで面倒なコマンド操作はほとんど必要ありません。
         使い慣れたブラウザから、どこでも予定の追加や編集することができます。
       </p>
-      <v-btn rounded x-large color="info" @click="invite">
+      <v-btn rounded :block="isXS" x-large color="info" @click="invite">
         BOTを導入する
       </v-btn>
       <p class="lr-border text-overline my-4">
@@ -30,6 +30,7 @@
       </p>
       <v-btn
         v-if="!isLogin"
+        :block="isXS"
         rounded
         x-large
         color="primary"
@@ -40,6 +41,7 @@
       </v-btn>
       <v-btn
         v-else
+        :block="isXS"
         rounded
         class="ma-2"
         x-large
@@ -50,7 +52,9 @@
         サーバー一覧
       </v-btn>
       <v-btn
+        ref="noreferrer"
         rounded
+        :block="isXS"
         dark
         x-large
         class="ma-2"
@@ -62,6 +66,7 @@
       </v-btn>
       <v-btn
         rounded
+        :block="isXS"
         dark
         x-large
         class="ma-2"
@@ -99,6 +104,10 @@ import { Component, Vue } from 'nuxt-property-decorator'
 class Index extends Vue {
   get isLogin () {
     return this.$store.getters['auth/user']
+  }
+
+  get isXS () {
+    return this.$vuetify.breakpoint.xs
   }
 
   invite () {

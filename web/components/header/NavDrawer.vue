@@ -33,6 +33,7 @@
             nuxt
             color="blue"
             target="_blank"
+            rel="noreferrer"
             :href="item.to"
           >
             <v-list-item-icon>

@@ -11,6 +11,9 @@ export default {
   head: {
     titleTemplate: 'DisCalendar',
     title: 'DisCalendar',
+    htmlAttrs: {
+      lang: 'ja'
+    },
     meta: [
       { charset: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
@@ -45,8 +48,45 @@ export default {
     // https://go.nuxtjs.dev/vuetify
     '@nuxtjs/vuetify',
     '@nuxtjs/moment',
-    '@nuxtjs/google-analytics'
+    '@nuxtjs/google-analytics',
+    '@nuxtjs/pwa'
   ],
+
+  pwa: {
+    meta: {
+      name: config.sitename,
+      author: config.author,
+      description: config.description,
+      theme_color: config.themeColor,
+      language: config.lang,
+      ogType: config.ogType,
+      ogHost: config.ogHost,
+      ogImage: config.ogImage
+    },
+    manifest: {
+      name: config.sitename,
+      lang: config.lang,
+      short_name: config.sitename,
+      description: config.description,
+      theme_color: config.themeColor
+    },
+    workbox: {
+      offlineAnalytics: true,
+      runtimeCaching: [
+        {
+          urlPattern: '^https://fonts.(?:googleapis|gstatic).com/(.*)',
+          handler: 'cacheFirst',
+          strategyOptions: {
+            cacheName: 'image-cache',
+            cacheExpiration: {
+              maxEntries: 100,
+              maxAgeSeconds: 24 * 60 * 60 * 180 // 0.5 year
+            }
+          }
+        }
+      ]
+    }
+  },
 
   googleAnalytics: {
     id: process.env.GA_ID

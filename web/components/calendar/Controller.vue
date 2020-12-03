@@ -3,7 +3,7 @@
     <v-btn v-if="isNotXS" outlined @click="today">
       今日
     </v-btn>
-    <v-btn icon @click="prev">
+    <v-btn icon aria-label="Prev Date" @click="prev">
       <v-icon>
         mdi-chevron-left
       </v-icon>
@@ -18,7 +18,7 @@
         <v-date-picker color="primary" :value="`${year}-${month}-${day}`" @change="pickDate" />
       </v-card>
     </v-menu>
-    <v-btn icon @click="next">
+    <v-btn icon aria-label="Next Date" @click="next">
       <v-icon>
         mdi-chevron-right
       </v-icon>
