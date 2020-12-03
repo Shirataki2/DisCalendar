@@ -83,7 +83,6 @@ class Handler(commands.Cog):
                 
     @tasks.loop(minutes=1)
     async def postloop(self):
-        logger.info('Loop Start')
         records = await self.bot.pool.fetch(
             (
                 'SELECT * FROM events WHERE '

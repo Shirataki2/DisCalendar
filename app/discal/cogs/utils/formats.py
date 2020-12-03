@@ -1,4 +1,5 @@
 # FROM discord.py (author Rapptz)
+from unicodedata import east_asian_width
 
 class plural:
     def __init__(self, value):
@@ -24,6 +25,12 @@ def human_join(seq, delim=', ', final='or'):
 
     return delim.join(seq[:-1]) + f' {final} {seq[-1]}'
 
+def cjk_len(string):
+    return sum([
+        2 if east_asian_width(c) in 'FWA' else 1
+        for c in string
+    ])
+
 class TabularData:
     def __init__(self):
         self._widths = []
@@ -32,13 +39,13 @@ class TabularData:
 
     def set_columns(self, columns):
         self._columns = columns
-        self._widths = [len(c) + 2 for c in columns]
+        self._widths = [cjk_len(c) + 2 for c in columns]
 
     def add_row(self, row):
         rows = [str(r) for r in row]
         self._rows.append(rows)
         for index, element in enumerate(rows):
-            width = len(element) + 2
+            width = cjk_len(element) + 2
             if width > self._widths[index]:
                 self._widths[index] = width
 
@@ -63,7 +70,8 @@ class TabularData:
         to_draw = [sep]
 
         def get_entry(d):
-            elem = '|'.join(f'{e:^{self._widths[i]}}' for i, e in enumerate(d))
+            max_w = max(self._widths)
+            elem = '|'.join(f' {e}' + ' ' * (self._widths[i] - cjk_len(e) - 1) for i, e in enumerate(d))
             return f'|{elem}|'
 
         to_draw.append(get_entry(self._columns))
