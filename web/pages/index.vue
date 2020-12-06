@@ -2,13 +2,14 @@
   <v-row justify="center" align="center">
     <v-col cols="12" style="text-align: center">
       <h1
+        id="logo"
         class="
           text-h4 text-sm-h2 text-lg-h2 font-weight-bold
           my-3 my-sm-12 my-md-14 my-lg-16
           py-3 py-sm-12 py-md-14 py-lg-16
         "
       >
-        DisCalendar(仮)
+        DisCalendar
       </h1>
       <p
         class="
@@ -32,6 +33,7 @@
         v-if="!isLogin"
         :block="isXS"
         rounded
+        class="my-2"
         x-large
         color="primary"
         to="/login"
@@ -43,7 +45,7 @@
         v-else
         :block="isXS"
         rounded
-        class="ma-2"
+        class="my-2"
         x-large
         color="primary"
         to="/dashboard"
@@ -57,9 +59,9 @@
         :block="isXS"
         dark
         x-large
-        class="ma-2"
+        class="my-2"
         color="secondary"
-        href="https://discord.gg/YF4E8mDr9Z"
+        href="https://discord.gg/MyaZRuze23"
         target="_blank"
       >
         サポートサーバーへ参加
@@ -69,7 +71,7 @@
         :block="isXS"
         dark
         x-large
-        class="ma-2"
+        class="my-2"
         color="green"
         to="/docs/gettingstarted"
         nuxt
@@ -147,5 +149,14 @@ export default Index
   &:after {
       margin-left: 1rem;
   }
+}
+
+@font-face {
+  font-family: Logo;
+  src: url(/UniSansHeavy.otf);
+}
+
+#logo {
+  font-family: Logo, sans-serif !important;
 }
 </style>

@@ -13,7 +13,7 @@ fn check_session(session: &Session, token: &str) -> Result<bool, ApiError> {
         if session_token == token {
             Ok(true)
         } else {
-            Err(ApiError::new(401, "Unauthorized".to_string()))
+            Ok(false)
         }
     } else {
         Ok(false)

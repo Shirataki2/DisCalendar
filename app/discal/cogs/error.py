@@ -1,6 +1,7 @@
 import asyncio
 import json
 import discord
+import traceback
 import os
 from discord.ext import commands
 from datetime import datetime
@@ -64,6 +65,12 @@ class Error(commands.Cog):
             title=f'{error.__class__.__name__}',
             description=f'```\n{error}\n```',
         )
+        try:
+            raise error
+        except:
+            exc = traceback.format_exc().split('\n')
+            for line in exc:
+                logger.error(line)
 
 def setup(bot):
     bot.add_cog(Error(bot))

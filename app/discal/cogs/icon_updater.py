@@ -26,6 +26,17 @@ class Updater(commands.Cog):
     def cog_unload(self):
         self.postloop.cancel()
 
+    @commands.Cog.listener()
+    async def on_guild_update(self, before: discord.Guild, after: discord.Guild):
+        if before.name != after.name or after.icon_url != before.icon_url:
+            logger.info("Updating Guild Icon")
+            icon = str(after.icon_url_as(format='png', size=256))
+            await self.bot.pool.execute(
+                ('UPDATE guilds SET name = $1, avatar_url = $2 '
+                 'WHERE guild_id = $3;'),
+                after.name, icon, str(after.id) 
+            )
+
     @tasks.loop(minutes=1)
     async def postloop(self):
         now = datetime.now() + timedelta(hours=9)

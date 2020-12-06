@@ -24,11 +24,30 @@ import { Page } from '@/types'
 
 @Component({
   name: 'Support',
-  asyncData: async ({ $content, params, error }) => {
+  asyncData: async ({ store, app, $axios, $content, params, error }) => {
     const slug = params.slug
     if (!slug) { error({ statusCode: 404, message: 'Page not Found' }) }
-    const page = await $content('support', slug).fetch()
-    return { page }
+    try {
+      const page = await $content('support', slug).fetch()
+      if (app.$cookies.get('access_token')) {
+      }
+      if (store.getters['auth/accessToken'] && store.getters['auth/user']) {
+        return { page }
+      } else if (app.$cookies.get('access_token')) {
+        store.dispatch('auth/setAccessToken', app.$cookies.get('access_token'))
+        store.dispatch('auth/setRefreshToken', app.$cookies.get('refresh_token'))
+        try {
+          const { data } = await $axios.get('/discord/api/users/@me')
+          store.dispatch('auth/setUser', data)
+          return { page }
+        } catch (e) {
+          return { page }
+        }
+      }
+      return { page }
+    } catch {
+      error({ statusCode: 404, message: 'Page not Found' })
+    }
   }
 })
 class Support extends Vue {

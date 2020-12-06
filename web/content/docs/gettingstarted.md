@@ -1,6 +1,6 @@
 ---
 title: 基本的な使い方
-description: ''
+description: '000'
 ---
 
 ## 導入までの3STEP

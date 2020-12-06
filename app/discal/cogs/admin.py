@@ -57,7 +57,7 @@ class Admin(commands.Cog):
             self.bot.reload_extension(module)
         except commands.ExtensionError as e:
             await ctx.message.add_reaction(self.bot.e_cross)
-            await self.bot.send_error(ctx, f'{e.__class__.__name__}', f'{e}')
+            await self.bot.send_error(ctx, f'{e.__class__.__name__}', f'```\n{e}\n```')
         else:
             await ctx.message.add_reaction(self.bot.e_check)
 
@@ -132,7 +132,7 @@ class Admin(commands.Cog):
         except Exception as e:
             value = stdout.getvalue()
             await ctx.message.add_reaction(self.bot.e_cross)
-            await self.bot.send_error(ctx, str(value), f'{traceback.format_exc()}')
+            await self.bot.send_error(ctx, str(value), f'```py\n{traceback.format_exc()}\n```')
         else:
             value = stdout.getvalue()
             try:

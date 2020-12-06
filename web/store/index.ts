@@ -24,8 +24,8 @@ export const actions: ActionTree<RootState, RootState> = {
     const accessToken = getters['auth/accessToken']
     const refreshToken = getters['auth/refreshToken']
     if (accessToken && refreshToken) {
-      Cookies.set('access_token', accessToken, { sameSite: 'Lax', secure: true })
-      Cookies.set('refresh_token', refreshToken, { sameSite: 'Lax', secure: true })
+      Cookies.set('access_token', accessToken, { sameSite: 'Lax', secure: false })
+      Cookies.set('refresh_token', refreshToken, { sameSite: 'Lax', secure: false })
     } else {
       Cookies.remove('access_token')
       Cookies.remove('refresh_token')

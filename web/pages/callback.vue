@@ -1,5 +1,5 @@
 <template>
-  <div style="text-align: center">
+  <div style="text-align: center" class="mt-12">
     <Loading />
     <p class="mt-5">
       確認中...
@@ -32,8 +32,9 @@ import Loading from '@/components/Loading.vue'
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       }
     )
-    app.$cookies.set('access_token', data.access_token, { sameSite: 'lax', secure: true })
-    app.$cookies.set('refresh_token', data.refresh_token, { sameSite: 'lax', secure: true })
+    console.log(data)
+    app.$cookies.set('access_token', data.access_token, { sameSite: 'lax', secure: false })
+    app.$cookies.set('refresh_token', data.refresh_token, { sameSite: 'lax', secure: false })
     await store.dispatch('auth/setAccessToken', app.$cookies.get('access_token'))
     await store.dispatch('auth/setRefreshToken', app.$cookies.get('refresh_token'))
     const user = await $axios.get(

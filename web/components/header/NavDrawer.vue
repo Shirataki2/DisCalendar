@@ -97,7 +97,7 @@ class NavigationDrawer extends Vue {
     {
       title: 'サポートサーバー',
       icon: 'mdi-discord',
-      to: 'https://discord.gg/YF4E8mDr9Z',
+      to: 'https://discord.gg/MyaZRuze23',
       external: true,
       needLogin: false,
       needLogout: false
@@ -123,6 +123,14 @@ class NavigationDrawer extends Vue {
       icon: 'mdi-account-supervisor',
       to: '/support/privacy',
       external: false,
+      needLogin: false,
+      needLogout: false
+    },
+    {
+      title: 'GitHub',
+      icon: 'mdi-github',
+      to: 'https://github.com/Shirataki2/DisCalendar',
+      external: true,
       needLogin: false,
       needLogout: false
     },

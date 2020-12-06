@@ -1,12 +1,14 @@
 <template>
   <v-row justify="center" align="center">
-    <v-col v-if="server" class="my-n3" cols="12">
-      <v-btn large color="secondary" rounded @click.stop="eventDialog = true">
-        <v-icon>
-          mdi-plus
-        </v-icon>
-        新規作成
-      </v-btn>
+    <v-col v-if="serverData" class="my-n3" cols="12">
+      <div>
+        <v-btn large color="secondary" rounded @click.stop="eventDialog = true">
+          <v-icon>
+            mdi-plus
+          </v-icon>
+          新規作成
+        </v-btn>
+      </div>
       <v-dialog v-model="eventDialog" max-width="1000" min-width="80%" persistent>
         <NewEvent
           :endpoint="`/local/api/events/${$route.params.id}`"
@@ -15,15 +17,19 @@
           @cancel="eventDialog = false"
         />
       </v-dialog>
+      <div
+        v-if="server"
+        style="
+          position: absolute;
+          top: 20px;
+          right: 30px;
+          text-align: right;
+        "
+      >
+        <span class="text-h6" v-text="server.name" />
+      </div>
     </v-col>
-    <v-col v-if="!server" class="my-n3 text-right" cols="6">
-      <v-btn large icon>
-        <v-icon>
-          mdi-cog
-        </v-icon>
-      </v-btn>
-    </v-col>
-    <v-col v-if="server" class="mt-2 mb-n5 mx-n3" cols="12">
+    <v-col v-if="serverData" class="mt-2 mb-n5 mx-n3" cols="12">
       <div style="width: 100%">
         <Calendar ref="calendar" @submitted="onSubmitted" />
       </div>
@@ -47,6 +53,7 @@
 import { Component, Vue, Prop } from 'nuxt-property-decorator'
 import Calendar from '@/components/calendar/Calendar.vue'
 import NewEvent from '@/components/calendar/NewEvent.vue'
+import { Discord } from '@/plugins/handler'
 
 @Component({
   layout: 'authorized',
@@ -76,9 +83,16 @@ class Index extends Vue {
 
   eventDialog: boolean = false
 
-  get server () {
+  server: Discord.Guild | null = null
+
+  get serverData () {
     const server = this.$store.getters['auth/server']
     return server
+  }
+
+  async mounted () {
+    const server = await this.$discord.getServer(this.$axios, this.$route.params.id)
+    this.server = server
   }
 
   async onSubmitted () {

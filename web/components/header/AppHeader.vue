@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-app-bar elevate-on-scroll app clipped-left>
+    <v-app-bar elevate-on-scroll app clipped-left outlined>
       <v-app-bar-nav-icon aria-label="Navigation Drawer" @click.stop="drawer = !drawer" />
       <v-toolbar-title :style="visible" @click="$router.push('/')">
         <span id="logo">DisCalendar</span>
@@ -72,5 +72,10 @@ export default AppHeader
 #logo {
   font-size: 1.2em;
   font-family: Logo, sans-serif;
+}
+
+.theme--light.v-app-bar {
+    background-color: #fff !important;
+    color: rgba(0, 0, 0, 0.87);
 }
 </style>

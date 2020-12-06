@@ -33,9 +33,23 @@
                     <v-hover #default="{ hover }">
                       <v-img
                         :src="guild.avatar_url"
+                        lazy-src="/logo.png"
                         style="border-radius: 50%; cursor: pointer"
+                        @error="onImageLoadFailed($event)"
                         @click="$router.push(`/dashboard/${guild.guild_id}`)"
                       >
+                        <template #placeholder>
+                          <v-row
+                            class="fill-height ma-0"
+                            align="center"
+                            justify="center"
+                          >
+                            <v-progress-circular
+                              indeterminate
+                              color="grey lighten-5"
+                            />
+                          </v-row>
+                        </template>
                         <v-fade-transition>
                           <v-row
                             v-if="hover"
@@ -187,6 +201,10 @@ class Index extends Vue {
     } else {
       return '/logo.png'
     }
+  }
+
+  onImageLoadFailed (e: any) {
+    console.log(e)
   }
 }
 export default Index

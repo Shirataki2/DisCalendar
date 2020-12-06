@@ -178,7 +178,7 @@
                 :selected.sync="notification.type"
                 @remove="deleteNotification(notification)"
               />
-              <v-btn icon @click="addNotification">
+              <v-btn v-if="notifications.length <= 10" icon @click="addNotification">
                 <v-icon>
                   mdi-plus
                 </v-icon>
