@@ -1,9 +1,11 @@
 # FROM discord.py (author Rapptz)
 from unicodedata import east_asian_width
 
+
 class plural:
     def __init__(self, value):
         self.value = value
+
     def __format__(self, format_spec):
         v = self.value
         singular, sep, plural = format_spec.partition('|')
@@ -11,6 +13,7 @@ class plural:
         if abs(v) != 1:
             return f'{v} {plural}'
         return f'{v} {singular}'
+
 
 def human_join(seq, delim=', ', final='or'):
     size = len(seq)
@@ -25,11 +28,13 @@ def human_join(seq, delim=', ', final='or'):
 
     return delim.join(seq[:-1]) + f' {final} {seq[-1]}'
 
+
 def cjk_len(string):
     return sum([
         2 if east_asian_width(c) in 'FWA' else 1
         for c in string
     ])
+
 
 class TabularData:
     def __init__(self):
@@ -70,7 +75,6 @@ class TabularData:
         to_draw = [sep]
 
         def get_entry(d):
-            max_w = max(self._widths)
             elem = '|'.join(f' {e}' + ' ' * (self._widths[i] - cjk_len(e) - 1) for i, e in enumerate(d))
             return f'|{elem}|'
 

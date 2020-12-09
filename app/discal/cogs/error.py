@@ -1,16 +1,13 @@
-import asyncio
-import json
 import discord
 import traceback
-import os
 from discord.ext import commands
 from datetime import datetime
-import discal
 from discal.bot import Bot
 from discal.logger import get_module_logger
 
 
 logger = get_module_logger(__name__)
+
 
 async def send_error(ctx, title, message=None, **kwargs):
     embed = discord.Embed(color=0xff0000, **kwargs)
@@ -24,7 +21,6 @@ async def send_error(ctx, title, message=None, **kwargs):
 
 class Error(commands.Cog):
     LOGCH = 783737174582624286
-
 
     def __init__(self, bot):
         self.bot: Bot = bot
@@ -67,10 +63,11 @@ class Error(commands.Cog):
         )
         try:
             raise error
-        except:
+        except Exception:
             exc = traceback.format_exc().split('\n')
             for line in exc:
                 logger.error(line)
+
 
 def setup(bot):
     bot.add_cog(Error(bot))

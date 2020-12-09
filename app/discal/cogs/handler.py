@@ -34,7 +34,7 @@ class Handler(commands.Cog):
             json.loads(notification)
             for notification in record['notifications']
         ]
-        notifications.append({ 'key': -1, 'num': 0, 'type': '分前' })
+        notifications.append({'key': -1, 'num': 0, 'type': '分前'})
         for notification in notifications:
             minutes = int(notification['num'])
             if notification['type'] == '時間前':
@@ -54,8 +54,9 @@ class Handler(commands.Cog):
                     end.year, end.month, end.day,
                     0, 0, 0, 0
                 )
-            if start >= datetime.now() + timedelta(hours=9, minutes=minutes - 1) and \
-                start < datetime.now() + timedelta(hours=9, minutes=minutes):
+            now_minus_1 = datetime.now() + timedelta(hours=9, minutes=minutes - 1)
+            now = datetime.now() + timedelta(hours=9, minutes=minutes)
+            if start >= now_minus_1 and start < now:
                 embed = discord.Embed(color=int(record['color'][1:], 16))
                 embed.title = record['name']
                 if record['description']:
@@ -80,7 +81,7 @@ class Handler(commands.Cog):
                 embed.add_field(name='日時', value=v, inline=False)
                 logger.info(f'Send Notification: {record}')
                 await channel.send(embed=embed)
-                
+
     @tasks.loop(minutes=1)
     async def postloop(self):
         records = await self.bot.pool.fetch(

@@ -1,7 +1,6 @@
 import discord
 from discord.ext import commands
 import os
-import glob
 import asyncpg
 from discal import __version__
 from discal.logger import get_module_logger
@@ -58,7 +57,7 @@ class Bot(commands.AutoShardedBot):
             database=os.environ["POSTGRES_DB"],
             loop=self.loop,
         )
-    
+
     async def on_ready(self):
         logger.info("Ready.")
         logger.info("Bot Name : %s", self.user)

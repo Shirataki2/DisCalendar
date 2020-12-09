@@ -1,10 +1,4 @@
-import asyncio
-import json
-import discord
-import os
 from discord.ext import commands
-from datetime import datetime
-import discal
 from discal.bot import Bot
 from discal.logger import get_module_logger
 

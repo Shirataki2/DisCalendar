@@ -7,7 +7,6 @@ from discal.bot import Bot
 class Report(commands.Cog):
     LOG_CHANNEL = 783690714978451486
 
-
     def __init__(self, bot):
         self.bot: Bot = bot
 
@@ -16,7 +15,7 @@ class Report(commands.Cog):
 
     async def send_report(self, ctx, content):
         logch = self.bot.get_channel(self.LOG_CHANNEL)
-        embed = discord.Embed(color=0xff0000)        
+        embed = discord.Embed(color=0xff0000)
         embed.title = 'DisCalendar - Report'
         embed.description = f'```\n{content}\n```'
         if ctx.guild:
@@ -43,7 +42,7 @@ class Report(commands.Cog):
             'このコマンドではDisCalendarに対する要望やバグを'
             '開発者に報告することが可能です\n\n'
             '**次にあなたが送信したメッセージの内容が開発者に送信されます**\n\n'
-            '(キャンセルの際は`\c`とご入力ください)\n\n'
+            '(キャンセルの際は`\\c`とご入力ください)\n\n'
             '🌟10分以内にご送信ください．🌟\n10分経過すると自動的にキャンセルされます'
         )
         msg = await ctx.send(embed=embed)
@@ -52,13 +51,13 @@ class Report(commands.Cog):
         except asyncio.TimeoutError:
             embed.description = '```\nキャンセルしました\n```'
             return await msg.edit(embed=embed)
-        if user_msg.content == '\c':
+        if user_msg.content == r'\c':
             embed.description = '```\nキャンセルしました\n```'
             return await msg.edit(embed=embed)
         await self.send_report(ctx, user_msg.content)
         embed.description = '```\n報告が完了しました\n```'
         return await msg.edit(embed=embed)
-        
+
 
 def setup(bot):
     bot.add_cog(Report(bot))

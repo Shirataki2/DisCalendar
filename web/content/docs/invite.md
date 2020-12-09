@@ -9,7 +9,7 @@ description: '002'
   outlined
   color="secondary"
   :external="true"
-  to="https://discord.com/api/oauth2/authorize?client_id=771795045543313409&permissions=537136128&scope=bot">
+  to="https://discord.com/api/oauth2/authorize?client_id=771795045543313409&permissions=537193536&scope=bot">
   こちらから招待できます
 </Btn>
 
@@ -23,7 +23,7 @@ description: '002'
 
 <VImage src="/docs/permissions.png"></VImage>
 
-最低限本Botの機能を利用する際には中央二つの「メッセージを読む」「メッセージの送信」の権限が必要です．他の権限はOFFにしても構いませんが，その際は一部機能の利用が出来なくなります．ご了承ください．
+最低限本Botの機能を利用する際には「メッセージを読む」「メッセージの送信」「埋め込みリンク」の権限が必要です．他の権限はOFFにしても構いませんが，その際は一部機能の利用が出来なくなります．ご了承ください．
 
 最後にその次の画面で「Botではないこと」を証明するチェックボックスにチェックを入れれば導入完了です！
 

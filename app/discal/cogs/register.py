@@ -20,23 +20,23 @@ class Register(commands.Cog):
     )
     async def init(self, ctx: commands.Context):
         setting = await self.bot.pool.fetchrow(
-            'SELECT * FROM event_settings ' +
-            'WHERE guild_id = $1;',
+            ('SELECT * FROM event_settings '
+             'WHERE guild_id = $1;'),
             str(ctx.guild.id)
         )
         if setting is None:
             await self.bot.pool.execute(
-                'INSERT INTO event_settings' +
-                '(guild_id, channel_id) ' +
-                'VALUES ($1, $2);',
+                ('INSERT INTO event_settings'
+                 '(guild_id, channel_id) '
+                 'VALUES ($1, $2);'),
                 str(ctx.guild.id), str(ctx.channel.id)
             )
             await ctx.send(f'通知の投稿先を{ctx.channel.mention}に設定しました')
         else:
             await self.bot.pool.execute(
-                'UPDATE event_settings ' +
-                'SET channel_id = $2 ' +
-                'WHERE guild_id = $1;',
+                ('UPDATE event_settings '
+                 'SET channel_id = $2 '
+                 'WHERE guild_id = $1;'),
                 str(ctx.guild.id), str(ctx.channel.id)
             )
             await ctx.send(f'通知の投稿先を{ctx.channel.mention}に変更しました')
@@ -53,7 +53,6 @@ class Register(commands.Cog):
             logger.error(f'Failed to add record: {guild.name} ({guild.id})')
             raise e
 
-    
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild):
         try:
@@ -62,7 +61,7 @@ class Register(commands.Cog):
                 str(guild.id)
             )
             logger.info(f'Guild: {guild.name} ({guild.id}) kicked this bot or has been deleted!')
-        except:
+        except Exception:
             logger.error(f'Failed to remove record: {guild.name} ({guild.id})')
 
 

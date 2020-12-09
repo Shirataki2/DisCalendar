@@ -1,5 +1,3 @@
-import asyncio
-import json
 import discord
 import os
 from discord.ext import commands
@@ -52,7 +50,7 @@ class HelpCommand(commands.Cog):
     async def help(self, ctx: commands.Context):
         if ctx.invoked_subcommand is None:
             await ctx.send(embed=self._create_help())
-    
+
     @help.command()
     async def cli(self, ctx: commands.Context):
         cli = self.bot.get_cog('CLI')

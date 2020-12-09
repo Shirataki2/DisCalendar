@@ -1,16 +1,15 @@
 import discord
 from discord.ext import commands
-
 import asyncio
-
+import math
 from copy import deepcopy
 from math import ceil
 from discal.logger import get_module_logger
-
 from contextlib import suppress
 from datetime import datetime
 
 logger = get_module_logger(__name__)
+
 
 class EmbedPaginator(commands.Paginator):
     def __init__(self, title="", description="", color=None, image="", thumb="", author="", author_link="", icon="", footer="Page $p / $P"):
@@ -22,7 +21,7 @@ class EmbedPaginator(commands.Paginator):
     @property
     def title(self):
         self.page_template["title"]
-    
+
     @title.setter
     def title(self, title):
         self.page_template["title"] = title
@@ -30,7 +29,7 @@ class EmbedPaginator(commands.Paginator):
     @property
     def description(self):
         self.page_template["description"]
-    
+
     @description.setter
     def description(self, description):
         self.page_template["description"] = description
@@ -38,7 +37,7 @@ class EmbedPaginator(commands.Paginator):
     @property
     def color(self):
         self.page_template["color"]
-    
+
     @color.setter
     def color(self, color):
         self.page_template["color"] = color
@@ -46,7 +45,7 @@ class EmbedPaginator(commands.Paginator):
     @property
     def footer(self):
         self.page_template["footer"]
-    
+
     @footer.setter
     def footer(self, footer):
         self.page_template["footer"] = footer
@@ -67,23 +66,23 @@ class EmbedPaginator(commands.Paginator):
         }
 
     def add_line(self, k, v, inline=False):
-        self.rows.append({ 'name': k, 'value': v, 'inline': inline})
-    
+        self.rows.append({'name': k, 'value': v, 'inline': inline})
+
     def render(self, page, row_per_page):
-        rows = self.rows[page*row_per_page:(page+1)*row_per_page]
+        rows = self.rows[page * row_per_page:(page + 1) * row_per_page]
         c = deepcopy(self.page_template)
         for k in c.keys():
             if isinstance(c[k], str):
                 c[k] = c[k].replace(
-                    '$p', str(page+1)
+                    '$p', str(page + 1)
                 ).replace(
                     '$P', str(ceil(len(self.rows) / row_per_page))
                 )
             elif isinstance(c[k], dict):
-                for l in c[k].keys():
-                    if isinstance(c[k][l], str):
-                        c[k][l] = c[k][l].replace(
-                            '$p', str(page+1)
+                for k_in in c[k].keys():
+                    if isinstance(c[k][k_in], str):
+                        c[k][k_in] = c[k][k_in].replace(
+                            '$p', str(page + 1)
                         ).replace(
                             '$P', str(ceil(len(self.rows) / row_per_page))
                         )
@@ -123,6 +122,7 @@ class EmbedPaginator(commands.Paginator):
             ])
         is_dm = False
         while True:
+            final_page = math.ceil(len(self.rows) / row_per_page - 1)
             try:
                 reaction, user = await ctx.bot.wait_for("reaction_add", timeout=180, check=check_reaction)
             except asyncio.TimeoutError:
@@ -131,7 +131,7 @@ class EmbedPaginator(commands.Paginator):
                         await message.clear_reaction(emoji)
             try:
                 await message.remove_reaction(reaction.emoji, user)
-            except:
+            except discord.Forbidden:
                 if not is_dm:
                     is_dm = True
                     await ctx.send("ページ変更するにはリアクションを解除してもう一度押してください")
@@ -144,8 +144,8 @@ class EmbedPaginator(commands.Paginator):
             if reaction.emoji == emojis[2]:  # 削除
                 return await message.delete()
             if reaction.emoji == emojis[3]:  # 次のページへ
-                curr = min(len(self.content) - 1, curr + 1)
+                curr = min(final_page, curr + 1)
                 await message.edit(embed=self.render(curr, row_per_page))
             if reaction.emoji == emojis[4]:  # 最後のページへ
-                curr = len(self.content) - 1
+                curr = final_page
                 await message.edit(embed=self.render(curr, row_per_page))

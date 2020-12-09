@@ -1,10 +1,6 @@
-import asyncio
-import json
 import discord
-import os
 from discord.ext import commands
 from datetime import datetime
-import discal
 from discal.bot import Bot
 from discal.logger import get_module_logger
 
@@ -12,9 +8,8 @@ from discal.logger import get_module_logger
 logger = get_module_logger(__name__)
 
 
-class Error(commands.Cog):
+class Logger(commands.Cog):
     LOGCH = 783740453173985280
-
 
     def __init__(self, bot):
         self.bot: Bot = bot
@@ -44,4 +39,4 @@ class Error(commands.Cog):
 
 
 def setup(bot):
-    bot.add_cog(Error(bot))
+    bot.add_cog(Logger(bot))

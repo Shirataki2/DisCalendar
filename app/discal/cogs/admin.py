@@ -1,15 +1,10 @@
-import asyncio
-import json
 import io
 import time
 import traceback
 import textwrap
 import discord
-import os
 from contextlib import redirect_stdout
 from discord.ext import commands
-from datetime import datetime
-import discal
 from discal.bot import Bot
 from discal.logger import get_module_logger
 from discal.cogs.utils.formats import plural, TabularData
@@ -98,7 +93,6 @@ class Admin(commands.Cog):
         else:
             await ctx.send(fmt)
 
-
     @commands.command(name='eval')
     async def _eval(self, ctx, *, body: str):
         """Evaluates a code"""
@@ -129,7 +123,7 @@ class Admin(commands.Cog):
         try:
             with redirect_stdout(stdout):
                 ret = await func()
-        except Exception as e:
+        except Exception:
             value = stdout.getvalue()
             await ctx.message.add_reaction(self.bot.e_cross)
             await self.bot.send_error(ctx, str(value), f'```py\n{traceback.format_exc()}\n```')
@@ -137,7 +131,7 @@ class Admin(commands.Cog):
             value = stdout.getvalue()
             try:
                 await ctx.message.add_reaction(self.bot.e_check)
-            except:
+            except discord.Forbidden:
                 pass
             if ret is None:
                 if value:
@@ -145,7 +139,6 @@ class Admin(commands.Cog):
             else:
                 self._last_result = ret
                 await ctx.send(f'```py\n{value}{ret}\n```')
-
 
 
 def setup(bot):

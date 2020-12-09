@@ -1,5 +1,3 @@
-import asyncio
-import json
 import discord
 import jpholiday
 from discord.ext import commands, tasks
@@ -10,6 +8,7 @@ from discal.logger import get_module_logger
 
 logger = get_module_logger(__name__)
 
+
 def get_datetype(date):
     if date.weekday() == 6 or jpholiday.is_holiday(date):
         return "_r"
@@ -17,6 +16,7 @@ def get_datetype(date):
         return "_b"
     else:
         return ""
+
 
 class Updater(commands.Cog):
     def __init__(self, bot):
@@ -34,7 +34,7 @@ class Updater(commands.Cog):
             await self.bot.pool.execute(
                 ('UPDATE guilds SET name = $1, avatar_url = $2 '
                  'WHERE guild_id = $3;'),
-                after.name, icon, str(after.id) 
+                after.name, icon, str(after.id)
             )
 
     @tasks.loop(minutes=1)

@@ -1,7 +1,6 @@
 import discord
 import discal
 import json
-import asyncio
 from discord.ext import commands
 from discal.bot import Bot
 from discal.logger import get_module_logger
@@ -11,6 +10,7 @@ logger = get_module_logger(__name__)
 
 JST = timedelta(hours=9)
 
+
 def valid_date(msg):
     s = msg.content
     try:
@@ -18,8 +18,9 @@ def valid_date(msg):
         if m >= 13 or y <= 2019 or d >= 32:
             return False
         return datetime(y, m, d)
-    except:
+    except Exception:
         return False
+
 
 def valid_datetime(msg):
     s = msg.content
@@ -28,14 +29,16 @@ def valid_datetime(msg):
         if m >= 13 or y <= 2019 or d >= 32 or H >= 25 or M >= 60:
             return False
         return datetime(y, m, d, H, M)
-    except:
+    except Exception:
         return False
+
 
 def preview_date(date, all_day=False):
     if all_day:
         return date.strftime('%Y/%m/%d')
     else:
         return date.strftime('%Y/%m/%d %H:%M')
+
 
 class CLI(commands.Cog):
     def __init__(self, bot):
@@ -122,7 +125,7 @@ class CLI(commands.Cog):
                     f'`通知`: {self.show_notification(event)}\n'
                 )
             )
-        await paginator.paginate(ctx, 10)
+        await paginator.paginate(ctx, 5)
 
     @_list.command(name='past', aliases=['pst'])
     async def list_past(self, ctx: commands.Context):
@@ -148,19 +151,17 @@ class CLI(commands.Cog):
                     f'`通知`: {self.show_notification(event)}\n'
                 )
             )
-        await paginator.paginate(ctx, 10)
+        await paginator.paginate(ctx, 5)
 
     @_list.command(name='all')
     async def list_all(self, ctx: commands.Context):
         results = await self.bot.pool.fetch(
             (
                 'SELECT * FROM events '
-                'WHERE guild_id = $1 AND '
-                'start_at <= $2 '
+                'WHERE guild_id = $1 '
                 'ORDER BY start_at ASC;'
             ),
-            str(ctx.guild.id),
-            datetime.utcnow() + JST
+            str(ctx.guild.id)
         )
         paginator = EmbedPaginator(color=0x0000ff)
         paginator.title = 'DisCalendar - CLI'
@@ -174,7 +175,7 @@ class CLI(commands.Cog):
                     f'`通知`: {self.show_notification(event)}\n'
                 )
             )
-        await paginator.paginate(ctx, 10)
+        await paginator.paginate(ctx, 5)
 
 
 def setup(bot):
