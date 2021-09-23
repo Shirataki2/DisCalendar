@@ -19,7 +19,7 @@
     "@nuxtjs/auth": "^4.9.1",
     "@nuxtjs/axios": "^5.13.6",
     "@nuxtjs/proxy": "^2.1.0",
-    "@types/cookie": "^0.4.0",
+    "@types/cookie": "^0.4.1",
     "@types/js-cookie": "^2.2.6",
     "@types/lodash": "^4.14.173",
     "cookie": "^0.4.1",
