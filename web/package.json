@@ -38,7 +38,7 @@
     "vuex-module-decorators": "^1.0.1"
   },
   "devDependencies": {
-    "@ava/babel": "^1.0.1",
+    "@ava/babel": "^2.0.0",
     "@nuxt/types": "^2.14.12",
     "@nuxt/typescript-build": "^2.0.4",
     "@nuxtjs/eslint-config": "^3.1.0",
@@ -46,7 +46,7 @@
     "@nuxtjs/eslint-module": "^3.0.2",
     "@nuxtjs/google-analytics": "^2.4.0",
     "@nuxtjs/moment": "^1.6.1",
-    "@nuxtjs/pwa": "^3.3.4",
+    "@nuxtjs/pwa": "^3.3.5",
     "@nuxtjs/vuetify": "^1.11.3",
     "@types/nuxtjs__auth": "^4.8.7",
     "@vue/test-utils": "^1.1.2",
