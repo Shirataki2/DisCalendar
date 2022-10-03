@@ -24,7 +24,7 @@
     "@types/lodash": "^4.14.173",
     "cookie": "^0.4.1",
     "cookie-universal-nuxt": "^2.1.4",
-    "core-js": "^3.18.0",
+    "core-js": "^3.25.4",
     "discord.js": "^12.5.0",
     "js-cookie": "^3.0.1",
     "json-bigint": "^1.0.0",
