@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/* 現行アプリ (Vuetify dark) に合わせてダークテーマ固定 */
+:root {
+  --background: #121212;
+  --surface: #1e1e1e;
+  --foreground: #ededed;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* FullCalendar classic テーマの微調整 (Vuetify dark 寄せ) */
+[data-color-scheme="dark"] {
+  --fc-classic-background: var(--surface);
+  --fc-classic-border: #ffffff1f;
+}
