@@ -1,0 +1,229 @@
+//! Bot トークンで Discord API を呼ぶクライアント。
+//!
+//! ユーザーがギルドのメンバーかどうかと、ギルド内での権限を調べるためだけに使う。
+//! 旧実装は毎リクエストで 4 回 Discord API を呼んでいたが、ここではギルド情報と
+//! メンバー情報を短時間キャッシュして 0〜2 回に抑える。
+
+pub mod permissions;
+
+use std::{collections::HashMap, sync::Arc, time::Duration};
+
+use anyhow::Context as _;
+use moka::future::Cache;
+use reqwest::{StatusCode, header};
+use serde::{Deserialize, de::DeserializeOwned};
+
+pub use self::permissions::Permissions;
+use self::permissions::compute_base_permissions;
+
+const API_BASE: &str = "https://discord.com/api/v10";
+const USER_AGENT: &str = concat!(
+    "DiscordBot (https://discalendar.app, ",
+    env!("CARGO_PKG_VERSION"),
+    ")"
+);
+/// ギルド (ロール一覧・オーナー) のキャッシュ期間
+const GUILD_TTL: Duration = Duration::from_secs(300);
+/// メンバー (所持ロール) のキャッシュ期間。ロール変更や退出の反映はこの時間だけ遅れる
+const MEMBER_TTL: Duration = Duration::from_secs(60);
+
+#[derive(Debug, thiserror::Error)]
+pub enum DiscordError {
+    #[error("http error: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("Discord API returned {status}: {body}")]
+    Status { status: StatusCode, body: String },
+    #[error("rate limited by Discord API")]
+    RateLimited,
+}
+
+/// 権限計算に必要な最小限のギルド情報
+#[derive(Debug, Clone)]
+pub struct GuildSnapshot {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub owner_id: String,
+    /// role_id → permissions ビット。@everyone は role_id == guild_id
+    pub role_permissions: HashMap<String, u64>,
+}
+
+impl GuildSnapshot {
+    pub fn icon_url(&self) -> Option<String> {
+        self.icon
+            .as_ref()
+            .map(|icon| format!("https://cdn.discordapp.com/icons/{}/{}.png", self.id, icon))
+    }
+}
+
+/// あるユーザーのギルドへのアクセス情報 (メンバーであることが確認済み)
+#[derive(Debug, Clone)]
+pub struct MemberAccess {
+    pub guild: Arc<GuildSnapshot>,
+    pub user_id: String,
+    pub roles: Vec<String>,
+    pub permissions: Permissions,
+}
+
+#[derive(Clone)]
+pub struct DiscordClient {
+    http: reqwest::Client,
+    /// guild_id → ギルド情報。Bot が未参加なら None (負のキャッシュ)
+    guilds: Cache<String, Option<Arc<GuildSnapshot>>>,
+    /// (guild_id, user_id) → メンバーの所持ロール。非メンバーなら None (負のキャッシュ)
+    members: Cache<(String, String), Option<Arc<Vec<String>>>>,
+}
+
+#[derive(Deserialize)]
+struct ApiGuild {
+    id: String,
+    name: String,
+    icon: Option<String>,
+    owner_id: String,
+    roles: Vec<ApiRole>,
+}
+
+#[derive(Deserialize)]
+struct ApiRole {
+    id: String,
+    /// Discord は permissions を文字列化した整数で返す
+    permissions: String,
+}
+
+#[derive(Deserialize)]
+struct ApiMember {
+    roles: Vec<String>,
+}
+
+impl DiscordClient {
+    pub fn new(bot_token: &str) -> anyhow::Result<Self> {
+        let mut auth = header::HeaderValue::from_str(&format!("Bot {bot_token}"))
+            .context("DISCORD_BOT_TOKEN contains invalid characters")?;
+        auth.set_sensitive(true);
+        let mut headers = header::HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, auth);
+
+        let http = reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .default_headers(headers)
+            .timeout(Duration::from_secs(10))
+            .build()
+            .context("failed to build Discord HTTP client")?;
+
+        Ok(Self {
+            http,
+            guilds: Cache::builder()
+                .max_capacity(10_000)
+                .time_to_live(GUILD_TTL)
+                .build(),
+            members: Cache::builder()
+                .max_capacity(100_000)
+                .time_to_live(MEMBER_TTL)
+                .build(),
+        })
+    }
+
+    /// Bot が参加しているギルドの情報。未参加 (404 / 403) なら `Ok(None)`
+    pub async fn guild(&self, guild_id: &str) -> Result<Option<Arc<GuildSnapshot>>, DiscordError> {
+        if let Some(cached) = self.guilds.get(guild_id).await {
+            return Ok(cached);
+        }
+        let guild = self
+            .get_json::<ApiGuild>(&format!("/guilds/{guild_id}"))
+            .await?
+            .map(|g| {
+                Arc::new(GuildSnapshot {
+                    id: g.id,
+                    name: g.name,
+                    icon: g.icon,
+                    owner_id: g.owner_id,
+                    role_permissions: g
+                        .roles
+                        .into_iter()
+                        .map(|r| (r.id, r.permissions.parse::<u64>().unwrap_or(0)))
+                        .collect(),
+                })
+            });
+        self.guilds.insert(guild_id.to_owned(), guild.clone()).await;
+        Ok(guild)
+    }
+
+    /// ユーザーがギルドのメンバーなら権限付きで返す。Bot 未参加または非メンバーなら `Ok(None)`
+    pub async fn member_access(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<Option<MemberAccess>, DiscordError> {
+        let Some(guild) = self.guild(guild_id).await? else {
+            return Ok(None);
+        };
+
+        let key = (guild_id.to_owned(), user_id.to_owned());
+        let roles = match self.members.get(&key).await {
+            Some(cached) => cached,
+            None => {
+                let fetched = self
+                    .get_json::<ApiMember>(&format!("/guilds/{guild_id}/members/{user_id}"))
+                    .await?
+                    .map(|m| Arc::new(m.roles));
+                self.members.insert(key, fetched.clone()).await;
+                fetched
+            }
+        };
+        let Some(roles) = roles else {
+            return Ok(None);
+        };
+
+        let permissions = compute_base_permissions(
+            &guild.id,
+            &guild.owner_id,
+            user_id,
+            &guild.role_permissions,
+            &roles,
+        );
+        Ok(Some(MemberAccess {
+            guild,
+            user_id: user_id.to_owned(),
+            roles: roles.to_vec(),
+            permissions,
+        }))
+    }
+
+    /// GET して JSON にデコードする。
+    /// 404 (Unknown Guild / Unknown Member) と 403 (Missing Access = Bot 未参加) は `Ok(None)`。
+    /// 429 は Retry-After が短ければ 1 回だけ待って再試行する
+    async fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>, DiscordError> {
+        let url = format!("{API_BASE}{path}");
+        let mut retried = false;
+        loop {
+            let res = self.http.get(&url).send().await?;
+            let status = res.status();
+            if status.is_success() {
+                return Ok(Some(res.json().await?));
+            }
+            if status == StatusCode::NOT_FOUND || status == StatusCode::FORBIDDEN {
+                tracing::debug!(%path, %status, "discord resource not accessible");
+                return Ok(None);
+            }
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                let retry_after = res
+                    .headers()
+                    .get(header::RETRY_AFTER)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(1.0);
+                if !retried && retry_after <= 2.0 {
+                    tracing::warn!(%path, retry_after, "discord rate limited, retrying once");
+                    retried = true;
+                    tokio::time::sleep(Duration::from_secs_f64(retry_after)).await;
+                    continue;
+                }
+                tracing::warn!(%path, retry_after, "discord rate limited");
+                return Err(DiscordError::RateLimited);
+            }
+            let body = res.text().await.unwrap_or_default();
+            tracing::warn!(%path, %status, %body, "discord api error");
+            return Err(DiscordError::Status { status, body });
+        }
+    }
+}

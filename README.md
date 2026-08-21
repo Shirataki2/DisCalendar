@@ -11,13 +11,17 @@ Discord 用のカレンダーアプリ。予定の作成から通知まで、ブ
 | ディレクトリ | 内容 | 状態 |
 |---|---|---|
 | `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth | カレンダー PoC + Discord ログイン |
-| `api/` | Rust API（actix-web、旧版から移行予定） | 未着手 |
+| `api/` | Rust API（actix-web 4 + sqlx 0.9、旧版から移行） | 移行済み（[README](api/README.md)）。web からの接続は未着手 |
 | `bot/` | Discord Bot（Rust、旧版から移行予定） | 未着手 |
 | `docs/` | 技術選定・設計ドキュメント | [技術選定](docs/tech-stack-selection.md) |
 
+Rust 側（api / bot）はルートの `Cargo.toml` を workspace とし、`rust-toolchain.toml` で toolchain を固定している。
+
 ## 開発
 
-前提: Node 22+ / pnpm / ローカルの PostgreSQL
+前提: Node 22+ / pnpm / Rust (rustup) / ローカルの PostgreSQL
+
+### web
 
 ```sh
 cd web
@@ -32,6 +36,16 @@ createdb discalendar_dev
 pnpm db:migrate
 
 pnpm dev
+```
+
+### api
+
+web と同じ DB を使う（Better Auth のセッションを API 側で検証するため）。
+
+```sh
+cd api
+cp .env.example .env   # DATABASE_URL / DISCORD_BOT_TOKEN / BETTER_AUTH_SECRET (web と同じ値)
+cargo run              # 起動時にマイグレーション適用、http://127.0.0.1:8080 (Swagger UI: /docs/)
 ```
 
 http://localhost:3000 でランディング、`/login` から Discord ログイン、

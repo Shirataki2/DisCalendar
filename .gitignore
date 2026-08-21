@@ -1,2 +1,10 @@
 tmp
 .DS_Store
+
+# Rust
+target/
+
+# 環境変数 (各ディレクトリの .env.example をコピーして使う)
+.env
+.env.*
+!.env.example

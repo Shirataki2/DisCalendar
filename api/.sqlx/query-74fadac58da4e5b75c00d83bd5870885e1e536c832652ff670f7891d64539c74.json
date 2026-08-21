@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.id AS \"id!\", u.name AS \"name!\", a.\"accountId\" AS \"discord_user_id!\"\n        FROM \"session\" s\n        JOIN \"user\" u ON u.id = s.\"userId\"\n        JOIN \"account\" a ON a.\"userId\" = u.id AND a.\"providerId\" = 'discord'\n        WHERE s.token = $1 AND s.\"expiresAt\" > now()\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"user\"",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"user\"",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "discord_user_id!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "accountId"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "74fadac58da4e5b75c00d83bd5870885e1e536c832652ff670f7891d64539c74"
+}

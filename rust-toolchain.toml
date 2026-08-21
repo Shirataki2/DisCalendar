@@ -1,0 +1,4 @@
+# sqlx 0.9 が rustc 1.94+ を要求するため、ワークスペース全体で toolchain を固定する
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]
