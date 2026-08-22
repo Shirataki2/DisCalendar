@@ -38,6 +38,15 @@ const MAX_SEND_ATTEMPTS: u32 = 5;
 /// 「次回の run_once 呼び出し時点の now」までの差 (=処理時間) にしかならないので、
 /// 通常の処理時間としてまず考えられない大きさをしきい値にすれば、後者だけを検出できる
 const MAX_STALE_WINDOW: Duration = Duration::hours(1);
+/// Bot 起動直後の `last_checked` を遡らせる幅。通常の再起動・デプロイ (数秒〜数十秒程度) で
+/// 発生し得る停止中の通知を拾うことを目的とする。
+///
+/// `sent_in_window` はプロセス内メモリだけの状態なので再起動で失われ、この幅の中で
+/// 停止前に送信済みだった通知は「未送信」として再判定され、再送され得る。
+/// これを完全に防ぐには送信済み記録を DB などに永続化する必要があるが、今回のスコープでは
+/// 見送る。`MAX_STALE_WINDOW` (1時間) をそのまま使うと再送のリスク窓も1時間に広がってしまう
+/// ため、通常の再起動時間を十分にカバーしつつリスクを抑えられる、より短い値にする
+const STARTUP_LOOKBACK: Duration = Duration::minutes(5);
 
 pub async fn run_loop(ctx: serenity::Context, data: Data) {
     // sleep 方式だと実際の周期が「60秒 + 前回の処理時間」になるので、処理時間を含まない
@@ -50,11 +59,10 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
     let mut interval = tokio::time::interval(INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // Bot の停止中 (再起動・デプロイ・クラッシュ) に発火時刻を迎えた通知も拾えるよう、
-    // 起動直後の last_checked は「今」ではなく MAX_STALE_WINDOW だけ遡った時刻にする。
-    // last_checked をどこかに永続化して正確な停止期間を引き継ぐのがより厳密だが、
-    // 今回のスコープでは行わない。これを超える長期停止分は、DB 障害時と同じ
+    // 起動直後の last_checked は「今」ではなく STARTUP_LOOKBACK だけ遡った時刻にする
+    // (詳細は STARTUP_LOOKBACK のコメント参照)。これを超える長期停止分は、DB 障害時と同じ
     // clamp_stale_window のロジックで次の tick までに早送りされる (陳腐化した通知として扱う)
-    let mut last_checked = now_jst() - MAX_STALE_WINDOW;
+    let mut last_checked = now_jst() - STARTUP_LOOKBACK;
     // event_settings の取得などが一時的に失敗して last_checked を進められなかった tick の
     // 再試行時に、同じ判定窓で既に送信済みの (event_id, 発火時刻) を重複送信しないための記録。
     // キーに発火分数ではなく実際の発火時刻を使うのは、待機中にユーザーが予定の開始時刻を
