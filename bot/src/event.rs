@@ -34,6 +34,15 @@ pub async fn handle_event(
             {
                 // reconcile_guilds の削除と交錯しないようにする (突き合わせ中は待ち、削除後に upsert される)
                 let _guard = data.guild_sync.read().await;
+                // イベントハンドラは並行に走るので、この直後に届いた退出がキャッシュには先に反映されていることがある。
+                // キャッシュ (ゲートウェイのイベント順に同期更新される) を最新の所属状態として、退出済みなら登録しない
+                if !is_in_cache(ctx, guild.id) {
+                    tracing::debug!(
+                        guild_id,
+                        "already left before handling GuildCreate, skipping"
+                    );
+                    return Ok(());
+                }
                 guilds::upsert(
                     &data.pool,
                     &guild_id,
@@ -61,6 +70,13 @@ pub async fn handle_event(
             let guild_id = new_data.id.to_string();
             {
                 let _guard = data.guild_sync.read().await;
+                if !is_in_cache(ctx, new_data.id) {
+                    tracing::debug!(
+                        guild_id,
+                        "already left before handling GuildUpdate, skipping"
+                    );
+                    return Ok(());
+                }
                 guilds::upsert(
                     &data.pool,
                     &guild_id,
@@ -81,7 +97,19 @@ pub async fn handle_event(
                 );
                 return Ok(());
             }
-            let deleted = guilds::delete(&data.pool, &guild_id).await?;
+            let deleted = {
+                // upsert (read) や reconcile (write) と交錯しないよう write ロックで直列化する
+                let _guard = data.guild_sync.write().await;
+                // 退出直後に再参加していれば、その GuildCreate がキャッシュに先に反映されている (登録し直される) ので消さない
+                if is_in_cache(ctx, incomplete.id) {
+                    tracing::debug!(
+                        guild_id,
+                        "rejoined before handling GuildDelete, keeping the row"
+                    );
+                    return Ok(());
+                }
+                guilds::delete(&data.pool, &guild_id).await?
+            };
             let name = full
                 .as_ref()
                 .map_or_else(|| "[unknown guild]".to_owned(), |g| g.name.clone());
@@ -155,6 +183,13 @@ async fn fetch_joined_guild_ids(http: &serenity::Http) -> Result<HashSet<String>
         }
         after = max_id;
     }
+}
+
+/// ギルドがキャッシュにある (= ゲートウェイのイベント順で見て現在参加中) か。
+/// serenity はキャッシュをイベント順に同期更新してからハンドラを並行に起動するので、
+/// ハンドラ内ではキャッシュが「最新の所属状態」になる (参照はすぐ捨てて await をまたがない)
+fn is_in_cache(ctx: &serenity::Context, guild_id: serenity::GuildId) -> bool {
+    ctx.cache.guild(guild_id).is_some()
 }
 
 /// 参加・退出を `BOT_LOG_CHANNEL_ID` のチャンネルに埋め込みで通知する (未設定なら何もしない)。
