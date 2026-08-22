@@ -23,6 +23,7 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | 参加時 (`GuildCreate`) | 未登録のときだけ INSERT | 起動時に届く参加済みギルドの分も含めて常に upsert (停止中の名前・アイコン変更を取り戻す) |
 | 更新時 (`GuildUpdate`) | キャッシュに旧データがあり、名前かアイコンが変わったときだけ UPDATE | 常に upsert |
 | 退出時 (`GuildDelete`) | 常に DELETE | Discord 側の障害 (`unavailable`) のときは消さない |
+| 停止中の退出 | 行が残ったまま | `Ready` のたびに `GET /users/@me/guilds` で参加一覧を取り直し、DB にだけ残っている行を消す |
 | `locale` | 常に `ja` で上書き | 新規行だけ既定値 `ja`。既存行の値は上書きしない |
 | 参加・退出のログ通知 | コードに埋め込んだチャンネル ID に送信 | `BOT_LOG_CHANNEL_ID` のチャンネルに送信 (未設定なら送らない)。送信失敗は warn ログのみ |
 | Gateway インテント | `non_privileged` | 同じ (ギルドイベントには `GUILDS` が必要。コマンド移行時に見直す) |

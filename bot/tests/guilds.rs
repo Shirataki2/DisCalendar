@@ -68,3 +68,25 @@ async fn delete_removes_only_that_guild(pool: PgPool) {
     // 2 回目は消す行がない
     assert!(!guilds::delete(&pool, GUILD).await.unwrap());
 }
+
+#[sqlx::test(migrations = "../api/migrations")]
+async fn delete_many_removes_only_listed_guilds(pool: PgPool) {
+    guilds::upsert(&pool, GUILD, "a", None).await.unwrap();
+    guilds::upsert(&pool, OTHER_GUILD, "b", None).await.unwrap();
+    let mut ids = guilds::list_ids(&pool).await.unwrap();
+    ids.sort();
+    assert_eq!(ids, vec![GUILD.to_owned(), OTHER_GUILD.to_owned()]);
+
+    // 停止中に退出したギルド (GUILD) と、もともと登録のない ID を渡しても、該当行だけ消える
+    let deleted = guilds::delete_many(&pool, &[GUILD.to_owned(), "333333333333333333".to_owned()])
+        .await
+        .unwrap();
+    assert_eq!(deleted, 1);
+    assert_eq!(
+        guilds::list_ids(&pool).await.unwrap(),
+        vec![OTHER_GUILD.to_owned()]
+    );
+
+    // 空の一覧では何も消えない
+    assert_eq!(guilds::delete_many(&pool, &[]).await.unwrap(), 0);
+}
