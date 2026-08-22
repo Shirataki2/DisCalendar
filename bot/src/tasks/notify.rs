@@ -49,7 +49,12 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
     // INTERVAL 後になるようにし、再試行の間隔を保証する
     let mut interval = tokio::time::interval(INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut last_checked = now_jst();
+    // Bot の停止中 (再起動・デプロイ・クラッシュ) に発火時刻を迎えた通知も拾えるよう、
+    // 起動直後の last_checked は「今」ではなく MAX_STALE_WINDOW だけ遡った時刻にする。
+    // last_checked をどこかに永続化して正確な停止期間を引き継ぐのがより厳密だが、
+    // 今回のスコープでは行わない。これを超える長期停止分は、DB 障害時と同じ
+    // clamp_stale_window のロジックで次の tick までに早送りされる (陳腐化した通知として扱う)
+    let mut last_checked = now_jst() - MAX_STALE_WINDOW;
     // event_settings の取得などが一時的に失敗して last_checked を進められなかった tick の
     // 再試行時に、同じ判定窓で既に送信済みの (event_id, 発火時刻) を重複送信しないための記録。
     // キーに発火分数ではなく実際の発火時刻を使うのは、待機中にユーザーが予定の開始時刻を
