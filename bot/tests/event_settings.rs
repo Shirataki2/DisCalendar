@@ -66,3 +66,36 @@ async fn set_updates_all_rows_when_old_data_has_duplicates(pool: PgPool) {
     .unwrap();
     assert_eq!(channels, vec!["1003".to_owned(), "1003".to_owned()]);
 }
+
+#[sqlx::test(migrations = "../api/migrations")]
+async fn concurrent_first_time_sets_leave_a_single_row(pool: PgPool) {
+    // 未設定のギルドで /init が同時に走っても、アドバイザリロックで直列化されて行は 1 つだけになる
+    let results = tokio::join!(
+        event_settings::set(&pool, GUILD, "1001"),
+        event_settings::set(&pool, GUILD, "1002"),
+        event_settings::set(&pool, GUILD, "1003"),
+        event_settings::set(&pool, GUILD, "1004"),
+    );
+    let results = [results.0, results.1, results.2, results.3];
+    for result in &results {
+        assert!(result.is_ok(), "{result:?}");
+    }
+    // 最初に通った 1 つだけが「初回設定 (None)」で、残りは変更前の値を受け取る
+    let first_time = results.iter().filter(|r| matches!(r, Ok(None))).count();
+    assert_eq!(first_time, 1);
+
+    let count: i64 = sqlx::query_scalar!("SELECT COUNT(*) AS \"count!\" FROM event_settings")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let current = event_settings::get(&pool, GUILD)
+        .await
+        .unwrap()
+        .unwrap()
+        .channel_id;
+    assert!(
+        ["1001", "1002", "1003", "1004"].contains(&current.as_str()),
+        "{current}"
+    );
+}
