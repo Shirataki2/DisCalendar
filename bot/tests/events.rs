@@ -86,13 +86,25 @@ async fn lists_are_scoped_to_guild_and_split_by_now(pool: PgPool) {
     )
     .await
     .unwrap();
-    events::create(
+    let other_now = events::create(
         &pool,
         &new_event(
             OTHER_GUILD,
             "他",
             "2026-08-15T12:00:00",
             "2026-08-15T13:00:00",
+        ),
+    )
+    .await
+    .unwrap();
+
+    let other_future = events::create(
+        &pool,
+        &new_event(
+            OTHER_GUILD,
+            "他の未来",
+            "2026-08-30T10:00:00",
+            "2026-08-30T11:00:00",
         ),
     )
     .await
@@ -109,11 +121,16 @@ async fn lists_are_scoped_to_guild_and_split_by_now(pool: PgPool) {
     );
     assert_eq!(
         events::list_future(&pool, GUILD, at).await.unwrap(),
-        vec![now, future]
+        vec![now.clone(), future.clone()]
     );
     assert_eq!(
         events::list_all(&pool, "333333333333333333").await.unwrap(),
         vec![]
+    );
+    // 通知タスクはギルドを横断して未来の予定を集める (start_at, id 順)
+    assert_eq!(
+        events::list_all_future(&pool, at).await.unwrap(),
+        vec![now, other_now, future, other_future]
     );
 }
 

@@ -2,13 +2,14 @@
 //!
 //! `guilds` テーブルは web のサーバー選択が「Bot 参加済み」の判定に使うので、
 //! Bot の参加・退出・ギルド名やアイコンの変更をここで反映する。
-//! 定期タスクの起動 (旧 `CacheReady`) は #4 で移す。コマンドの実行ログ (旧 `pre_command`) は `commands::log_invocation`。
+//! 定期タスク (通知 / presence / アイコン更新) は `ShardsReady` で起動する。
+//! コマンドの実行ログ (旧 `pre_command`) は `commands::log_invocation`。
 
 use std::collections::HashSet;
 
 use poise::serenity_prelude::{self as serenity, FullEvent};
 
-use crate::{data::Data, error::BotError, models::guilds};
+use crate::{data::Data, error::BotError, models::guilds, tasks};
 
 pub async fn handle_event(
     ctx: &serenity::Context,
@@ -26,6 +27,14 @@ pub async fn handle_event(
             );
             // 停止中にサーバーから退出させられた分は GuildDelete が届かないので、ここで掃除する
             reconcile_guilds(ctx, data).await?;
+        }
+        // 全シャードが Ready を受け取った後に一度だけ発火する (autosharded 起動でも定期タスクは1回だけ起動したい)。
+        // 念のため `mark_tasks_started` でも多重起動を防ぐ
+        FullEvent::ShardsReady { total_shards } => {
+            if data.mark_tasks_started() {
+                tracing::info!(total_shards, "starting periodic tasks");
+                tasks::spawn_all(ctx.clone(), data.clone());
+            }
         }
         // 起動時に参加済みの各ギルドと、新しく参加したときに届く。
         // 起動時の分も upsert して、停止中に変わった名前・アイコンや取りこぼしを取り戻す

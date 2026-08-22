@@ -10,7 +10,7 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 |---|---|
 | 起動・DB 接続・ギルド登録イベント (`guilds` テーブルの更新) | 移行済み (#2) |
 | スラッシュコマンド (help / create / list / init / invite / register) | 移行済み (#3)。旧版のプレフィックスコマンド `cal ...` は廃止 (下記) |
-| 定期タスク (予定の通知 / presence / 日付アイコン更新) | 未着手 (#4) |
+| 定期タスク (予定の通知 / presence / 日付アイコン更新) | 移行済み (#4) |
 | エラー監視 (Sentry) | #17 で検討 |
 
 ## コマンド
@@ -20,7 +20,7 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | `/help` | 使い方と招待 URL を埋め込みで表示 (本人にだけ見える) | – |
 | `/create` | 予定の作成。名称 / 開始・終了の年月日時分 (必須)、説明 / 終日 / 色 / 事前通知 4 つまで (任意)。`events` に api と同じ形式で保存するので web のカレンダーにそのまま出る | restricted モードのサーバーでは管理権限 (下記) が必要 |
 | `/list [範囲]` | 予定の一覧 (`過去` / `未来` (既定) / `全て`)。4 件ずつ「前へ」「次へ」でページ送り、「完了」で消える。web で作った予定も出る | – |
-| `/init [チャンネル]` | 予定の通知先チャンネルを設定 (省略時は実行したチャンネル)。Bot にそのチャンネルでの「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限がなければ保存せず理由を返す。`event_settings` に保存し、通知タスク (#4) が読む | 管理権限が必要 |
+| `/init [チャンネル]` | 予定の通知先チャンネルを設定 (省略時は実行したチャンネル)。Bot にそのチャンネルでの「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限がなければ保存せず理由を返す。`event_settings` に保存し、通知タスク (`tasks/notify.rs`) が読む | 管理権限が必要 |
 | `/invite` | Bot の招待 URL を表示 | – |
 | `@DisCalendar register` | スラッシュコマンドを Discord に登録・削除するボタンを出す (このサーバーだけ / グローバル)。help には出ない | Bot のオーナー |
 
@@ -56,6 +56,12 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | 参加・退出のログ通知 | コードに埋め込んだチャンネル ID に送信 | `BOT_LOG_CHANNEL_ID` のチャンネルに送信 (未設定なら送らない)。送信失敗は warn ログのみ |
 | Gateway インテント | `non_privileged` | 同じ (ギルドイベントには `GUILDS`、メンションでの `register` には `GUILD_MESSAGES` が必要で、どちらも含まれる) |
 | 終了処理 | なし | SIGINT / SIGTERM でシャードを閉じてから終了 (docker stop 向け) |
+| 定期タスクの起動 | `CacheReady` (+ `AtomicBool` で二重起動を防止) | `ShardsReady` (全シャードが `Ready` を受け取った後に一度だけ発火) + `Data::mark_tasks_started` で二重起動を防止 |
+| presence の案内文言 | `cal help` / `/help` / サーバー数 / URL を順送り | 廃止済みの `cal help` は出さず、`/help` / サーバー数 / URL の3つを順送り |
+| presence の切り替え API | `ctx.set_presence(...).await` (非同期) | serenity 0.12 で同期 API に変更 (`ctx.set_presence(...)`) |
+| アイコン更新の対象サーバー | サポートサーバー ID をコードにハードコード | `BOT_SUPPORT_GUILD_ID` (任意。未設定ならサーバーアイコンの更新をスキップ) |
+| アイコン画像の読み込み | 手動で base64 エンコード (`base64` crate) | `serenity::CreateAttachment::path` (base64 化は `EditProfile` / `EditGuild` が内部で行う) |
+| 祝日判定 | `jpholiday = "0.1"` | `jpholiday = "0.2"` (API 変更: `Date::new(year, month, day)` を使うフリー関数に) |
 
 DB スキーマは api (`api/migrations/`) が正で、Bot はマイグレーションを実行しない。
 `guilds` テーブルは web のサーバー選択 (`GET /guilds/joined`) が「Bot 参加済み」の判定に使う。
@@ -87,6 +93,11 @@ cargo fmt
 3. `/init` → `/create` → `/list` の順に試す。`/create` で作った予定は web のカレンダーに表示され、
    web で作った予定は `/list` に出る。web のサーバー設定で restricted を ON にすると、
    管理権限のないユーザーの `/create` は拒否される
+4. 定期タスク: `/init` の後、数分後に開始する予定を分前通知付きで `/create` すると、通知タイミングで
+   `/init` したチャンネルに embed が届く (終日予定・複数通知・前日通知でも試す)。プレゼンスは起動から
+   数十秒で「/help」→「N servers」→「discalendar.app」の順に切り替わる。日付入りアイコンは
+   JST 0:00 にしか更新されないので、確認するには `bot/src/tasks/icon_updater.rs` の時刻判定を
+   一時的に緩めるか、`BOT_SUPPORT_GUILD_ID` を設定したうえで日付が変わるタイミングを待つ
 
 ```sh
 psql -d discalendar_dev -c "SELECT guild_id, name, avatar_url, locale FROM guilds"
@@ -119,12 +130,14 @@ src/
   main.rs           エントリポイント (dotenv, tracing, Config)
   lib.rs            run(): DB 接続・poise Framework 構築 (コマンド登録・pre_command)・Gateway 接続・シグナル処理
   config.rs         環境変数
-  data.rs           Data (pool / ログチャンネル / 招待 URL) と Context 型
+  data.rs           Data (pool / ログチャンネル / 招待 URL / サポートサーバー ID) と Context 型
   error.rs          BotError (User = 本人に返す入力・権限エラー) と poise の on_error (日本語の返信)
-  event.rs          Gateway イベント (Ready / GuildCreate / GuildUpdate / GuildDelete)
+  event.rs          Gateway イベント (Ready / ShardsReady / GuildCreate / GuildUpdate / GuildDelete)
   checks.rs         管理権限の判定 (api の can_manage_server と同じ)
   paginator.rs      /list のページ送り (ボタン付き埋め込み)
   commands/         スラッシュコマンド (help.txt は /help の本文)
   models/           sqlx クエリ (guilds / events / event_settings / guild_config) と通知形式の変換 (notifications)
+  tasks/            定期タスク (notify = 予定の通知 / presence = ステータス表示 / icon_updater = 日付アイコン)
 tests/              DB テスト (#[sqlx::test])
+assets/             icon_updater が使う日付入りアイコン画像 (01.png 〜 31.png、土曜は _b、日曜・祝日は _r)
 ```
