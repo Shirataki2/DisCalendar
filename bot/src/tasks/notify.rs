@@ -30,9 +30,12 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
     let mut interval = tokio::time::interval(INTERVAL);
     let mut last_checked = now_jst();
     // event_settings の取得などが一時的に失敗して last_checked を進められなかった tick の
-    // 再試行時に、同じ判定窓で既に送信済みの (event_id, 発火分数) を重複送信しないための記録。
-    // last_checked が確定 (=その判定窓の処理が完了) したら、次の窓では意味を持たないのでクリアする
-    let mut sent_in_window: HashSet<(i32, i64)> = HashSet::new();
+    // 再試行時に、同じ判定窓で既に送信済みの (event_id, 発火時刻) を重複送信しないための記録。
+    // キーに発火分数ではなく実際の発火時刻を使うのは、待機中にユーザーが予定の開始時刻を
+    // 変更すると同じ (event_id, 分数) でも発火時刻が変わり、変更後の新しい発火時刻への通知まで
+    // 「送信済み」と誤判定してしまうため (last_checked が確定した頃には既に判定窓の外になり、
+    // その通知が永久に送られなくなる)。last_checked が確定したら次の窓では意味を持たないのでクリアする
+    let mut sent_in_window: HashSet<(i32, NaiveDateTime)> = HashSet::new();
     loop {
         interval.tick().await;
         let now = now_jst();
@@ -53,7 +56,7 @@ async fn run_once(
     data: &Data,
     last_checked: NaiveDateTime,
     now: NaiveDateTime,
-    sent_in_window: &mut HashSet<(i32, i64)>,
+    sent_in_window: &mut HashSet<(i32, NaiveDateTime)>,
 ) -> bool {
     // 開始時刻通知 (0分前) の発火時刻は start そのものなので、start >= last_checked の予定を
     // 取得すれば、事前通知 (start は未来) と開始時刻通知 (start は前回チェック以降) の両方を拾える
@@ -80,7 +83,7 @@ async fn notify_for_event(
     event: &Event,
     last_checked: NaiveDateTime,
     now: NaiveDateTime,
-    sent_in_window: &mut HashSet<(i32, i64)>,
+    sent_in_window: &mut HashSet<(i32, NaiveDateTime)>,
 ) -> bool {
     let (start, end) = effective_range(event);
     // 予定開始そのものへの通知を、他の「num unit 前」の通知と同じ仕組みで扱う
@@ -92,13 +95,16 @@ async fn notify_for_event(
 
     // 先に今回送る通知を絞ってから event_settings を引く。全未来予定に対して毎 tick
     // SELECT すると、予定が増えるほど DB 負荷とタスクの所要時間が際限なく伸びてしまう。
-    // 同じ判定窓の再試行で既に送信済みの発火分数は除く (event_settings 取得の失敗などで
+    // 同じ判定窓の再試行で既に送信済みの発火時刻は除く (event_settings 取得の失敗などで
     // last_checked が進まなかった場合に、他の予定の通知まで重複送信しないため)
-    let due: Vec<Notification> = notifications
+    let due: Vec<(Notification, NaiveDateTime)> = notifications
         .into_iter()
-        .filter(|notification| {
-            is_due(start, notification.total_minutes(), last_checked, now)
-                && !sent_in_window.contains(&(event.id, notification.total_minutes()))
+        .filter_map(|notification| {
+            let minutes = notification.total_minutes();
+            let fire = fire_at(start, minutes)?;
+            (is_due(start, minutes, last_checked, now)
+                && !sent_in_window.contains(&(event.id, fire)))
+            .then_some((notification, fire))
         })
         .collect();
     if due.is_empty() {
@@ -131,9 +137,9 @@ async fn notify_for_event(
     };
 
     let mut all_sent = true;
-    for notification in due {
+    for (notification, fire) in due {
         if send_notification(ctx, channel_id, event, notification, start, end).await {
-            sent_in_window.insert((event.id, notification.total_minutes()));
+            sent_in_window.insert((event.id, fire));
         } else {
             // Discord API やネットワークの一時障害で embed もフォールバックも失敗した場合、
             // 送信済みとして記録すると次の判定窓で二度と再試行されず失われてしまう
@@ -169,31 +175,32 @@ fn effective_range(event: &Event) -> (NaiveDateTime, NaiveDateTime) {
     }
 }
 
-/// 通知の発火時刻 (`start` の `minutes_before` 分前) が、前回チェックした時刻から
-/// 今回のチェックまでの間 (`[last_checked, now)`) に入っているか。
-///
-/// 固定長の窓ではなく実際に経過した時間で判定することで、1回の `run_once` が
-/// (対象が多い・Discord API が遅いなどで) 60秒を超えても、その間に発火時刻を
-/// 迎えた通知を取りこぼさない。
+/// `start` の `minutes_before` 分前の時刻 (通知の発火時刻)。
 ///
 /// `num` は API 側で値域を検証していない `u32` なので、事前通知の分数換算値が巨大になり
 /// 日時の演算がオーバーフローし得る。checked 演算にして、オーバーフロー時は
-/// (どのみち計算不能な通知として) 対象外にする。ここで panic すると `run_loop` の
+/// (どのみち計算不能な通知として) None を返す。ここで panic すると `run_loop` の
 /// tokio タスクごと停止し、`Data::mark_tasks_started` のガードで再起動もされず
 /// 全ギルドの通知が止まってしまうため、必ず素通りできない形にしておく
+fn fire_at(start: NaiveDateTime, minutes_before: i64) -> Option<NaiveDateTime> {
+    let offset = Duration::try_minutes(minutes_before)?;
+    start.checked_sub_signed(offset)
+}
+
+/// 通知の発火時刻が、前回チェックした時刻から今回のチェックまでの間 (`[last_checked, now)`)
+/// に入っているか。固定長の窓ではなく実際に経過した時間で判定することで、1回の `run_once` が
+/// (対象が多い・Discord API が遅いなどで) 60秒を超えても、その間に発火時刻を迎えた通知を
+/// 取りこぼさない
 fn is_due(
     start: NaiveDateTime,
     minutes_before: i64,
     last_checked: NaiveDateTime,
     now: NaiveDateTime,
 ) -> bool {
-    let Some(offset) = Duration::try_minutes(minutes_before) else {
+    let Some(fire) = fire_at(start, minutes_before) else {
         return false;
     };
-    let Some(fire_at) = start.checked_sub_signed(offset) else {
-        return false;
-    };
-    fire_at >= last_checked && fire_at < now
+    fire >= last_checked && fire < now
 }
 
 /// embed かフォールバックのプレーンテキストのいずれかが実際に届いたら true。
@@ -360,6 +367,20 @@ mod tests {
 
     fn dt(s: &str) -> NaiveDateTime {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn fire_at_computes_minutes_before_start() {
+        let start = dt("2026-08-23T10:00:00");
+        assert_eq!(fire_at(start, 30), Some(dt("2026-08-23T09:30:00")));
+        assert_eq!(fire_at(start, 0), Some(start));
+    }
+
+    #[test]
+    fn fire_at_returns_none_on_overflow() {
+        let start = dt("2026-08-23T10:00:00");
+        assert_eq!(fire_at(start, i64::MAX), None);
+        assert_eq!(fire_at(start, i64::MIN), None);
     }
 
     #[test]
