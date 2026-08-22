@@ -85,32 +85,37 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 const STARTUP_LOCK_ID: i64 = 8_612_004;
 
 /// 無効なインデックスの掃除とマイグレーションの適用を、複数の API インスタンス間で
-/// 直列化しながら行う
+/// 直列化しながら行う。
+///
+/// アドバイザリロックの取得から掃除・マイグレーション適用・ロック解放までを
+/// 同じ1本の接続で行う。ロック用とは別にプールから接続を確保すると、
+/// `DATABASE_MAX_CONNECTIONS=1` のような設定でプールの接続が尽きて後続の
+/// 操作がタイムアウトしてしまう (この設定値自体は現状拒否していない)
 async fn run_startup_migrations(pool: &sqlx::PgPool) -> anyhow::Result<()> {
-    let mut lock_conn = pool
+    let mut conn = pool
         .acquire()
         .await
-        .context("failed to acquire a connection for the startup lock")?;
+        .context("failed to acquire a connection for startup migrations")?;
     sqlx::query("SELECT pg_advisory_lock($1)")
         .bind(STARTUP_LOCK_ID)
-        .execute(&mut *lock_conn)
+        .execute(&mut *conn)
         .await
         .context("failed to acquire the startup advisory lock")?;
 
     let result = async {
-        cleanup_invalid_concurrent_indexes(pool).await?;
+        cleanup_invalid_concurrent_indexes(&mut conn).await?;
         // 旧実装の entrypoint が `sqlx migrate run` してから起動していたのと同じ振る舞い
         sqlx::migrate!("./migrations")
-            .run(pool)
+            .run(&mut conn)
             .await
             .context("failed to run migrations")
     }
     .await;
 
-    // pg_advisory_lock はセッションスコープなので、ロック取得と同じコネクションで解放する
+    // pg_advisory_lock はセッションスコープなので、ロック取得と同じ接続で解放する
     if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(STARTUP_LOCK_ID)
-        .execute(&mut *lock_conn)
+        .execute(&mut *conn)
         .await
     {
         tracing::warn!(error = %e, "failed to release the startup advisory lock");
@@ -133,18 +138,29 @@ async fn run_startup_migrations(pool: &sqlx::PgPool) -> anyhow::Result<()> {
 /// CONCURRENTLY で行う (トランザクション内では実行できないため DO ブロックは使わず、
 /// 先に存在確認してから条件付きで実行する)。呼び出し元 (`run_startup_migrations`) が
 /// アドバイザリロックで直列化しているので、他インスタンスが構築中の有効なインデックスを
-/// 誤って消すことはない
-async fn cleanup_invalid_concurrent_indexes(pool: &sqlx::PgPool) -> anyhow::Result<()> {
+/// 誤って消すことはない。
+///
+/// 存在確認は `public.events` テーブルに紐づく `public.idx_events_start_at` だけに絞る。
+/// スキーマ・対象テーブルを限定しないと、同じデータベースの無関係なスキーマにたまたま
+/// 同名の無効インデックスがあるだけで真になり、その後の DROP が `search_path` の解決順で
+/// 見つかった別の (対象テーブルの有効な) インデックスを消しかねない
+async fn cleanup_invalid_concurrent_indexes(conn: &mut sqlx::PgConnection) -> anyhow::Result<()> {
     let has_invalid_index: bool = sqlx::query_scalar(
         r#"
         SELECT EXISTS (
-            SELECT 1 FROM pg_class c
-            JOIN pg_index i ON i.indexrelid = c.oid
-            WHERE c.relname = 'idx_events_start_at' AND NOT i.indisvalid
+            SELECT 1
+            FROM pg_index i
+            JOIN pg_class idx ON idx.oid = i.indexrelid
+            JOIN pg_class tbl ON tbl.oid = i.indrelid
+            JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+            WHERE idx.relname = 'idx_events_start_at'
+              AND tbl.relname = 'events'
+              AND ns.nspname = 'public'
+              AND NOT i.indisvalid
         )
         "#,
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await
     .context("failed to check for an invalid idx_events_start_at index")?;
 
@@ -152,8 +168,8 @@ async fn cleanup_invalid_concurrent_indexes(pool: &sqlx::PgPool) -> anyhow::Resu
         return Ok(());
     }
     tracing::warn!("found an invalid idx_events_start_at index, dropping it concurrently");
-    sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS idx_events_start_at")
-        .execute(pool)
+    sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS public.idx_events_start_at")
+        .execute(&mut *conn)
         .await
         .context("failed to drop an invalid idx_events_start_at index")?;
     Ok(())
