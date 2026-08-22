@@ -55,12 +55,13 @@ jobs:
           plugins: "code-review@claude-code-plugins"
           # --comment で PR にインラインコメントを付ける (無いと実行ログにしか出ない)
           prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
-          # 動作確認のため一時的に Claude の全出力 (ツールの実行結果を含む) をログに出す。
-          # public リポジトリなので、レビュー本体が走ることを確認したら外す (#19)
-          show_full_output: true
           # --allowedTools: プラグイン (plugins/code-review/commands/code-review.md の allowed-tools) が使う gh コマンドを
           #   明示的に許可する。ヘッドレス実行では許可外のツール呼び出しが自動で拒否され、レビューが始まる前に
-          #   終了していた (#19)。インラインコメント用の MCP サーバーは --allowedTools に書いたときだけ起動する
+          #   終了していた (#19)。インラインコメント用の MCP サーバーは --allowedTools に書いたときだけ起動する。
+          #   なお action はこのファイルが main と同一内容のときしか動かない (PR 上では検証できない) ので、
+          #   変更後は main にマージしてから別の PR の review ジョブで確認する (result の num_turns / duration_ms /
+          #   modelUsage に opus が含まれるか。1 分未満・Opus なしならレビュー本体に到達していない)。
+          #   やり取りの全文が必要なときだけ一時的に show_full_output: true を付ける (public リポジトリなので常用しない)
           # --append-system-prompt: プラグインの適格性チェックが Claude Code 製の PR を「自動生成 PR」と誤判定しないようにし、
           #   レビュー規約の場所 (AGENTS.md) と日本語で書くことを伝える
           claude_args: |
