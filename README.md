@@ -12,7 +12,7 @@ Discord 用のカレンダーアプリ。予定の作成から通知まで、ブ
 |---|---|---|
 | `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
 | `api/` | Rust API（actix-web 4 + sqlx 0.9、旧版から移行） | 移行済み（[README](api/README.md)） |
-| `bot/` | Discord Bot（poise 0.6 + serenity 0.12 + sqlx 0.9、旧版から移行中） | 基盤 (起動 / DB 接続 / ギルドの参加・退出・更新を `guilds` に反映) を移行済み（[README](bot/README.md)）。スラッシュコマンド (#3) と定期タスク (#4) は未着手 |
+| `bot/` | Discord Bot（poise 0.6 + serenity 0.12 + sqlx 0.9、旧版から移行中） | 基盤 (起動 / DB 接続 / ギルドの参加・退出・更新を `guilds` に反映) とスラッシュコマンド (help / create / list / init / invite / register) を移行済み（[README](bot/README.md)）。定期タスク (#4) は未着手 |
 | `docs/` | 技術選定・設計ドキュメント | [技術選定](docs/tech-stack-selection.md) |
 
 Rust 側（api / bot）はルートの `Cargo.toml` を workspace とし、`rust-toolchain.toml` で toolchain を固定している。
@@ -89,6 +89,8 @@ psql -d discalendar_dev -c "INSERT INTO guilds (guild_id, name, avatar_url, loca
 
 api と同じ DB と Bot トークンを使う。起動すると Discord に接続し、参加中のサーバーを `guilds` テーブルに反映する
 （Bot をサーバーに招待・退出させるとテーブルが更新される）。
+スラッシュコマンド (`/help` `/create` `/list` `/init` `/invite`) は、Bot のオーナーがテスト用サーバーで
+`@DisCalendar register` と送って「Register in guild」を押すと使えるようになる（詳細は [bot/README.md](bot/README.md)）。
 
 ```sh
 cd bot

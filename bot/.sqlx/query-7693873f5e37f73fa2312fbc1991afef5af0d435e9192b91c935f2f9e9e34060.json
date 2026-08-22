@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at)\n        VALUES ($1, 'web の予定', NULL, $2, '#F44336', TRUE, '2026-08-23 00:00:00', '2026-08-24 00:00:00')\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7693873f5e37f73fa2312fbc1991afef5af0d435e9192b91c935f2f9e9e34060"
+}

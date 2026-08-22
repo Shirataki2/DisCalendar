@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT restricted FROM guild_config WHERE guild_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "restricted",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "guild_config",
+            "name": "restricted"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "699625726fb3c4e55029d62726ff63f26a2d6c254d7657bf43c7fd9fcd9fa2f7"
+}

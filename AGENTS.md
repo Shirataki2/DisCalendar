@@ -6,8 +6,9 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - `web/`: Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui (Base UI ベース)。
   Next.js の API は学習データと違うことがあるので、`web/AGENTS.md` の注意に従い `web/node_modules/next/dist/docs/` を確認してから書く
 - `api/`: Rust (actix-web 4 + sqlx 0.9 + PostgreSQL)。詳細は [api/README.md](api/README.md)
-- `bot/`: Rust (poise 0.6 + serenity 0.12 + sqlx 0.9)。ギルドの参加・退出・更新を `guilds` テーブルに反映する。
-  コマンド (#3) と定期タスク (#4) は移行中。詳細は [bot/README.md](bot/README.md)
+- `bot/`: Rust (poise 0.6 + serenity 0.12 + sqlx 0.9)。ギルドの参加・退出・更新を `guilds` テーブルに反映し、
+  スラッシュコマンド (help / create / list / init / invite、オーナー用 register) を提供する。定期タスク (#4) は移行中。
+  予定の保存形式 (JST naive / 旧形式の通知 JSON / 終日予定の表現) は api と揃える。詳細は [bot/README.md](bot/README.md)
 - 旧実装は `tmp/DisCalendarV2/` (git 管理外) にある。移行時の挙動の根拠はそこを見る
 
 ## コマンド
