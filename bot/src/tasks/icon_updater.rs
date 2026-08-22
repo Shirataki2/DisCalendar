@@ -1,10 +1,13 @@
 //! JST の日付が変わったら Bot 本体とサポートサーバーのアイコンを日付入りのものへ差し替える
 //! (旧 `tasks/icon_updater.rs` 相当)。
 //!
-//! 「最後に更新した日付」を保持し、当日分をまだ反映していなければ更新する設計にしている。
+//! 「最後に更新に成功した日付」を Bot 本体・サポートサーバーそれぞれ別に保持し、
+//! 当日分をまだ反映できていない対象だけ更新する設計にしている。
 //! 旧実装のように「tick がちょうど 0:00 台に来たときだけ更新する」形だと、Bot を 0:01 以降に
 //! 起動した場合や日付を跨いで停止していた場合に前日のアイコンが翌日の 0:00 まで残ってしまうため、
 //! 起動直後の最初の tick でも当日分が未反映なら即座に更新する。
+//! 対象ごとに成功可否を追跡するのは、画像読み込みや Discord API の一時的な失敗、
+//! 片方だけの失敗を「当日は完了した」ことにして次の日まで再試行しないままにしないため。
 //!
 //! 画像は `bot/assets/{DD}.png` (平日) / `{DD}_b.png` (土曜) / `{DD}_r.png` (日曜・祝日)
 //! (`tmp/DisCalendarV2/bot/assets/` からコピーしたもの)。
@@ -13,7 +16,9 @@ use std::{path::PathBuf, time::Duration as StdDuration};
 
 use chrono::{Datelike, NaiveDate, Weekday};
 use jpholiday::Date as JpDate;
-use poise::serenity_prelude::{self as serenity, CreateAttachment, EditGuild, EditProfile};
+use poise::serenity_prelude::{
+    self as serenity, CreateAttachment, EditGuild, EditProfile, GuildId,
+};
 
 use crate::{data::Data, models::now_jst};
 
@@ -22,43 +27,78 @@ const ASSETS_DIR: &str = "assets";
 
 pub async fn run_loop(ctx: serenity::Context, data: Data) {
     let mut interval = tokio::time::interval(INTERVAL);
-    let mut last_updated: Option<NaiveDate> = None;
+    let mut avatar_updated_on: Option<NaiveDate> = None;
+    let mut guild_icon_updated_on: Option<NaiveDate> = None;
     loop {
         interval.tick().await;
         let today = now_jst().date();
-        if last_updated == Some(today) {
+        let avatar_done = avatar_updated_on == Some(today);
+        let guild_icon_done =
+            data.support_guild_id.is_none() || guild_icon_updated_on == Some(today);
+        if avatar_done && guild_icon_done {
             continue;
         }
-        run_once(&ctx, &data, today).await;
-        last_updated = Some(today);
+
+        let Some(attachment) = load_icon(today).await else {
+            continue;
+        };
+
+        if !avatar_done && update_bot_avatar(&ctx, &attachment).await {
+            avatar_updated_on = Some(today);
+        }
+        if !guild_icon_done
+            && let Some(support_guild_id) = data.support_guild_id
+            && update_support_guild_icon(&ctx, support_guild_id, &attachment).await
+        {
+            guild_icon_updated_on = Some(today);
+        }
     }
 }
 
-async fn run_once(ctx: &serenity::Context, data: &Data, today: NaiveDate) {
+async fn load_icon(today: NaiveDate) -> Option<CreateAttachment> {
     let path = icon_path(today);
-    let attachment = match CreateAttachment::path(&path).await {
-        Ok(attachment) => attachment,
+    match CreateAttachment::path(&path).await {
+        Ok(attachment) => Some(attachment),
         Err(e) => {
             tracing::error!(error = %e, path = %path.display(), "failed to read date icon");
-            return;
+            None
         }
-    };
-
-    let mut me = ctx.cache.current_user().clone();
-    match me.edit(ctx, EditProfile::new().avatar(&attachment)).await {
-        Ok(()) => tracing::info!("updated bot avatar"),
-        Err(e) => tracing::warn!(error = %e, "failed to update bot avatar"),
     }
+}
 
-    let Some(support_guild_id) = data.support_guild_id else {
-        return;
-    };
+/// 成功したら true (呼び出し側はこれを見て当日分を完了扱いにするか決める)
+async fn update_bot_avatar(ctx: &serenity::Context, attachment: &CreateAttachment) -> bool {
+    let mut me = ctx.cache.current_user().clone();
+    match me.edit(ctx, EditProfile::new().avatar(attachment)).await {
+        Ok(()) => {
+            tracing::info!("updated bot avatar");
+            true
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to update bot avatar");
+            false
+        }
+    }
+}
+
+/// 成功したら true (呼び出し側はこれを見て当日分を完了扱いにするか決める)
+async fn update_support_guild_icon(
+    ctx: &serenity::Context,
+    support_guild_id: GuildId,
+    attachment: &CreateAttachment,
+) -> bool {
     match support_guild_id
-        .edit(&ctx.http, EditGuild::new().icon(Some(&attachment)))
+        .edit(&ctx.http, EditGuild::new().icon(Some(attachment)))
         .await
     {
-        Ok(_) => tracing::info!("updated support guild icon"),
-        Err(e) => tracing::warn!(error = %e, "failed to update support guild icon"),
+        Ok(_) => {
+            tracing::info!("updated support guild icon");
+            true
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to update support guild icon");
+            false
+        }
     }
 }
 

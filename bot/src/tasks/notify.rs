@@ -32,29 +32,35 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
     loop {
         interval.tick().await;
         let now = now_jst();
-        run_once(&ctx, &data, last_checked, now).await;
-        last_checked = now;
+        // DB 取得に失敗した tick で last_checked を進めてしまうと、その窓で発火するはずだった
+        // 通知が二度と `is_due` の判定範囲に入らず永久に失われる。成功した時だけ確定させ、
+        // 失敗した窓は次の tick でも last_checked はそのままにして再試行する
+        if run_once(&ctx, &data, last_checked, now).await {
+            last_checked = now;
+        }
     }
 }
 
+/// 予定の取得に成功したら true。呼び出し側はこれを見て `last_checked` を更新するかどうか決める
 async fn run_once(
     ctx: &serenity::Context,
     data: &Data,
     last_checked: NaiveDateTime,
     now: NaiveDateTime,
-) {
+) -> bool {
     // 開始時刻通知 (0分前) の発火時刻は start そのものなので、start >= last_checked の予定を
     // 取得すれば、事前通知 (start は未来) と開始時刻通知 (start は前回チェック以降) の両方を拾える
     let events = match events::list_all_future(&data.pool, last_checked).await {
         Ok(events) => events,
         Err(e) => {
             tracing::error!(error = %e, "failed to fetch upcoming events");
-            return;
+            return false;
         }
     };
     for event in &events {
         notify_for_event(ctx, data, event, last_checked, now).await;
     }
+    true
 }
 
 async fn notify_for_event(
@@ -103,12 +109,15 @@ async fn notify_for_event(
     }
 }
 
-/// 同じ「num unit 前」の重複を除く (最初に現れた1件だけを残す)
+/// 同じ発火時刻 (分換算値) を持つ通知の重複を除く (最初に現れた1件だけを残す)。
+/// 「60分前」と「1時間前」のように `Notification` の構造体としては異なっても
+/// `total_minutes()` が一致するものは同じタイミングで二重に通知してしまうため、
+/// キーには構造体ではなく換算後の分数を使う
 fn dedup_notifications(notifications: Vec<Notification>) -> Vec<Notification> {
     let mut seen = HashSet::new();
     notifications
         .into_iter()
-        .filter(|n| seen.insert(*n))
+        .filter(|n| seen.insert(n.total_minutes()))
         .collect()
 }
 
@@ -364,6 +373,25 @@ mod tests {
                 Notification::new(30, NotificationUnit::Minutes),
                 Notification::new(1, NotificationUnit::Days),
                 Notification::new(0, NotificationUnit::Minutes),
+            ]
+        );
+    }
+
+    #[test]
+    fn dedup_notifications_treats_equal_minute_values_as_duplicates() {
+        // 「60分前」と「1時間前」、「24時間前」と「1日前」は Notification としては別要素でも
+        // total_minutes() が一致するので、どちらか片方だけ残す
+        let notifications = vec![
+            Notification::new(60, NotificationUnit::Minutes),
+            Notification::new(1, NotificationUnit::Hours),
+            Notification::new(24, NotificationUnit::Hours),
+            Notification::new(1, NotificationUnit::Days),
+        ];
+        assert_eq!(
+            dedup_notifications(notifications),
+            vec![
+                Notification::new(60, NotificationUnit::Minutes),
+                Notification::new(24, NotificationUnit::Hours),
             ]
         );
     }
