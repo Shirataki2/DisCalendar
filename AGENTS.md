@@ -6,14 +6,16 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - `web/`: Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui (Base UI ベース)。
   Next.js の API は学習データと違うことがあるので、`web/AGENTS.md` の注意に従い `web/node_modules/next/dist/docs/` を確認してから書く
 - `api/`: Rust (actix-web 4 + sqlx 0.9 + PostgreSQL)。詳細は [api/README.md](api/README.md)
-- `bot/`: 未着手 (旧版から移行予定)
+- `bot/`: Rust (poise 0.6 + serenity 0.12 + sqlx 0.9)。ギルドの参加・退出・更新を `guilds` テーブルに反映する。
+  コマンド (#3) と定期タスク (#4) は移行中。詳細は [bot/README.md](bot/README.md)
 - 旧実装は `tmp/DisCalendarV2/` (git 管理外) にある。移行時の挙動の根拠はそこを見る
 
 ## コマンド
 
 - web (`web/` で実行): `pnpm lint` (Biome) / `pnpm exec tsc --noEmit` / `pnpm build`
-- api (ルートで実行): `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test` (Postgres が必要)。
-  `query!` を追加・変更したら `cargo sqlx prepare` で `.sqlx/` を更新する (CI は `SQLX_OFFLINE=true`)
+- api / bot (ルートで実行): `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` (Postgres が必要)。
+  `query!` を追加・変更したら該当クレートのディレクトリで `cargo sqlx prepare -- --all-targets` を実行し、
+  `api/.sqlx/` / `bot/.sqlx/` を更新する (CI は `SQLX_OFFLINE=true`)
 - コメント・ドキュメント・PR の文章は日本語
 
 ## Code Review Rules

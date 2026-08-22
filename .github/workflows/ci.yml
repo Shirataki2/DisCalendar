@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       web: ${{ steps.filter.outputs.web }}
-      api: ${{ steps.filter.outputs.api }}
+      rust: ${{ steps.filter.outputs.rust }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -31,8 +31,9 @@ jobs:
             web:
               - "web/**"
               - ".github/workflows/ci.yml"
-            api:
+            rust:
               - "api/**"
+              - "bot/**"
               - "Cargo.toml"
               - "Cargo.lock"
               - "rust-toolchain.toml"
@@ -79,10 +80,11 @@ jobs:
           BETTER_AUTH_SECRET: ci-dummy-secret-not-used-at-runtime
           BETTER_AUTH_URL: http://localhost:3000
 
-  api:
-    name: api
+  # Cargo workspace (api / bot) をまとめて検証する
+  rust:
+    name: rust
     needs: changes
-    if: needs.changes.outputs.api == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     services:
       # `#[sqlx::test]` がテストごとに一時 DB を作るので superuser で繋ぐ
@@ -101,7 +103,7 @@ jobs:
           --health-retries 10
     env:
       CARGO_TERM_COLOR: always
-      # query! のコンパイル時チェックは .sqlx/ のキャッシュを使う (api/README.md)
+      # query! のコンパイル時チェックは各クレートの .sqlx/ のキャッシュを使う (api/README.md)
       SQLX_OFFLINE: "true"
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/discalendar_test
     steps:
@@ -119,10 +121,10 @@ jobs:
         run: cargo test --workspace
 
   # ルールセットの必須ステータスチェックはこのジョブだけを見る。
-  # web / api は変更がなければ skipped になるので、それは成功として扱う
+  # web / rust は変更がなければ skipped になるので、それは成功として扱う
   ci:
     name: ci
-    needs: [changes, web, api]
+    needs: [changes, web, rust]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -130,11 +132,11 @@ jobs:
         env:
           CHANGES: ${{ needs.changes.result }}
           WEB: ${{ needs.web.result }}
-          API: ${{ needs.api.result }}
+          RUST: ${{ needs.rust.result }}
         run: |
-          echo "changes=$CHANGES web=$WEB api=$API"
+          echo "changes=$CHANGES web=$WEB rust=$RUST"
           [ "$CHANGES" = "success" ] || exit 1
-          for r in "$WEB" "$API"; do
+          for r in "$WEB" "$RUST"; do
             case "$r" in
               success|skipped) ;;
               *) exit 1 ;;

@@ -22,7 +22,7 @@ updates:
       day: monday
       time: "09:00"
       timezone: Asia/Tokyo
-    labels: [dependencies, "area:api"]
+    labels: [dependencies, "area:api", "area:bot"]
     open-pull-requests-limit: 5
     groups:
       rust-minor-patch:

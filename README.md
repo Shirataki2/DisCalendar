@@ -12,7 +12,7 @@ Discord 用のカレンダーアプリ。予定の作成から通知まで、ブ
 |---|---|---|
 | `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
 | `api/` | Rust API（actix-web 4 + sqlx 0.9、旧版から移行） | 移行済み（[README](api/README.md)） |
-| `bot/` | Discord Bot（Rust、旧版から移行予定） | 未着手 |
+| `bot/` | Discord Bot（poise 0.6 + serenity 0.12 + sqlx 0.9、旧版から移行中） | 基盤 (起動 / DB 接続 / ギルドの参加・退出・更新を `guilds` に反映) を移行済み（[README](bot/README.md)）。スラッシュコマンド (#3) と定期タスク (#4) は未着手 |
 | `docs/` | 技術選定・設計ドキュメント | [技術選定](docs/tech-stack-selection.md) |
 
 Rust 側（api / bot）はルートの `Cargo.toml` を workspace とし、`rust-toolchain.toml` で toolchain を固定している。
@@ -78,11 +78,22 @@ Discord ログインを通すには [Discord Developer Portal](https://discord.c
 OAuth2 Redirects に `http://localhost:3000/api/auth/callback/discord` を登録し、
 Client Secret を `.env.local` の `DISCORD_CLIENT_SECRET` に設定する。
 
-サーバー選択画面の「Bot が参加しているサーバー」は API が `guilds` テーブル（本番では Bot が書き込む）で判定する。
-ローカルではこのテーブルが空なので、Bot が実際に参加しているサーバーを手で登録しておく:
+サーバー選択画面の「Bot が参加しているサーバー」は API が `guilds` テーブル（Bot が書き込む）で判定する。
+ローカルでは下の bot を起動すれば参加中のサーバーが登録される。Bot を動かさない場合は手で登録しておく:
 
 ```sh
 psql -d discalendar_dev -c "INSERT INTO guilds (guild_id, name, avatar_url, locale) VALUES ('<guild_id>', '<name>', NULL, 'ja') ON CONFLICT DO NOTHING"
+```
+
+### bot
+
+api と同じ DB と Bot トークンを使う。起動すると Discord に接続し、参加中のサーバーを `guilds` テーブルに反映する
+（Bot をサーバーに招待・退出させるとテーブルが更新される）。
+
+```sh
+cd bot
+cp .env.example .env   # DATABASE_URL / DISCORD_BOT_TOKEN (api と同じ値)、BOT_LOG_CHANNEL_ID は任意
+cargo run              # マイグレーションは api が適用するので、先に api を一度起動しておく
 ```
 
 ## 開発の進め方 (GitHub)
@@ -91,7 +102,7 @@ psql -d discalendar_dev -c "INSERT INTO guilds (guild_id, name, avatar_url, loca
   マイルストーン「v3 リリース」と `area:*` ラベルを付けて進捗を追う
 - `main` への直接 push は禁止 (ルールセット)。ブランチを切って PR を作り、本文の `Closes #N` で Issue と紐付ける
   (`gh issue develop N --checkout` でブランチを作れる)。マージは squash のみで、マージ後のブランチは自動削除される
-- PR では CI (`.github/workflows/ci.yml`: web は Biome / tsc / next build、api は rustfmt / clippy / test) が通ることが必須
+- PR では CI (`.github/workflows/ci.yml`: web は Biome / tsc / next build、rust (api / bot) は rustfmt / clippy / test) が通ることが必須
 - AI レビュー: Claude (`.github/workflows/claude-code-review.yml`、secret `CLAUDE_CODE_OAUTH_TOKEN` が必要) と
   Codex (Codex クラウドの GitHub 連携で自動レビュー) が PR を確認する。コメントで `@claude` / `@codex review` と呼ぶと追加で依頼できる。
   レビューの観点は [AGENTS.md](AGENTS.md) の「Code Review Rules」

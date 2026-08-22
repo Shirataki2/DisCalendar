@@ -1,7 +1,7 @@
 # Rust 側 (api / bot) のワークスペース。web は pnpm で別管理。
 [workspace]
 resolver = "3"
-members = ["api"]
+members = ["api", "bot"]
 
 [workspace.package]
 edition = "2024"

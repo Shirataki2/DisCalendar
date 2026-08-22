@@ -1,0 +1,24 @@
+[package]
+name = "discalendar-bot"
+version = "3.0.0"
+description = "DisCalendar Discord Bot (guild registration / slash commands / notifications)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "discalendar-bot"
+path = "src/main.rs"
+
+[dependencies]
+# poise 0.6 は serenity 0.12 に対応。serenity の型は poise::serenity_prelude 経由で使う
+poise = "0.6"
+# sync: reconcile と upsert の直列化に tokio::sync::RwLock を使う
+tokio = { workspace = true, features = ["sync"] }
+sqlx.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dotenvy.workspace = true
