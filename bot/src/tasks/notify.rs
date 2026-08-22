@@ -2,8 +2,8 @@
 //!
 //! 60秒ごとに全ギルド横断で未来の予定を取得し、各予定の通知設定 (「num unit 前」、
 //! 予定開始そのものを含む) が今のタイミングに重なっていれば `event_settings` の通知先チャンネルへ
-//! embed を送る。判定には分単位に丸めない生の現在時刻を使い、1分の判定窓でタスクの実行間隔の
-//! ジッターを吸収する (旧実装と同じ設計)。
+//! embed を送る。判定には分単位に丸めない生の現在時刻を使い、1分の判定窓で `tokio::time::interval`
+//! の一定周期を吸収する (旧実装と同じ設計)。
 
 use std::time::Duration as StdDuration;
 
@@ -23,15 +23,21 @@ use crate::{
 const INTERVAL: StdDuration = StdDuration::from_secs(60);
 
 pub async fn run_loop(ctx: serenity::Context, data: Data) {
+    // sleep 方式だと実際の周期が「60秒 + 前回の処理時間」になり、is_due の1分窓とずれて
+    // 分境界をまたいだ通知を取りこぼす。interval なら処理時間を含めず一定周期で tick できる
+    let mut interval = tokio::time::interval(INTERVAL);
     loop {
+        interval.tick().await;
         run_once(&ctx, &data).await;
-        tokio::time::sleep(INTERVAL).await;
     }
 }
 
 async fn run_once(ctx: &serenity::Context, data: &Data) {
     let now = now_jst();
-    let events = match events::list_all_future(&data.pool, now).await {
+    // 開始時刻通知 (0分前) は is_due 側で `start < now` の窓になるので、
+    // `start_at >= now` だけでは対象が常にクエリから漏れる。直前1分に開始した予定も含めて取得する
+    let query_from = now - Duration::minutes(1);
+    let events = match events::list_all_future(&data.pool, query_from).await {
         Ok(events) => events,
         Err(e) => {
             tracing::error!(error = %e, "failed to fetch upcoming events");
@@ -44,6 +50,21 @@ async fn run_once(ctx: &serenity::Context, data: &Data) {
 }
 
 async fn notify_for_event(ctx: &serenity::Context, data: &Data, event: &Event, now: NaiveDateTime) {
+    let (start, end) = effective_range(event);
+    // 予定開始そのものへの通知を、他の「num unit 前」の通知と同じ仕組みで扱う
+    let mut notifications = event.notifications();
+    notifications.push(Notification::new(0, NotificationUnit::Minutes));
+
+    // 先に今回送る通知を絞ってから event_settings を引く。全未来予定に対して毎 tick
+    // SELECT すると、予定が増えるほど DB 負荷とタスクの所要時間が際限なく伸びてしまう
+    let due: Vec<Notification> = notifications
+        .into_iter()
+        .filter(|notification| is_due(start, notification.total_minutes(), now))
+        .collect();
+    if due.is_empty() {
+        return;
+    }
+
     let setting = match event_settings::get(&data.pool, &event.guild_id).await {
         Ok(Some(setting)) => setting,
         Ok(None) => return,
@@ -60,15 +81,7 @@ async fn notify_for_event(ctx: &serenity::Context, data: &Data, event: &Event, n
         return;
     };
 
-    let (start, end) = effective_range(event);
-    // 予定開始そのものへの通知を、他の「num unit 前」の通知と同じ仕組みで扱う
-    let mut notifications = event.notifications();
-    notifications.push(Notification::new(0, NotificationUnit::Minutes));
-
-    for notification in notifications {
-        if !is_due(start, notification.total_minutes(), now) {
-            continue;
-        }
+    for notification in due {
         send_notification(ctx, channel_id, event, notification, start, end).await;
     }
 }
@@ -89,10 +102,23 @@ fn effective_range(event: &Event) -> (NaiveDateTime, NaiveDateTime) {
 
 /// `minutes_before` 分前がちょうど今のタスク実行タイミングに重なるか。
 /// 生の現在時刻 (秒を含む) を使って `[target - 1分, target)` の窓で見ることで、
-/// 60秒間隔での実行タイミングのずれを吸収する
+/// 60秒間隔での実行タイミングのずれを吸収する。
+///
+/// `num` は API 側で値域を検証していない `u32` なので、事前通知の分数換算値が巨大になり
+/// 日時の演算がオーバーフローし得る。checked 演算にして、オーバーフロー時は
+/// (どのみち計算不能な通知として) 対象外にする。ここで panic すると `run_loop` の
+/// tokio タスクごと停止し、`Data::mark_tasks_started` のガードで再起動もされず
+/// 全ギルドの通知が止まってしまうため、必ず素通りできない形にしておく
 fn is_due(start: NaiveDateTime, minutes_before: i64, now: NaiveDateTime) -> bool {
-    let target = now + Duration::minutes(minutes_before);
-    let window_start = target - Duration::minutes(1);
+    let Some(offset) = Duration::try_minutes(minutes_before) else {
+        return false;
+    };
+    let Some(target) = now.checked_add_signed(offset) else {
+        return false;
+    };
+    let Some(window_start) = target.checked_sub_signed(Duration::minutes(1)) else {
+        return false;
+    };
     start >= window_start && start < target
 }
 
@@ -115,8 +141,15 @@ async fn send_notification(
             "failed to send notification embed, falling back to plain text"
         );
         let content = build_plain_text(event, notification, start, end);
+        // embed と違い、プレーンテキストは予定名・説明中の @everyone やロール/ユーザーメンションを
+        // そのまま解釈してしまうので、明示的に許可したメンションを空にして無効化する
         if let Err(e) = channel_id
-            .send_message(&ctx.http, serenity::CreateMessage::new().content(content))
+            .send_message(
+                &ctx.http,
+                serenity::CreateMessage::new()
+                    .content(content)
+                    .allowed_mentions(serenity::CreateAllowedMentions::new()),
+            )
             .await
         {
             tracing::error!(error = %e, channel_id = channel_id.get(), "failed to send notification");
@@ -229,6 +262,17 @@ mod tests {
         assert!(is_due(start, 0, dt("2026-08-23T10:00:30")));
         assert!(!is_due(start, 0, dt("2026-08-23T09:59:00")));
         assert!(!is_due(start, 0, dt("2026-08-23T10:01:30")));
+    }
+
+    #[test]
+    fn is_due_does_not_panic_on_overflowing_notification_values() {
+        // num: u32 は API 側で値域を検証していないので、巨大な「N週間前」が保存され得る。
+        // 日時演算がオーバーフローしても panic せず、単に対象外として扱う
+        let start = dt("2026-08-23T10:00:00");
+        let now = dt("2026-08-23T09:59:45");
+        assert!(!is_due(start, i64::from(u32::MAX) * 10_080, now));
+        assert!(!is_due(start, i64::MAX, now));
+        assert!(!is_due(start, i64::MIN, now));
     }
 
     #[test]
