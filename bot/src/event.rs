@@ -31,13 +31,17 @@ pub async fn handle_event(
         // 起動時の分も upsert して、停止中に変わった名前・アイコンや取りこぼしを取り戻す
         FullEvent::GuildCreate { guild, is_new } => {
             let guild_id = guild.id.to_string();
-            guilds::upsert(
-                &data.pool,
-                &guild_id,
-                &guild.name,
-                guild.icon_url().as_deref(),
-            )
-            .await?;
+            {
+                // reconcile_guilds の削除と交錯しないようにする (突き合わせ中は待ち、削除後に upsert される)
+                let _guard = data.guild_sync.read().await;
+                guilds::upsert(
+                    &data.pool,
+                    &guild_id,
+                    &guild.name,
+                    guild.icon_url().as_deref(),
+                )
+                .await?;
+            }
             // is_new は「Ready の時点で参加していなかったギルド」= 新規参加 (cache 機能が必要)
             if *is_new == Some(true) {
                 tracing::info!(guild_id, name = %guild.name, "joined a guild");
@@ -55,13 +59,16 @@ pub async fn handle_event(
         }
         FullEvent::GuildUpdate { new_data, .. } => {
             let guild_id = new_data.id.to_string();
-            guilds::upsert(
-                &data.pool,
-                &guild_id,
-                &new_data.name,
-                new_data.icon_url().as_deref(),
-            )
-            .await?;
+            {
+                let _guard = data.guild_sync.read().await;
+                guilds::upsert(
+                    &data.pool,
+                    &guild_id,
+                    &new_data.name,
+                    new_data.icon_url().as_deref(),
+                )
+                .await?;
+            }
             tracing::info!(guild_id, name = %new_data.name, "updated guild");
         }
         FullEvent::GuildDelete { incomplete, full } => {
@@ -99,7 +106,9 @@ pub async fn handle_event(
 /// `Ready` のたびに `GET /users/@me/guilds` で現在の参加一覧を取り直して突き合わせる
 /// (キャッシュの一覧はシャードの接続順によって全件揃う前に `CacheReady` が出ることがあるので使わない)。
 async fn reconcile_guilds(ctx: &serenity::Context, data: &Data) -> Result<(), BotError> {
-    // 先に DB の一覧を取る。その後に参加したギルド (GuildCreate で upsert される) を誤って消さないため
+    // DB の一覧取得 → Discord の一覧取得 → 削除 の間に参加し直したギルドの行 (GuildCreate の upsert) を
+    // 消してしまわないよう、この間は upsert 側を待たせる (待たされた upsert は削除の後に実行されて行が戻る)
+    let _guard = data.guild_sync.write().await;
     let known = guilds::list_ids(&data.pool).await?;
     if known.is_empty() {
         return Ok(());

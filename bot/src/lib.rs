@@ -29,6 +29,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let data = Data {
         pool,
         log_channel_id: config.log_channel_id,
+        guild_sync: Default::default(),
     };
 
     let framework = poise::Framework::<Data, BotError>::builder()

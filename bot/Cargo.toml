@@ -14,7 +14,8 @@ path = "src/main.rs"
 [dependencies]
 # poise 0.6 は serenity 0.12 に対応。serenity の型は poise::serenity_prelude 経由で使う
 poise = "0.6"
-tokio.workspace = true
+# sync: reconcile と upsert の直列化に tokio::sync::RwLock を使う
+tokio = { workspace = true, features = ["sync"] }
 sqlx.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
