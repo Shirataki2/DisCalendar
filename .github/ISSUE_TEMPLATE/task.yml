@@ -1,0 +1,41 @@
+name: 開発タスク
+description: 実装・移行・改善などの作業単位を登録する (進捗管理用)
+title: "[task] "
+labels: ["task"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 作業内容
+      description: 何をするか。背景や参照先 (docs/tech-stack-selection.md の節、旧実装 tmp/DisCalendarV2 のファイルなど) があれば書く
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 完了条件
+      description: どうなったら閉じてよいか。チェックリストにしておくと進捗が追いやすい
+      placeholder: |
+        - [ ] ...
+        - [ ] README / docs を更新
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 対象
+      description: 作成後に対応する `area:*` ラベルも付ける
+      multiple: true
+      options:
+        - web
+        - api
+        - bot
+        - infra / CI
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: メモ
+      description: 実装方針、懸念、関連 Issue / PR など (任意)

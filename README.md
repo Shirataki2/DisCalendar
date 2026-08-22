@@ -85,6 +85,18 @@ Client Secret を `.env.local` の `DISCORD_CLIENT_SECRET` に設定する。
 psql -d discalendar_dev -c "INSERT INTO guilds (guild_id, name, avatar_url, locale) VALUES ('<guild_id>', '<name>', NULL, 'ja') ON CONFLICT DO NOTHING"
 ```
 
+## 開発の進め方 (GitHub)
+
+- 作業は Issue に登録する (`.github/ISSUE_TEMPLATE/` のフォーム: 不具合報告 / 機能要望 / 開発タスク)。
+  マイルストーン「v3 リリース」と `area:*` ラベルを付けて進捗を追う
+- `main` への直接 push は禁止 (ルールセット)。ブランチを切って PR を作り、本文の `Closes #N` で Issue と紐付ける
+  (`gh issue develop N --checkout` でブランチを作れる)。マージは squash のみで、マージ後のブランチは自動削除される
+- PR では CI (`.github/workflows/ci.yml`: web は Biome / tsc / next build、api は rustfmt / clippy / test) が通ることが必須
+- AI レビュー: Claude (`.github/workflows/claude-code-review.yml`、secret `CLAUDE_CODE_OAUTH_TOKEN` が必要) と
+  Codex (Codex クラウドの GitHub 連携で自動レビュー) が PR を確認する。コメントで `@claude` / `@codex review` と呼ぶと追加で依頼できる。
+  レビューの観点は [AGENTS.md](AGENTS.md) の「Code Review Rules」
+- 依存の更新は Dependabot (`.github/dependabot.yml`) が毎週まとめて PR を出す
+
 ## ルート構成 (web)
 
 | パス | 内容 |
