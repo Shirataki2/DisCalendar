@@ -60,6 +60,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: biome
         run: pnpm lint
+      - name: next typegen
+        # PageProps / LayoutProps などの型は .next/types/ に生成される (next-env.d.ts が参照) ので、tsc の前に作る
+        run: pnpm exec next typegen
       - name: tsc
         run: pnpm exec tsc --noEmit
       - name: Next.js のビルドキャッシュ
