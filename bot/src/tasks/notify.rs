@@ -123,11 +123,17 @@ async fn notify_for_event(
         return true;
     };
 
+    let mut all_sent = true;
     for notification in due {
-        send_notification(ctx, channel_id, event, notification, start, end).await;
-        sent_in_window.insert((event.id, notification.total_minutes()));
+        if send_notification(ctx, channel_id, event, notification, start, end).await {
+            sent_in_window.insert((event.id, notification.total_minutes()));
+        } else {
+            // Discord API やネットワークの一時障害で embed もフォールバックも失敗した場合、
+            // 送信済みとして記録すると次の判定窓で二度と再試行されず失われてしまう
+            all_sent = false;
+        }
     }
-    true
+    all_sent
 }
 
 /// 同じ発火時刻 (分換算値) を持つ通知の重複を除く (最初に現れた1件だけを残す)。
@@ -183,6 +189,7 @@ fn is_due(
     fire_at >= last_checked && fire_at < now
 }
 
+/// embed かフォールバックのプレーンテキストのいずれかが実際に届いたら true
 async fn send_notification(
     ctx: &serenity::Context,
     channel_id: ChannelId,
@@ -190,7 +197,7 @@ async fn send_notification(
     notification: Notification,
     start: NaiveDateTime,
     end: NaiveDateTime,
-) {
+) -> bool {
     let embed = build_embed(event, notification, start, end);
     let result = channel_id
         .send_message(&ctx.http, serenity::CreateMessage::new().embed(embed))
@@ -214,8 +221,10 @@ async fn send_notification(
             .await
         {
             tracing::error!(error = %e, channel_id = channel_id.get(), "failed to send notification");
+            return false;
         }
     }
+    true
 }
 
 /// 「以下の予定が開催されます」(開始時刻通知) / 「30分後に以下の予定が開催されます」(事前通知)

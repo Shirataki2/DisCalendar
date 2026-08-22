@@ -2,7 +2,8 @@
 //!
 //! `guilds` テーブルは web のサーバー選択が「Bot 参加済み」の判定に使うので、
 //! Bot の参加・退出・ギルド名やアイコンの変更をここで反映する。
-//! 定期タスク (通知 / presence / アイコン更新) は `ShardsReady` で起動する。
+//! シャードに依存しない定期タスク (通知 / アイコン更新) は `ShardsReady` で、
+//! presence はシャードごとに `Ready` で起動する (`tasks` モジュールのコメント参照)。
 //! コマンドの実行ログ (旧 `pre_command`) は `commands::log_invocation`。
 
 use std::collections::HashSet;
@@ -27,6 +28,11 @@ pub async fn handle_event(
             );
             // 停止中にサーバーから退出させられた分は GuildDelete が届かないので、ここで掃除する
             reconcile_guilds(ctx, data).await?;
+            // presence はそのシャードの接続にしか反映されないので、シャードごとに Ready で起動する
+            // (再接続などで同じシャードに何度も Ready が届いても二重に起動しない)
+            if data.mark_presence_started(ctx.shard_id).await {
+                tasks::spawn_presence(ctx.clone());
+            }
         }
         // 全シャードが Ready を受け取った後に一度だけ発火する (autosharded 起動でも定期タスクは1回だけ起動したい)。
         // 念のため `mark_tasks_started` でも多重起動を防ぐ

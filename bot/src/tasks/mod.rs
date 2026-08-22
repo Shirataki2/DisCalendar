@@ -1,7 +1,11 @@
 //! 定期タスク (予定の通知 / presence 表示の切り替え / 日付入りアイコンへの更新)。
 //!
+//! notify / icon_updater はシャードに依存しない処理 (DB アクセスと HTTP 経由の更新) なので、
 //! `event::handle_event` の `FullEvent::ShardsReady` から一度だけ起動する
 //! (`Data::mark_tasks_started` で autosharding 環境での二重起動を防ぐ)。
+//! presence は `Context::set_presence` がそのシャードの接続にしか反映されないため、
+//! 各シャードの `FullEvent::Ready` から個別に起動する (`spawn_presence`、
+//! `Data::mark_presence_started` でシャードごとの二重起動を防ぐ)。
 
 mod icon_updater;
 mod notify;
@@ -11,9 +15,13 @@ use poise::serenity_prelude as serenity;
 
 use crate::data::Data;
 
-/// 3つの定期タスクをそれぞれ独立した tokio タスクとして起動する
+/// シャードに依存しない定期タスクをそれぞれ独立した tokio タスクとして起動する
 pub fn spawn_all(ctx: serenity::Context, data: Data) {
     tokio::spawn(notify::run_loop(ctx.clone(), data.clone()));
-    tokio::spawn(presence::run_loop(ctx.clone()));
     tokio::spawn(icon_updater::run_loop(ctx, data));
+}
+
+/// このシャードの接続に対して presence の切り替えループを起動する
+pub fn spawn_presence(ctx: serenity::Context) {
+    tokio::spawn(presence::run_loop(ctx));
 }
