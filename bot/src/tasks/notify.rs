@@ -9,7 +9,7 @@
 use std::{collections::HashSet, time::Duration as StdDuration};
 
 use chrono::{Duration, NaiveDateTime};
-use poise::serenity_prelude::{self as serenity, ChannelId};
+use poise::serenity_prelude::{self as serenity, ChannelId, HttpError};
 
 use crate::{
     data::Data,
@@ -237,23 +237,31 @@ async fn send_notification(
     true
 }
 
-/// チャンネル削除 (Unknown Channel) や権限剥奪 (Missing Access / Missing Permissions) のような
-/// 4xx エラーは何度再試行しても直らない。429 (レート制限) は 4xx だが一時的なので除外する。
-/// それ以外 (5xx やネットワークエラーなど) は一時的な障害として再試行対象のままにする
+/// Unknown Channel / Missing Access / Missing Permissions は再試行しても直らないことが明確な
+/// Discord のエラーコード。HTTP ステータスコード (4xx かどうか) だけで判定すると、
+/// 408 (Request Timeout) のような一時的なエラーまで巻き込んでしまうため、
+/// Discord 固有のエラーコードのホワイトリストで絞り込む。
+/// これにより未知のエラーコードは安全側に倒れて一時的な障害として再試行対象のままになる
+const PERMANENT_DISCORD_ERROR_CODES: [isize; 3] = [
+    10003, // Unknown Channel
+    50001, // Missing Access
+    50013, // Missing Permissions
+];
+
 fn is_permanent_discord_error(error: &serenity::Error) -> bool {
     let serenity::Error::Http(http_error) = error else {
         return false;
     };
-    let Some(status) = http_error.status_code() else {
+    let HttpError::UnsuccessfulRequest(response) = http_error else {
         return false;
     };
-    is_permanent_status_code(status.as_u16())
+    is_permanent_error_code(response.error.code)
 }
 
 /// `serenity::ErrorResponse` (`#[non_exhaustive]`) を経由せずテストできるよう、
-/// ステータスコードだけを見る判定をここに切り出す
-fn is_permanent_status_code(status: u16) -> bool {
-    (400..500).contains(&status) && status != 429
+/// Discord のエラーコードだけを見る判定をここに切り出す
+fn is_permanent_error_code(code: isize) -> bool {
+    PERMANENT_DISCORD_ERROR_CODES.contains(&code)
 }
 
 /// 「以下の予定が開催されます」(開始時刻通知) / 「30分後に以下の予定が開催されます」(事前通知)
@@ -456,17 +464,15 @@ mod tests {
     }
 
     #[test]
-    fn permanent_status_codes_are_4xx_excluding_rate_limit() {
-        // Unknown Channel / Missing Access / Missing Permissions などは再試行しても直らない
-        assert!(is_permanent_status_code(404));
-        assert!(is_permanent_status_code(403));
-        assert!(is_permanent_status_code(400));
-        // レート制限は 4xx だが一時的
-        assert!(!is_permanent_status_code(429));
-        // サーバーエラーは一時的な障害として再試行対象のまま
-        assert!(!is_permanent_status_code(500));
-        assert!(!is_permanent_status_code(503));
-        assert!(!is_permanent_status_code(200));
+    fn permanent_error_codes_are_a_specific_discord_code_allowlist() {
+        // Unknown Channel / Missing Access / Missing Permissions は再試行しても直らない
+        assert!(is_permanent_error_code(10003));
+        assert!(is_permanent_error_code(50001));
+        assert!(is_permanent_error_code(50013));
+        // 未知のエラーコード (408 相当の一時的なものを含む) は安全側に倒し、再試行対象のままにする
+        assert!(!is_permanent_error_code(0));
+        assert!(!is_permanent_error_code(50035)); // Invalid Form Body
+        assert!(!is_permanent_error_code(20028)); // レート制限系
     }
 
     #[test]
