@@ -47,6 +47,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                 ..Default::default()
             },
             pre_command: |ctx| Box::pin(commands::log_invocation(ctx)),
+            // `owners_only` (register) の判定に使う `owners` は、起動時に poise が
+            // `GET /oauth2/applications/@me` からアプリの所有者 (チームなら Admin / Developer) を入れる
+            initialize_owners: true,
             event_handler: |ctx, event, framework, data| {
                 Box::pin(event::handle_event(ctx, event, framework, data))
             },
