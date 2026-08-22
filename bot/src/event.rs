@@ -2,7 +2,7 @@
 //!
 //! `guilds` テーブルは web のサーバー選択が「Bot 参加済み」の判定に使うので、
 //! Bot の参加・退出・ギルド名やアイコンの変更をここで反映する。
-//! 定期タスクの起動 (旧 `CacheReady`) は #4、コマンドのログ (旧 `pre_command`) は #3 で移す。
+//! 定期タスクの起動 (旧 `CacheReady`) は #4 で移す。コマンドの実行ログ (旧 `pre_command`) は `commands::log_invocation`。
 
 use std::collections::HashSet;
 

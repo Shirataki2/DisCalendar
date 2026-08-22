@@ -779,8 +779,11 @@ name = "discalendar-bot"
 version = "3.0.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "dotenvy",
  "poise",
+ "serde",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.20",
  "tokio",

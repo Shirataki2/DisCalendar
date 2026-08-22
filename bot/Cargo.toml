@@ -17,6 +17,11 @@ poise = "0.6"
 # sync: reconcile と upsert の直列化に tokio::sync::RwLock を使う
 tokio = { workspace = true, features = ["sync"] }
 sqlx.workspace = true
+# 予定の日時 (タイムゾーンなしの JST) と現在時刻
+chrono.workspace = true
+# 通知設定の DB 保存形式 (旧 Web / 旧 Bot と同じ JSON 文字列) の読み書き
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

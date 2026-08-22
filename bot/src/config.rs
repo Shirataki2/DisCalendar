@@ -12,6 +12,9 @@ pub struct Config {
     pub max_db_connections: u32,
     /// Bot の参加・退出を通知するチャンネル。未設定なら通知しない
     pub log_channel_id: Option<ChannelId>,
+    /// `/help` と `/invite` で案内する招待 URL (web の `DISCORD_BOT_INVITE_URL` と同じ)。
+    /// 未設定なら起動時にアプリケーション ID から組み立てる
+    pub invite_url: Option<String>,
 }
 
 impl Config {
@@ -30,6 +33,7 @@ impl Config {
                 .parse()
                 .context("DATABASE_MAX_CONNECTIONS must be a number")?,
             log_channel_id,
+            invite_url: optional("DISCORD_BOT_INVITE_URL"),
         })
     }
 }

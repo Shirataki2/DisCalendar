@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE guild_config SET restricted = FALSE WHERE guild_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0a883f5680fde21fd055c304accfd6d6aebb424ff82d2134c44d4d7fa6262e03"
+}
