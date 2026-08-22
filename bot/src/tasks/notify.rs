@@ -42,8 +42,13 @@ const MAX_STALE_WINDOW: Duration = Duration::hours(1);
 pub async fn run_loop(ctx: serenity::Context, data: Data) {
     // sleep 方式だと実際の周期が「60秒 + 前回の処理時間」になるので、処理時間を含まない
     // 一定周期で tick できる interval を使う。判定窓自体は last_checked を引き継ぐので
-    // tick が多少遅れても (Burst で連続 tick になっても) 取りこぼしは起きない
+    // tick が多少遅れても取りこぼしは起きない。ただし既定の Burst 挙動 (処理が遅れて溜まった
+    // tick を間隔を空けずに連続で返す) のままだと、Discord API の一時障害などで処理が数分
+    // 遅れたときに溜まった tick がほぼ同時に発火し、MAX_SEND_ATTEMPTS (5回 = 本来5分想定) を
+    // 数秒〜数十秒で使い切って諦めてしまう。Delay にして、次の tick は必ず前回の処理完了から
+    // INTERVAL 後になるようにし、再試行の間隔を保証する
     let mut interval = tokio::time::interval(INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_checked = now_jst();
     // event_settings の取得などが一時的に失敗して last_checked を進められなかった tick の
     // 再試行時に、同じ判定窓で既に送信済みの (event_id, 発火時刻) を重複送信しないための記録。
@@ -62,7 +67,10 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
         // DB 障害などで last_checked が長期間更新できず判定窓が異常に広がっている場合、
         // 1回の run_once の処理時間による正当な遅延と区別するため、窓の幅そのものが
         // MAX_STALE_WINDOW を超えているときだけ last_checked を早送りし、それより古い
-        // 発火時刻は諦める (無限に近い再送信や sent_in_window の際限ない増加を防ぐ)
+        // 発火時刻は諦める (無限に近い再送信や sent_in_window の際限ない増加を防ぐ)。
+        // clamp 後も clamped 以降の発火時刻は引き続き有効な判定窓なので、そこだけ全消去すると
+        // 既に送信済みだった通知が (event_settings 取得の失敗などで last_checked が進まない間に)
+        // 再送信されてしまう。clamped より古い、もう二度と判定窓に入らないキーだけを間引く
         if let Some(clamped) = clamp_stale_window(last_checked, now) {
             tracing::warn!(
                 skipped_from = %last_checked,
@@ -70,8 +78,8 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
                 "notification window was too wide (likely caused by a long outage); skipping the stale part"
             );
             last_checked = clamped;
-            sent_in_window.clear();
-            failure_counts.clear();
+            sent_in_window.retain(|&(_, fire)| fire >= clamped);
+            failure_counts.retain(|&(_, fire), _| fire >= clamped);
         }
         // DB 取得に失敗した tick で last_checked を進めてしまうと、その窓で発火するはずだった
         // 通知が二度と `is_due` の判定範囲に入らず永久に失われる。成功した時だけ確定させ、
