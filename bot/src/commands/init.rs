@@ -1,6 +1,6 @@
 use poise::serenity_prelude::ChannelId;
 
-use crate::{data::Context, error::BotError, models::event_settings};
+use crate::{checks, data::Context, error::BotError, models::event_settings};
 
 /// このBotの通知の送信先チャンネルを設定します
 ///
@@ -25,6 +25,26 @@ pub async fn init(
     // DB を書く前に「処理中」を返し、3 秒の初回応答期限を過ぎて interaction が失敗扱いになるのを防ぐ
     // (権限チェックは check 関数で応答前に済んでいて、権限なしの返信は本人にだけ見える)
     ctx.defer().await?;
+
+    // Bot が投稿できないチャンネル (権限上書きで閲覧・送信が禁止されているなど) を保存しても通知は届かないので、
+    // 保存前に Bot 自身の権限を確認する。権限が分からないときは旧 Bot と同じく保存する (ログに残す)
+    match checks::bot_permissions_in(ctx, channel_id).await? {
+        Some(bot) => {
+            let missing = checks::notification_permissions(bot.is_thread) - bot.permissions;
+            if !missing.is_empty() {
+                return Err(BotError::user(format!(
+                    "<#{channel_id}> で Bot に {} の権限がないため、通知を投稿できません。\
+                     Bot のロールかチャンネルの権限設定を見直してから、もう一度実行してください",
+                    checks::describe_permissions(missing)
+                )));
+            }
+        }
+        None => tracing::warn!(
+            guild_id = guild_id.get(),
+            channel_id = channel_id.get(),
+            "could not determine the bot's permissions in the channel; saving anyway"
+        ),
+    }
 
     let previous = event_settings::set(
         &ctx.data().pool,

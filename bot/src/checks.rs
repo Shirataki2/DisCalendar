@@ -4,7 +4,7 @@
 //! ギルドレベルの基本パーミッション (ロールの OR、オーナーは全権限) を見る。チャンネルごとの上書きは考慮しない
 //! (web の restricted モードの判定と揃えるため)。
 
-use poise::serenity_prelude::{self as serenity, Permissions};
+use poise::serenity_prelude::{self as serenity, ChannelId, ChannelType, Permissions};
 
 use crate::{data::Context, error::BotError};
 
@@ -60,9 +60,138 @@ pub async fn require_manage_permissions(ctx: Context<'_>) -> Result<bool, BotErr
     Ok(false)
 }
 
+/// Bot 自身のあるチャンネルでの権限
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChannelPermissions {
+    /// ロールとチャンネルの権限上書きを反映した権限 (管理者なら全権限)
+    pub permissions: Permissions,
+    /// スレッドかどうか (投稿に必要な権限が `SEND_MESSAGES_IN_THREADS` になる)
+    pub is_thread: bool,
+}
+
+/// 予定の通知を投稿するのに必要な権限: チャンネルを見る / メッセージを送信 (スレッドではスレッドでメッセージを送信) / 埋め込みリンク
+pub fn notification_permissions(is_thread: bool) -> Permissions {
+    let send = if is_thread {
+        Permissions::SEND_MESSAGES_IN_THREADS
+    } else {
+        Permissions::SEND_MESSAGES
+    };
+    Permissions::VIEW_CHANNEL | send | Permissions::EMBED_LINKS
+}
+
+/// 権限の日本語名を「」で囲んで並べる (通知に関係する権限だけ)。例: 「チャンネルを見る」「埋め込みリンク」
+pub fn describe_permissions(permissions: Permissions) -> String {
+    [
+        (Permissions::VIEW_CHANNEL, "チャンネルを見る"),
+        (Permissions::SEND_MESSAGES, "メッセージを送信"),
+        (
+            Permissions::SEND_MESSAGES_IN_THREADS,
+            "スレッドでメッセージを送信",
+        ),
+        (Permissions::EMBED_LINKS, "埋め込みリンク"),
+    ]
+    .into_iter()
+    .filter(|(permission, _)| permissions.contains(*permission))
+    .map(|(_, name)| format!("「{name}」"))
+    .collect()
+}
+
+/// Bot 自身の `channel_id` での権限 (ロール + チャンネルの権限上書き)。
+/// スレッドなら親チャンネルの権限で計算する (スレッド自体には上書きがない)。
+/// DM や、チャンネル・メンバー情報が取れないときは `None`
+pub async fn bot_permissions_in(
+    ctx: Context<'_>,
+    channel_id: ChannelId,
+) -> Result<Option<ChannelPermissions>, BotError> {
+    let Some(guild_id) = ctx.guild_id() else {
+        return Ok(None);
+    };
+    // CurrentUserRef / GuildRef はキャッシュのロックなので、値を取り出してすぐ手放す
+    let bot_id = ctx.cache().current_user().id;
+    // 自分のメンバー情報 (ロール一覧)。GuildCreate に含まれるのでキャッシュにあることが多く、なければ HTTP で取る
+    let member = match ctx
+        .guild()
+        .and_then(|guild| guild.members.get(&bot_id).cloned())
+    {
+        Some(member) => member,
+        None => guild_id.member(ctx.serenity_context(), bot_id).await?,
+    };
+    // チャンネル (権限上書き付き) は GUILDS インテントでキャッシュに同期される。スレッドは `to_channel` で取る
+    let serenity::Channel::Guild(channel) = channel_id.to_channel(ctx.serenity_context()).await?
+    else {
+        return Ok(None);
+    };
+    let is_thread = matches!(
+        channel.kind,
+        ChannelType::PublicThread | ChannelType::PrivateThread | ChannelType::NewsThread
+    );
+    let target = if is_thread {
+        let Some(parent_id) = channel.parent_id else {
+            return Ok(None);
+        };
+        let serenity::Channel::Guild(parent) = parent_id.to_channel(ctx.serenity_context()).await?
+        else {
+            return Ok(None);
+        };
+        parent
+    } else {
+        channel
+    };
+    let permissions = match ctx
+        .guild()
+        .map(|guild| guild.user_permissions_in(&target, &member))
+    {
+        Some(permissions) => permissions,
+        None => {
+            let guild = guild_id.to_partial_guild(ctx.serenity_context()).await?;
+            guild.user_permissions_in(&target, &member)
+        }
+    };
+    Ok(Some(ChannelPermissions {
+        permissions,
+        is_thread,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notification_permissions_depend_on_thread() {
+        assert_eq!(
+            notification_permissions(false),
+            Permissions::VIEW_CHANNEL | Permissions::SEND_MESSAGES | Permissions::EMBED_LINKS
+        );
+        assert_eq!(
+            notification_permissions(true),
+            Permissions::VIEW_CHANNEL
+                | Permissions::SEND_MESSAGES_IN_THREADS
+                | Permissions::EMBED_LINKS
+        );
+        // 管理者は全権限なので何も足りない
+        assert!((notification_permissions(false) - Permissions::all()).is_empty());
+        // 閲覧だけだと送信と埋め込みが足りない
+        let missing = notification_permissions(false) - Permissions::VIEW_CHANNEL;
+        assert_eq!(
+            missing,
+            Permissions::SEND_MESSAGES | Permissions::EMBED_LINKS
+        );
+    }
+
+    #[test]
+    fn describes_permissions_in_japanese() {
+        assert_eq!(
+            describe_permissions(Permissions::SEND_MESSAGES | Permissions::EMBED_LINKS),
+            "「メッセージを送信」「埋め込みリンク」"
+        );
+        assert_eq!(
+            describe_permissions(Permissions::VIEW_CHANNEL | Permissions::SEND_MESSAGES_IN_THREADS),
+            "「チャンネルを見る」「スレッドでメッセージを送信」"
+        );
+        // 通知に関係ない権限は出さない
+        assert_eq!(describe_permissions(Permissions::MANAGE_GUILD), "");
+    }
 
     #[test]
     fn any_of_the_four_manage_permissions_is_enough() {
