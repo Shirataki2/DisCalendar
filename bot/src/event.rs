@@ -118,21 +118,33 @@ async fn reconcile_guilds(ctx: &serenity::Context, data: &Data) -> Result<(), Bo
     Ok(())
 }
 
-/// Bot が参加しているギルドの ID を全件取る (1 回 200 件までなのでページングする)
+/// Bot が参加しているギルドの ID を全件取る。
+/// `GET /users/@me/guilds` は 1 回 200 件までで、カーソルなしの先頭ページがどちらの端 (新しい側) から返るかに
+/// 依存しないよう、最小の Snowflake を `after` にして古い方から昇順に辿り、各ページの最大 ID を次の `after` にする
+/// (200 件を超えるときに取りこぼすと、reconcile で参加中のギルドを誤って消してしまう)
 async fn fetch_joined_guild_ids(http: &serenity::Http) -> Result<HashSet<String>, BotError> {
     const PAGE_SIZE: u64 = 200;
     let mut ids = HashSet::new();
-    let mut after = None;
+    let mut after: u64 = 1;
     loop {
         let page = http
-            .get_guilds(after.map(serenity::GuildPagination::After), Some(PAGE_SIZE))
+            .get_guilds(
+                Some(serenity::GuildPagination::After(serenity::GuildId::new(
+                    after,
+                ))),
+                Some(PAGE_SIZE),
+            )
             .await?;
         let is_last_page = (page.len() as u64) < PAGE_SIZE;
-        after = page.last().map(|g| g.id);
+        let Some(max_id) = page.iter().map(|g| g.id.get()).max() else {
+            return Ok(ids);
+        };
         ids.extend(page.into_iter().map(|g| g.id.to_string()));
-        if is_last_page || after.is_none() {
+        // 同じページが返り続けるような想定外の応答で無限ループしないための保険
+        if is_last_page || max_id <= after {
             return Ok(ids);
         }
+        after = max_id;
     }
 }
 
