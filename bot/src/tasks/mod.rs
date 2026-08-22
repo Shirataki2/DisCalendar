@@ -5,13 +5,14 @@
 //! (`Data::mark_tasks_started` で autosharding 環境での二重起動を防ぐ)。
 //! presence は `Context::set_presence` がそのシャードの接続にしか反映されないため、
 //! 各シャードの `FullEvent::Ready` から個別に起動する (`spawn_presence`、
-//! `Data::mark_presence_started` でシャードごとの二重起動を防ぐ)。
+//! `Data::replace_presence_task` で再接続時に古いループを中断してから置き換える)。
 
 mod icon_updater;
 mod notify;
 mod presence;
 
 use poise::serenity_prelude as serenity;
+use tokio::task::JoinHandle;
 
 use crate::data::Data;
 
@@ -22,6 +23,6 @@ pub fn spawn_all(ctx: serenity::Context, data: Data) {
 }
 
 /// このシャードの接続に対して presence の切り替えループを起動する
-pub fn spawn_presence(ctx: serenity::Context) {
-    tokio::spawn(presence::run_loop(ctx));
+pub fn spawn_presence(ctx: serenity::Context) -> JoinHandle<()> {
+    tokio::spawn(presence::run_loop(ctx))
 }

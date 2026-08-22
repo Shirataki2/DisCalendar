@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -8,7 +8,7 @@ use std::{
 
 use poise::serenity_prelude::{ChannelId, GuildId, ShardId};
 use sqlx::PgPool;
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, task::JoinHandle};
 
 /// poise のユーザーデータ。全コマンド・イベントハンドラから `ctx.data()` で参照できる
 #[derive(Debug, Clone)]
@@ -28,9 +28,13 @@ pub struct Data {
     /// 定期タスク (`tasks::spawn_all`、シャードに依存しない notify / icon_updater) を起動済みかどうか。
     /// `ShardsReady` は autosharding 環境で複数回発火する可能性があるため、最初の1回だけ起動するようここで防ぐ
     pub tasks_started: Arc<AtomicBool>,
-    /// presence の切り替えループを起動済みのシャード ID。`Context::set_presence` はそのシャードの接続にしか
-    /// 反映されないので、シャードごとに `Ready` イベントで起動する。1つのシャードで複数回起動しないためのガード
-    pub presence_started_shards: Arc<Mutex<HashSet<ShardId>>>,
+    /// シャードごとに起動中の presence 切り替えループ。`Context::set_presence` はそのシャードの
+    /// 接続にしか反映されないので、シャードごとに `Ready` イベントで起動する。
+    /// serenity のシャードが re-identify を伴う再接続をすると同じ `ShardId` で改めて `Ready` が届くが、
+    /// そのとき古いループは無効になった接続を握ったまま `set_presence` を送り続けてしまう
+    /// (fire-and-forget で失敗が表面化しない)。`Ready` のたびに古いタスクを `abort` して
+    /// 新しい `Context` のループに置き換えることで、再接続後も presence が更新され続けるようにする
+    pub presence_tasks: Arc<Mutex<HashMap<ShardId, JoinHandle<()>>>>,
 }
 
 impl Data {
@@ -41,9 +45,11 @@ impl Data {
             .is_ok()
     }
 
-    /// このシャードで presence ループをまだ起動していなければ true を返す (一度だけ起動するためのガード)
-    pub async fn mark_presence_started(&self, shard_id: ShardId) -> bool {
-        self.presence_started_shards.lock().await.insert(shard_id)
+    /// このシャードの presence ループを (既に動いていれば古いものを中断してから) 差し替える
+    pub async fn replace_presence_task(&self, shard_id: ShardId, handle: JoinHandle<()>) {
+        if let Some(old) = self.presence_tasks.lock().await.insert(shard_id, handle) {
+            old.abort();
+        }
     }
 }
 

@@ -26,14 +26,15 @@ pub async fn handle_event(
                 guilds = data_about_bot.guilds.len(),
                 "shard ready"
             );
-            // presence はそのシャードの接続にしか反映されないので、シャードごとに Ready で起動する
-            // (再接続などで同じシャードに何度も Ready が届いても二重に起動しない)。
+            // presence はそのシャードの接続にしか反映されないので、シャードごとに Ready で起動する。
+            // re-identify を伴う再接続では同じ ShardId で改めて Ready が届くが、古いループは
+            // 無効になった接続を握ったまま fire-and-forget で送り続けてしまうので、
+            // 毎回 (二重起動を防ぐのではなく) 古いタスクを中断してから新しい Context で置き換える。
             // DB に依存しない処理なので、`?` で早期リターンし得る reconcile_guilds より先に行う。
             // 同じシャードに Ready が再送されるとは限らないため、後回しにすると reconcile_guilds が
-            // 一時的な DB エラーで失敗しただけで、そのプロセスでは永久に presence が起動しなくなる
-            if data.mark_presence_started(ctx.shard_id).await {
-                tasks::spawn_presence(ctx.clone());
-            }
+            // 一時的な DB エラーで失敗しただけで、そのプロセスでは永久に presence が更新されなくなる
+            data.replace_presence_task(ctx.shard_id, tasks::spawn_presence(ctx.clone()))
+                .await;
             // 停止中にサーバーから退出させられた分は GuildDelete が届かないので、ここで掃除する
             reconcile_guilds(ctx, data).await?;
         }

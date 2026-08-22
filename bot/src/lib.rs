@@ -76,7 +76,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                     support_guild_id,
                     guild_sync: Default::default(),
                     tasks_started: Default::default(),
-                    presence_started_shards: Default::default(),
+                    presence_tasks: Default::default(),
                 })
             })
         })

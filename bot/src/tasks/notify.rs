@@ -6,7 +6,10 @@
 //! 固定長の判定窓ではなく前回時刻を引き継ぐ可変長の窓を使うことで、1回の実行が
 //! 60秒を超えても (Discord API が遅い、対象が多いなど) 未判定区間が生まれず取りこぼさない。
 
-use std::{collections::HashSet, time::Duration as StdDuration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration as StdDuration,
+};
 
 use chrono::{Duration, NaiveDateTime};
 use poise::serenity_prelude::{self as serenity, ChannelId, HttpError};
@@ -22,6 +25,10 @@ use crate::{
 };
 
 const INTERVAL: StdDuration = StdDuration::from_secs(60);
+/// `is_permanent_discord_error` の許可リストに無い未知の恒久エラーに対する安全網。
+/// この回数 (= 分) 送信を試みても成功しなければ諦めて処理済み扱いにし、
+/// last_checked が凍結され続けて全ギルドの通知処理が長期停滞するのを防ぐ
+const MAX_SEND_ATTEMPTS: u32 = 5;
 
 pub async fn run_loop(ctx: serenity::Context, data: Data) {
     // sleep 方式だと実際の周期が「60秒 + 前回の処理時間」になるので、処理時間を含まない
@@ -36,15 +43,29 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
     // 「送信済み」と誤判定してしまうため (last_checked が確定した頃には既に判定窓の外になり、
     // その通知が永久に送られなくなる)。last_checked が確定したら次の窓では意味を持たないのでクリアする
     let mut sent_in_window: HashSet<(i32, NaiveDateTime)> = HashSet::new();
+    // is_permanent_discord_error の許可リストに無い未知の恒久エラーで送信が失敗し続けたときの
+    // 試行回数。MAX_SEND_ATTEMPTS に達したら諦めて処理済み扱いにする (sent_in_window と同様、
+    // last_checked が確定したら次の窓では意味を持たないのでクリアする)
+    let mut failure_counts: HashMap<(i32, NaiveDateTime), u32> = HashMap::new();
     loop {
         interval.tick().await;
         let now = now_jst();
         // DB 取得に失敗した tick で last_checked を進めてしまうと、その窓で発火するはずだった
         // 通知が二度と `is_due` の判定範囲に入らず永久に失われる。成功した時だけ確定させ、
         // 失敗した窓は次の tick でも last_checked はそのままにして再試行する
-        if run_once(&ctx, &data, last_checked, now, &mut sent_in_window).await {
+        if run_once(
+            &ctx,
+            &data,
+            last_checked,
+            now,
+            &mut sent_in_window,
+            &mut failure_counts,
+        )
+        .await
+        {
             last_checked = now;
             sent_in_window.clear();
+            failure_counts.clear();
         }
     }
 }
@@ -57,6 +78,7 @@ async fn run_once(
     last_checked: NaiveDateTime,
     now: NaiveDateTime,
     sent_in_window: &mut HashSet<(i32, NaiveDateTime)>,
+    failure_counts: &mut HashMap<(i32, NaiveDateTime), u32>,
 ) -> bool {
     // 開始時刻通知 (0分前) の発火時刻は start そのものなので、start >= last_checked の予定を
     // 取得すれば、事前通知 (start は未来) と開始時刻通知 (start は前回チェック以降) の両方を拾える
@@ -69,7 +91,17 @@ async fn run_once(
     };
     let mut all_ok = true;
     for event in &events {
-        if !notify_for_event(ctx, data, event, last_checked, now, sent_in_window).await {
+        if !notify_for_event(
+            ctx,
+            data,
+            event,
+            last_checked,
+            now,
+            sent_in_window,
+            failure_counts,
+        )
+        .await
+        {
             all_ok = false;
         }
     }
@@ -84,6 +116,7 @@ async fn notify_for_event(
     last_checked: NaiveDateTime,
     now: NaiveDateTime,
     sent_in_window: &mut HashSet<(i32, NaiveDateTime)>,
+    failure_counts: &mut HashMap<(i32, NaiveDateTime), u32>,
 ) -> bool {
     let (start, end) = effective_range(event);
     // 予定開始そのものへの通知を、他の「num unit 前」の通知と同じ仕組みで扱う
@@ -138,11 +171,28 @@ async fn notify_for_event(
 
     let mut all_sent = true;
     for (notification, fire) in due {
+        let key = (event.id, fire);
         if send_notification(ctx, channel_id, event, notification, start, end).await {
-            sent_in_window.insert((event.id, fire));
+            sent_in_window.insert(key);
+            failure_counts.remove(&key);
+            continue;
+        }
+        // Discord API やネットワークの一時障害で embed もフォールバックも失敗した場合、
+        // 送信済みとして記録すると次の判定窓で二度と再試行されず失われてしまう。
+        // ただし is_permanent_discord_error の許可リストに無い未知の恒久エラーだと
+        // この失敗が延々と繰り返され、last_checked が凍結されたまま他の全ギルドの
+        // 通知まで巻き込んで長期停滞し得るので、一定回数を超えたら諦めて処理済み扱いにする
+        let attempts = failure_counts.entry(key).or_insert(0);
+        *attempts += 1;
+        if *attempts >= MAX_SEND_ATTEMPTS {
+            tracing::error!(
+                event_id = event.id,
+                attempts = *attempts,
+                "giving up on notification after repeated failures"
+            );
+            sent_in_window.insert(key);
+            failure_counts.remove(&key);
         } else {
-            // Discord API やネットワークの一時障害で embed もフォールバックも失敗した場合、
-            // 送信済みとして記録すると次の判定窓で二度と再試行されず失われてしまう
             all_sent = false;
         }
     }

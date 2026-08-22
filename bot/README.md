@@ -59,12 +59,13 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | 定期タスクの起動 | `CacheReady` (+ `AtomicBool` で二重起動を防止) | `ShardsReady` (全シャードが `Ready` を受け取った後に一度だけ発火) + `Data::mark_tasks_started` で二重起動を防止 |
 | presence の案内文言 | `cal help` / `/help` / サーバー数 / URL を順送り | 廃止済みの `cal help` は出さず、`/help` / サーバー数 / URL の3つを順送り |
 | presence の切り替え API | `ctx.set_presence(...).await` (非同期) | serenity 0.12 で同期 API に変更 (`ctx.set_presence(...)`) |
-| presence の起動対象 | 単一の Gateway 接続前提 | `Context::set_presence` はそのシャードの接続にしか反映されないため、シャードごとの `Ready` から起動 (`Data::mark_presence_started` でシャードごとの二重起動を防止) |
+| presence の起動対象 | 単一の Gateway 接続前提 | `Context::set_presence` はそのシャードの接続にしか反映されないため、シャードごとの `Ready` から起動。re-identify を伴う再接続で同じシャードに `Ready` が再送されたときは古いループ (無効な接続を握ったまま) を中断して新しい `Context` のものに置き換える (`Data::replace_presence_task`) |
 | アイコン更新の対象サーバー | サポートサーバー ID をコードにハードコード | `BOT_SUPPORT_GUILD_ID` (任意。未設定ならサーバーアイコンの更新をスキップ) |
 | アイコン画像の読み込み | 手動で base64 エンコード (`base64` crate) | `serenity::CreateAttachment::path` (base64 化は `EditProfile` / `EditGuild` が内部で行う) |
 | アイコン更新のタイミング | tick が JST 0:00 台に来たときだけ更新 (0:01 以降の起動や日付を跨ぐ停止では翌日まで古いまま) | 「最後に更新した日付」を保持し、起動直後や日付が変わった最初の tick で当日分が未反映なら即座に更新 |
 | 通知タスクの判定窓 | 固定1分窓 (`[now - 1分, now)`)。1回の実行が60秒を超えると未判定区間が生じ得る | 前回チェック時刻を引き継ぐ可変長の窓 (`[last_checked, now)`) で、実行が遅延しても取りこぼさない |
 | 通知の重複排除 | なし | 同じ「num unit 前」が複数保存されていても送信前に一本化 |
+| 通知失敗時の安全網 | なし | チャンネル削除・権限剥奪など既知の恒久エラーは即座に処理済み扱い。未知の恒久エラーで送信が失敗し続けても `MAX_SEND_ATTEMPTS` 回で諦め、`last_checked` の凍結による全ギルドの長期停滞を防ぐ |
 | 祝日判定 | `jpholiday = "0.1"` | `jpholiday = "0.2"` (API 変更: `Date::new(year, month, day)` を使うフリー関数に) |
 
 DB スキーマは api (`api/migrations/`) が正で、Bot はマイグレーションを実行しない。
