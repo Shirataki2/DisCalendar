@@ -5,5 +5,15 @@
 -- スキャンすることになる。既存の列・データはそのままなので旧 Bot / 旧 Web との互換性には影響しない。
 -- 稼働中の旧 Bot / 旧 Web が予定を作成・更新し続けても書き込みをブロックしないよう
 -- CREATE INDEX CONCURRENTLY を使う (トランザクション内では実行できないため、
--- 先頭の "-- no-transaction" で sqlx にこのマイグレーションをトランザクション無しで実行させる)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_start_at ON events (start_at);
+-- 先頭の "-- no-transaction" で sqlx にこのマイグレーションをトランザクション無しで実行させる)。
+--
+-- IF NOT EXISTS は付けない: CONCURRENTLY が接続切断・キャンセルなどで失敗すると
+-- 同名の INVALID なインデックスが残ることがあり、IF NOT EXISTS があるとその無効な
+-- インデックスの存在だけで CREATE をスキップしてしまい、sqlx がマイグレーションを
+-- 誤って成功扱いにしてしまう (全表スキャン対策が復旧しないまま気づかれない)。
+-- IF NOT EXISTS を外すことで、無効なインデックスが残っている場合は
+-- "already exists" エラーで再起動時にはっきり失敗するので、
+-- 運用者が `DROP INDEX CONCURRENTLY idx_events_start_at;` を手動実行してから
+-- 再起動する必要があることが分かる (`DROP INDEX CONCURRENTLY` も
+-- 別のマイグレーション実行としては書けないため、これは手動対応が必要)
+CREATE INDEX CONCURRENTLY idx_events_start_at ON events (start_at);

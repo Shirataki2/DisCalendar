@@ -114,7 +114,14 @@ async fn notify_for_event(
             return false;
         }
     };
-    let Ok(channel_id) = setting.channel_id.parse::<u64>().map(ChannelId::new) else {
+    // event_settings.channel_id は制約のない TEXT なので、旧データや手動修正で "0" が
+    // 入っている可能性がある。ChannelId::new(0) は panic するので、u64 ではなく
+    // NonZeroU64 としてパースし、0 も不正値として弾く
+    let Ok(channel_id) = setting
+        .channel_id
+        .parse::<std::num::NonZeroU64>()
+        .map(ChannelId::from)
+    else {
         tracing::warn!(
             channel_id = setting.channel_id,
             "invalid channel id in event_settings"
