@@ -1,12 +1,17 @@
-//! 毎日 JST 0:00 に Bot 本体とサポートサーバーのアイコンを日付入りのものへ差し替える
+//! JST の日付が変わったら Bot 本体とサポートサーバーのアイコンを日付入りのものへ差し替える
 //! (旧 `tasks/icon_updater.rs` 相当)。
+//!
+//! 「最後に更新した日付」を保持し、当日分をまだ反映していなければ更新する設計にしている。
+//! 旧実装のように「tick がちょうど 0:00 台に来たときだけ更新する」形だと、Bot を 0:01 以降に
+//! 起動した場合や日付を跨いで停止していた場合に前日のアイコンが翌日の 0:00 まで残ってしまうため、
+//! 起動直後の最初の tick でも当日分が未反映なら即座に更新する。
 //!
 //! 画像は `bot/assets/{DD}.png` (平日) / `{DD}_b.png` (土曜) / `{DD}_r.png` (日曜・祝日)
 //! (`tmp/DisCalendarV2/bot/assets/` からコピーしたもの)。
 
 use std::{path::PathBuf, time::Duration as StdDuration};
 
-use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike, Weekday};
+use chrono::{Datelike, NaiveDate, Weekday};
 use jpholiday::Date as JpDate;
 use poise::serenity_prelude::{self as serenity, CreateAttachment, EditGuild, EditProfile};
 
@@ -16,17 +21,21 @@ const INTERVAL: StdDuration = StdDuration::from_secs(60);
 const ASSETS_DIR: &str = "assets";
 
 pub async fn run_loop(ctx: serenity::Context, data: Data) {
+    let mut interval = tokio::time::interval(INTERVAL);
+    let mut last_updated: Option<NaiveDate> = None;
     loop {
-        let now = now_jst();
-        if now.hour() == 0 && now.minute() == 0 {
-            run_once(&ctx, &data, now).await;
+        interval.tick().await;
+        let today = now_jst().date();
+        if last_updated == Some(today) {
+            continue;
         }
-        tokio::time::sleep(INTERVAL).await;
+        run_once(&ctx, &data, today).await;
+        last_updated = Some(today);
     }
 }
 
-async fn run_once(ctx: &serenity::Context, data: &Data, now: NaiveDateTime) {
-    let path = icon_path(now.date());
+async fn run_once(ctx: &serenity::Context, data: &Data, today: NaiveDate) {
+    let path = icon_path(today);
     let attachment = match CreateAttachment::path(&path).await {
         Ok(attachment) => attachment,
         Err(e) => {

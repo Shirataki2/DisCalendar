@@ -1,11 +1,12 @@
 //! 予定の通知タスク (旧 `tasks/notify.rs` 相当)。
 //!
 //! 60秒ごとに全ギルド横断で未来の予定を取得し、各予定の通知設定 (「num unit 前」、
-//! 予定開始そのものを含む) が今のタイミングに重なっていれば `event_settings` の通知先チャンネルへ
-//! embed を送る。判定には分単位に丸めない生の現在時刻を使い、1分の判定窓で `tokio::time::interval`
-//! の一定周期を吸収する (旧実装と同じ設計)。
+//! 予定開始そのものを含む) の発火時刻 (`start - num unit`) が前回チェックした時刻から
+//! 今回までの間に入っていれば `event_settings` の通知先チャンネルへ embed を送る。
+//! 固定長の判定窓ではなく前回時刻を引き継ぐ可変長の窓を使うことで、1回の実行が
+//! 60秒を超えても (Discord API が遅い、対象が多いなど) 未判定区間が生まれず取りこぼさない。
 
-use std::time::Duration as StdDuration;
+use std::{collections::HashSet, time::Duration as StdDuration};
 
 use chrono::{Duration, NaiveDateTime};
 use poise::serenity_prelude::{self as serenity, ChannelId};
@@ -23,21 +24,28 @@ use crate::{
 const INTERVAL: StdDuration = StdDuration::from_secs(60);
 
 pub async fn run_loop(ctx: serenity::Context, data: Data) {
-    // sleep 方式だと実際の周期が「60秒 + 前回の処理時間」になり、is_due の1分窓とずれて
-    // 分境界をまたいだ通知を取りこぼす。interval なら処理時間を含めず一定周期で tick できる
+    // sleep 方式だと実際の周期が「60秒 + 前回の処理時間」になるので、処理時間を含まない
+    // 一定周期で tick できる interval を使う。判定窓自体は last_checked を引き継ぐので
+    // tick が多少遅れても (Burst で連続 tick になっても) 取りこぼしは起きない
     let mut interval = tokio::time::interval(INTERVAL);
+    let mut last_checked = now_jst();
     loop {
         interval.tick().await;
-        run_once(&ctx, &data).await;
+        let now = now_jst();
+        run_once(&ctx, &data, last_checked, now).await;
+        last_checked = now;
     }
 }
 
-async fn run_once(ctx: &serenity::Context, data: &Data) {
-    let now = now_jst();
-    // 開始時刻通知 (0分前) は is_due 側で `start < now` の窓になるので、
-    // `start_at >= now` だけでは対象が常にクエリから漏れる。直前1分に開始した予定も含めて取得する
-    let query_from = now - Duration::minutes(1);
-    let events = match events::list_all_future(&data.pool, query_from).await {
+async fn run_once(
+    ctx: &serenity::Context,
+    data: &Data,
+    last_checked: NaiveDateTime,
+    now: NaiveDateTime,
+) {
+    // 開始時刻通知 (0分前) の発火時刻は start そのものなので、start >= last_checked の予定を
+    // 取得すれば、事前通知 (start は未来) と開始時刻通知 (start は前回チェック以降) の両方を拾える
+    let events = match events::list_all_future(&data.pool, last_checked).await {
         Ok(events) => events,
         Err(e) => {
             tracing::error!(error = %e, "failed to fetch upcoming events");
@@ -45,21 +53,30 @@ async fn run_once(ctx: &serenity::Context, data: &Data) {
         }
     };
     for event in &events {
-        notify_for_event(ctx, data, event, now).await;
+        notify_for_event(ctx, data, event, last_checked, now).await;
     }
 }
 
-async fn notify_for_event(ctx: &serenity::Context, data: &Data, event: &Event, now: NaiveDateTime) {
+async fn notify_for_event(
+    ctx: &serenity::Context,
+    data: &Data,
+    event: &Event,
+    last_checked: NaiveDateTime,
+    now: NaiveDateTime,
+) {
     let (start, end) = effective_range(event);
     // 予定開始そのものへの通知を、他の「num unit 前」の通知と同じ仕組みで扱う
     let mut notifications = event.notifications();
     notifications.push(Notification::new(0, NotificationUnit::Minutes));
+    // web のフォームや API は同じ通知の重複を弾かないので、送信前に一度だけに絞る
+    // (0分前の開始時刻通知が DB に保存されていた場合もここで一本化される)
+    let notifications = dedup_notifications(notifications);
 
     // 先に今回送る通知を絞ってから event_settings を引く。全未来予定に対して毎 tick
     // SELECT すると、予定が増えるほど DB 負荷とタスクの所要時間が際限なく伸びてしまう
     let due: Vec<Notification> = notifications
         .into_iter()
-        .filter(|notification| is_due(start, notification.total_minutes(), now))
+        .filter(|notification| is_due(start, notification.total_minutes(), last_checked, now))
         .collect();
     if due.is_empty() {
         return;
@@ -86,6 +103,15 @@ async fn notify_for_event(ctx: &serenity::Context, data: &Data, event: &Event, n
     }
 }
 
+/// 同じ「num unit 前」の重複を除く (最初に現れた1件だけを残す)
+fn dedup_notifications(notifications: Vec<Notification>) -> Vec<Notification> {
+    let mut seen = HashSet::new();
+    notifications
+        .into_iter()
+        .filter(|n| seen.insert(*n))
+        .collect()
+}
+
 /// 終日予定は開始日・終了日それぞれ 0:00 に丸めた範囲で判定・表示する (web / api と同じ規約)
 fn effective_range(event: &Event) -> (NaiveDateTime, NaiveDateTime) {
     if event.is_all_day {
@@ -100,26 +126,31 @@ fn effective_range(event: &Event) -> (NaiveDateTime, NaiveDateTime) {
     }
 }
 
-/// `minutes_before` 分前がちょうど今のタスク実行タイミングに重なるか。
-/// 生の現在時刻 (秒を含む) を使って `[target - 1分, target)` の窓で見ることで、
-/// 60秒間隔での実行タイミングのずれを吸収する。
+/// 通知の発火時刻 (`start` の `minutes_before` 分前) が、前回チェックした時刻から
+/// 今回のチェックまでの間 (`[last_checked, now)`) に入っているか。
+///
+/// 固定長の窓ではなく実際に経過した時間で判定することで、1回の `run_once` が
+/// (対象が多い・Discord API が遅いなどで) 60秒を超えても、その間に発火時刻を
+/// 迎えた通知を取りこぼさない。
 ///
 /// `num` は API 側で値域を検証していない `u32` なので、事前通知の分数換算値が巨大になり
 /// 日時の演算がオーバーフローし得る。checked 演算にして、オーバーフロー時は
 /// (どのみち計算不能な通知として) 対象外にする。ここで panic すると `run_loop` の
 /// tokio タスクごと停止し、`Data::mark_tasks_started` のガードで再起動もされず
 /// 全ギルドの通知が止まってしまうため、必ず素通りできない形にしておく
-fn is_due(start: NaiveDateTime, minutes_before: i64, now: NaiveDateTime) -> bool {
+fn is_due(
+    start: NaiveDateTime,
+    minutes_before: i64,
+    last_checked: NaiveDateTime,
+    now: NaiveDateTime,
+) -> bool {
     let Some(offset) = Duration::try_minutes(minutes_before) else {
         return false;
     };
-    let Some(target) = now.checked_add_signed(offset) else {
+    let Some(fire_at) = start.checked_sub_signed(offset) else {
         return false;
     };
-    let Some(window_start) = target.checked_sub_signed(Duration::minutes(1)) else {
-        return false;
-    };
-    start >= window_start && start < target
+    fire_at >= last_checked && fire_at < now
 }
 
 async fn send_notification(
@@ -246,22 +277,60 @@ mod tests {
     }
 
     #[test]
-    fn is_due_when_start_falls_in_the_one_minute_window_before_target() {
+    fn is_due_when_fire_time_falls_within_the_checked_window() {
         let start = dt("2026-08-23T10:00:00");
-        // 30分前通知: 現在時刻が 09:29:45 なら target = 09:59:45、窓は [09:58:45, 09:59:45) で start は入らない
-        assert!(!is_due(start, 30, dt("2026-08-23T09:29:45")));
-        // 現在時刻が 09:30:45 なら target = 10:00:45、窓は [09:59:45, 10:00:45) に start が入る
-        assert!(is_due(start, 30, dt("2026-08-23T09:30:45")));
-        // 次の tick (60秒後、10:31:45) では target = 10:01:45、窓は [10:00:45, 10:01:45) で start は入らない (1回きり)
-        assert!(!is_due(start, 30, dt("2026-08-23T09:31:45")));
+        // 30分前通知の発火時刻は 09:30:00。前回チェックが 09:29:00、今回が 09:30:00 の tick では
+        // まだ発火時刻に届いていない ([09:29:00, 09:30:00) は 09:30:00 を含まない)
+        assert!(!is_due(
+            start,
+            30,
+            dt("2026-08-23T09:29:00"),
+            dt("2026-08-23T09:30:00")
+        ));
+        // 次の tick (09:30:00 → 09:31:00) の間に発火時刻が入るので通知する
+        assert!(is_due(
+            start,
+            30,
+            dt("2026-08-23T09:30:00"),
+            dt("2026-08-23T09:31:00")
+        ));
+        // さらに次の tick では既に過ぎているので通知しない (1回きり)
+        assert!(!is_due(
+            start,
+            30,
+            dt("2026-08-23T09:31:00"),
+            dt("2026-08-23T09:32:00")
+        ));
     }
 
     #[test]
     fn is_due_for_start_time_notification() {
         let start = dt("2026-08-23T10:00:00");
-        assert!(is_due(start, 0, dt("2026-08-23T10:00:30")));
-        assert!(!is_due(start, 0, dt("2026-08-23T09:59:00")));
-        assert!(!is_due(start, 0, dt("2026-08-23T10:01:30")));
+        assert!(is_due(
+            start,
+            0,
+            dt("2026-08-23T09:59:30"),
+            dt("2026-08-23T10:00:30")
+        ));
+        assert!(!is_due(
+            start,
+            0,
+            dt("2026-08-23T09:58:30"),
+            dt("2026-08-23T09:59:30")
+        ));
+    }
+
+    #[test]
+    fn is_due_covers_gaps_caused_by_slow_processing() {
+        // 60秒 tick のはずが処理に時間がかかり、前回チェックから70秒空いたケース。
+        // 固定長の1分窓なら取りこぼし得るが、可変長の窓なのでその間の発火時刻を確実に拾える
+        let start = dt("2026-08-23T10:00:00");
+        assert!(is_due(
+            start,
+            0,
+            dt("2026-08-23T09:59:50"),
+            dt("2026-08-23T10:01:00")
+        ));
     }
 
     #[test]
@@ -269,10 +338,34 @@ mod tests {
         // num: u32 は API 側で値域を検証していないので、巨大な「N週間前」が保存され得る。
         // 日時演算がオーバーフローしても panic せず、単に対象外として扱う
         let start = dt("2026-08-23T10:00:00");
-        let now = dt("2026-08-23T09:59:45");
-        assert!(!is_due(start, i64::from(u32::MAX) * 10_080, now));
-        assert!(!is_due(start, i64::MAX, now));
-        assert!(!is_due(start, i64::MIN, now));
+        let last_checked = dt("2026-08-23T09:59:00");
+        let now = dt("2026-08-23T10:00:00");
+        assert!(!is_due(
+            start,
+            i64::from(u32::MAX) * 10_080,
+            last_checked,
+            now
+        ));
+        assert!(!is_due(start, i64::MAX, last_checked, now));
+        assert!(!is_due(start, i64::MIN, last_checked, now));
+    }
+
+    #[test]
+    fn dedup_notifications_keeps_only_the_first_occurrence() {
+        let notifications = vec![
+            Notification::new(30, NotificationUnit::Minutes),
+            Notification::new(1, NotificationUnit::Days),
+            Notification::new(30, NotificationUnit::Minutes),
+            Notification::new(0, NotificationUnit::Minutes),
+        ];
+        assert_eq!(
+            dedup_notifications(notifications),
+            vec![
+                Notification::new(30, NotificationUnit::Minutes),
+                Notification::new(1, NotificationUnit::Days),
+                Notification::new(0, NotificationUnit::Minutes),
+            ]
+        );
     }
 
     #[test]
