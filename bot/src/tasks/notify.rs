@@ -29,24 +29,31 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
     // tick が多少遅れても (Burst で連続 tick になっても) 取りこぼしは起きない
     let mut interval = tokio::time::interval(INTERVAL);
     let mut last_checked = now_jst();
+    // event_settings の取得などが一時的に失敗して last_checked を進められなかった tick の
+    // 再試行時に、同じ判定窓で既に送信済みの (event_id, 発火分数) を重複送信しないための記録。
+    // last_checked が確定 (=その判定窓の処理が完了) したら、次の窓では意味を持たないのでクリアする
+    let mut sent_in_window: HashSet<(i32, i64)> = HashSet::new();
     loop {
         interval.tick().await;
         let now = now_jst();
         // DB 取得に失敗した tick で last_checked を進めてしまうと、その窓で発火するはずだった
         // 通知が二度と `is_due` の判定範囲に入らず永久に失われる。成功した時だけ確定させ、
         // 失敗した窓は次の tick でも last_checked はそのままにして再試行する
-        if run_once(&ctx, &data, last_checked, now).await {
+        if run_once(&ctx, &data, last_checked, now, &mut sent_in_window).await {
             last_checked = now;
+            sent_in_window.clear();
         }
     }
 }
 
-/// 予定の取得に成功したら true。呼び出し側はこれを見て `last_checked` を更新するかどうか決める
+/// 予定の取得と全予定への通知処理がすべて成功したら true。
+/// 呼び出し側はこれを見て `last_checked` を更新するかどうか決める
 async fn run_once(
     ctx: &serenity::Context,
     data: &Data,
     last_checked: NaiveDateTime,
     now: NaiveDateTime,
+    sent_in_window: &mut HashSet<(i32, i64)>,
 ) -> bool {
     // 開始時刻通知 (0分前) の発火時刻は start そのものなので、start >= last_checked の予定を
     // 取得すれば、事前通知 (start は未来) と開始時刻通知 (start は前回チェック以降) の両方を拾える
@@ -57,19 +64,24 @@ async fn run_once(
             return false;
         }
     };
+    let mut all_ok = true;
     for event in &events {
-        notify_for_event(ctx, data, event, last_checked, now).await;
+        if !notify_for_event(ctx, data, event, last_checked, now, sent_in_window).await {
+            all_ok = false;
+        }
     }
-    true
+    all_ok
 }
 
+/// この予定の通知処理が (再試行可能な失敗なく) 完了したら true
 async fn notify_for_event(
     ctx: &serenity::Context,
     data: &Data,
     event: &Event,
     last_checked: NaiveDateTime,
     now: NaiveDateTime,
-) {
+    sent_in_window: &mut HashSet<(i32, i64)>,
+) -> bool {
     let (start, end) = effective_range(event);
     // 予定開始そのものへの通知を、他の「num unit 前」の通知と同じ仕組みで扱う
     let mut notifications = event.notifications();
@@ -79,21 +91,27 @@ async fn notify_for_event(
     let notifications = dedup_notifications(notifications);
 
     // 先に今回送る通知を絞ってから event_settings を引く。全未来予定に対して毎 tick
-    // SELECT すると、予定が増えるほど DB 負荷とタスクの所要時間が際限なく伸びてしまう
+    // SELECT すると、予定が増えるほど DB 負荷とタスクの所要時間が際限なく伸びてしまう。
+    // 同じ判定窓の再試行で既に送信済みの発火分数は除く (event_settings 取得の失敗などで
+    // last_checked が進まなかった場合に、他の予定の通知まで重複送信しないため)
     let due: Vec<Notification> = notifications
         .into_iter()
-        .filter(|notification| is_due(start, notification.total_minutes(), last_checked, now))
+        .filter(|notification| {
+            is_due(start, notification.total_minutes(), last_checked, now)
+                && !sent_in_window.contains(&(event.id, notification.total_minutes()))
+        })
         .collect();
     if due.is_empty() {
-        return;
+        return true;
     }
 
     let setting = match event_settings::get(&data.pool, &event.guild_id).await {
         Ok(Some(setting)) => setting,
-        Ok(None) => return,
+        Ok(None) => return true,
         Err(e) => {
             tracing::error!(error = %e, guild_id = event.guild_id, "failed to fetch notification channel");
-            return;
+            // 一時的な DB エラーの可能性があるので、次の tick で同じ判定窓のまま再試行できるよう false を返す
+            return false;
         }
     };
     let Ok(channel_id) = setting.channel_id.parse::<u64>().map(ChannelId::new) else {
@@ -101,12 +119,15 @@ async fn notify_for_event(
             channel_id = setting.channel_id,
             "invalid channel id in event_settings"
         );
-        return;
+        // 値そのものが不正なので再試行しても直らない。失敗扱いにしない
+        return true;
     };
 
     for notification in due {
         send_notification(ctx, channel_id, event, notification, start, end).await;
+        sent_in_window.insert((event.id, notification.total_minutes()));
     }
+    true
 }
 
 /// 同じ発火時刻 (分換算値) を持つ通知の重複を除く (最初に現れた1件だけを残す)。
