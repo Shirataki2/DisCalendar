@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE guilds SET locale = 'en' WHERE guild_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "92a5e94b0190a890ae9a3cc9cb5914086c52ae941f84ae8e04ce1eb7138303f4"
+}
