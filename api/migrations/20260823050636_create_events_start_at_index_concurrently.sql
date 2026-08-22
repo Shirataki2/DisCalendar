@@ -7,8 +7,12 @@
 -- CREATE INDEX CONCURRENTLY を使う (トランザクション内では実行できないため、
 -- 先頭の "-- no-transaction" で sqlx にこのマイグレーションをトランザクション無しで実行させる)。
 --
--- 前のマイグレーションで無効な同名インデックスは削除済みなので、ここで IF NOT EXISTS が
--- スキップし得るのは「有効なインデックスが既にある」ケース (CREATE 自体は前回成功していたが
+-- CONCURRENTLY が接続切断・キャンセルなどで失敗すると同名の INVALID なインデックスが
+-- 残ることがある。このマイグレーションは一度成功すると _sqlx_migrations に記録され
+-- 二度と実行されないため、無効なインデックスの掃除をここに書いても次回以降の起動では
+-- 効かない。掃除は `api::cleanup_invalid_concurrent_indexes` (api/src/lib.rs) が
+-- マイグレーション実行の直前に毎回試みるので、ここで IF NOT EXISTS がスキップし得るのは
+-- 「有効なインデックスが既にある」ケース (CREATE 自体は前回成功していたが
 -- _sqlx_migrations への完了記録前に接続切断やプロセス停止が起きたケース) だけであり、
 -- 全表スキャン対策が効いていない状態を誤って成功扱いにすることはない
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_start_at ON events (start_at);

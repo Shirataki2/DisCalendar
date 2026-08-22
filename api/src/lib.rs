@@ -35,6 +35,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .await
         .context("failed to connect to database")?;
 
+    cleanup_invalid_concurrent_indexes(&pool).await?;
+
     // 旧実装の entrypoint が `sqlx migrate run` してから起動していたのと同じ振る舞い
     sqlx::migrate!("./migrations")
         .run(&pool)
@@ -74,6 +76,34 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     .run()
     .await
     .context("server error")
+}
+
+/// `CREATE INDEX CONCURRENTLY` (`migrations/..._create_events_start_at_index_concurrently.sql`)
+/// が接続断・キャンセルなどで失敗すると、同名の `INVALID` なインデックスが残ることがある。
+/// マイグレーション本体は一度成功すると `_sqlx_migrations` に記録され二度と実行されないため、
+/// クリーンアップをマイグレーションの中に書くと、無効なインデックスが残ったまま
+/// `IF NOT EXISTS` がそれをスキップし続け、次に起動しても直せない。
+/// マイグレーション実行の直前に毎回このクリーンアップを試みることで、
+/// 失敗がいつ起きても次の起動で確実に作り直せるようにする
+async fn cleanup_invalid_concurrent_indexes(pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_class c
+                JOIN pg_index i ON i.indexrelid = c.oid
+                WHERE c.relname = 'idx_events_start_at' AND NOT i.indisvalid
+            ) THEN
+                DROP INDEX idx_events_start_at;
+            END IF;
+        END $$;
+        "#,
+    )
+    .execute(pool)
+    .await
+    .context("failed to clean up an invalid idx_events_start_at index")?;
+    Ok(())
 }
 
 // 抽出エラー (不正な JSON / パス / クエリ) も JSON のエラーレスポンスに統一する
