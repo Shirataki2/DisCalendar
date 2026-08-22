@@ -20,10 +20,14 @@ if (toBeCreated.length === 0 && toBeAdded.length === 0) {
   console.log("schema is up to date");
 } else {
   for (const change of toBeCreated) {
-    console.log(`create ${change.table}: ${Object.keys(change.fields).join(", ")}`);
+    console.log(
+      `create ${change.table}: ${Object.keys(change.fields).join(", ")}`,
+    );
   }
   for (const change of toBeAdded) {
-    console.log(`alter ${change.table}: add ${Object.keys(change.fields).join(", ")}`);
+    console.log(
+      `alter ${change.table}: add ${Object.keys(change.fields).join(", ")}`,
+    );
   }
   await runMigrations();
   console.log("migration completed");
