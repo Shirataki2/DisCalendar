@@ -83,6 +83,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 /// 削除してしまうと、削除完了を待ってから有効になったインデックスが消え、その後
 /// 前者はマイグレーションを成功として記録してしまうため、二度と再作成されなくなる
 const STARTUP_LOCK_ID: i64 = 8_612_004;
+/// アドバイザリロックのポーリング間隔と最大待機時間 (下記コメント参照)
+const STARTUP_LOCK_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
+const STARTUP_LOCK_MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// 無効なインデックスの掃除とマイグレーションの適用を、複数の API インスタンス間で
 /// 直列化しながら行う。
@@ -96,16 +99,17 @@ async fn run_startup_migrations(pool: &sqlx::PgPool) -> anyhow::Result<()> {
         .acquire()
         .await
         .context("failed to acquire a connection for startup migrations")?;
-    sqlx::query("SELECT pg_advisory_lock($1)")
-        .bind(STARTUP_LOCK_ID)
-        .execute(&mut *conn)
-        .await
-        .context("failed to acquire the startup advisory lock")?;
+    acquire_startup_lock(&mut conn).await?;
 
     let result = async {
         cleanup_invalid_concurrent_indexes(&mut conn).await?;
-        // 旧実装の entrypoint が `sqlx migrate run` してから起動していたのと同じ振る舞い
+        // 旧実装の entrypoint が `sqlx migrate run` してから起動していたのと同じ振る舞い。
+        // sqlx の内部ロックもブロッキングな pg_advisory_lock を使うため、
+        // acquire_startup_lock と同じ理由でデッドロックの原因になり得る。
+        // 直列化の責任は acquire_startup_lock (ポーリング方式) に一本化し、
+        // sqlx 自身の内部ロックは無効化する
         sqlx::migrate!("./migrations")
+            .set_locking(false)
             .run(&mut conn)
             .await
             .context("failed to run migrations")
@@ -122,6 +126,36 @@ async fn run_startup_migrations(pool: &sqlx::PgPool) -> anyhow::Result<()> {
     }
 
     result
+}
+
+/// ブロッキングな `pg_advisory_lock` ではなく、`pg_try_advisory_lock` を短い間隔でポーリングする。
+///
+/// `CREATE INDEX CONCURRENTLY` は構築の安全性を保証するため、自分より古いスナップショットを
+/// 持つ同一データベース上の全バックエンドの完了を待つフェーズ (WaitForOlderSnapshots) を持つ。
+/// ブロッキングな `pg_advisory_lock` で待機しているバックエンドも「まだ完了していない文」として
+/// 扱われ、その `xmin` を保持し続けるため、レプリカ B がこのロック待ちでブロックしている間に
+/// レプリカ A が `CREATE INDEX CONCURRENTLY` の当該フェーズに達すると、A は B の完了を待ち、
+/// B は A が握っているこのロックの解放を待つ、という循環待機 (デッドロック) が成立し得る。
+/// ポーリング方式なら各試行がすぐ完了してバックエンドがアイドルに戻るため、この待機要因にならない
+async fn acquire_startup_lock(conn: &mut sqlx::PgConnection) -> anyhow::Result<()> {
+    let deadline = tokio::time::Instant::now() + STARTUP_LOCK_MAX_WAIT;
+    loop {
+        let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+            .bind(STARTUP_LOCK_ID)
+            .fetch_one(&mut *conn)
+            .await
+            .context("failed to attempt the startup advisory lock")?;
+        if acquired {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            anyhow::bail!(
+                "timed out waiting for the startup advisory lock after {:?}",
+                STARTUP_LOCK_MAX_WAIT
+            );
+        }
+        tokio::time::sleep(STARTUP_LOCK_POLL_INTERVAL).await;
+    }
 }
 
 /// `CREATE INDEX CONCURRENTLY` (`migrations/..._create_events_start_at_index_concurrently.sql`)
