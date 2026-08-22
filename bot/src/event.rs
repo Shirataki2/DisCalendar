@@ -26,13 +26,16 @@ pub async fn handle_event(
                 guilds = data_about_bot.guilds.len(),
                 "shard ready"
             );
-            // 停止中にサーバーから退出させられた分は GuildDelete が届かないので、ここで掃除する
-            reconcile_guilds(ctx, data).await?;
             // presence はそのシャードの接続にしか反映されないので、シャードごとに Ready で起動する
-            // (再接続などで同じシャードに何度も Ready が届いても二重に起動しない)
+            // (再接続などで同じシャードに何度も Ready が届いても二重に起動しない)。
+            // DB に依存しない処理なので、`?` で早期リターンし得る reconcile_guilds より先に行う。
+            // 同じシャードに Ready が再送されるとは限らないため、後回しにすると reconcile_guilds が
+            // 一時的な DB エラーで失敗しただけで、そのプロセスでは永久に presence が起動しなくなる
             if data.mark_presence_started(ctx.shard_id).await {
                 tasks::spawn_presence(ctx.clone());
             }
+            // 停止中にサーバーから退出させられた分は GuildDelete が届かないので、ここで掃除する
+            reconcile_guilds(ctx, data).await?;
         }
         // 全シャードが Ready を受け取った後に一度だけ発火する (autosharded 起動でも定期タスクは1回だけ起動したい)。
         // 念のため `mark_tasks_started` でも多重起動を防ぐ
