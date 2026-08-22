@@ -237,15 +237,18 @@ async fn send_notification(
     true
 }
 
-/// Unknown Channel / Missing Access / Missing Permissions は再試行しても直らないことが明確な
-/// Discord のエラーコード。HTTP ステータスコード (4xx かどうか) だけで判定すると、
-/// 408 (Request Timeout) のような一時的なエラーまで巻き込んでしまうため、
-/// Discord 固有のエラーコードのホワイトリストで絞り込む。
+/// Unknown Channel / Missing Access / Missing Permissions / Archived Thread は
+/// 再試行しても直らないことが明確な Discord のエラーコード
+/// (`/init` はスレッドも通知先チャンネルとして保存できるので、そのスレッドが後から
+/// ロック・アーカイブされると Archived Thread で恒久的に送信できなくなる)。
+/// HTTP ステータスコード (4xx かどうか) だけで判定すると、408 (Request Timeout) のような
+/// 一時的なエラーまで巻き込んでしまうため、Discord 固有のエラーコードのホワイトリストで絞り込む。
 /// これにより未知のエラーコードは安全側に倒れて一時的な障害として再試行対象のままになる
-const PERMANENT_DISCORD_ERROR_CODES: [isize; 3] = [
+const PERMANENT_DISCORD_ERROR_CODES: [isize; 4] = [
     10003, // Unknown Channel
     50001, // Missing Access
     50013, // Missing Permissions
+    50083, // Thread is archived
 ];
 
 fn is_permanent_discord_error(error: &serenity::Error) -> bool {
@@ -465,10 +468,12 @@ mod tests {
 
     #[test]
     fn permanent_error_codes_are_a_specific_discord_code_allowlist() {
-        // Unknown Channel / Missing Access / Missing Permissions は再試行しても直らない
+        // Unknown Channel / Missing Access / Missing Permissions / Archived Thread は
+        // 再試行しても直らない (Archived Thread は /init でスレッドを通知先にしたケース)
         assert!(is_permanent_error_code(10003));
         assert!(is_permanent_error_code(50001));
         assert!(is_permanent_error_code(50013));
+        assert!(is_permanent_error_code(50083));
         // 未知のエラーコード (408 相当の一時的なものを含む) は安全側に倒し、再試行対象のままにする
         assert!(!is_permanent_error_code(0));
         assert!(!is_permanent_error_code(50035)); // Invalid Form Body
