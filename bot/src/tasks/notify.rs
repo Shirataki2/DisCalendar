@@ -29,12 +29,15 @@ const INTERVAL: StdDuration = StdDuration::from_secs(60);
 /// この回数 (= 分) 送信を試みても成功しなければ諦めて処理済み扱いにし、
 /// last_checked が凍結され続けて全ギルドの通知処理が長期停滞するのを防ぐ
 const MAX_SEND_ATTEMPTS: u32 = 5;
-/// 発火時刻から `now` までの経過がこれを超えたら「陳腐化した」として送信せず処理済み扱いにする。
-/// DB 障害が数時間続いた後に復旧すると、`run_once` は last_checked を凍結したまま `now` だけ
-/// 進み続けるので、復旧後の最初の tick で `[last_checked, now)` が数時間幅のまま一括評価され、
-/// とっくに開始済みの予定への事前通知までまとめて全ギルド分送信されかねない。
-/// 通常の tick 間隔 (60秒) を大きく超える値にすることで、一時的な遅延では影響が出ないようにする
-const MAX_NOTIFICATION_STALENESS: Duration = Duration::minutes(15);
+/// 判定窓 `[last_checked, now)` の幅がこれを超えたら、last_checked を `now - MAX_STALE_WINDOW`
+/// まで早送りし、それより古い発火時刻は諦める。
+///
+/// 1回の `run_once` の処理 (大量送信や Discord API の遅延) には現実的な範囲で時間がかかり得るが、
+/// その正当な遅延と、DB 障害で last_checked が長時間 (数時間) 更新できなかったことによる
+/// 判定窓の異常な拡大を区別する必要がある。前者は「今回の run_once 呼び出し時点の now」から
+/// 「次回の run_once 呼び出し時点の now」までの差 (=処理時間) にしかならないので、
+/// 通常の処理時間としてまず考えられない大きさをしきい値にすれば、後者だけを検出できる
+const MAX_STALE_WINDOW: Duration = Duration::hours(1);
 
 pub async fn run_loop(ctx: serenity::Context, data: Data) {
     // sleep 方式だと実際の周期が「60秒 + 前回の処理時間」になるので、処理時間を含まない
@@ -56,6 +59,20 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
     loop {
         interval.tick().await;
         let now = now_jst();
+        // DB 障害などで last_checked が長期間更新できず判定窓が異常に広がっている場合、
+        // 1回の run_once の処理時間による正当な遅延と区別するため、窓の幅そのものが
+        // MAX_STALE_WINDOW を超えているときだけ last_checked を早送りし、それより古い
+        // 発火時刻は諦める (無限に近い再送信や sent_in_window の際限ない増加を防ぐ)
+        if let Some(clamped) = clamp_stale_window(last_checked, now) {
+            tracing::warn!(
+                skipped_from = %last_checked,
+                new_last_checked = %clamped,
+                "notification window was too wide (likely caused by a long outage); skipping the stale part"
+            );
+            last_checked = clamped;
+            sent_in_window.clear();
+            failure_counts.clear();
+        }
         // DB 取得に失敗した tick で last_checked を進めてしまうと、その窓で発火するはずだった
         // 通知が二度と `is_due` の判定範囲に入らず永久に失われる。成功した時だけ確定させ、
         // 失敗した窓は次の tick でも last_checked はそのままにして再試行する
@@ -73,6 +90,16 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
             sent_in_window.clear();
             failure_counts.clear();
         }
+    }
+}
+
+/// 判定窓 `[last_checked, now)` の幅が `MAX_STALE_WINDOW` を超えていたら、
+/// 早送り後の `last_checked` (`now - MAX_STALE_WINDOW`) を返す。超えていなければ None
+fn clamp_stale_window(last_checked: NaiveDateTime, now: NaiveDateTime) -> Option<NaiveDateTime> {
+    if now.signed_duration_since(last_checked) > MAX_STALE_WINDOW {
+        Some(now - MAX_STALE_WINDOW)
+    } else {
+        None
     }
 }
 
@@ -147,19 +174,6 @@ async fn notify_for_event(
         }
         let key = (event.id, fire);
         if sent_in_window.contains(&key) {
-            continue;
-        }
-        if is_stale(fire, now) {
-            // DB 障害などで last_checked が長時間凍結された後に復旧すると、判定窓が数時間幅の
-            // まま一括評価され、とっくに開始済みの予定の事前通知までまとめて送られかねない。
-            // 陳腐化した通知は諦めて処理済み扱いにする
-            tracing::warn!(
-                event_id = event.id,
-                fire = %fire,
-                now = %now,
-                "skipping stale notification (likely caused by a long outage)"
-            );
-            sent_in_window.insert(key);
             continue;
         }
         due.push((notification, fire));
@@ -275,13 +289,6 @@ fn is_due(
         return false;
     };
     fire >= last_checked && fire < now
-}
-
-/// 発火時刻から `now` までの経過が `MAX_NOTIFICATION_STALENESS` を超えているか。
-/// 超えていれば、長時間の障害復旧直後などで数時間分の判定窓が一括評価されたケースとみなし、
-/// 今更届けても意味の薄い通知として送信をスキップする
-fn is_stale(fire: NaiveDateTime, now: NaiveDateTime) -> bool {
-    now.signed_duration_since(fire) > MAX_NOTIFICATION_STALENESS
 }
 
 /// embed かフォールバックのプレーンテキストのいずれかが実際に届いたら true。
@@ -522,15 +529,29 @@ mod tests {
     }
 
     #[test]
-    fn is_stale_when_fire_time_is_far_in_the_past() {
-        let fire = dt("2026-08-23T10:00:00");
-        // 14分59秒の遅れはまだ許容範囲
-        assert!(!is_stale(fire, dt("2026-08-23T10:14:59")));
-        // 15分ちょうどまでは許容 (境界は超えたときだけ陳腐化扱い)
-        assert!(!is_stale(fire, dt("2026-08-23T10:15:00")));
-        // DB 障害が数時間続いた後の復旧のような、大幅な遅れは陳腐化として扱う
-        assert!(is_stale(fire, dt("2026-08-23T10:15:01")));
-        assert!(is_stale(fire, dt("2026-08-23T13:00:00")));
+    fn clamp_stale_window_leaves_normal_processing_delays_alone() {
+        let last_checked = dt("2026-08-23T10:00:00");
+        // 1回の run_once の処理に (大量送信や Discord API の遅延で) 20分かかったケース。
+        // これは正当な遅延であり、その間に発火した通知を諦めさせてはいけない
+        assert_eq!(
+            clamp_stale_window(last_checked, dt("2026-08-23T10:20:00")),
+            None
+        );
+        // ちょうど1時間までは許容 (境界は超えたときだけ早送りする)
+        assert_eq!(
+            clamp_stale_window(last_checked, dt("2026-08-23T11:00:00")),
+            None
+        );
+    }
+
+    #[test]
+    fn clamp_stale_window_skips_long_outages() {
+        let last_checked = dt("2026-08-23T10:00:00");
+        // DB 障害が数時間続いた後の復旧のような、大幅な遅れは早送りする
+        assert_eq!(
+            clamp_stale_window(last_checked, dt("2026-08-23T13:00:00")),
+            Some(dt("2026-08-23T12:00:00"))
+        );
     }
 
     #[test]

@@ -56,7 +56,7 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | 参加・退出のログ通知 | コードに埋め込んだチャンネル ID に送信 | `BOT_LOG_CHANNEL_ID` のチャンネルに送信 (未設定なら送らない)。送信失敗は warn ログのみ |
 | Gateway インテント | `non_privileged` | 同じ (ギルドイベントには `GUILDS`、メンションでの `register` には `GUILD_MESSAGES` が必要で、どちらも含まれる) |
 | 終了処理 | なし | SIGINT / SIGTERM でシャードを閉じてから終了 (docker stop 向け) |
-| 定期タスクの起動 | `CacheReady` (+ `AtomicBool` で二重起動を防止) | `ShardsReady` (全シャードが `Ready` を受け取った後に一度だけ発火) + `Data::mark_tasks_started` で二重起動を防止 |
+| 定期タスクの起動 | `CacheReady` (+ `AtomicBool` で二重起動を防止) | 最初の `Ready` (`Data::mark_tasks_started` で二重起動を防止)。全シャードが揃うまで待つ `ShardsReady` だと、いずれか1シャードでも接続障害があると起動できず取りこぼしにつながるため使わない |
 | presence の案内文言 | `cal help` / `/help` / サーバー数 / URL を順送り | 廃止済みの `cal help` は出さず、`/help` / サーバー数 / URL の3つを順送り |
 | presence の切り替え API | `ctx.set_presence(...).await` (非同期) | serenity 0.12 で同期 API に変更 (`ctx.set_presence(...)`) |
 | presence の起動対象 | 単一の Gateway 接続前提 | `Context::set_presence` はそのシャードの接続にしか反映されないため、シャードごとの `Ready` から起動。re-identify を伴う再接続で同じシャードに `Ready` が再送されたときは古いループ (無効な接続を握ったまま) を中断して新しい `Context` のものに置き換える (`Data::replace_presence_task`) |
@@ -66,7 +66,7 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | 通知タスクの判定窓 | 固定1分窓 (`[now - 1分, now)`)。1回の実行が60秒を超えると未判定区間が生じ得る | 前回チェック時刻を引き継ぐ可変長の窓 (`[last_checked, now)`) で、実行が遅延しても取りこぼさない |
 | 通知の重複排除 | なし | 同じ「num unit 前」が複数保存されていても送信前に一本化 |
 | 通知失敗時の安全網 | なし | チャンネル削除・権限剥奪など既知の恒久エラーは即座に処理済み扱い。未知の恒久エラーで送信が失敗し続けても `MAX_SEND_ATTEMPTS` 回で諦め、`last_checked` の凍結による全ギルドの長期停滞を防ぐ |
-| DB 障害復旧時の一括送信対策 | なし | DB 障害が数時間続いた後の復旧直後は `[last_checked, now)` が数時間幅のまま一括評価され得るが、発火時刻から `MAX_NOTIFICATION_STALENESS` (15分) 以上経過した通知は陳腐化したとみなして送信せず処理済み扱いにする |
+| DB 障害復旧時の一括送信対策 | なし | 判定窓 `[last_checked, now)` の幅が `MAX_STALE_WINDOW` (1時間、通常の処理時間としてまず考えられない大きさ) を超えたら、DB 障害などによる異常な拡大とみなして `last_checked` を早送りし、それより古い発火時刻は諦める (1回の処理が長引いただけの正当な遅延とは区別する) |
 | 祝日判定 | `jpholiday = "0.1"` | `jpholiday = "0.2"` (API 変更: `Date::new(year, month, day)` を使うフリー関数に) |
 
 DB スキーマは api (`api/migrations/`) が正で、Bot はマイグレーションを実行しない。
