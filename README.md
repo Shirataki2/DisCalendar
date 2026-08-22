@@ -10,7 +10,7 @@ Discord 用のカレンダーアプリ。予定の作成から通知まで、ブ
 
 | ディレクトリ | 内容 | 状態 |
 |---|---|---|
-| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query | Discord ログイン、サーバー選択、カレンダー (API 接続済み: 予定の取得 / 作成 / 移動 / 削除) |
+| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)。サーバー設定ダイアログは未着手 |
 | `api/` | Rust API（actix-web 4 + sqlx 0.9、旧版から移行） | 移行済み（[README](api/README.md)） |
 | `bot/` | Discord Bot（Rust、旧版から移行予定） | 未着手 |
 | `docs/` | 技術選定・設計ドキュメント | [技術選定](docs/tech-stack-selection.md) |
@@ -25,6 +25,15 @@ Rust 側（api / bot）はルートの `Cargo.toml` を workspace とし、`rust
 - Server Component からは `web/src/lib/api/server.ts` が cookie を付けて API を直接呼ぶ。
 - クライアント側のデータ取得・更新は TanStack Query（`web/src/lib/query/`）。ドラッグ移動などは楽観的更新し、失敗時は元に戻す。
 - API のエンドポイント定義は `web/src/lib/api/endpoints.ts`（Rust 側の `api/src/routes` と対応）。
+
+### web の UI 部品
+
+- UI 部品は shadcn/ui（`web/components.json`、現行の既定どおり Base UI ベース）。生成物は `web/src/components/ui/` に置き、
+  `pnpm dlx shadcn@latest add <name>` で追加する。配色はダーク固定（`globals.css` の `.dark` を `<html class="dark">` で常時適用）。
+- 予定の作成・編集ダイアログは `web/src/components/event-form-dialog.tsx`（React Hook Form + Zod）。
+  スキーマと API との変換は `web/src/lib/event-form.ts` にあり、上限値（タイトル 32 文字、説明 1000 文字、通知 10 件）は
+  `api/src/models/events.rs` と揃える。
+- 予定をクリックすると概要ポップオーバー（`event-popover.tsx`、旧 SimpleEdit.vue 相当）から編集・削除できる。
 
 ## 開発
 

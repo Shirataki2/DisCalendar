@@ -9,6 +9,7 @@ import {
   subDays,
 } from "date-fns";
 import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
+import { readableTextColor } from "@/lib/color";
 
 // API と FullCalendar の間の予定の変換。
 // API の日時はタイムゾーンなしの JST 文字列で、ブラウザのローカル時刻をそのまま JST とみなす
@@ -63,6 +64,7 @@ export function toCalendarEvent(event: ApiEvent): EventInput {
     id: String(event.id),
     title: event.name,
     color: event.color,
+    textColor: readableTextColor(event.color),
     extendedProps: { source: event },
   };
   if (event.is_all_day) {
@@ -129,4 +131,19 @@ export function describeNotification({
     weeks: "週間前",
   }[unit];
   return `${num}${label}`;
+}
+
+/** 予定の期間の表示用文字列。旧実装 (SimpleEdit.vue) と同じ形式 */
+export function describeEventRange(event: ApiEvent): string {
+  const start = parseApiDateTime(event.start_at);
+  const end = parseApiDateTime(event.end_at);
+  const sameDay = format(start, "yyyy-MM-dd") === format(end, "yyyy-MM-dd");
+  if (event.is_all_day) {
+    return sameDay
+      ? format(start, "yyyy/MM/dd")
+      : `${format(start, "yyyy/MM/dd")} - ${format(end, "yyyy/MM/dd")}`;
+  }
+  return sameDay
+    ? `${format(start, "yyyy/MM/dd HH:mm")} - ${format(end, "HH:mm")}`
+    : `${format(start, "yyyy/MM/dd HH:mm")} - ${format(end, "yyyy/MM/dd HH:mm")}`;
 }

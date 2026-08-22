@@ -42,8 +42,8 @@
 |---|---|---|---|
 | フレームワーク | **Next.js 16 (App Router) + React 19 + TypeScript (strict)** | Nuxt 2 | LP/docs の静的生成 + 認証付きダッシュボード + BFF（後述の認証・プロキシ）を 1 つで賄える。Docker standalone 出力で現行の compose 運用にそのまま載る |
 | カレンダー | **FullCalendar v7**（`@fullcalendar/react` 7.x + `temporal-polyfill`） | Vuetify `v-calendar` | month/week/day ビュー、ドラッグ移動・リサイズ・スナップ・現在時刻インジケータが MIT のコア機能で揃い、現行 UX をほぼ 1:1 で再現できる（PoC で検証済み）。Schedule-X はドラッグ&ドロップが Premium（有料）化、react-big-calendar は機能・保守で見劣り。v7 ではプラグインが `@fullcalendar/react/daygrid` 等のサブパスに統合され、v6 の個別パッケージ（`@fullcalendar/daygrid` 等）は使わない |
-| UI | **Tailwind CSS v4 + shadcn/ui**（Radix ベース） | Vuetify 2 | ダークテーマ前提のカスタムデザインを最小コストで。Dialog / Popover / Form 部品を置換。Material 感の完全維持が必要なら MUI v7 が代替（ただしバンドル増） |
-| 日時ピッカー | shadcn/ui Calendar（react-day-picker v9）+ ネイティブ `<input type="time">` ベースの自作 TimeField | `v-date-picker` / `v-time-picker` | 現行フォームの必要十分をカバー。作り込みが辛ければ MUI X Date/Time Picker（MIT 版）を部分導入する逃げ道あり |
+| UI | **Tailwind CSS v4 + shadcn/ui**（選定時は Radix ベース。2026-07 以降 shadcn の既定が Base UI になったため、導入時はその既定に従い Base UI ベースで生成） | Vuetify 2 | ダークテーマ前提のカスタムデザインを最小コストで。Dialog / Popover / Form 部品を置換。Material 感の完全維持が必要なら MUI v7 が代替（ただしバンドル増） |
+| 日時ピッカー | shadcn/ui Calendar（react-day-picker、導入時点で v10）+ ネイティブ `<input type="time">` | `v-date-picker` / `v-time-picker` | 現行フォームの必要十分をカバー。作り込みが辛ければ MUI X Date/Time Picker（MIT 版）を部分導入する逃げ道あり |
 | サーバー状態 | **TanStack Query v5** | Vuex + 手動 axios | イベントの取得/更新/削除・楽観的更新（ドラッグ移動の即時反映→保存失敗時ロールバック）が現行の手書きロジックをそのまま置換 |
 | クライアント状態 | **Zustand v5**（最小限） | Vuex mutation のイベントバス的用法 | 表示タイプ・選択日などツールバー⇔カレンダー間の少量の共有状態のみ。大半は TanStack Query と URL に寄せる |
 | HTTP | **ネイティブ fetch**（薄いラッパー）+ Next.js `rewrites` でプロキシ維持 | axios + `@nuxtjs/proxy` | 依存削減。`/local/api` → Rust API のプロキシは rewrites で同等構成。将来 Rust 側に utoipa で OpenAPI を導入したら `openapi-fetch` で型安全化 |
