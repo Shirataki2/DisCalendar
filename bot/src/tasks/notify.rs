@@ -29,6 +29,12 @@ const INTERVAL: StdDuration = StdDuration::from_secs(60);
 /// この回数 (= 分) 送信を試みても成功しなければ諦めて処理済み扱いにし、
 /// last_checked が凍結され続けて全ギルドの通知処理が長期停滞するのを防ぐ
 const MAX_SEND_ATTEMPTS: u32 = 5;
+/// 発火時刻から `now` までの経過がこれを超えたら「陳腐化した」として送信せず処理済み扱いにする。
+/// DB 障害が数時間続いた後に復旧すると、`run_once` は last_checked を凍結したまま `now` だけ
+/// 進み続けるので、復旧後の最初の tick で `[last_checked, now)` が数時間幅のまま一括評価され、
+/// とっくに開始済みの予定への事前通知までまとめて全ギルド分送信されかねない。
+/// 通常の tick 間隔 (60秒) を大きく超える値にすることで、一時的な遅延では影響が出ないようにする
+const MAX_NOTIFICATION_STALENESS: Duration = Duration::minutes(15);
 
 pub async fn run_loop(ctx: serenity::Context, data: Data) {
     // sleep 方式だと実際の周期が「60秒 + 前回の処理時間」になるので、処理時間を含まない
@@ -130,16 +136,34 @@ async fn notify_for_event(
     // SELECT すると、予定が増えるほど DB 負荷とタスクの所要時間が際限なく伸びてしまう。
     // 同じ判定窓の再試行で既に送信済みの発火時刻は除く (event_settings 取得の失敗などで
     // last_checked が進まなかった場合に、他の予定の通知まで重複送信しないため)
-    let due: Vec<(Notification, NaiveDateTime)> = notifications
-        .into_iter()
-        .filter_map(|notification| {
-            let minutes = notification.total_minutes();
-            let fire = fire_at(start, minutes)?;
-            (is_due(start, minutes, last_checked, now)
-                && !sent_in_window.contains(&(event.id, fire)))
-            .then_some((notification, fire))
-        })
-        .collect();
+    let mut due: Vec<(Notification, NaiveDateTime)> = Vec::new();
+    for notification in notifications {
+        let minutes = notification.total_minutes();
+        let Some(fire) = fire_at(start, minutes) else {
+            continue;
+        };
+        if !is_due(start, minutes, last_checked, now) {
+            continue;
+        }
+        let key = (event.id, fire);
+        if sent_in_window.contains(&key) {
+            continue;
+        }
+        if is_stale(fire, now) {
+            // DB 障害などで last_checked が長時間凍結された後に復旧すると、判定窓が数時間幅の
+            // まま一括評価され、とっくに開始済みの予定の事前通知までまとめて送られかねない。
+            // 陳腐化した通知は諦めて処理済み扱いにする
+            tracing::warn!(
+                event_id = event.id,
+                fire = %fire,
+                now = %now,
+                "skipping stale notification (likely caused by a long outage)"
+            );
+            sent_in_window.insert(key);
+            continue;
+        }
+        due.push((notification, fire));
+    }
     if due.is_empty() {
         return true;
     }
@@ -251,6 +275,13 @@ fn is_due(
         return false;
     };
     fire >= last_checked && fire < now
+}
+
+/// 発火時刻から `now` までの経過が `MAX_NOTIFICATION_STALENESS` を超えているか。
+/// 超えていれば、長時間の障害復旧直後などで数時間分の判定窓が一括評価されたケースとみなし、
+/// 今更届けても意味の薄い通知として送信をスキップする
+fn is_stale(fire: NaiveDateTime, now: NaiveDateTime) -> bool {
+    now.signed_duration_since(fire) > MAX_NOTIFICATION_STALENESS
 }
 
 /// embed かフォールバックのプレーンテキストのいずれかが実際に届いたら true。
@@ -488,6 +519,18 @@ mod tests {
             dt("2026-08-23T09:59:50"),
             dt("2026-08-23T10:01:00")
         ));
+    }
+
+    #[test]
+    fn is_stale_when_fire_time_is_far_in_the_past() {
+        let fire = dt("2026-08-23T10:00:00");
+        // 14分59秒の遅れはまだ許容範囲
+        assert!(!is_stale(fire, dt("2026-08-23T10:14:59")));
+        // 15分ちょうどまでは許容 (境界は超えたときだけ陳腐化扱い)
+        assert!(!is_stale(fire, dt("2026-08-23T10:15:00")));
+        // DB 障害が数時間続いた後の復旧のような、大幅な遅れは陳腐化として扱う
+        assert!(is_stale(fire, dt("2026-08-23T10:15:01")));
+        assert!(is_stale(fire, dt("2026-08-23T13:00:00")));
     }
 
     #[test]

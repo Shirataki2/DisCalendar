@@ -66,6 +66,7 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | 通知タスクの判定窓 | 固定1分窓 (`[now - 1分, now)`)。1回の実行が60秒を超えると未判定区間が生じ得る | 前回チェック時刻を引き継ぐ可変長の窓 (`[last_checked, now)`) で、実行が遅延しても取りこぼさない |
 | 通知の重複排除 | なし | 同じ「num unit 前」が複数保存されていても送信前に一本化 |
 | 通知失敗時の安全網 | なし | チャンネル削除・権限剥奪など既知の恒久エラーは即座に処理済み扱い。未知の恒久エラーで送信が失敗し続けても `MAX_SEND_ATTEMPTS` 回で諦め、`last_checked` の凍結による全ギルドの長期停滞を防ぐ |
+| DB 障害復旧時の一括送信対策 | なし | DB 障害が数時間続いた後の復旧直後は `[last_checked, now)` が数時間幅のまま一括評価され得るが、発火時刻から `MAX_NOTIFICATION_STALENESS` (15分) 以上経過した通知は陳腐化したとみなして送信せず処理済み扱いにする |
 | 祝日判定 | `jpholiday = "0.1"` | `jpholiday = "0.2"` (API 変更: `Date::new(year, month, day)` を使うフリー関数に) |
 
 DB スキーマは api (`api/migrations/`) が正で、Bot はマイグレーションを実行しない。
