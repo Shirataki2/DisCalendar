@@ -10,7 +10,7 @@ Discord 用のカレンダーアプリ。予定の作成から通知まで、ブ
 
 | ディレクトリ | 内容 | 状態 |
 |---|---|---|
-| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)。サーバー設定ダイアログは未着手 |
+| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
 | `api/` | Rust API（actix-web 4 + sqlx 0.9、旧版から移行） | 移行済み（[README](api/README.md)） |
 | `bot/` | Discord Bot（Rust、旧版から移行予定） | 未着手 |
 | `docs/` | 技術選定・設計ドキュメント | [技術選定](docs/tech-stack-selection.md) |
@@ -34,6 +34,10 @@ Rust 側（api / bot）はルートの `Cargo.toml` を workspace とし、`rust
   スキーマと API との変換は `web/src/lib/event-form.ts` にあり、上限値（タイトル 32 文字、説明 1000 文字、通知 10 件）は
   `api/src/models/events.rs` と揃える。
 - 予定をクリックすると概要ポップオーバー（`event-popover.tsx`、旧 SimpleEdit.vue 相当）から編集・削除できる。
+- サーバー設定ダイアログは `web/src/components/guild-settings-dialog.tsx`（旧 ServerSetting.vue 相当）。restricted
+  （予定の編集を管理権限を持つユーザーに限定）の切り替えと、Discord 側で権限を変えた後の「再読込」ができる。
+  ギルド設定と自分の権限は `dashboard/[id]/page.tsx`（RSC）が取得して TanStack Query に hydrate し、
+  `guild-dashboard.tsx` がそこから編集可否を求めるので、保存するとカレンダーの編集可否がその場で切り替わる。
 
 ## 開発
 

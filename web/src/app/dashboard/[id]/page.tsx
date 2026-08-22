@@ -1,35 +1,44 @@
+import {
+  dehydrate,
+  HydrationBoundary,
+  QueryClient,
+} from "@tanstack/react-query";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { EventCalendar } from "@/components/event-calendar";
+import { GuildDashboard } from "@/components/guild-dashboard";
 import { ApiError } from "@/lib/api";
 import { serverApi } from "@/lib/api/server";
-import type { Guild, GuildConfig, MyPermissions } from "@/lib/api/types";
+import type { Guild } from "@/lib/api/types";
+import { queryKeys } from "@/lib/query/keys";
 
 export const metadata: Metadata = {
   title: "カレンダー",
 };
 
-interface GuildPageData {
-  guild: Guild;
-  config: GuildConfig;
-  permissions: MyPermissions;
-}
-
-type LoadResult =
-  | { ok: true; data: GuildPageData }
-  | { ok: false; error: unknown };
+type LoadResult = { ok: true; guild: Guild } | { ok: false; error: unknown };
 
 // ギルド情報・restricted 設定・自分の権限をまとめて取る。
-// メンバーでない / Bot 未参加なら API が 403 を返すので、ここで弾かれる
-async function loadGuild(guildId: string): Promise<LoadResult> {
+// メンバーでない / Bot 未参加なら API が 403 を返すので、ここで弾かれる。
+// 設定と権限はクライアント側 (サーバー設定ダイアログ) でも更新・再取得するため、
+// TanStack Query のキャッシュに入れてブラウザへ hydrate する
+async function loadGuild(
+  guildId: string,
+  queryClient: QueryClient,
+): Promise<LoadResult> {
   try {
-    const [guild, config, permissions] = await Promise.all([
+    const [guild] = await Promise.all([
       serverApi.guilds.get(guildId),
-      serverApi.guilds.config(guildId),
-      serverApi.guilds.myPermissions(guildId),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.guild.config(guildId),
+        queryFn: () => serverApi.guilds.config(guildId),
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.guild.myPermissions(guildId),
+        queryFn: () => serverApi.guilds.myPermissions(guildId),
+      }),
     ]);
-    return { ok: true, data: { guild, config, permissions } };
+    return { ok: true, guild };
   } catch (error) {
     return { ok: false, error };
   }
@@ -43,7 +52,9 @@ export default async function GuildCalendarPage({
     notFound();
   }
 
-  const result = await loadGuild(id);
+  // リクエストごとに作る (リクエスト間でキャッシュを共有しない)
+  const queryClient = new QueryClient();
+  const result = await loadGuild(id, queryClient);
   if (!result.ok) {
     if (result.error instanceof ApiError && result.error.status === 401) {
       redirect("/login");
@@ -51,26 +62,10 @@ export default async function GuildCalendarPage({
     return <GuildUnavailable error={result.error} />;
   }
 
-  const { guild, config, permissions } = result.data;
-  // restricted モードでは管理権限を持つユーザーだけが編集できる (API 側でも強制される)
-  const canEdit = !config.restricted || permissions.can_manage_server;
-
   return (
-    <main className="flex min-h-0 flex-1 flex-col gap-2 p-4">
-      <div className="flex shrink-0 items-center justify-end gap-3">
-        {config.restricted && !canEdit && (
-          <span className="text-xs text-neutral-400">
-            このサーバーでは管理権限を持つユーザーのみ予定を編集できます
-          </span>
-        )}
-        {guild.avatar_url && (
-          // biome-ignore lint/performance/noImgElement: Discord CDN のアイコンは最適化不要
-          <img src={guild.avatar_url} alt="" className="h-8 w-8 rounded-full" />
-        )}
-        <span className="text-lg font-semibold">{guild.name}</span>
-      </div>
-      <EventCalendar guildId={id} canEdit={canEdit} />
-    </main>
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <GuildDashboard guild={result.guild} />
+    </HydrationBoundary>
   );
 }
 
