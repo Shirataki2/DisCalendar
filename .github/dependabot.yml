@@ -1,0 +1,40 @@
+# 依存パッケージの更新 PR。minor / patch はまとめて 1 本にし、major だけ個別に出す
+version: 2
+updates:
+  - package-ecosystem: npm # pnpm も npm 扱い
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    labels: [dependencies, "area:web"]
+    open-pull-requests-limit: 5
+    groups:
+      web-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directory: / # ワークスペースのルート (Cargo.lock がある場所)
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    labels: [dependencies, "area:api"]
+    open-pull-requests-limit: 5
+    groups:
+      rust-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+      timezone: Asia/Tokyo
+    labels: [dependencies, "area:infra"]
+    groups:
+      actions:
+        patterns: ["*"]

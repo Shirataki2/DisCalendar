@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 同じ PR / ブランチに連続で push したら古い実行は止める
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # 変更されたディレクトリだけ検証する (web だけの PR で cargo build を待たない)
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      api: ${{ steps.filter.outputs.api }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            web:
+              - "web/**"
+              - ".github/workflows/ci.yml"
+            api:
+              - "api/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+
+  web:
+    name: web
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          # web/package.json の packageManager と同じ版を使う
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: biome
+        run: pnpm lint
+      - name: tsc
+        run: pnpm exec tsc --noEmit
+      - name: Next.js のビルドキャッシュ
+        uses: actions/cache@v6
+        with:
+          path: web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}-${{ hashFiles('web/src/**', 'web/next.config.ts') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}-
+      - name: next build
+        run: pnpm build
+        env:
+          # ビルド自体に本物の値は不要。未設定だと Better Auth が警告を出すのでダミーを入れる
+          BETTER_AUTH_SECRET: ci-dummy-secret-not-used-at-runtime
+          BETTER_AUTH_URL: http://localhost:3000
+
+  api:
+    name: api
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    services:
+      # `#[sqlx::test]` がテストごとに一時 DB を作るので superuser で繋ぐ
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: discalendar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CARGO_TERM_COLOR: always
+      # query! のコンパイル時チェックは .sqlx/ のキャッシュを使う (api/README.md)
+      SQLX_OFFLINE: "true"
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/discalendar_test
+    steps:
+      - uses: actions/checkout@v7
+      - name: rust-toolchain.toml の toolchain をインストール
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+
+  # ルールセットの必須ステータスチェックはこのジョブだけを見る。
+  # web / api は変更がなければ skipped になるので、それは成功として扱う
+  ci:
+    name: ci
+    needs: [changes, web, api]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 結果の集約
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          WEB: ${{ needs.web.result }}
+          API: ${{ needs.api.result }}
+        run: |
+          echo "changes=$CHANGES web=$WEB api=$API"
+          [ "$CHANGES" = "success" ] || exit 1
+          for r in "$WEB" "$API"; do
+            case "$r" in
+              success|skipped) ;;
+              *) exit 1 ;;
+            esac
+          done

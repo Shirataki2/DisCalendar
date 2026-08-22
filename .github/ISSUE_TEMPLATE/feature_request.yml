@@ -1,0 +1,33 @@
+name: 機能要望・改善提案
+description: 新しい機能や既存機能の改善を提案する
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 背景・課題
+      description: 何に困っているか、どんな場面で欲しくなるか
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案
+      description: どう変えたいか。画面イメージや、旧版 (discalendar.app) の挙動との違いがあれば書く
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 代替案・検討したこと
+  - type: dropdown
+    id: area
+    attributes:
+      label: 対象
+      multiple: true
+      options:
+        - web (Next.js)
+        - api (Rust)
+        - bot
+        - docs / LP
