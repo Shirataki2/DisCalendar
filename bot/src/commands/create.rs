@@ -85,16 +85,7 @@ pub async fn create(
     let guild_id = guild_id.to_string();
     let pool = &ctx.data().pool;
 
-    // restricted モードのサーバーでは管理権限を持つユーザーだけが予定を作れる (api の `ensure_can_edit` と同じ)
-    if guild_config::is_restricted(pool, &guild_id).await?
-        && !checks::author_can_manage_server(ctx).await?
-    {
-        return Err(BotError::user(format!(
-            "このサーバーでは予定の作成が制限されています。{}",
-            checks::MANAGE_PERMISSIONS_REQUIRED
-        )));
-    }
-
+    // 入力の検証は I/O なしで済むので先に行う (エラーは本人にだけ見える初回応答になる)
     let input = EventInput {
         name,
         description,
@@ -108,6 +99,22 @@ pub async fn create(
             .collect(),
     };
     let validated = input.validate()?;
+
+    // Discord は 3 秒以内に初回応答がないと interaction を失敗扱いにする。
+    // ここから先は DB と (キャッシュにないときは) Discord API を呼ぶので、先に「処理中」を返しておく。
+    // defer 後の返信は公開メッセージになる (ephemeral 指定は初回応答の種別に従う) が、
+    // 保存だけ成功して利用者には失敗に見える (再試行で重複登録される) 事態を防ぐ方を優先する
+    ctx.defer().await?;
+
+    // restricted モードのサーバーでは管理権限を持つユーザーだけが予定を作れる (api の `ensure_can_edit` と同じ)
+    if guild_config::is_restricted(pool, &guild_id).await?
+        && !checks::author_can_manage_server(ctx).await?
+    {
+        return Err(BotError::user(format!(
+            "このサーバーでは予定の作成が制限されています。{}",
+            checks::MANAGE_PERMISSIONS_REQUIRED
+        )));
+    }
 
     let event = events::create(
         pool,

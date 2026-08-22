@@ -27,6 +27,9 @@ pub async fn list(
     let guild_id = guild_id.to_string();
     let pool = &ctx.data().pool;
 
+    // DB を読む前に「処理中」を返し、3 秒の初回応答期限を過ぎて interaction が失敗扱いになるのを防ぐ
+    ctx.defer().await?;
+
     let events = match range {
         EventRange::Past => events::list_past(pool, &guild_id, now_jst()).await?,
         EventRange::Future => events::list_future(pool, &guild_id, now_jst()).await?,

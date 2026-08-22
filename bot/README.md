@@ -46,6 +46,7 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | `/list` の「現在」 | UTC の naive 時刻 (JST の予定と 9 時間ずれていた) | JST (api の `now_jst` と同じ) |
 | `/list` のページ送り | ボタンは操作がなくても残る | 10 分操作がなければボタンを外す。端のページでは「前へ」「次へ」を無効化 |
 | エラー表示 | `Debug` 出力をログに出すだけ (ユーザーには無反応) | 入力・権限の問題は本人にだけ日本語で返す (`BotError::User`)。それ以外はログに出して「予期せぬエラー」とだけ返す |
+| 初回応答 | 処理が終わってから返信 (3 秒を超えると interaction が失敗扱いになり、`/create` は保存だけ残る) | `/create` (入力検証の後) / `/list` / `/init` は DB や Discord API を呼ぶ前に `defer` で「処理中」を返す。defer 後の返信は公開メッセージになるので、本人にだけ見せたい権限エラーは defer 前 (check 関数・入力検証) で返す |
 | 参加時 (`GuildCreate`) | 未登録のときだけ INSERT | 起動時に届く参加済みギルドの分も含めて常に upsert (停止中の名前・アイコン変更を取り戻す) |
 | 更新時 (`GuildUpdate`) | キャッシュに旧データがあり、名前かアイコンが変わったときだけ UPDATE | 常に upsert |
 | 退出時 (`GuildDelete`) | 常に DELETE | Discord 側の障害 (`unavailable`) のときは消さない |

@@ -22,6 +22,10 @@ pub async fn init(
     };
     let channel_id = channel.unwrap_or_else(|| ctx.channel_id());
 
+    // DB を書く前に「処理中」を返し、3 秒の初回応答期限を過ぎて interaction が失敗扱いになるのを防ぐ
+    // (権限チェックは check 関数で応答前に済んでいて、権限なしの返信は本人にだけ見える)
+    ctx.defer().await?;
+
     let previous = event_settings::set(
         &ctx.data().pool,
         &guild_id.to_string(),
