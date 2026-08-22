@@ -70,8 +70,12 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
         // 発火時刻は諦める (無限に近い再送信や sent_in_window の際限ない増加を防ぐ)。
         // clamp 後も clamped 以降の発火時刻は引き続き有効な判定窓なので、そこだけ全消去すると
         // 既に送信済みだった通知が (event_settings 取得の失敗などで last_checked が進まない間に)
-        // 再送信されてしまう。clamped より古い、もう二度と判定窓に入らないキーだけを間引く
-        if let Some(clamped) = clamp_stale_window(last_checked, now) {
+        // 再送信されてしまう。clamped より古い、もう二度と判定窓に入らないキーだけを間引く。
+        // ただし failure_counts に記録されている (まだ MAX_SEND_ATTEMPTS に達していない)
+        // 再試行中のキーより前には早送りしない: 各 run_once が長時間かかる状態で同じ通知の
+        // 送信が繰り返し失敗すると、その累積処理時間だけで MAX_STALE_WINDOW を超えてしまい、
+        // まだ再試行の途中にある通知を判定窓の外に押し出して失ってしまうため
+        if let Some(clamped) = clamp_stale_window(last_checked, now, &failure_counts) {
             tracing::warn!(
                 skipped_from = %last_checked,
                 new_last_checked = %clamped,
@@ -102,13 +106,28 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
 }
 
 /// 判定窓 `[last_checked, now)` の幅が `MAX_STALE_WINDOW` を超えていたら、
-/// 早送り後の `last_checked` (`now - MAX_STALE_WINDOW`) を返す。超えていなければ None
-fn clamp_stale_window(last_checked: NaiveDateTime, now: NaiveDateTime) -> Option<NaiveDateTime> {
-    if now.signed_duration_since(last_checked) > MAX_STALE_WINDOW {
-        Some(now - MAX_STALE_WINDOW)
-    } else {
-        None
+/// 早送り後の `last_checked` を返す。超えていなければ None。
+///
+/// 早送り先は `now - MAX_STALE_WINDOW` が基本だが、`failure_counts` に記録されている
+/// (まだ `MAX_SEND_ATTEMPTS` に達していない) 再試行中の発火時刻より前には早送りしない。
+/// 各 `run_once` が長時間かかる状態で同じ通知の送信が繰り返し失敗すると、その累積処理時間
+/// だけで `MAX_STALE_WINDOW` を超えてしまうことがあり、単純に `now - MAX_STALE_WINDOW` まで
+/// 早送りすると、まだ再試行の途中にある通知を判定窓の外に押し出して失ってしまうため
+fn clamp_stale_window(
+    last_checked: NaiveDateTime,
+    now: NaiveDateTime,
+    failure_counts: &HashMap<(i32, NaiveDateTime), u32>,
+) -> Option<NaiveDateTime> {
+    if now.signed_duration_since(last_checked) <= MAX_STALE_WINDOW {
+        return None;
     }
+    let candidate = now - MAX_STALE_WINDOW;
+    let floor = failure_counts.keys().map(|&(_, fire)| fire).min();
+    let clamped = match floor {
+        Some(floor) if floor < candidate => floor,
+        _ => candidate,
+    };
+    (clamped > last_checked).then_some(clamped)
 }
 
 /// 予定の取得と全予定への通知処理がすべて成功したら true。
@@ -539,15 +558,16 @@ mod tests {
     #[test]
     fn clamp_stale_window_leaves_normal_processing_delays_alone() {
         let last_checked = dt("2026-08-23T10:00:00");
+        let no_retries = HashMap::new();
         // 1回の run_once の処理に (大量送信や Discord API の遅延で) 20分かかったケース。
         // これは正当な遅延であり、その間に発火した通知を諦めさせてはいけない
         assert_eq!(
-            clamp_stale_window(last_checked, dt("2026-08-23T10:20:00")),
+            clamp_stale_window(last_checked, dt("2026-08-23T10:20:00"), &no_retries),
             None
         );
         // ちょうど1時間までは許容 (境界は超えたときだけ早送りする)
         assert_eq!(
-            clamp_stale_window(last_checked, dt("2026-08-23T11:00:00")),
+            clamp_stale_window(last_checked, dt("2026-08-23T11:00:00"), &no_retries),
             None
         );
     }
@@ -555,11 +575,38 @@ mod tests {
     #[test]
     fn clamp_stale_window_skips_long_outages() {
         let last_checked = dt("2026-08-23T10:00:00");
+        let no_retries = HashMap::new();
         // DB 障害が数時間続いた後の復旧のような、大幅な遅れは早送りする
         assert_eq!(
-            clamp_stale_window(last_checked, dt("2026-08-23T13:00:00")),
+            clamp_stale_window(last_checked, dt("2026-08-23T13:00:00"), &no_retries),
             Some(dt("2026-08-23T12:00:00"))
         );
+    }
+
+    #[test]
+    fn clamp_stale_window_protects_notifications_still_being_retried() {
+        let last_checked = dt("2026-08-23T10:00:00");
+        let now = dt("2026-08-23T13:00:00");
+        // 通常なら now - 1時間 = 12:00:00 まで早送りするところ、10:30:00 に発火した通知が
+        // まだ MAX_SEND_ATTEMPTS に達していない (failure_counts に記録がある) ので、
+        // その発火時刻より前には早送りしない
+        let mut retries = HashMap::new();
+        retries.insert((1, dt("2026-08-23T10:30:00")), 3);
+        assert_eq!(
+            clamp_stale_window(last_checked, now, &retries),
+            Some(dt("2026-08-23T10:30:00"))
+        );
+    }
+
+    #[test]
+    fn clamp_stale_window_does_not_clamp_when_retry_is_already_at_last_checked() {
+        let last_checked = dt("2026-08-23T10:00:00");
+        let now = dt("2026-08-23T13:00:00");
+        // 再試行中の発火時刻が既に last_checked と同じ (それより前に早送りしようがない) 場合は
+        // 早送り自体をしない
+        let mut retries = HashMap::new();
+        retries.insert((1, last_checked), 3);
+        assert_eq!(clamp_stale_window(last_checked, now, &retries), None);
     }
 
     #[test]

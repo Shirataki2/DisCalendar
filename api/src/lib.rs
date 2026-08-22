@@ -83,9 +83,10 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 /// 削除してしまうと、削除完了を待ってから有効になったインデックスが消え、その後
 /// 前者はマイグレーションを成功として記録してしまうため、二度と再作成されなくなる
 const STARTUP_LOCK_ID: i64 = 8_612_004;
-/// アドバイザリロックのポーリング間隔と最大待機時間 (下記コメント参照)
+/// アドバイザリロックのポーリング間隔 (下記コメント参照)
 const STARTUP_LOCK_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
-const STARTUP_LOCK_MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+/// この間隔ごとに「まだ待っている」ことをログに残す (運用者が異常な遅延に気付けるように)
+const STARTUP_LOCK_LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// 無効なインデックスの掃除とマイグレーションの適用を、複数の API インスタンス間で
 /// 直列化しながら行う。
@@ -136,9 +137,16 @@ async fn run_startup_migrations(pool: &sqlx::PgPool) -> anyhow::Result<()> {
 /// 扱われ、その `xmin` を保持し続けるため、レプリカ B がこのロック待ちでブロックしている間に
 /// レプリカ A が `CREATE INDEX CONCURRENTLY` の当該フェーズに達すると、A は B の完了を待ち、
 /// B は A が握っているこのロックの解放を待つ、という循環待機 (デッドロック) が成立し得る。
-/// ポーリング方式なら各試行がすぐ完了してバックエンドがアイドルに戻るため、この待機要因にならない
+/// ポーリング方式なら各試行がすぐ完了してバックエンドがアイドルに戻るため、この待機要因にならない。
+///
+/// 待機に上限は設けない: ローリング更新で先行インスタンスが大きな `events` テーブルに対して
+/// `CREATE INDEX CONCURRENTLY` を実行していると、構築に数分かかることもあり、固定の
+/// タイムアウトを設けると後続インスタンスが正常な処理の完了を待たずに起動失敗してしまう。
+/// `pg_advisory_lock` はセッションスコープなので、保持しているプロセスが (正常終了でも
+/// クラッシュでも) 終了すれば PostgreSQL が自動的に解放するため、無期限に待っても安全である
 async fn acquire_startup_lock(conn: &mut sqlx::PgConnection) -> anyhow::Result<()> {
-    let deadline = tokio::time::Instant::now() + STARTUP_LOCK_MAX_WAIT;
+    let start = tokio::time::Instant::now();
+    let mut last_logged = start;
     loop {
         let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
             .bind(STARTUP_LOCK_ID)
@@ -148,11 +156,13 @@ async fn acquire_startup_lock(conn: &mut sqlx::PgConnection) -> anyhow::Result<(
         if acquired {
             return Ok(());
         }
-        if tokio::time::Instant::now() >= deadline {
-            anyhow::bail!(
-                "timed out waiting for the startup advisory lock after {:?}",
-                STARTUP_LOCK_MAX_WAIT
+        let now = tokio::time::Instant::now();
+        if now.duration_since(last_logged) >= STARTUP_LOCK_LOG_INTERVAL {
+            tracing::warn!(
+                waited = ?now.duration_since(start),
+                "still waiting for the startup advisory lock (another instance may be running a long migration)"
             );
+            last_logged = now;
         }
         tokio::time::sleep(STARTUP_LOCK_POLL_INTERVAL).await;
     }
