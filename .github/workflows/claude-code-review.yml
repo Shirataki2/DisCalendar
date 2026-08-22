@@ -55,5 +55,14 @@ jobs:
           plugins: "code-review@claude-code-plugins"
           # --comment で PR にインラインコメントを付ける (無いと実行ログにしか出ない)
           prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
-          # インラインコメント用の MCP サーバーは --allowedTools に書いたときだけ起動する
-          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
+          # 動作確認のため一時的に Claude の全出力 (ツールの実行結果を含む) をログに出す。
+          # public リポジトリなので、レビュー本体が走ることを確認したら外す (#19)
+          show_full_output: true
+          # --allowedTools: プラグイン (plugins/code-review/commands/code-review.md の allowed-tools) が使う gh コマンドを
+          #   明示的に許可する。ヘッドレス実行では許可外のツール呼び出しが自動で拒否され、レビューが始まる前に
+          #   終了していた (#19)。インラインコメント用の MCP サーバーは --allowedTools に書いたときだけ起動する
+          # --append-system-prompt: プラグインの適格性チェックが Claude Code 製の PR を「自動生成 PR」と誤判定しないようにし、
+          #   レビュー規約の場所 (AGENTS.md) と日本語で書くことを伝える
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
+            --append-system-prompt "Repository-specific review instructions for DisCalendar (these take precedence over the plugin's eligibility heuristics): (1) Pull requests in this repository are usually written with Claude Code (branch prefix claude/, footer 'Generated with Claude Code', Co-Authored-By: Claude). They are NOT automated PRs and MUST be fully reviewed. Skip a PR only if it is closed, a draft, or authored by dependabot. Never skip because the change looks small or trivial (CI and workflow changes must be reviewed too), and never skip because Claude already commented on an earlier commit: in that case review the newly pushed changes and do not repeat issues that were already raised. (2) The review rules are in AGENTS.md at the repository root (CLAUDE.md only imports it via @AGENTS.md). Treat AGENTS.md as the CLAUDE.md for compliance checks and give its 'Code Review Rules' section to every subagent. (3) Write every review comment in Japanese."
