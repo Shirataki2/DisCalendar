@@ -47,6 +47,15 @@ export interface GuildConfig {
   restricted: boolean;
 }
 
+/** GET /admin/me。ADMIN_DISCORD_USER_IDS に含まれるユーザーだけ 200 (それ以外は 403) */
+export interface AdminMe {
+  /** Better Auth の user.id */
+  user_id: string;
+  name: string;
+  /** 連携済み Discord アカウントのユーザー ID (Snowflake、文字列) */
+  discord_user_id: string;
+}
+
 export interface MyPermissions {
   user_id: string;
   permissions: string;

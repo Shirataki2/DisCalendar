@@ -13,6 +13,9 @@ pub struct Config {
     pub better_auth_secret: String,
     /// Better Auth の cookie プレフィックス (既定 `better-auth`)
     pub auth_cookie_prefix: String,
+    /// 管理コンソール (`/admin/*`) を使える Discord ユーザー ID (`ADMIN_DISCORD_USER_IDS`、カンマ区切り)。
+    /// 空なら管理者はいない (全員 403)
+    pub admin_discord_user_ids: Vec<String>,
 }
 
 impl Config {
@@ -29,6 +32,10 @@ impl Config {
             discord_bot_token: required("DISCORD_BOT_TOKEN")?,
             better_auth_secret: required("BETTER_AUTH_SECRET")?,
             auth_cookie_prefix: env_or("AUTH_COOKIE_PREFIX", "better-auth"),
+            admin_discord_user_ids: parse_admin_discord_user_ids(&env_or(
+                "ADMIN_DISCORD_USER_IDS",
+                "",
+            ))?,
         })
     }
 
@@ -40,6 +47,24 @@ impl Config {
             format!("{}.session_token", self.auth_cookie_prefix),
         ]
     }
+}
+
+/// `ADMIN_DISCORD_USER_IDS` (カンマ区切り) を ID の一覧にする。空要素は無視し、
+/// Snowflake でない値が混ざっていたら設定ミスとして起動時に失敗させる
+/// (typo で誰も管理者になれない / 意図しない値が通るのを防ぐ)
+fn parse_admin_discord_user_ids(raw: &str) -> Result<Vec<String>> {
+    let mut ids = Vec::new();
+    for id in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        anyhow::ensure!(
+            // routes::member::is_snowflake と同じ基準
+            id.len() <= 20 && id.bytes().all(|b| b.is_ascii_digit()),
+            "ADMIN_DISCORD_USER_IDS must be comma-separated Discord user IDs (snowflakes), got {id:?}"
+        );
+        if !ids.iter().any(|existing| existing == id) {
+            ids.push(id.to_owned());
+        }
+    }
+    Ok(ids)
 }
 
 fn required(key: &str) -> Result<String> {
@@ -54,4 +79,31 @@ fn env_or(key: &str, default: &str) -> String {
         .ok()
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| default.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_comma_separated_ids_ignoring_blanks_and_duplicates() {
+        let ids = parse_admin_discord_user_ids(
+            " 123456789012345678, ,987654321098765432,123456789012345678 ",
+        )
+        .unwrap();
+        assert_eq!(ids, vec!["123456789012345678", "987654321098765432"]);
+    }
+
+    #[test]
+    fn empty_means_no_admins() {
+        assert!(parse_admin_discord_user_ids("").unwrap().is_empty());
+        assert!(parse_admin_discord_user_ids(" , ").unwrap().is_empty());
+    }
+
+    #[test]
+    fn rejects_non_snowflake_values() {
+        assert!(parse_admin_discord_user_ids("tomoya@example.com").is_err());
+        assert!(parse_admin_discord_user_ids("123456789012345678,abc").is_err());
+        assert!(parse_admin_discord_user_ids("123456789012345678901").is_err());
+    }
 }

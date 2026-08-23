@@ -16,6 +16,7 @@ use utoipa::{
         (name = "meta", description = "バージョン / ヘルスチェック"),
         (name = "guilds", description = "ギルド情報・権限・設定"),
         (name = "events", description = "予定の CRUD"),
+        (name = "admin", description = "管理コンソール (ADMIN_DISCORD_USER_IDS のユーザーのみ)"),
     ),
     modifiers(&SecurityAddon),
     security(("session" = []))

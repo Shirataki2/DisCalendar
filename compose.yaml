@@ -42,6 +42,8 @@ services:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:?set DISCORD_BOT_TOKEN in .env}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
       AUTH_COOKIE_PREFIX: better-auth
+      # 管理コンソール (/admin) を使える Discord ユーザー ID (カンマ区切り)。空なら無効
+      ADMIN_DISCORD_USER_IDS: ${ADMIN_DISCORD_USER_IDS:-}
       RUST_LOG: ${API_RUST_LOG:-info,discalendar_api=info,sqlx=warn}
     # 起動時のマイグレーション適用が終わって待ち受けを始めたら healthy になる (bot はそれを待つ)
     healthcheck:

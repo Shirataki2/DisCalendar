@@ -4,7 +4,9 @@
 //!   共有 Postgres の `session` / `account` テーブルから Discord ユーザー ID を引く
 //! - 認可: Bot トークンで Discord API からメンバーシップとロールを取得して権限を計算する
 //! - データ: 旧実装と同じ `guilds` / `events` / `guild_config` テーブル (Bot と共有)
+//! - 管理コンソール (`/admin/*`): `ADMIN_DISCORD_USER_IDS` に含まれるユーザーだけが使える (`admin` モジュール)
 
+pub mod admin;
 pub mod auth;
 pub mod config;
 pub mod discord;
@@ -23,8 +25,12 @@ use utoipa_actix_web::AppExt as _;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    auth::AuthConfig, config::Config, discord::DiscordClient, error::ApiError, openapi::ApiDoc,
-    state::AppState,
+    auth::AuthConfig,
+    config::Config,
+    discord::DiscordClient,
+    error::ApiError,
+    openapi::ApiDoc,
+    state::{AdminConfig, AppState},
 };
 
 /// DB 接続・マイグレーション・HTTP サーバー起動までを行う
@@ -44,7 +50,18 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             secret: config.better_auth_secret.clone(),
             cookie_names: config.session_cookie_names().to_vec(),
         },
+        admin: AdminConfig {
+            discord_user_ids: config.admin_discord_user_ids.iter().cloned().collect(),
+        },
     });
+    if config.admin_discord_user_ids.is_empty() {
+        tracing::info!("ADMIN_DISCORD_USER_IDS is empty: the admin console (/admin) is disabled");
+    } else {
+        tracing::info!(
+            count = config.admin_discord_user_ids.len(),
+            "admin console is enabled for the configured Discord users"
+        );
+    }
 
     let addr = (config.host.as_str(), config.port);
     tracing::info!(host = %config.host, port = config.port, "starting DisCalendar API");

@@ -25,6 +25,8 @@ export const GITHUB_URL = "https://github.com/Shirataki2/DisCalendarV3-new";
 export const ROUTES = {
   login: "/login",
   dashboard: "/dashboard",
+  /** 管理コンソール (ADMIN_DISCORD_USER_IDS のユーザーのみ。それ以外は 404) */
+  admin: "/admin",
   /** Bot の招待 URL へリダイレクトする (app/invite/route.ts) */
   invite: "/invite",
   docs: "/docs/gettingstarted",
