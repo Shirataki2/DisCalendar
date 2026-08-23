@@ -1,3 +1,4 @@
+import createMDX from "@next/mdx";
 import type { NextConfig } from "next";
 
 // Rust API (api/) の URL。rewrites はサーバー側で解決されるので、この値がブラウザに出ることはない
@@ -15,6 +16,16 @@ const nextConfig: NextConfig = {
       "./node_modules/.pnpm/@swc+helpers@*/node_modules/@swc/helpers/esm/**",
     ],
   },
+  async redirects() {
+    return [
+      // docs の入口。旧実装にも /docs 自体のページは無く、最初の記事 (/docs/gettingstarted) が入口だった
+      {
+        source: "/docs",
+        destination: "/docs/gettingstarted",
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     return [
       // ブラウザは同一オリジンの /local/api/* を叩き、Next.js が Rust API へプロキシする
@@ -28,4 +39,13 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// docs (使い方ページ) は src/content/docs/*.mdx を app/docs/[slug]/page.tsx から import して描画する
+// (旧実装の @nuxt/content 相当。mdx-components.tsx で見出しや画像の描画を差し替える)。
+// 表を書けるように remark-gfm を入れる。Turbopack にプラグインを渡すときは関数ではなくパッケージ名の文字列で指定する
+const withMDX = createMDX({
+  options: {
+    remarkPlugins: ["remark-gfm"],
+  },
+});
+
+export default withMDX(nextConfig);

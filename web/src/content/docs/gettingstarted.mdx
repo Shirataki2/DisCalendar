@@ -1,0 +1,44 @@
+import { LinkButton } from "@/components/docs/link-button";
+import { Step, Steps } from "@/components/docs/steps";
+import { ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
+
+DisCalendar は、Discord のサーバーごとに共有カレンダーを持てるサービスです。
+予定はブラウザのカレンダー画面から追加・編集でき、開始時刻や設定した事前通知のタイミングになると Bot が Discord のチャンネルへ通知を投稿します。
+
+## 導入までの 3 ステップ
+
+<Steps>
+  <Step title="Bot をサーバーに招待する">
+    通知を届けるために、まず DisCalendar の Bot を Discord のサーバーに追加します。
+    追加できるのはそのサーバーの「管理者」か「サーバー管理」の権限を持っている人です。
+
+    <LinkButton href={ROUTES.invite} variant="primary" external>Bot を招待する</LinkButton>
+
+    くわしくは [Bot の招待](/docs/invite) を見てください。
+  </Step>
+  <Step title="通知先のチャンネルを決める (/init)">
+    Bot からの通知を受け取りたいチャンネルで、スラッシュコマンドを実行します。
+
+    ```
+    /init
+    ```
+
+    このコマンドは「管理者」「サーバー管理」「メッセージの管理」「ロールの管理」のいずれかの権限を持っている人 (またはサーバーのオーナー) が実行できます。
+    くわしくは [初期設定](/docs/initialize) を見てください。
+  </Step>
+  <Step title="ブラウザで予定を追加する">
+    Discord アカウントで [ログイン](/docs/login) し、サーバー一覧から Bot を追加したサーバーを選ぶとカレンダーが開きます。
+    日付をクリックするか「新規作成」ボタンから予定を作ってみましょう。
+
+    予定の開始時刻と、🔔 で設定した事前通知の時刻になると、Discord のチャンネルに自動でメッセージが届きます。
+    予定をクリックすると編集や削除ができます。
+
+    <LinkButton href={ROUTES.dashboard}>サーバー一覧を開く</LinkButton>
+  </Step>
+</Steps>
+
+## 困ったときは
+
+動かない・分からないことがあれば、サポートサーバーの「#不具合報告」チャンネルで知らせてください。
+
+<LinkButton href={SUPPORT_SERVER_URL}>サポートサーバーに参加する</LinkButton>
