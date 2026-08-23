@@ -446,13 +446,25 @@ async fn console_sessions_do_not_expose_their_queries(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn session_advisory_locks_do_not_leak_into_the_pool(pool: PgPool) {
-    run(
-        &pool,
-        "SELECT pg_advisory_lock(8612004), pg_try_advisory_lock(424242)",
+async fn session_state_does_not_leak_into_the_pool(pool: PgPool) {
+    let console = console(&pool).await;
+    admin_sql::execute(
+        &console,
+        "SELECT pg_advisory_lock(8612004), pg_try_advisory_lock(424242), 'secret-literal-in-sql'",
+        TIMEOUT,
     )
     .await
     .unwrap();
+    // 同じプールの次の実行から、前の実行のプリペアドステートメント (SQL 全文) は見えない
+    let prepared = admin_sql::execute(
+        &console,
+        "SELECT statement FROM pg_prepared_statements",
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let dumped = format!("{:?}", prepared.rows);
+    assert!(!dumped.contains("secret-literal-in-sql"), "{dumped}");
     let held: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid IN (8612004, 424242)",
     )

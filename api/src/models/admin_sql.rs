@@ -30,8 +30,9 @@
 //!    `DECLARE ... CURSOR` にし、`FETCH` を小分けにして [`MAX_ROWS`] 行・[`MAX_RESULT_BYTES`] バイトで打ち切る。
 //!    セルの切り詰め ([`MAX_CELL_CHARS`]) もサーバー側で行うので、巨大な値でサーバーから送られてくる量が膨らまない。
 //!    1 回の FETCH の行数は列数から決めて (最悪でも [`MAX_FETCH_BATCH_BYTES`] 程度)、列が多くても 1 バッチが膨らまない
-//! 8. 実行後は `pg_advisory_unlock_all()` で、セッションに残りうる advisory lock
-//!    (`pg_advisory_lock(...)` はロールバックでは解放されない) を外してから接続をプールに返す。外せなければ接続を閉じる
+//! 8. 実行に使った接続はプールに返さず閉じる。セッションに残りうる advisory lock (`pg_advisory_lock(...)` は
+//!    ロールバックでは解放されない) と、入力した SQL 全文を持つプリペアドステートメント (`pg_prepared_statements`
+//!    から同じ接続を得た別の管理者に見える) を接続ごと捨てる
 //!
 //! 結果の値は text にキャストして simple query protocol (text format) で受け取り、型ごとのデコードをせずに
 //! 文字列表現のまま返す (psql とほぼ同じ。boolean は `true` / `false`。NULL は null)。
@@ -375,7 +376,7 @@ pub async fn execute(
         result
     };
     let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    release_session_state(conn).await;
+    discard_connection(conn);
 
     let (columns, rows, truncated) = result?;
     Ok(SqlResult {
@@ -387,18 +388,11 @@ pub async fn execute(
     })
 }
 
-/// セッションに残りうる状態 (advisory lock) を片付けてから接続をプールに返す。片付けられなければ閉じる
-async fn release_session_state(mut conn: PoolConnection<Postgres>) {
-    match sqlx::query("SELECT pg_advisory_unlock_all()")
-        .execute(&mut *conn)
-        .await
-    {
-        Ok(_) => {}
-        Err(error) => {
-            tracing::warn!(error = %error, "failed to reset the admin SQL connection; closing it");
-            conn.close_on_drop();
-        }
-    }
+/// 実行に使った接続はプールに返さず閉じる。セッションに残りうる状態 (`pg_advisory_lock(...)` はロールバックでは
+/// 解放されない) と、管理者が入力した SQL 全文を持つプリペアドステートメント (`pg_prepared_statements` から
+/// 同じ接続を得た別の管理者に見える) を、接続ごと確実に捨てるため。コンソールの利用頻度では再接続のコストは問題にならない
+fn discard_connection(mut conn: PoolConnection<Postgres>) {
+    conn.close_on_drop();
 }
 
 type RowsOutput = (Vec<SqlColumn>, Vec<Vec<Option<String>>>, bool);
@@ -674,10 +668,8 @@ pub fn redact_sql(sql: &str) -> String {
         } else if rest.starts_with('$')
             && let Some((tag, after)) = dollar_tag(rest)
         {
-            // ドル引用: 同じタグまで捨てる
-            out.push_str(tag);
-            out.push('…');
-            out.push_str(tag);
+            // ドル引用: 同じタグまで捨てる。タグ名も利用者の入力 (`$secret$x$secret$` と書ける) なので `$$` に揃える
+            out.push_str("$$…$$");
             rest = match after.find(tag) {
                 Some(i) => &after[i + tag.len()..],
                 None => "",
@@ -978,7 +970,7 @@ mod tests {
         );
         assert_eq!(
             redact_sql("SELECT $$raw 'token'$$, $tag$x$tag$, $1 /* c /* n */ */ + 1"),
-            "SELECT $$…$$, $tag$…$tag$, $1   + 1"
+            "SELECT $$…$$, $$…$$, $1   + 1"
         );
         // 閉じていないリテラルやコメントは末尾まで伏せる
         assert_eq!(redact_sql("SELECT 'open"), "SELECT '…'");
