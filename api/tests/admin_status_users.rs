@@ -138,6 +138,59 @@ async fn counts_notifications_firing_today(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn upcoming_events_keeps_all_day_events_until_the_next_midnight(pool: PgPool) {
+    create_auth_tables(&pool).await;
+    // 終日予定の end_at は「終了日 (含む) の 0:00」で保存される (web の toApiRange)
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO events (guild_id, name, notifications, is_all_day, start_at, end_at) VALUES
+            ('111111111111111111', '今日の終日予定', ARRAY[]::text[], true,
+             '2026-08-23T00:00:00', '2026-08-23T00:00:00');
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // その日のうちはまだ終わっていない
+    let during = admin_stats::counts(&pool, dt("2026-08-23T09:00:00"))
+        .await
+        .unwrap();
+    assert_eq!(during.upcoming_events, 1);
+    // 翌日 0:00 で終了扱い
+    let after = admin_stats::counts(&pool, dt("2026-08-24T00:00:00"))
+        .await
+        .unwrap();
+    assert_eq!(after.upcoming_events, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn does_not_count_notifications_for_invalid_channels(pool: PgPool) {
+    // Bot は channel_id を NonZeroU64 として検証し、不正なら何も送らない
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO guilds (guild_id, name) VALUES ('444444444444444444', '不正な通知先');
+        INSERT INTO event_settings (guild_id, channel_id) VALUES ('444444444444444444', '0');
+        INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES
+            ('444444444444444444', '通知先が不正', ARRAY[]::text[],
+             '2026-08-23T10:00:00', '2026-08-23T11:00:00');
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let count = admin_stats::notifications_between(
+        &pool,
+        dt("2026-08-23T00:00:00"),
+        dt("2026-08-24T00:00:00"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn does_not_count_notifications_for_guilds_without_a_channel(pool: PgPool) {
     // 通知先チャンネルを設定していないギルドの予定 (Bot は event_settings が無いと何も送らない)
     sqlx::raw_sql(

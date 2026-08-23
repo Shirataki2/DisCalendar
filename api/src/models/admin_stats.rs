@@ -40,7 +40,8 @@ pub struct AdminCounts {
     #[schema(example = 8)]
     pub left_guilds: i64,
     pub events: i64,
-    /// まだ終わっていない予定 (`end_at >= 現在`)
+    /// まだ終わっていない予定。終日予定の `end_at` は「終了日 (含む) の 0:00」で保存されるので
+    /// (web/src/lib/calendar-events.ts の `toApiRange`)、その日のうちは終わっていない扱いにする
     pub upcoming_events: i64,
     /// Better Auth の `user` の行数
     pub users: i64,
@@ -86,7 +87,13 @@ pub async fn counts<'e>(
                 UNION SELECT guild_id FROM events
             ) k) AS "known_guilds!",
             (SELECT count(*) FROM events) AS "events!",
-            (SELECT count(*) FROM events WHERE end_at >= $1) AS "upcoming_events!",
+            (SELECT count(*) FROM events WHERE
+                CASE WHEN is_all_day
+                     -- 終日予定は終了日の 0:00 が入っているので、その日いっぱいは残す
+                     THEN date_trunc('day', end_at) + interval '1 day' > $1
+                     ELSE end_at >= $1
+                END
+            ) AS "upcoming_events!",
             (SELECT count(*) FROM "user") AS "users!",
             (SELECT count(*) FROM "session" WHERE "expiresAt" > now()) AS "active_sessions!",
             (SELECT count(*) FROM "session") AS "sessions!"
@@ -160,7 +167,8 @@ pub async fn left_guilds<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<Vec<
 ///
 /// - 発火時刻は `開始 - num unit`。終日予定の開始は 0:00 に丸める (`effective_range`)
 /// - 保存済みの設定に加えて**必ず開始時刻 (0 分前) の通知**を送り、同じ分数のものは 1 回にまとめる
-/// - 通知先チャンネル (`event_settings`) が無いギルドには送らないので数に入れない
+/// - 通知先チャンネル (`event_settings` の先頭の行) が無いギルドや、`channel_id` が
+///   Snowflake として不正なギルド (旧データの `"0"` など) には送らないので数に入れない
 ///
 /// 対象の予定は `start_at` が今日以降 [`NOTIFICATION_LOOKAHEAD_DAYS`] 日先までのものに限る
 /// (終日予定の丸めで発火が最大 1 日手前にずれる分だけ広く取る)
@@ -172,10 +180,15 @@ pub async fn notifications_between<'e>(
     let horizon = day_end + chrono::Duration::days(NOTIFICATION_LOOKAHEAD_DAYS + 1);
     let rows = sqlx::query!(
         r#"
-        SELECT start_at, is_all_day, notifications
-        FROM events
-        WHERE start_at >= $1 AND start_at < $2
-          AND guild_id IN (SELECT guild_id FROM event_settings)
+        WITH channels AS (
+            -- 旧スキーマには guild_id の一意制約が無いので、Bot (event_settings::get) と同じく先頭の 1 行を使う
+            SELECT DISTINCT ON (guild_id) guild_id, channel_id
+            FROM event_settings ORDER BY guild_id, id
+        )
+        SELECT e.start_at, e.is_all_day, e.notifications, c.channel_id
+        FROM events e
+        JOIN channels c ON c.guild_id = e.guild_id
+        WHERE e.start_at >= $1 AND e.start_at < $2
         "#,
         day_start,
         horizon
@@ -185,6 +198,7 @@ pub async fn notifications_between<'e>(
 
     Ok(rows
         .into_iter()
+        .filter(|row| is_sendable_channel(&row.channel_id))
         .map(|row| {
             count_fired_between(
                 row.start_at,
@@ -195,6 +209,13 @@ pub async fn notifications_between<'e>(
             ) as i64
         })
         .sum())
+}
+
+/// Bot が実際に送信先にできるチャンネル ID か。
+/// `event_settings.channel_id` は制約のない TEXT なので、旧データや手動修正で `"0"` や
+/// 数値でない値が入りうる。Bot (bot/src/tasks/notify.rs) と同じく `NonZeroU64` で判定する
+fn is_sendable_channel(channel_id: &str) -> bool {
+    channel_id.parse::<std::num::NonZeroU64>().is_ok()
 }
 
 /// 1 件の予定について、Bot が `[day_start, day_end)` に送る通知の数
@@ -240,7 +261,7 @@ fn count_fired_between(
 mod tests {
     use chrono::NaiveDateTime;
 
-    use super::count_fired_between;
+    use super::{count_fired_between, is_sendable_channel};
 
     fn dt(s: &str) -> NaiveDateTime {
         s.parse().unwrap()
@@ -291,6 +312,16 @@ mod tests {
         // 保存済みの 0 分前と重複しても 1 回 (Bot も dedup する)
         let zero = vec![r#"{"key":0,"num":0,"type":"分前"}"#.to_owned()];
         assert_eq!(count("2026-08-23T10:00:00", false, &zero), 1);
+    }
+
+    #[test]
+    fn rejects_channel_ids_the_bot_cannot_send_to() {
+        assert!(is_sendable_channel("782502586817314820"));
+        // 旧データや手動修正で入りうる値 (Bot も NonZeroU64 で弾いて送らない)
+        assert!(!is_sendable_channel("0"));
+        assert!(!is_sendable_channel(""));
+        assert!(!is_sendable_channel("general"));
+        assert!(!is_sendable_channel("-1"));
     }
 
     #[test]

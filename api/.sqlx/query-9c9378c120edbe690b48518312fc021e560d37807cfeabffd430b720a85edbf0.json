@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            (SELECT count(*) FROM guilds) AS \"guilds!\",\n            (SELECT count(*) FROM (\n                SELECT guild_id FROM guilds\n                UNION SELECT guild_id FROM guild_config\n                UNION SELECT guild_id FROM event_settings\n                UNION SELECT guild_id FROM events\n            ) k) AS \"known_guilds!\",\n            (SELECT count(*) FROM events) AS \"events!\",\n            (SELECT count(*) FROM events WHERE end_at >= $1) AS \"upcoming_events!\",\n            (SELECT count(*) FROM \"user\") AS \"users!\",\n            (SELECT count(*) FROM \"session\" WHERE \"expiresAt\" > now()) AS \"active_sessions!\",\n            (SELECT count(*) FROM \"session\") AS \"sessions!\"\n        ",
+  "query": "\n        SELECT\n            (SELECT count(*) FROM guilds) AS \"guilds!\",\n            (SELECT count(*) FROM (\n                SELECT guild_id FROM guilds\n                UNION SELECT guild_id FROM guild_config\n                UNION SELECT guild_id FROM event_settings\n                UNION SELECT guild_id FROM events\n            ) k) AS \"known_guilds!\",\n            (SELECT count(*) FROM events) AS \"events!\",\n            (SELECT count(*) FROM events WHERE\n                CASE WHEN is_all_day\n                     -- 終日予定は終了日の 0:00 が入っているので、その日いっぱいは残す\n                     THEN date_trunc('day', end_at) + interval '1 day' > $1\n                     ELSE end_at >= $1\n                END\n            ) AS \"upcoming_events!\",\n            (SELECT count(*) FROM \"user\") AS \"users!\",\n            (SELECT count(*) FROM \"session\" WHERE \"expiresAt\" > now()) AS \"active_sessions!\",\n            (SELECT count(*) FROM \"session\") AS \"sessions!\"\n        ",
   "describe": {
     "columns": [
       {
@@ -61,5 +61,5 @@
       null
     ]
   },
-  "hash": "f5e86861fde8ac569c04c7d1965eb6a6789b5119b66cdf21100db629ba5bb336"
+  "hash": "9c9378c120edbe690b48518312fc021e560d37807cfeabffd430b720a85edbf0"
 }
