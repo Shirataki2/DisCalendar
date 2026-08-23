@@ -229,3 +229,111 @@ async fn admin_audit_log_is_recorded(pool: PgPool) {
         .unwrap();
     assert_eq!(count, 2);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn admin_guild_list_joins_config_settings_and_counts(pool: PgPool) {
+    use discalendar_api::models::admin_guilds;
+
+    for (id, name) in [(GUILD, "Alpha Guild"), (OTHER_GUILD, "beta_server")] {
+        sqlx::query(
+            "INSERT INTO guilds (guild_id, name, avatar_url, locale) VALUES ($1, $2, NULL, 'ja')",
+        )
+        .bind(id)
+        .bind(name)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    guilds::upsert_config(&pool, GUILD, true).await.unwrap();
+    sqlx::query(
+        "INSERT INTO event_settings (guild_id, channel_id) VALUES ($1, '333333333333333333')",
+    )
+    .bind(GUILD)
+    .execute(&pool)
+    .await
+    .unwrap();
+    for i in 0..3 {
+        events::create(
+            &pool,
+            GUILD,
+            &input(
+                &format!("e{i}"),
+                "2026-08-22T10:00:00",
+                "2026-08-22T11:00:00",
+            ),
+            dt("2026-08-01T00:00:00"),
+        )
+        .await
+        .unwrap();
+    }
+
+    // 全件 (名前順)
+    let all = admin_guilds::list(&pool, "", 1).await.unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[0].guild_id, GUILD);
+    assert!(all[0].restricted);
+    assert_eq!(all[0].channel_id.as_deref(), Some("333333333333333333"));
+    assert_eq!(all[0].event_count, 3);
+    assert!(!all[1].restricted);
+    assert!(all[1].channel_id.is_none());
+    assert_eq!(all[1].event_count, 0);
+    assert_eq!(admin_guilds::count(&pool, "").await.unwrap(), 2);
+
+    // 名前の部分一致 (大文字小文字を区別しない) と guild_id の完全一致
+    let by_name = admin_guilds::list(&pool, "ALPHA", 1).await.unwrap();
+    assert_eq!(by_name.len(), 1);
+    assert_eq!(by_name[0].guild_id, GUILD);
+    let by_id = admin_guilds::list(&pool, OTHER_GUILD, 1).await.unwrap();
+    assert_eq!(by_id.len(), 1);
+    assert_eq!(by_id[0].name, "beta_server");
+    // LIKE のメタ文字はリテラル扱い ("_" が任意の 1 文字にならない)
+    assert_eq!(admin_guilds::count(&pool, "a_s").await.unwrap(), 1);
+    assert_eq!(admin_guilds::count(&pool, "a%s").await.unwrap(), 0);
+    assert_eq!(admin_guilds::count(&pool, "nothing").await.unwrap(), 0);
+
+    // 2 ページ目は空
+    assert!(admin_guilds::list(&pool, "", 2).await.unwrap().is_empty());
+
+    let detail = admin_guilds::find(&pool, GUILD).await.unwrap().unwrap();
+    assert_eq!(detail.event_count, 3);
+    assert!(
+        admin_guilds::find(&pool, "999999999999999999")
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn event_writes_work_inside_a_transaction(pool: PgPool) {
+    // 管理コンソールは監査ログと同じトランザクションで書くので、executor 経由でも動くことを確認する
+    let mut tx = pool.begin().await.unwrap();
+    let created = events::create(
+        &mut *tx,
+        GUILD,
+        &input("tx", "2026-08-22T10:00:00", "2026-08-22T11:00:00"),
+        dt("2026-08-01T00:00:00"),
+    )
+    .await
+    .unwrap();
+    let found = events::find_by_id(&mut *tx, GUILD, created.id)
+        .await
+        .unwrap();
+    assert_eq!(found.map(|e| e.name).as_deref(), Some("tx"));
+    // 他ギルドの ID では見えない
+    assert!(
+        events::find_by_id(&mut *tx, OTHER_GUILD, created.id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    tx.rollback().await.unwrap();
+
+    // ロールバックしたので残っていない
+    assert!(
+        events::find_by_id(&pool, GUILD, created.id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}

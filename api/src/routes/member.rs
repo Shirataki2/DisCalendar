@@ -65,7 +65,8 @@ impl FromRequest for GuildMember {
     }
 }
 
-fn is_snowflake(s: &str) -> bool {
+/// Discord の Snowflake ID (数字のみ、20 桁以下) か
+pub(crate) fn is_snowflake(s: &str) -> bool {
     !s.is_empty() && s.len() <= 20 && s.bytes().all(|b| b.is_ascii_digit())
 }
 

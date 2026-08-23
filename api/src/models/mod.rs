@@ -4,6 +4,7 @@
 //! Bot の移行が終わったら TIMESTAMPTZ への移行を検討する。
 
 pub mod admin_audit;
+pub mod admin_guilds;
 pub mod events;
 pub mod guilds;
 pub mod notifications;

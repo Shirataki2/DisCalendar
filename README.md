@@ -103,6 +103,8 @@ psql -d discalendar_dev -c "INSERT INTO guilds (guild_id, name, avatar_url, loca
 web の `/admin` を開け、api の `/admin/*` を呼べる。それ以外は api が 403 を返し、web は 404 を表示する
 (判定は api の `AdminUser` extractor に一本化していて、web は `GET /admin/me` の結果で表示を切り替えるだけ)。
 管理コンソールからの書き込み操作は `admin_audit_logs` テーブルに記録する (`api/src/models/admin_audit.rs`)。
+`/admin/guilds` で全ギルドの一覧・検索、`/admin/guilds/[id]` で (自分が所属していないギルドも含めて) 予定の閲覧・編集・削除と
+`restricted` の切替ができる (#35)。カレンダーは `/dashboard/[id]` と同じ部品を admin 用 API (`/admin/guilds/{guild_id}/events`) に向けて使っている。
 ローカルで試すときは `api/.env` に自分の Discord ユーザー ID を入れて api を再起動し、`/dashboard` のヘッダーに出る
 「管理コンソール」から開く。compose / staging では ルートの `.env` (`ADMIN_DISCORD_USER_IDS`) で渡す。
 
@@ -186,5 +188,6 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
 | `/dashboard` | サーバー選択（Bot 参加済み / 招待可能なサーバー） |
 | `/dashboard/[id]` | ギルドごとのカレンダー |
 | `/admin` | 管理コンソール（`ADMIN_DISCORD_USER_IDS` のユーザーのみ。それ以外は 404） |
+| `/admin/guilds`, `/admin/guilds/[id]` | 管理コンソール: 全ギルドの一覧・検索と、ギルドごとの予定の閲覧・編集 |
 | `/api/auth/*` | Better Auth（OAuth コールバック含む） |
 | `/local/api/*` | Rust API へのプロキシ（rewrites） |

@@ -7,8 +7,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { EventsClient } from "@/lib/api/endpoints";
 import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
-import { queryKeys } from "./keys";
+import { type EventsQueryKeys, queryKeys } from "./keys";
 
 export interface EventRange {
   /** JST 文字列 (含む) */
@@ -17,27 +18,54 @@ export interface EventRange {
   end: string;
 }
 
+/**
+ * 予定の取得元。通常画面はユーザーのギルドの `/events/{guild_id}`、管理コンソールは
+ * `/admin/guilds/{guild_id}/events` を使い、
+ * キャッシュも別のキーに持つ (同じギルドを両方で開いても混ざらない)
+ */
+export interface EventsSource {
+  client: EventsClient;
+  keys: EventsQueryKeys;
+}
+
+export const dashboardEventsSource: EventsSource = {
+  client: api.events,
+  keys: queryKeys.events,
+};
+
+export const adminEventsSource: EventsSource = {
+  client: api.admin.events,
+  keys: queryKeys.admin.events,
+};
+
 /** 表示範囲に重なる予定。範囲が決まるまで (FullCalendar の datesSet 前) は取得しない */
-export function useEventsQuery(guildId: string, range: EventRange | null) {
+export function useEventsQuery(
+  guildId: string,
+  range: EventRange | null,
+  { client, keys }: EventsSource = dashboardEventsSource,
+) {
   return useQuery({
     queryKey: range
-      ? queryKeys.events.range(guildId, range.start, range.end)
-      : queryKeys.events.all(guildId),
+      ? keys.range(guildId, range.start, range.end)
+      : keys.all(guildId),
     queryFn: range
-      ? ({ signal }) => api.events.list(guildId, range.start, range.end, signal)
+      ? ({ signal }) => client.list(guildId, range.start, range.end, signal)
       : skipToken,
     // 月を移動したときに前の月の予定を出したまま次を読み込む (カレンダーが空にならない)
     placeholderData: keepPreviousData,
   });
 }
 
-export function useCreateEvent(guildId: string) {
+export function useCreateEvent(
+  guildId: string,
+  { client, keys }: EventsSource = dashboardEventsSource,
+) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: ApiEventInput) => api.events.create(guildId, input),
+    mutationFn: (input: ApiEventInput) => client.create(guildId, input),
     onSuccess: () =>
       queryClient.invalidateQueries({
-        queryKey: queryKeys.events.all(guildId),
+        queryKey: keys.all(guildId),
       }),
   });
 }
@@ -48,12 +76,15 @@ type CachedLists = [QueryKey, ApiEvent[] | undefined][];
  * 予定の更新。ドラッグ / リサイズの即時反映のため、キャッシュ上の予定を先に書き換え (楽観的更新)、
  * 失敗したら元に戻す。呼び出し側は onError で FullCalendar 側も revert すること
  */
-export function useUpdateEvent(guildId: string) {
+export function useUpdateEvent(
+  guildId: string,
+  { client, keys }: EventsSource = dashboardEventsSource,
+) {
   const queryClient = useQueryClient();
-  const listsKey = queryKeys.events.all(guildId);
+  const listsKey = keys.all(guildId);
   return useMutation({
     mutationFn: ({ id, input }: { id: number; input: ApiEventInput }) =>
-      api.events.update(guildId, id, input),
+      client.update(guildId, id, input),
     onMutate: async ({ id, input }) => {
       // 進行中の取得が古い状態で上書きしないよう止める
       await queryClient.cancelQueries({ queryKey: listsKey });
@@ -78,11 +109,14 @@ export function useUpdateEvent(guildId: string) {
   });
 }
 
-export function useDeleteEvent(guildId: string) {
+export function useDeleteEvent(
+  guildId: string,
+  { client, keys }: EventsSource = dashboardEventsSource,
+) {
   const queryClient = useQueryClient();
-  const listsKey = queryKeys.events.all(guildId);
+  const listsKey = keys.all(guildId);
   return useMutation({
-    mutationFn: (id: number) => api.events.remove(guildId, id),
+    mutationFn: (id: number) => client.remove(guildId, id),
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: listsKey });
       const previous: CachedLists = queryClient.getQueriesData<ApiEvent[]>({

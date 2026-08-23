@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgExecutor, PgPool};
 use utoipa::ToSchema;
 
 use super::notifications::Notification;
@@ -148,8 +148,8 @@ pub async fn list_between(
     .await
 }
 
-pub async fn create(
-    pool: &PgPool,
+pub async fn create<'e>(
+    executor: impl PgExecutor<'e>,
     guild_id: &str,
     input: &EventInput,
     created_at: NaiveDateTime,
@@ -172,13 +172,34 @@ pub async fn create(
         input.end_at,
         created_at
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await
 }
 
-/// ギルドに属する予定だけを更新する (他ギルドの ID を指定しても更新されない)。該当なしなら `None`
-pub async fn update(
-    pool: &PgPool,
+/// ギルドに属する予定を 1 件取得する (他ギルドの ID を指定しても返さない)。該当なしなら `None`
+pub async fn find_by_id<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+    id: i32,
+) -> sqlx::Result<Option<EventRow>> {
+    sqlx::query_as!(
+        EventRow,
+        r#"
+        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
+        FROM events
+        WHERE id = $1 AND guild_id = $2
+        "#,
+        id,
+        guild_id
+    )
+    .fetch_optional(executor)
+    .await
+}
+
+/// ギルドに属する予定だけを更新する (他ギルドの ID を指定しても更新されない)。該当なしなら `None`。
+/// 書き込み関数は executor を受け取るので、管理コンソールからは監査ログと同じトランザクションで呼べる
+pub async fn update<'e>(
+    executor: impl PgExecutor<'e>,
     guild_id: &str,
     id: i32,
     input: &EventInput,
@@ -202,18 +223,22 @@ pub async fn update(
         input.start_at,
         input.end_at
     )
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
 }
 
 /// 削除できたら `true`
-pub async fn delete(pool: &PgPool, guild_id: &str, id: i32) -> sqlx::Result<bool> {
+pub async fn delete<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+    id: i32,
+) -> sqlx::Result<bool> {
     let result = sqlx::query!(
         "DELETE FROM events WHERE id = $1 AND guild_id = $2",
         id,
         guild_id
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(result.rows_affected() > 0)
 }

@@ -56,6 +56,34 @@ export interface AdminMe {
   discord_user_id: string;
 }
 
+/** GET /admin/guilds の 1 行 (guilds + guild_config + event_settings + 予定数) */
+export interface AdminGuild {
+  guild_id: string;
+  name: string;
+  avatar_url: string | null;
+  locale: string;
+  /** guild_config.restricted (行が無ければ false) */
+  restricted: boolean;
+  /** /init で設定した通知先チャンネル ID。未設定なら null */
+  channel_id: string | null;
+  /** 予定の総数 */
+  event_count: number;
+}
+
+export interface AdminGuildPage {
+  items: AdminGuild[];
+  /** 検索条件に一致する総件数 */
+  total: number;
+  /** 1 始まり */
+  page: number;
+  page_size: number;
+}
+
+/** GET /admin/guilds/{guild_id}。Bot の参加状況は Discord API に聞けなかったとき null */
+export interface AdminGuildDetail extends AdminGuild {
+  bot_joined: boolean | null;
+}
+
 export interface MyPermissions {
   user_id: string;
   permissions: string;

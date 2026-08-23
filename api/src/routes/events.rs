@@ -27,6 +27,21 @@ pub struct ListQuery {
     pub end: NaiveDateTime,
 }
 
+impl ListQuery {
+    /// 範囲の向きと長さを確認する (管理コンソールの一覧でも同じ条件を使う)
+    pub fn validate(&self) -> Result<(), ApiError> {
+        if self.end <= self.start {
+            return Err(ApiError::BadRequest("end must be after start".into()));
+        }
+        if self.end - self.start > Duration::days(MAX_RANGE_DAYS) {
+            return Err(ApiError::BadRequest(format!(
+                "range must be at most {MAX_RANGE_DAYS} days"
+            )));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Deserialize, IntoParams)]
 pub struct EventPath {
     /// ギルド ID (認可は `GuildMember` が行うのでここでは読まない。OpenAPI 用)
@@ -53,14 +68,7 @@ pub async fn list(
     query: web::Query<ListQuery>,
     state: web::Data<AppState>,
 ) -> Result<web::Json<Vec<Event>>, ApiError> {
-    if query.end <= query.start {
-        return Err(ApiError::BadRequest("end must be after start".into()));
-    }
-    if query.end - query.start > Duration::days(MAX_RANGE_DAYS) {
-        return Err(ApiError::BadRequest(format!(
-            "range must be at most {MAX_RANGE_DAYS} days"
-        )));
-    }
+    query.validate()?;
     let rows = events::list_between(&state.pool, member.guild_id(), query.start, query.end).await?;
     Ok(web::Json(rows.into_iter().map(Event::from).collect()))
 }

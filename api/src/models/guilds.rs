@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgExecutor, PgPool};
 use utoipa::ToSchema;
 
 /// Bot が参加しているギルド (`guilds` テーブル。Bot が参加/更新時に書き込む)
@@ -45,13 +45,16 @@ pub struct GuildConfig {
 }
 
 /// 未設定なら既定値 (restricted = false) を返す。読み取りでは行を作らない
-pub async fn get_config(pool: &PgPool, guild_id: &str) -> sqlx::Result<GuildConfig> {
+pub async fn get_config<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+) -> sqlx::Result<GuildConfig> {
     let config = sqlx::query_as!(
         GuildConfig,
         "SELECT guild_id, restricted FROM guild_config WHERE guild_id = $1",
         guild_id
     )
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?;
     Ok(config.unwrap_or_else(|| GuildConfig {
         guild_id: guild_id.to_owned(),
@@ -59,8 +62,9 @@ pub async fn get_config(pool: &PgPool, guild_id: &str) -> sqlx::Result<GuildConf
     }))
 }
 
-pub async fn upsert_config(
-    pool: &PgPool,
+/// 管理コンソールからは監査ログと同じトランザクションで呼べるよう executor を受け取る
+pub async fn upsert_config<'e>(
+    executor: impl PgExecutor<'e>,
     guild_id: &str,
     restricted: bool,
 ) -> sqlx::Result<GuildConfig> {
@@ -74,6 +78,6 @@ pub async fn upsert_config(
         guild_id,
         restricted
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await
 }
