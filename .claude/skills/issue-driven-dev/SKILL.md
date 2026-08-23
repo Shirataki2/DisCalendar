@@ -80,7 +80,8 @@ worktree 内で気をつけること:
 
 - web の `node_modules` と Rust の `target/` は worktree ごとに別 (`target/` は数百 MB〜数 GB)。終わったら `cleanup-workspace` で消す
 - dev サーバーのポートはメインの checkout と衝突する (web 3000 / api 8080)。`.claude/launch.json` で起動する前に、他で動いていないか確認する
-- Rust のテストと `cargo sqlx prepare` はローカル Postgres が要る。`bot/.env` は無いので `DATABASE_URL=postgres://tomoya@localhost:5432/discalendar_dev` を明示する
+- Rust のテストと `cargo sqlx prepare` はローカル Postgres が要る。`DATABASE_URL` は各クレートの `.env` (`api/.env` / `bot/.env`、`bot/README.md` のとおり api と同じ値) から読まれる。
+  `bot/.env` を作っていない環境では `api/.env` の値を環境変数で渡す (例: `DATABASE_URL=$(grep '^DATABASE_URL=' api/.env | cut -d= -f2-) cargo test -p discalendar-bot`)。接続先をスキルに決め打ちしない
 
 ### 2. 実装と検証
 

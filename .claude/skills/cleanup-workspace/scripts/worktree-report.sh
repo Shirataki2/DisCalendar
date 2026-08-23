@@ -112,8 +112,10 @@ env_risk_of() {
               n=0
               while IFS= read -r -d '' g; do
                 g=${g#./}
-                if [ ! -f "${main_wt}/${g}" ] || ! cmp -s "$1/$g" "${main_wt}/${g}"; then n=$((n + 1)); fi
-              done < <(cd "$1" && find "./${f%/}" -type f -print0 2>/dev/null)
+                if [ -L "$1/$g" ]; then  # シンボリックリンクはリンク先の文字列で比べる
+                  [ -L "${main_wt}/${g}" ] && [ "$(readlink "$1/$g")" = "$(readlink "${main_wt}/${g}")" ] || n=$((n + 1))
+                elif [ ! -f "${main_wt}/${g}" ] || ! cmp -s "$1/$g" "${main_wt}/${g}"; then n=$((n + 1)); fi
+              done < <(cd "$1" && find "./${f%/}" \( -type f -o -type l \) -print0 2>/dev/null)
               [ "$n" -gt 0 ] && out+="${f} (main に無い / 違うファイル ${n} 件) "
             fi ;;
       *)    if [ ! -f "${main_wt}/${f}" ]; then out+="${f} (main に無い) "

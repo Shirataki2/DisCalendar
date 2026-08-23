@@ -193,12 +193,16 @@ else
               n=0; shown=0
               while IFS= read -r -d '' g; do
                 g=${g#./}
-                if [ ! -f "${main_wt}/${g}" ]; then why="main に無い"
+                if [ -L "$abs/$g" ]; then  # シンボリックリンクはリンク先の文字列で比べる
+                  if [ ! -L "${main_wt}/${g}" ]; then why="main に無いシンボリックリンク (→ $(readlink "$abs/$g"))"
+                  elif [ "$(readlink "$abs/$g")" != "$(readlink "${main_wt}/${g}")" ]; then why="main とリンク先が違う (→ $(readlink "$abs/$g"))"
+                  else continue; fi
+                elif [ ! -f "${main_wt}/${g}" ]; then why="main に無い"
                 elif ! cmp -s "$abs/$g" "${main_wt}/${g}"; then why="main と内容が違う"
                 else continue; fi
                 n=$((n + 1))
                 if [ "$shown" -lt 10 ]; then env_risk+="  - ${g}: ${why}"$'\n'; shown=$((shown + 1)); fi
-              done < <(cd "$abs" && find "./${f%/}" -type f -print0 2>/dev/null)
+              done < <(cd "$abs" && find "./${f%/}" \( -type f -o -type l \) -print0 2>/dev/null)
               [ "$n" -gt "$shown" ] && env_risk+="  - ... 他 $((n - shown)) 件 (${f} 配下)"$'\n'
             fi ;;
       *)    if [ ! -f "${main_wt}/${f}" ]; then env_risk+="  - ${f}: メインの checkout に無い (残すなら cp \"${abs}/${f}\" \"${main_wt}/${f}\")"$'\n'
