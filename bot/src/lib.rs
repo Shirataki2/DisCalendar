@@ -14,6 +14,7 @@ pub mod error;
 pub mod event;
 pub mod models;
 pub mod paginator;
+pub mod tasks;
 
 use anyhow::Context as _;
 use poise::serenity_prelude as serenity;
@@ -35,6 +36,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
     let log_channel_id = config.log_channel_id;
     let invite_url = config.invite_url.clone();
+    let support_guild_id = config.support_guild_id;
 
     let framework = poise::Framework::<Data, BotError>::builder()
         .options(poise::FrameworkOptions {
@@ -71,7 +73,10 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                     pool,
                     log_channel_id,
                     invite_url,
+                    support_guild_id,
                     guild_sync: Default::default(),
+                    tasks_started: Default::default(),
+                    presence_tasks: Default::default(),
                 })
             })
         })

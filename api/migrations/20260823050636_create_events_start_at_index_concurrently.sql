@@ -1,0 +1,18 @@
+-- no-transaction
+-- Add migration script here
+-- 通知タスク (bot/src/tasks/notify.rs) が毎分 `start_at >= $1` で全ギルド横断の
+-- 未来予定を取得するので、events.start_at にインデックスが無いとテーブル全体を
+-- スキャンすることになる。既存の列・データはそのままなので旧 Bot / 旧 Web との互換性には影響しない。
+-- 稼働中の旧 Bot / 旧 Web が予定を作成・更新し続けても書き込みをブロックしないよう
+-- CREATE INDEX CONCURRENTLY を使う (トランザクション内では実行できないため、
+-- 先頭の "-- no-transaction" で sqlx にこのマイグレーションをトランザクション無しで実行させる)。
+--
+-- CONCURRENTLY が接続切断・キャンセルなどで失敗すると同名の INVALID なインデックスが
+-- 残ることがある。このマイグレーションは一度成功すると _sqlx_migrations に記録され
+-- 二度と実行されないため、無効なインデックスの掃除をここに書いても次回以降の起動では
+-- 効かない。掃除は `api::cleanup_invalid_concurrent_indexes` (api/src/lib.rs) が
+-- マイグレーション実行の直前に毎回試みるので、ここで IF NOT EXISTS がスキップし得るのは
+-- 「有効なインデックスが既にある」ケース (CREATE 自体は前回成功していたが
+-- _sqlx_migrations への完了記録前に接続切断やプロセス停止が起きたケース) だけであり、
+-- 全表スキャン対策が効いていない状態を誤って成功扱いにすることはない
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_start_at ON events (start_at);

@@ -16,6 +16,9 @@ FROM debian:bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 COPY --from=builder /app/target/release/discalendar-bot /usr/local/bin/discalendar-bot
+# icon_updater タスクが相対パス "assets/" から日付入りアイコンを読むので、実行時の cwd (WORKDIR) に置く
+COPY bot/assets ./assets
 USER nobody
 CMD ["discalendar-bot"]

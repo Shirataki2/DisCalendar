@@ -781,6 +781,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "dotenvy",
+ "jpholiday",
  "poise",
  "serde",
  "serde_json",
@@ -1517,6 +1518,12 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
 ]
+
+[[package]]
+name = "jpholiday"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a645e7e52deb355905aed96675ba36b126c7a82a0df6e36b581199f90aef62a"
 
 [[package]]
 name = "js-sys"

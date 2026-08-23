@@ -119,3 +119,18 @@ pub async fn list_future(
     .fetch_all(pool)
     .await
 }
+
+/// `now` 以降に始まる予定を全ギルド横断で取得する
+/// (旧 Bot の `find_all_future_events` と同じく `start_at >= now`。通知タスクが使う)
+pub async fn list_all_future(pool: &PgPool, now: NaiveDateTime) -> sqlx::Result<Vec<Event>> {
+    sqlx::query_as!(
+        Event,
+        r#"
+        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
+        FROM events WHERE start_at >= $1 ORDER BY start_at, id
+        "#,
+        now
+    )
+    .fetch_all(pool)
+    .await
+}

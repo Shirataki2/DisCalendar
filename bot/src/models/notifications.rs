@@ -44,6 +44,16 @@ impl NotificationUnit {
             _ => None,
         }
     }
+
+    /// 1 単位あたりの分数 (通知タスクが「num unit 前」を分に換算するのに使う)
+    fn minutes_per_unit(self) -> i64 {
+        match self {
+            Self::Minutes => 1,
+            Self::Hours => 60,
+            Self::Days => 60 * 24,
+            Self::Weeks => 60 * 24 * 7,
+        }
+    }
 }
 
 /// DB に保存されている形式
@@ -59,6 +69,11 @@ struct Legacy {
 impl Notification {
     pub const fn new(num: u32, unit: NotificationUnit) -> Self {
         Self { num, unit }
+    }
+
+    /// 予定開始の何分前に通知するか
+    pub fn total_minutes(self) -> i64 {
+        i64::from(self.num) * self.unit.minutes_per_unit()
     }
 
     pub fn from_legacy(raw: &str) -> Option<Self> {
@@ -168,6 +183,26 @@ mod tests {
         assert_eq!(
             Notification::new(2, NotificationUnit::Weeks).to_string(),
             "2週間前"
+        );
+    }
+
+    #[test]
+    fn converts_to_minutes_before_start() {
+        assert_eq!(
+            Notification::new(30, NotificationUnit::Minutes).total_minutes(),
+            30
+        );
+        assert_eq!(
+            Notification::new(2, NotificationUnit::Hours).total_minutes(),
+            120
+        );
+        assert_eq!(
+            Notification::new(1, NotificationUnit::Days).total_minutes(),
+            1440
+        );
+        assert_eq!(
+            Notification::new(1, NotificationUnit::Weeks).total_minutes(),
+            10080
         );
     }
 }

@@ -10,7 +10,7 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 |---|---|
 | 起動・DB 接続・ギルド登録イベント (`guilds` テーブルの更新) | 移行済み (#2) |
 | スラッシュコマンド (help / create / list / init / invite / register) | 移行済み (#3)。旧版のプレフィックスコマンド `cal ...` は廃止 (下記) |
-| 定期タスク (予定の通知 / presence / 日付アイコン更新) | 未着手 (#4) |
+| 定期タスク (予定の通知 / presence / 日付アイコン更新) | 移行済み (#4) |
 | エラー監視 (Sentry) | #17 で検討 |
 
 ## コマンド
@@ -20,7 +20,7 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | `/help` | 使い方と招待 URL を埋め込みで表示 (本人にだけ見える) | – |
 | `/create` | 予定の作成。名称 / 開始・終了の年月日時分 (必須)、説明 / 終日 / 色 / 事前通知 4 つまで (任意)。`events` に api と同じ形式で保存するので web のカレンダーにそのまま出る | restricted モードのサーバーでは管理権限 (下記) が必要 |
 | `/list [範囲]` | 予定の一覧 (`過去` / `未来` (既定) / `全て`)。4 件ずつ「前へ」「次へ」でページ送り、「完了」で消える。web で作った予定も出る | – |
-| `/init [チャンネル]` | 予定の通知先チャンネルを設定 (省略時は実行したチャンネル)。Bot にそのチャンネルでの「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限がなければ保存せず理由を返す。`event_settings` に保存し、通知タスク (#4) が読む | 管理権限が必要 |
+| `/init [チャンネル]` | 予定の通知先チャンネルを設定 (省略時は実行したチャンネル)。Bot にそのチャンネルでの「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限がなければ保存せず理由を返す。`event_settings` に保存し、通知タスク (`tasks/notify.rs`) が読む | 管理権限が必要 |
 | `/invite` | Bot の招待 URL を表示 | – |
 | `@DisCalendar register` | スラッシュコマンドを Discord に登録・削除するボタンを出す (このサーバーだけ / グローバル)。help には出ない | Bot のオーナー |
 
@@ -56,6 +56,19 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | 参加・退出のログ通知 | コードに埋め込んだチャンネル ID に送信 | `BOT_LOG_CHANNEL_ID` のチャンネルに送信 (未設定なら送らない)。送信失敗は warn ログのみ |
 | Gateway インテント | `non_privileged` | 同じ (ギルドイベントには `GUILDS`、メンションでの `register` には `GUILD_MESSAGES` が必要で、どちらも含まれる) |
 | 終了処理 | なし | SIGINT / SIGTERM でシャードを閉じてから終了 (docker stop 向け) |
+| 定期タスクの起動 | `CacheReady` (+ `AtomicBool` で二重起動を防止) | 最初の `Ready` (`Data::mark_tasks_started` で二重起動を防止)。全シャードが揃うまで待つ `ShardsReady` だと、いずれか1シャードでも接続障害があると起動できず取りこぼしにつながるため使わない |
+| presence の案内文言 | `cal help` / `/help` / サーバー数 / URL を順送り | 廃止済みの `cal help` は出さず、`/help` / サーバー数 / URL の3つを順送り |
+| presence の切り替え API | `ctx.set_presence(...).await` (非同期) | serenity 0.12 で同期 API に変更 (`ctx.set_presence(...)`) |
+| presence の起動対象 | 単一の Gateway 接続前提 | `Context::set_presence` はそのシャードの接続にしか反映されないため、シャードごとの `Ready` から起動。re-identify を伴う再接続で同じシャードに `Ready` が再送されたときは古いループ (無効な接続を握ったまま) を中断して新しい `Context` のものに置き換える (`Data::replace_presence_task`) |
+| アイコン更新の対象サーバー | サポートサーバー ID をコードにハードコード | `BOT_SUPPORT_GUILD_ID` (任意。未設定ならサーバーアイコンの更新をスキップ) |
+| アイコン画像の読み込み | 手動で base64 エンコード (`base64` crate) | `serenity::CreateAttachment::path` (base64 化は `EditProfile` / `EditGuild` が内部で行う) |
+| アイコン更新のタイミング | tick が JST 0:00 台に来たときだけ更新 (0:01 以降の起動や日付を跨ぐ停止では翌日まで古いまま) | 「最後に更新した日付」を保持し、起動直後や日付が変わった最初の tick で当日分が未反映なら即座に更新 |
+| 通知タスクの判定窓 | 固定1分窓 (`[now - 1分, now)`)。1回の実行が60秒を超えると未判定区間が生じ得る | 前回チェック時刻を引き継ぐ可変長の窓 (`[last_checked, now)`) で、実行が遅延しても取りこぼさない |
+| 通知の重複排除 | なし | 同じ「num unit 前」が複数保存されていても送信前に一本化 |
+| 通知失敗時の安全網 | なし | チャンネル削除・権限剥奪など既知の恒久エラーは即座に処理済み扱い。未知の恒久エラーで送信が失敗し続けても `MAX_SEND_ATTEMPTS` 回で諦め、`last_checked` の凍結による全ギルドの長期停滞を防ぐ |
+| DB 障害復旧時の一括送信対策 | なし | 判定窓 `[last_checked, now)` の幅が `MAX_STALE_WINDOW` (1時間、通常の処理時間としてまず考えられない大きさ) を超えたら、DB 障害などによる異常な拡大とみなして `last_checked` を早送りし、それより古い発火時刻は諦める (1回の処理が長引いただけの正当な遅延や、再試行中の通知とは区別する) |
+| Bot 停止中に発火した通知 | 取りこぼす (last_checked が起動時刻で初期化される) | 起動直後の last_checked を `STARTUP_LOOKBACK` (5分) だけ遡らせ、通常の再起動・デプロイ中に発火時刻を迎えた通知も拾う。送信済み記録はプロセス内メモリだけなので、この幅の中で停止前に送信済みだった通知は再送され得る (完全に防ぐには永続化が必要で今回のスコープでは見送り、影響を抑えるためこの幅を短くしている)。`STARTUP_LOOKBACK` を超える長期停止分は諦める |
+| 祝日判定 | `jpholiday = "0.1"` | `jpholiday = "0.2"` (API 変更: `Date::new(year, month, day)` を使うフリー関数に) |
 
 DB スキーマは api (`api/migrations/`) が正で、Bot はマイグレーションを実行しない。
 `guilds` テーブルは web のサーバー選択 (`GET /guilds/joined`) が「Bot 参加済み」の判定に使う。
@@ -87,6 +100,11 @@ cargo fmt
 3. `/init` → `/create` → `/list` の順に試す。`/create` で作った予定は web のカレンダーに表示され、
    web で作った予定は `/list` に出る。web のサーバー設定で restricted を ON にすると、
    管理権限のないユーザーの `/create` は拒否される
+4. 定期タスク: `/init` の後、数分後に開始する予定を分前通知付きで `/create` すると、通知タイミングで
+   `/init` したチャンネルに embed が届く (終日予定・複数通知・前日通知でも試す)。プレゼンスは起動から
+   数十秒で「/help」→「N servers」→「discalendar.app」の順に切り替わる。日付入りアイコンは
+   Bot 起動直後の最初の tick (当日分が未反映なら) と、JST の日付が変わった直後の tick で更新される。
+   `BOT_SUPPORT_GUILD_ID` を設定して Bot を再起動すればすぐに確認できる
 
 ```sh
 psql -d discalendar_dev -c "SELECT guild_id, name, avatar_url, locale FROM guilds"
@@ -119,12 +137,14 @@ src/
   main.rs           エントリポイント (dotenv, tracing, Config)
   lib.rs            run(): DB 接続・poise Framework 構築 (コマンド登録・pre_command)・Gateway 接続・シグナル処理
   config.rs         環境変数
-  data.rs           Data (pool / ログチャンネル / 招待 URL) と Context 型
+  data.rs           Data (pool / ログチャンネル / 招待 URL / サポートサーバー ID) と Context 型
   error.rs          BotError (User = 本人に返す入力・権限エラー) と poise の on_error (日本語の返信)
-  event.rs          Gateway イベント (Ready / GuildCreate / GuildUpdate / GuildDelete)
+  event.rs          Gateway イベント (Ready / ShardsReady / GuildCreate / GuildUpdate / GuildDelete)
   checks.rs         管理権限の判定 (api の can_manage_server と同じ)
   paginator.rs      /list のページ送り (ボタン付き埋め込み)
   commands/         スラッシュコマンド (help.txt は /help の本文)
   models/           sqlx クエリ (guilds / events / event_settings / guild_config) と通知形式の変換 (notifications)
+  tasks/            定期タスク (notify = 予定の通知 / presence = ステータス表示 / icon_updater = 日付アイコン)
 tests/              DB テスト (#[sqlx::test])
+assets/             icon_updater が使う日付入りアイコン画像 (01.png 〜 31.png、土曜は _b、日曜・祝日は _r)
 ```

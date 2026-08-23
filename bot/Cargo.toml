@@ -27,3 +27,5 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 dotenvy.workspace = true
+# icon_updater タスクの祝日判定 (依存ゼロの純 Rust 実装)
+jpholiday = "0.2"

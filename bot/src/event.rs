@@ -2,13 +2,15 @@
 //!
 //! `guilds` テーブルは web のサーバー選択が「Bot 参加済み」の判定に使うので、
 //! Bot の参加・退出・ギルド名やアイコンの変更をここで反映する。
-//! 定期タスクの起動 (旧 `CacheReady`) は #4 で移す。コマンドの実行ログ (旧 `pre_command`) は `commands::log_invocation`。
+//! シャードに依存しない定期タスク (通知 / アイコン更新) は最初の `Ready` で一度だけ、
+//! presence はシャードごとに `Ready` で起動する (`tasks` モジュールのコメント参照)。
+//! コマンドの実行ログ (旧 `pre_command`) は `commands::log_invocation`。
 
 use std::collections::HashSet;
 
 use poise::serenity_prelude::{self as serenity, FullEvent};
 
-use crate::{data::Data, error::BotError, models::guilds};
+use crate::{data::Data, error::BotError, models::guilds, tasks};
 
 pub async fn handle_event(
     ctx: &serenity::Context,
@@ -24,8 +26,29 @@ pub async fn handle_event(
                 guilds = data_about_bot.guilds.len(),
                 "shard ready"
             );
+            // presence はそのシャードの接続にしか反映されないので、シャードごとに Ready で起動する。
+            // re-identify を伴う再接続では同じ ShardId で改めて Ready が届くが、古いループは
+            // 無効になった接続を握ったまま fire-and-forget で送り続けてしまうので、
+            // 毎回 (二重起動を防ぐのではなく) 古いタスクを中断してから新しい Context で置き換える。
+            // DB に依存しない処理なので、`?` で早期リターンし得る reconcile_guilds より先に行う。
+            // 同じシャードに Ready が再送されるとは限らないため、後回しにすると reconcile_guilds が
+            // 一時的な DB エラーで失敗しただけで、そのプロセスでは永久に presence が更新されなくなる
+            data.replace_presence_task(ctx.shard_id, tasks::spawn_presence(ctx.clone()))
+                .await;
+            // シャードに依存しない定期タスク (notify / icon_updater) は最初に Ready が届いた
+            // シャードで一度だけ起動する。全シャードの Ready を待つ ShardsReady だと、いずれか
+            // 1シャードでも接続障害で Ready に到達しない間はこれらのタスクが起動せず、
+            // その待機中に発火するはずだった通知の判定窓 (起動後の now で初期化される) が
+            // 失われてしまう。DB / HTTP だけを使う処理なので、シャード数が揃うのを待つ必要はない
+            if data.mark_tasks_started() {
+                tracing::info!("starting periodic tasks");
+                tasks::spawn_all(ctx.clone(), data.clone());
+            }
             // 停止中にサーバーから退出させられた分は GuildDelete が届かないので、ここで掃除する
             reconcile_guilds(ctx, data).await?;
+        }
+        FullEvent::ShardsReady { total_shards } => {
+            tracing::info!(total_shards, "all shards ready");
         }
         // 起動時に参加済みの各ギルドと、新しく参加したときに届く。
         // 起動時の分も upsert して、停止中に変わった名前・アイコンや取りこぼしを取り戻す
