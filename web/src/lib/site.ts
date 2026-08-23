@@ -20,6 +20,7 @@ export const GITHUB_URL = "https://github.com/Shirataki2/DisCalendarV3-new";
 
 /** サイト内のリンク先。docs と規約 (利用規約 / プライバシーポリシー) は旧実装と同じ URL のまま */
 export const ROUTES = {
+  home: "/",
   login: "/login",
   dashboard: "/dashboard",
   /** 管理コンソール (ADMIN_DISCORD_USER_IDS のユーザーのみ。それ以外は 404) */

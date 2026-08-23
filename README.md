@@ -38,6 +38,10 @@ Rust 側（api / bot）はルートの `Cargo.toml` を workspace とし、`rust
   （予定の編集を管理権限を持つユーザーに限定）の切り替えと、Discord 側で権限を変えた後の「再読込」ができる。
   ギルド設定と自分の権限は `dashboard/[id]/page.tsx`（RSC）が取得して TanStack Query に hydrate し、
   `guild-dashboard.tsx` がそこから編集可否を求めるので、保存するとカレンダーの編集可否がその場で切り替わる。
+- ダッシュボード（`/dashboard`、`/dashboard/[id]`）の枠は `app/dashboard/layout.tsx` → `dashboard-shell.tsx`
+  （アプリバー + ナビゲーションドロワー。PC では常設サイドバーで開閉を cookie `dashboard_sidebar` に覚え、スマホでは Sheet）、
+  `dashboard-nav.tsx`（リンク一覧。旧 NavDrawer.vue と同じ並び）、`dashboard-footer.tsx`（固定フッタ。バージョンは
+  `web/package.json` の `version` で api / bot の Cargo.toml と揃える）、`user-menu.tsx`（アバターのドロップダウン）。
 
 ### web の使い方ページ (docs)
 
@@ -169,7 +173,7 @@ SQL の実行 (成功・失敗とも) と定型操作はすべて `admin_audit_l
 **セッショントークンや Discord のアクセストークンは API のレスポンスにも画面にも出さない**。
 `/admin/audit-logs` で監査ログを操作の種類・実行者で絞り込みながら追える。
 
-ローカルで試すときは `api/.env` に自分の Discord ユーザー ID を入れて api を再起動し、`/dashboard` のヘッダーに出る
+ローカルで試すときは `api/.env` に自分の Discord ユーザー ID を入れて api を再起動し、`/dashboard` の左のメニュー (≡) に出る
 「管理コンソール」から開く。compose / staging では ルートの `.env` (`ADMIN_DISCORD_USER_IDS`) で渡す。
 
 ### bot

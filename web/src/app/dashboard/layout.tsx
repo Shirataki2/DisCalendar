@@ -1,39 +1,41 @@
-import Link from "next/link";
-import { Logo } from "@/components/logo";
+import { cookies } from "next/headers";
+import { DashboardFooter } from "@/components/dashboard-footer";
+import { DashboardShell } from "@/components/dashboard-shell";
 import { UserMenu } from "@/components/user-menu";
 import { getAdminMe } from "@/lib/admin";
+import { isSidebarOpen, SIDEBAR_COOKIE } from "@/lib/dashboard-sidebar";
 import { requireSession } from "@/lib/session";
-import { ROUTES } from "@/lib/site";
 
+/**
+ * ダッシュボード (/dashboard, /dashboard/[id]) 共通のレイアウト。
+ * 旧実装の layouts/authorized.vue と同じく「アプリバー + ナビゲーションドロワー + 固定フッタ」で囲み、
+ * 本文はその間に収める (ページ全体はスクロールさせず、カレンダーが残りの高さいっぱいに広がる)
+ */
 export default async function DashboardLayout({
   children,
 }: LayoutProps<"/dashboard">) {
   const session = await requireSession();
   // 管理者にだけ管理コンソールへの導線を出す。api に届かないときはリンクを出さないだけで画面は表示する
   const admin = await getAdminMe().catch(() => null);
+  const cookieStore = await cookies();
 
   return (
     <div className="flex h-dvh flex-col">
-      <header className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-2">
-        <Link href={ROUTES.dashboard} aria-label="サーバー選択へ">
-          <Logo className="text-xl" />
-        </Link>
-        <div className="flex items-center gap-4">
-          {admin && (
-            <Link
-              href={ROUTES.admin}
-              className="text-xs text-amber-300 transition-colors hover:text-amber-200"
-            >
-              管理コンソール
-            </Link>
-          )}
+      <DashboardShell
+        admin={admin !== null}
+        defaultSidebarOpen={isSidebarOpen(
+          cookieStore.get(SIDEBAR_COOKIE)?.value,
+        )}
+        user={
           <UserMenu
             name={session.user.name}
             image={session.user.image ?? null}
           />
-        </div>
-      </header>
-      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        }
+      >
+        {children}
+      </DashboardShell>
+      <DashboardFooter />
     </div>
   );
 }
