@@ -1,0 +1,56 @@
+import { Callout } from "@/components/docs/callout";
+import { LinkButton } from "@/components/docs/link-button";
+import { Screenshot } from "@/components/docs/screenshot";
+import serverSelectShot from "@/assets/docs/serverselect.png";
+import { ROUTES } from "@/lib/site";
+
+カレンダーの予定を Discord に通知したり、Discord から予定を操作したりするには、まずサーバーに DisCalendar の Bot を追加します。
+
+## 招待の手順
+
+Bot を追加できるのは、そのサーバーの「管理者」か「サーバー管理」の権限を持っている人です。
+
+### 方法 1: 招待リンクから追加する
+
+下のボタン (トップページの「BOT を導入する」と同じリンク) を開き、Discord の画面でサーバーを選びます。
+
+<LinkButton href={ROUTES.invite} variant="primary" external>Bot を招待する</LinkButton>
+
+### 方法 2: サーバー一覧から追加する
+
+[ログイン](/docs/login) 済みなら、サーバー一覧ページの下の方に「Bot を招待できるサーバー」として、
+あなたが管理権限を持っていてまだ Bot が入っていないサーバーが灰色で表示されます。
+クリックするとそのサーバーを選んだ状態で Discord の画面が開きます。
+
+<Screenshot src={serverSelectShot} alt="サーバー一覧ページ。「Bot を招待できるサーバー」の見出しの下に灰色のサーバーカードが並んでいる" />
+
+### Discord の画面で確認する
+
+どちらの方法でも、Discord の画面では次の順に進みます。
+
+1. Bot を追加するサーバーを選ぶ (方法 2 では選択済みです)
+2. Bot に付与する権限を確認して「認証」を押す
+3. 「人間であること」の確認が出たらチェックを入れる
+
+これで追加は完了です。Discord のタブは閉じてしまって構いません。
+サーバー一覧ページを再読み込みすると、追加したサーバーがカレンダーを開ける一覧に移っています。
+
+## Bot に必要な権限
+
+招待リンクでは、通知の投稿とスラッシュコマンドに必要な最小限の権限だけを求めます。
+
+| 権限 | 用途 |
+|---|---|
+| チャンネルを見る | 通知先チャンネルへの投稿と、チャンネルの存在確認 |
+| メッセージを送信 | 予定の通知メッセージの投稿 |
+| 埋め込みリンク | 通知やコマンドの返信を埋め込み形式で表示する |
+| メッセージ履歴を読む | コマンドの返信 (`/list` のページ送りなど) |
+| アプリコマンドを使う | スラッシュコマンド (`/init` や `/create` など) の登録 |
+
+<Callout type="warning">
+通知先チャンネルで Bot に「チャンネルを見る」「メッセージを送信」「埋め込みリンク」のいずれかが無いと、通知を届けられません。
+チャンネルごとの権限設定で Bot (または @everyone) から外している場合は、そのチャンネルで Bot に権限を与えてください。
+権限が足りないときは、`/init` の実行時に足りない権限を Bot が教えてくれます。
+</Callout>
+
+次は [初期設定](/docs/initialize) で、通知を受け取るチャンネルを決めます。

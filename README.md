@@ -10,7 +10,7 @@ Discord 用のカレンダーアプリ。予定の作成から通知まで、ブ
 
 | ディレクトリ | 内容 | 状態 |
 |---|---|---|
-| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | LP (静的生成、OGP / favicon / manifest)、Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
+| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | LP (静的生成、OGP / favicon / manifest)、使い方ページ (MDX、静的生成)、Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
 | `api/` | Rust API（actix-web 4 + sqlx 0.9、旧版から移行） | 移行済み（[README](api/README.md)） |
 | `bot/` | Discord Bot（poise 0.6 + serenity 0.12 + sqlx 0.9、旧版から移行中） | 基盤 (起動 / DB 接続 / ギルドの参加・退出・更新を `guilds` に反映) とスラッシュコマンド (help / create / list / init / invite / register) を移行済み（[README](bot/README.md)）。定期タスク (#4) は未着手 |
 | `docs/` | 技術選定・設計ドキュメント | [技術選定](docs/tech-stack-selection.md) |
@@ -38,6 +38,16 @@ Rust 側（api / bot）はルートの `Cargo.toml` を workspace とし、`rust
   （予定の編集を管理権限を持つユーザーに限定）の切り替えと、Discord 側で権限を変えた後の「再読込」ができる。
   ギルド設定と自分の権限は `dashboard/[id]/page.tsx`（RSC）が取得して TanStack Query に hydrate し、
   `guild-dashboard.tsx` がそこから編集可否を求めるので、保存するとカレンダーの編集可否がその場で切り替わる。
+
+### web の使い方ページ (docs)
+
+- `/docs/<slug>` は `@next/mdx` で静的生成する（旧 `@nuxt/content` の 7 ページと同じ URL）。本文は `web/src/content/docs/<slug>.mdx`、
+  ページの一覧と並び順（サイドナビ・前後リンク・`generateStaticParams`）は `web/src/lib/docs.ts`、
+  描画は `web/src/app/docs/[slug]/page.tsx`（`dynamicParams = false`）と `web/src/app/docs/layout.tsx`。
+- MDX の見出し・リンクなどの見た目は `web/src/mdx-components.tsx`、本文用の部品（スクリーンショット、ボタン、注意書き、手順、コマンドカード）は
+  `web/src/components/docs/`。表を使うため `remark-gfm` を入れている（Turbopack にはパッケージ名の文字列で渡す）。
+- スクリーンショットは `web/src/assets/docs/`（`next/image` の静的 import）。LP と共用のものは `web/src/assets/lp/`。
+  ページを増やすときは `.mdx` を足して `DOC_PAGES` に 1 行追加する。
 
 ## 開発
 

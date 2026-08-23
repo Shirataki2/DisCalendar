@@ -1,0 +1,45 @@
+import { Callout } from "@/components/docs/callout";
+import { LinkButton } from "@/components/docs/link-button";
+import { Screenshot } from "@/components/docs/screenshot";
+import loginShot from "@/assets/docs/login.png";
+import serverSelectShot from "@/assets/docs/serverselect.png";
+import { ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
+
+ブラウザから予定を見たり追加したりするには、このサイトに Discord アカウントでログインします。
+
+## ログインの手順
+
+1. 画面右上の「ログイン」か、下のボタンからログインページを開きます
+2. 「Discord でログイン」を押すと Discord の認可画面に移動します
+3. 内容を確認して「認証」を押すと、このサイトに戻ってサーバー一覧が表示されます
+
+<LinkButton href={ROUTES.login} variant="primary">ログインページを開く</LinkButton>
+
+<Screenshot src={loginShot} alt="DisCalendar のログインページ。「Discord でログイン」のボタンがある" />
+
+Discord の認可画面では、次の情報へのアクセスを求めます。
+
+- **ユーザー名・アバター・メールアドレス** (identify / email): ログインしているあなたを識別し、画面右上に名前とアバターを表示するために使います
+- **参加しているサーバーの一覧** (guilds): サーバー一覧ページで、カレンダーを開けるサーバーと Bot を招待できるサーバーを表示するために使います
+
+<Callout>
+これらの情報は、あなた自身とあなたが参加しているサーバーの確認にだけ使い、それ以外の目的には使いません。
+くわしくは [プライバシーポリシー](/support/privacy) を見てください。
+</Callout>
+
+## ログイン後
+
+ログインに成功するとサーバー一覧ページ (`/dashboard`) に移動し、画面右上に Discord のアバターと名前、「ログアウト」ボタンが表示されます。
+
+<Screenshot src={serverSelectShot} alt="ログイン後のサーバー一覧ページ。右上にアバターと名前、ログアウトボタンがあり、Bot が参加しているサーバーが並んでいる" />
+
+- Bot がすでに参加しているサーバーはカードをクリックするとカレンダーが開きます ([予定の追加と表示](/docs/calendar))
+- まだ Bot を入れていないサーバーは、下の「Bot を招待できるサーバー」から追加できます ([Bot の招待](/docs/invite))
+
+<LinkButton href={ROUTES.dashboard}>サーバー一覧を開く</LinkButton>
+
+## ログインできないとき
+
+ブラウザを変えて試しても認可画面から戻ってこない・エラーになるときは、サポートサーバーの「#不具合報告」チャンネルで知らせてください。
+
+<LinkButton href={SUPPORT_SERVER_URL}>サポートサーバーに参加する</LinkButton>
