@@ -114,5 +114,19 @@ services:
       BOT_SUPPORT_GUILD_ID: ${BOT_SUPPORT_GUILD_ID:-}
       RUST_LOG: ${BOT_RUST_LOG:-info,discalendar_bot=info,sqlx=warn}
 
+  # Cloudflare Tunnel でホストのポートを開けずに公開する (staging.discalendar.app など)。
+  # Cloudflare Zero Trust で Tunnel を作り、Public Hostname の Service を http://web:3000 に向け、
+  # トークンを .env の TUNNEL_TOKEN に入れる。--profile tunnel (または .env の COMPOSE_PROFILES) で起動する
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      web:
+        condition: service_started
+
 volumes:
   db-data:
