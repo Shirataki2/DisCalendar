@@ -39,7 +39,13 @@ abs_path="${main_wt}/${path}"
 git fetch --quiet origin || echo "警告: git fetch に失敗しました (オフライン?)。ローカルの origin/main を起点にします" >&2
 
 if [ -d "$abs_path" ] && git worktree list --porcelain | grep -qx "worktree ${abs_path}"; then
-  echo "既存の worktree を使います: ${abs_path}"
+  current=$(git -C "$abs_path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+  if [ "$current" != "$branch" ]; then
+    echo "既存の worktree ${abs_path} は ${current} を checkout しています (指定: ${branch})。" >&2
+    echo "別のブランチで作業するなら slug を変えるか、既存の worktree を cleanup-workspace で消してから再実行してください" >&2
+    exit 1
+  fi
+  echo "既存の worktree を使います: ${abs_path} (${current})"
 elif git show-ref --verify --quiet "refs/heads/${branch}"; then
   echo "ローカルブランチ ${branch} を worktree に checkout します"
   git worktree add "$path" "$branch"
