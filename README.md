@@ -10,7 +10,7 @@ Discord 用のカレンダーアプリ。予定の作成から通知まで、ブ
 
 | ディレクトリ | 内容 | 状態 |
 |---|---|---|
-| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | LP (静的生成、OGP / favicon / manifest)、使い方ページ (MDX、静的生成)、Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
+| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | LP (静的生成、OGP / favicon / manifest)、使い方ページ・規約ページ (MDX、静的生成)、Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
 | `api/` | Rust API（actix-web 4 + sqlx 0.9、旧版から移行） | 移行済み（[README](api/README.md)） |
 | `bot/` | Discord Bot（poise 0.6 + serenity 0.12 + sqlx 0.9、旧版から移行中） | 基盤 (起動 / DB 接続 / ギルドの参加・退出・更新を `guilds` に反映) とスラッシュコマンド (help / create / list / init / invite / register) を移行済み（[README](bot/README.md)）。定期タスク (#4) は未着手 |
 | `docs/` | 技術選定・設計ドキュメント | [技術選定](docs/tech-stack-selection.md) |
@@ -48,6 +48,15 @@ Rust 側（api / bot）はルートの `Cargo.toml` を workspace とし、`rust
   `web/src/components/docs/`。表を使うため `remark-gfm` を入れている（Turbopack にはパッケージ名の文字列で渡す）。
 - スクリーンショットは `web/src/assets/docs/`（`next/image` の静的 import）。LP と共用のものは `web/src/assets/lp/`。
   ページを増やすときは `.mdx` を足して `DOC_PAGES` に 1 行追加する。
+
+### web の規約ページ (利用規約 / プライバシーポリシー)
+
+- `/support/tos` と `/support/privacy` は docs と同じ `@next/mdx` で静的生成する（旧実装と同じ URL）。本文は
+  `web/src/content/support/<slug>.mdx`、タイトル・要約・最終更新日は `web/src/lib/support.ts` の `SUPPORT_PAGES`、
+  描画は `web/src/app/support/[slug]/page.tsx`（`dynamicParams = false`）と `web/src/app/support/layout.tsx`。
+- 導線はヘッダ・フッタ（`site-header.tsx` / `site-footer.tsx`）とログイン画面（`app/login/page.tsx`）から。
+- プライバシーポリシーは実装に合わせて書いてあるので、取得する情報（Better Auth のスコープ、保存するカラム）や
+  Cookie の使い方、アクセス解析の導入を変えたときは本文と `updatedAt` を更新する。
 
 ## 開発
 

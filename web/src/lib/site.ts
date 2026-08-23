@@ -18,10 +18,7 @@ export const SUPPORT_SERVER_URL = "https://discord.gg/MyaZRuze23";
 
 export const GITHUB_URL = "https://github.com/Shirataki2/DisCalendarV3-new";
 
-/**
- * サイト内のリンク先。docs (#6) と規約 (#7) は旧 URL を維持する予定なので、その URL に合わせてある
- * (ページ自体はそれぞれの Issue で追加される)
- */
+/** サイト内のリンク先。docs と規約 (利用規約 / プライバシーポリシー) は旧実装と同じ URL のまま */
 export const ROUTES = {
   login: "/login",
   dashboard: "/dashboard",
@@ -32,6 +29,8 @@ export const ROUTES = {
   /** Bot の招待 URL へリダイレクトする (app/invite/route.ts) */
   invite: "/invite",
   docs: "/docs/gettingstarted",
+  /** 利用規約 (web/src/content/support/tos.mdx) */
   tos: "/support/tos",
+  /** プライバシーポリシー (web/src/content/support/privacy.mdx) */
   privacy: "/support/privacy",
 } as const;

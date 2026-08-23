@@ -1,7 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { Logo } from "@/components/logo";
 import { authClient } from "@/lib/auth-client";
+import { ROUTES } from "@/lib/site";
+
+const LINK_CLASS =
+  "text-indigo-300 underline underline-offset-4 transition-colors hover:text-indigo-200";
 
 export default function LoginPage() {
   const signIn = () => {
@@ -19,13 +24,26 @@ export default function LoginPage() {
       <p className="text-sm text-neutral-300">
         Discordアカウントでログインして、サーバーのカレンダーを管理できます。
       </p>
-      <button
-        type="button"
-        onClick={signIn}
-        className="rounded-full bg-[#5865F2] px-10 py-3 text-sm font-semibold tracking-wide transition-colors hover:bg-[#4752c4]"
-      >
-        Discordでログイン
-      </button>
+      <div className="flex flex-col items-center gap-5">
+        <button
+          type="button"
+          onClick={signIn}
+          className="rounded-full bg-[#5865F2] px-10 py-3 text-sm font-semibold tracking-wide transition-colors hover:bg-[#4752c4]"
+        >
+          Discordでログイン
+        </button>
+        <p className="max-w-xs text-center text-xs leading-6 text-neutral-400">
+          ログインすると、
+          <Link href={ROUTES.tos} className={LINK_CLASS}>
+            利用規約
+          </Link>
+          と
+          <Link href={ROUTES.privacy} className={LINK_CLASS}>
+            プライバシーポリシー
+          </Link>
+          に同意したものとみなします。
+        </p>
+      </div>
     </main>
   );
 }
