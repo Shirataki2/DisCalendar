@@ -127,7 +127,7 @@ docker compose logs -f web api
 ssh して `docker compose pull && up -d` する (<https://staging.discalendar.app>)。設計の経緯と選択肢は #26。
 
 - **ロールバック**: Actions の "Deploy staging" → "Run workflow" で `image_tag` に過去の `sha-xxxxxxx` を指定する (ビルドは飛ばして deploy だけ行う)
-- **ホスト側の準備** (手作業。`/opt/discalendar-staging` を vars `STAGING_COMPOSE_DIR` で変更可):
+- **ホスト側の準備** (手作業。`/opt/discalendar-staging` を Repository variable `STAGING_COMPOSE_DIR` で変更可):
   `compose.yaml` (デプロイのたびに上書き配布される) と `.env` (`.env.example` を元に staging の値。`COMPOSE_PROFILES=bot,tunnel`、
   `IMAGE_TAG` はデプロイが書き換える) を置き、`docker login ghcr.io` しておく (パッケージを public にしていれば不要)。
   staging 用に別の Discord アプリ (Bot トークン / Client ID / Secret) を使い、Redirects に `https://staging.discalendar.app/api/auth/callback/discord` を登録する。
@@ -135,7 +135,9 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
   `http://web:3000` に向けてトークンを `.env` の `TUNNEL_TOKEN` に入れる)
 - **GitHub 側の設定** (Environment `staging`): secrets `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` (Tailscale の OAuth クライアント。scope `auth_keys`、
   tag `tag:ci`。ACL の `tagOwners` に `tag:ci` を足し、`tag:ci` からホストへの ssh を許可する)、`STAGING_SSH_HOST` / `STAGING_SSH_USER`、
-  `STAGING_SSH_KEY` (鍵認証のとき。Tailscale SSH を使うなら不要)。vars `STAGING_PLATFORMS` (ホストが arm64 なら `linux/arm64`)
+  `STAGING_SSH_KEY` (鍵認証のとき。Tailscale SSH を使うなら不要)。
+  Repository variables (Environment ではなくリポジトリの Variables。build ジョブは Environment に属さないため): `STAGING_PLATFORMS`
+  (ホストが arm64 なら `linux/arm64`)、`STAGING_COMPOSE_DIR` (任意)
 - ホストで動く手順は `.github/scripts/deploy-staging.sh` (healthy になるまで待ち、失敗したらログを出して exit 1)
 
 ## 開発の進め方 (GitHub)

@@ -22,8 +22,9 @@ docker compose up -d --remove-orphans
 # healthcheck を持つサービス (db / api / web) が全部 healthy になるまで待つ (bot / cloudflared は healthcheck なし)
 unhealthy=""
 for _ in $(seq 1 36); do
-  unhealthy=$(docker compose ps --all --format '{{.Service}} {{.Health}} {{.State}}' \
-    | awk '($3 != "running") || ($2 != "" && $2 != "healthy") { print $1 }' | tr '\n' ' ')
+  # Health が空 (healthcheck なし) のときに列がずれないよう、空白ではなく | で区切る
+  unhealthy=$(docker compose ps --all --format '{{.Service}}|{{.Health}}|{{.State}}' \
+    | awk -F'|' '($3 != "running") || ($2 != "" && $2 != "healthy") { print $1 }' | tr '\n' ' ')
   [ -z "$unhealthy" ] && break
   sleep 5
 done
