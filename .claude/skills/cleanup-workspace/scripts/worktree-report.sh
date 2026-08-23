@@ -104,7 +104,8 @@ entry_diff() {
   if [ -L "$wt/$rel" ]; then
     if [ ! -L "${main_wt}/${rel}" ]; then echo "main に無いシンボリックリンク (→ $(readlink "$wt/$rel"))"
     elif [ "$(readlink "$wt/$rel")" != "$(readlink "${main_wt}/${rel}")" ]; then echo "main とリンク先が違う (→ $(readlink "$wt/$rel"))"; fi
-  elif [ ! -f "${main_wt}/${rel}" ] || [ -L "${main_wt}/${rel}" ]; then echo "main に無い"
+  elif [ -L "${main_wt}/${rel}" ]; then echo "main 側はシンボリックリンク (→ $(readlink "${main_wt}/${rel}"))、実ファイルではない"
+  elif [ ! -f "${main_wt}/${rel}" ]; then echo "main に無い"
   elif ! cmp -s "$wt/$rel" "${main_wt}/${rel}"; then echo "main と内容が違う"; fi
 }
 
@@ -118,7 +119,9 @@ env_risk_of() {
     case "$f" in
       tmp/) [ -n "$(ls -A "$1/tmp" 2>/dev/null)" ] && out+="tmp/ ($(du -sh "$1/tmp" 2>/dev/null | cut -f1)、復元不能) " ;;
       */)   # ignored ディレクトリは 1 項目に集約されるので中のファイル / リンクを個別に比べる (集約のまま「同名あり」で安全扱いしない)
-            if [ ! -d "${main_wt}/${f}" ]; then out+="${f} (main に無いディレクトリ) "
+            # -d はリンクを辿るので、先に main 側がシンボリックリンクでないか見る (リンク先が worktree 内なら自分自身との比較になってしまう)
+            if [ -L "${main_wt}/${f%/}" ]; then out+="${f} (main 側はシンボリックリンク → $(readlink "${main_wt}/${f%/}")、実ディレクトリではない) "
+            elif [ ! -d "${main_wt}/${f}" ]; then out+="${f} (main に無いディレクトリ) "
             else
               n=0
               while IFS= read -r -d '' g; do

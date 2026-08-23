@@ -70,7 +70,8 @@ entry_diff() {
   if [ -L "$wt/$rel" ]; then
     if [ ! -L "${main_wt}/${rel}" ]; then echo "main に無いシンボリックリンク (→ $(readlink "$wt/$rel"))"
     elif [ "$(readlink "$wt/$rel")" != "$(readlink "${main_wt}/${rel}")" ]; then echo "main とリンク先が違う (→ $(readlink "$wt/$rel"))"; fi
-  elif [ ! -f "${main_wt}/${rel}" ] || [ -L "${main_wt}/${rel}" ]; then echo "main に無い"
+  elif [ -L "${main_wt}/${rel}" ]; then echo "main 側はシンボリックリンク (→ $(readlink "${main_wt}/${rel}"))、実ファイルではない"
+  elif [ ! -f "${main_wt}/${rel}" ]; then echo "main に無い"
   elif ! cmp -s "$wt/$rel" "${main_wt}/${rel}"; then echo "main と内容が違う"; fi
 }
 
@@ -198,7 +199,10 @@ else
     case "$f" in
       tmp/) ;;  # 上で停止済み
       */)   # ignored ディレクトリは 1 項目に集約されるので、中のファイル / リンクを個別にメインの checkout と比べる
-            if [ ! -d "${main_wt}/${f}" ]; then
+            # -d はリンクを辿るので、先に main 側がシンボリックリンクでないか見る (リンク先が worktree 内なら自分自身との比較になってしまう)
+            if [ -L "${main_wt}/${f%/}" ]; then
+              env_risk+="  - ${f}: メインの checkout 側はシンボリックリンク (→ $(readlink "${main_wt}/${f%/}")) で実ディレクトリではない。worktree 側が唯一の実体かもしれない"$'\n'
+            elif [ ! -d "${main_wt}/${f}" ]; then
               env_risk+="  - ${f}: メインの checkout に無いディレクトリ (必要なら mv \"${abs}/${f}\" <退避先>)"$'\n'
             else
               n=0; shown=0
