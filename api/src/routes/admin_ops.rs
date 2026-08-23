@@ -27,6 +27,15 @@ pub struct GuildTarget {
     pub guild_id: String,
 }
 
+/// 全予定削除の監査ログに残す 1 件分 (API 形式の予定 + `events.notifications` の生データ)
+#[derive(Serialize)]
+struct EventSnapshot {
+    #[serde(flatten)]
+    event: Event,
+    /// DB に入っていた `notifications` そのまま (旧形式の JSON 文字列。`Event` への変換で捨てられる要素も含む)
+    raw_notifications: Vec<String>,
+}
+
 /// 定型操作の結果
 #[derive(Serialize, ToSchema)]
 pub struct OpsResult {
@@ -59,7 +68,15 @@ pub async fn delete_guild_events(
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
     let (snapshot_rows, count) = admin_ops::delete_guild_events(&mut tx, guild_id).await?;
-    let sampled: Vec<Event> = snapshot_rows.into_iter().map(Event::from).collect();
+    // スナップショットは API 形式 (Event) に加えて notifications の生データも残す
+    // (旧形式や壊れた要素は Event への変換で捨てられるため、削除した実データを復元・調査できるように)
+    let sampled: Vec<EventSnapshot> = snapshot_rows
+        .into_iter()
+        .map(|row| EventSnapshot {
+            raw_notifications: row.notifications.clone(),
+            event: Event::from(row),
+        })
+        .collect();
     let omitted = count.saturating_sub(sampled.len() as u64);
     admin_audit::record(
         &mut *tx,

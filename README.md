@@ -106,7 +106,7 @@ web の `/admin` を開け、api の `/admin/*` を呼べる。それ以外は a
 `/admin/guilds` で全ギルドの一覧・検索、`/admin/guilds/[id]` で (自分が所属していないギルドも含めて) 予定の閲覧・編集・削除と
 `restricted` の切替ができる (#35)。カレンダーは `/dashboard/[id]` と同じ部品を admin 用 API (`/admin/guilds/{guild_id}/events`) に向けて使っている。
 `/admin/sql` は読み取り専用の SQL コンソールと定型操作 (#36)。SQL は権限を絞った DB ロール `discalendar_sql_console`
-(非 superuser) で**ログインした専用の接続** (1 本。同時に実行しようとした管理者は空くのを待つ) と `BEGIN READ ONLY` のトランザクションで実行し、10 秒の締切・
+(非 superuser、`CONNECTION LIMIT 1`) で**ログインした専用の接続** (api インスタンスを跨いでも 1 本。同時に実行しようとした管理者は空くのを待つ) と `BEGIN READ ONLY` のトランザクションで実行し、10 秒の締切・
 先頭 500 行 / 4 MiB (1 セル 4,000 文字) までを返す。SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文だけ受け付ける。
 このロールには `public` スキーマのテーブルの SELECT だけを与え、Better Auth の `account` / `session` / `verification` (トークン類) は
 権限を外してあるので、`table_to_xml()` のような関数経由でも読めない (api の接続で `SET ROLE` するのではなくこのロール自身で
@@ -118,7 +118,7 @@ api の接続ユーザーに `CREATEROLE` が無い環境では起動ログに�
 その接続文字列を api の `SQL_CONSOLE_DATABASE_URL` に設定して再起動する:
 
 ```sql
-CREATE ROLE discalendar_sql_console LOGIN PASSWORD '<任意のパスワード>';
+CREATE ROLE discalendar_sql_console LOGIN CONNECTION LIMIT 1 PASSWORD '<任意のパスワード>';  -- 接続は常に 1 本
 ALTER ROLE discalendar_sql_console SET track_activities = off;  -- 他の管理者に実行中の SQL を見せない
 GRANT USAGE ON SCHEMA public TO discalendar_sql_console;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO discalendar_sql_console;

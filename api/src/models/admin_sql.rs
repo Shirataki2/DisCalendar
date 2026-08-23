@@ -80,8 +80,12 @@ pub const MAX_SQL_CHARS: usize = 10_000;
 pub const ROLE: &str = "discalendar_sql_console";
 /// コンソール用プールの接続数。**1 にしている**のは、同じロールのセッションが同時に 2 つ存在すると
 /// `pg_stat_activity` の `application_name` (`set_config` で書き換えられる) のようにセッション間で値を渡せる
-/// 経路が残るため。同時に実行しようとした管理者は接続が空くのを待ち、締切までに空かなければタイムアウトになる
+/// 経路が残るため。複数の api インスタンスに跨っても 1 つにするため、ロール側にも `CONNECTION LIMIT 1` を設定する
+/// ([`setup_role`]、[`verify_console_role`] で確認)。同時に実行しようとした管理者は接続が空くのを待ち、
+/// 締切までに空かなければタイムアウトになる
 const POOL_SIZE: u32 = 1;
+/// 接続待ち (ロールの接続上限に当たった) の再試行間隔
+const ACQUIRE_RETRY_INTERVAL: Duration = Duration::from_millis(200);
 /// 監査用の伏せ字で残してよい既知の単語 ([`load_known_words`]) をキャッシュする時間
 pub const KNOWN_WORDS_TTL: Duration = Duration::from_secs(600);
 /// 読み取りを禁止するテーブル (Better Auth のトークン類を持つ)。このロールには権限を与えず、
@@ -298,7 +302,7 @@ async fn ensure_role(pool: &PgPool, password: Option<&str>) -> anyhow::Result<()
         debug_assert!(password.chars().all(|c| c.is_ascii_hexdigit()));
         alter_role(
             pool,
-            format!("ALTER ROLE {ROLE} LOGIN PASSWORD '{password}'"),
+            format!("ALTER ROLE {ROLE} LOGIN CONNECTION LIMIT 1 PASSWORD '{password}'"),
             "failed to set the password (CREATEROLE or superuser is required)",
         )
         .await?;
@@ -392,21 +396,7 @@ pub async fn execute(
     // 締切は接続待ちも含む (プールが埋まっていても案内している上限を超えて待たない)
     let started = Instant::now();
     let deadline = started + timeout;
-    let mut conn = match tokio::time::timeout(timeout, console.acquire()).await {
-        Ok(Ok(conn)) => conn,
-        Ok(Err(error)) => {
-            // ロールが無い / パスワードが違う等。設定の問題なので利用者に案内する
-            return Err(SqlError::Unavailable(format!(
-                "SQL コンソール用の DB 接続 (ロール {ROLE}) を開けません ({error})。README の手順でロールを用意してください"
-            )));
-        }
-        Err(_elapsed) => {
-            return Err(SqlError::Query(format!(
-                "SQL コンソールの接続が空くのを待っている間に上限 {} 秒を超えました (他の実行が終わるのを待ってください)",
-                STATEMENT_TIMEOUT.as_secs()
-            )));
-        }
-    };
+    let mut conn = acquire_console_connection(console, deadline).await?;
     let result = {
         let mut tx = conn.begin_with("BEGIN READ ONLY").await?;
         let result = run_in_transaction(&mut tx, sql, statement, deadline).await;
@@ -427,6 +417,40 @@ pub async fn execute(
         truncated,
         duration_ms,
     })
+}
+
+/// コンソール用の接続を締切まで待って取る。プールが埋まっている (同じプロセスの別の実行中) ときはプールの待ち、
+/// 別の api インスタンスが使っている (ロールの `CONNECTION LIMIT 1` に当たる、SQLSTATE 53300) ときは少し待って
+/// 接続し直す。締切までに取れなければタイムアウト、それ以外の接続エラー (ロールが無い等) は設定の問題として案内する
+async fn acquire_console_connection(
+    console: &PgPool,
+    deadline: Instant,
+) -> Result<PoolConnection<Postgres>, SqlError> {
+    let busy = || {
+        SqlError::Query(format!(
+            "他の管理者の SQL が実行中のため、上限 {} 秒の間に接続を取れませんでした (少し待ってから再実行してください)",
+            STATEMENT_TIMEOUT.as_secs()
+        ))
+    };
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(busy());
+        }
+        match tokio::time::timeout(remaining, console.acquire()).await {
+            Ok(Ok(conn)) => return Ok(conn),
+            Ok(Err(sqlx::Error::Database(db))) if db.code().as_deref() == Some("53300") => {
+                tokio::time::sleep(ACQUIRE_RETRY_INTERVAL).await;
+            }
+            Ok(Err(error)) => {
+                // ロールが無い / パスワードが違う等。設定の問題なので利用者に案内する
+                return Err(SqlError::Unavailable(format!(
+                    "SQL コンソール用の DB 接続 (ロール {ROLE}) を開けません ({error})。README の手順でロールを用意してください"
+                )));
+            }
+            Err(_elapsed) => return Err(busy()),
+        }
+    }
 }
 
 /// 実行に使った接続はプールに返さず閉じる。セッションに残りうる状態 (`pg_advisory_lock(...)` はロールバックでは
@@ -539,15 +563,17 @@ async fn apply_deadline(conn: &mut PgConnection, deadline: Instant) -> Result<()
     Ok(())
 }
 
-/// 接続のセッションユーザーが専用ロールで superuser でなく、保護テーブルを読めず、`track_activities` が off
-/// (他の管理者の実行中 SQL が `pg_stat_activity` で見えない) ことを確認する。どれかが満たされなければ `Unavailable` (実行しない)
+/// 接続のセッションユーザーが専用ロールで superuser でなく、接続上限が 1 (api インスタンスを跨いでもセッションが
+/// 同時に 2 つ無い)、保護テーブルを読めず、`track_activities` が off (実行中 SQL が `pg_stat_activity` で見えない)
+/// ことを確認する。どれかが満たされなければ `Unavailable` (実行しない)
 async fn verify_console_role(conn: &mut PgConnection) -> Result<(), SqlError> {
-    let (session_user, superuser, track_activities): (String, bool, String) = sqlx::query_as(
-        "SELECT session_user::text, (SELECT rolsuper FROM pg_roles WHERE rolname = session_user), \
-         current_setting('track_activities')",
-    )
-    .fetch_one(&mut *conn)
-    .await?;
+    let (session_user, superuser, conn_limit, track_activities): (String, bool, i32, String) =
+        sqlx::query_as(
+            "SELECT session_user::text, r.rolsuper, r.rolconnlimit, current_setting('track_activities') \
+             FROM pg_roles r WHERE r.rolname = session_user",
+        )
+        .fetch_one(&mut *conn)
+        .await?;
     let readable: Vec<String> = sqlx::query_scalar(
         r#"
         SELECT c.relname::text
@@ -562,9 +588,14 @@ async fn verify_console_role(conn: &mut PgConnection) -> Result<(), SqlError> {
     .bind(PROTECTED_TABLES.as_slice())
     .fetch_all(&mut *conn)
     .await?;
-    if session_user != ROLE || superuser || !readable.is_empty() || track_activities != "off" {
+    if session_user != ROLE
+        || superuser
+        || conn_limit != 1
+        || !readable.is_empty()
+        || track_activities != "off"
+    {
         return Err(SqlError::Unavailable(format!(
-            "SQL コンソール用の DB 接続の設定が正しくありません (session_user: {session_user}, superuser: {superuser}, 読める保護テーブル: {readable:?}, track_activities: {track_activities})。README の手順でロール {ROLE} を直してください"
+            "SQL コンソール用の DB 接続の設定が正しくありません (session_user: {session_user}, superuser: {superuser}, connection limit: {conn_limit}, 読める保護テーブル: {readable:?}, track_activities: {track_activities})。README の手順でロール {ROLE} を直してください"
         )));
     }
     Ok(())
@@ -719,11 +750,27 @@ pub fn redact_sql(sql: &str, is_known: impl Fn(&str) -> bool) -> String {
                 None => "",
             };
         } else if first.is_ascii_digit() {
-            // 数値リテラル (1, 1.5, 1e5, 0x1f など)。ID (Snowflake) もここ
-            let end = rest
+            // 数字で始まるトークン。数値リテラル (1, 1.5, 1e5、Snowflake ID) はそのまま残し、
+            // 数字で始まるが数値ではないもの (`1AbCd...` のような貼り付けた値) は伏せる
+            let mut end = rest
                 .find(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
                 .unwrap_or(rest.len());
-            out.push_str(&rest[..end]);
+            // 指数の符号 (2.5e-3) までを 1 トークンにする
+            if rest[..end].ends_with(['e', 'E'])
+                && let Some(after_sign) = rest[end..].strip_prefix(['+', '-'])
+                && after_sign.starts_with(|c: char| c.is_ascii_digit())
+            {
+                let digits = after_sign
+                    .find(|c: char| !c.is_ascii_digit())
+                    .unwrap_or(after_sign.len());
+                end += 1 + digits;
+            }
+            let token = &rest[..end];
+            if is_numeric_literal(token) {
+                out.push_str(token);
+            } else {
+                out.push('…');
+            }
             rest = &rest[end..];
         } else if first.is_alphabetic() || first == '_' {
             // 引用符の無い識別子 / キーワード
@@ -783,6 +830,27 @@ pub fn sanitize_error_for_audit(message: &str) -> String {
             }
         }
     }
+}
+
+/// 数字で始まるトークンが数値リテラルの形 (`123`, `1_000`, `1.5`, `1e5`, `2.5e-3`) かどうか。
+/// それ以外 (`1AbCdEf`, `0x1f` など) は伏せる対象にする
+fn is_numeric_literal(token: &str) -> bool {
+    let (mantissa, exponent) = match token.find(['e', 'E']) {
+        Some(i) => (&token[..i], Some(&token[i + 1..])),
+        None => (token, None),
+    };
+    let mantissa_ok = !mantissa.is_empty()
+        && mantissa
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == '_');
+    let exponent_ok = match exponent {
+        None => true,
+        Some(e) => {
+            let digits = e.strip_prefix(['+', '-']).unwrap_or(e);
+            !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+        }
+    };
+    mantissa_ok && exponent_ok
 }
 
 /// `quote` で閉じられるまで読み飛ばし、閉じ引用符の後ろを返す (閉じ引用符も含めて消費する)。
@@ -1067,6 +1135,11 @@ mod tests {
                 known
             ),
             "SELECT …, guild_id AS g, 1 AS …, 1e5 FROM guilds AS gg WHERE guild_id = 782502586817314816 AND Name = …"
+        );
+        // 数字で始まる貼り付け値も伏せる (数値の形のものだけ残す)
+        assert_eq!(
+            redact_sql("SELECT 1AbCdEf9XyZ, 2.5e-3, 1_000, 0x1f", known),
+            "SELECT …, 2.5e-3, 1_000, …"
         );
         // E'...' の E は 1 文字なので残り、エスケープ付き文字列として扱われる
         assert_eq!(

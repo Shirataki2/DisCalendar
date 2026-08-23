@@ -431,6 +431,14 @@ async fn console_sessions_do_not_expose_their_queries(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(setting.rows[0][0].as_deref(), Some("off"));
+    // 接続上限はクラスタ全体で 1 (複数の api インスタンスでもセッションは同時に 1 つ)
+    let limit = run(
+        &pool,
+        "SELECT rolconnlimit FROM pg_roles WHERE rolname = current_user",
+    )
+    .await
+    .unwrap();
+    assert_eq!(limit.rows[0][0].as_deref(), Some("1"));
     let shown = run(
         &pool,
         "SELECT query FROM pg_stat_activity WHERE pid = pg_backend_pid()",
