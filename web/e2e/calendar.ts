@@ -23,6 +23,20 @@ export function dayCell(page: Page, date: Date): Locator {
 }
 
 /**
+ * ブラウザから見た「今日」(年月日だけのローカル Date)。
+ * テストを動かす Node (CI は UTC) とブラウザ (Asia/Tokyo) で日付が違うことがあるので、new Date() ではなく
+ * ブラウザの Date から取る (「新規作成」の既定日時もブラウザの Date で決まる)。
+ * FullCalendar の aria-current="date" は SSR 時のサーバーの日付が残ることがあるので使わない
+ */
+export async function calendarToday(page: Page): Promise<Date> {
+  const [year, month, day] = await page.evaluate(() => {
+    const now = new Date();
+    return [now.getFullYear(), now.getMonth(), now.getDate()];
+  });
+  return new Date(year, month, day);
+}
+
+/**
  * カレンダー上の予定 (タイトルで探す)。時刻付きの予定は名前が "HH時 タイトル" になるので、
  * 末尾一致で探す (部分一致だと "A" が "A (編集済み)" にも当たってしまう)
  */

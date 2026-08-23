@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  calendarToday,
   createEvent,
   dayCell,
   dragEventTo,
@@ -34,8 +35,9 @@ test("予定を作成するとカレンダーに出て、再読込しても残�
   await createEvent(page, createdTitle);
   expect((await created).status()).toBe(201);
 
-  // 既定の日時は今日なので、今日のセルに入っている
-  await expect(eventOn(dayCell(page, new Date()), createdTitle)).toBeVisible();
+  // 既定の日時は今日 (ブラウザの時刻) なので、今日のセルに入っている
+  const today = await calendarToday(page);
+  await expect(eventOn(dayCell(page, today), createdTitle)).toBeVisible();
   await page.reload();
   await expect(eventOn(page, createdTitle)).toBeVisible();
 });
@@ -78,7 +80,7 @@ test("タイトルが空のままでは作成できない (フォームの検証
 });
 
 test("ドラッグで別の日に移動すると API に保存される", async ({ page }) => {
-  const today = new Date();
+  const today = await calendarToday(page);
   const target = await neighborDay(page, today);
 
   const updated = page.waitForResponse(
@@ -101,7 +103,7 @@ test("ドラッグで別の日に移動すると API に保存される", async 
 test("保存に失敗したドラッグは元の位置に戻り、エラーが表示される", async ({
   page,
 }) => {
-  const today = new Date();
+  const today = await calendarToday(page);
   const from = await neighborDay(page, today);
   await expect(eventOn(dayCell(page, from), editedTitle)).toBeVisible();
 
