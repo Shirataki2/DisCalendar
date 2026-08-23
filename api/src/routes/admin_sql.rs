@@ -31,8 +31,8 @@ pub struct SqlRequest {
     pub sql: String,
 }
 
-/// 読み取り専用 SQL の実行。専用の DB ロール (`discalendar_sql_console`) + `BEGIN READ ONLY` +
-/// `statement_timeout` (10 秒) + 500 行 / 4 MiB 上限。Better Auth の `account` / `session` / `verification` は
+/// 読み取り専用 SQL の実行。権限を絞った DB ロール (`discalendar_sql_console`) でログインした専用の接続 +
+/// `BEGIN READ ONLY` + 10 秒の締切 + 500 行 / 4 MiB 上限。Better Auth の `account` / `session` / `verification` は
 /// ロールに権限が無く、読む文は実行前にも拒否する。成功・失敗にかかわらず `admin_audit_logs` に残す
 #[utoipa::path(
     tag = "admin",
@@ -52,7 +52,7 @@ pub async fn run_sql(
     state: web::Data<AppState>,
 ) -> Result<web::Json<SqlResult>, ApiError> {
     let sql = body.sql.trim();
-    let outcome = admin_sql::execute(&state.pool, sql, STATEMENT_TIMEOUT).await;
+    let outcome = admin_sql::execute(&state.sql_console_pool, sql, STATEMENT_TIMEOUT).await;
     // 監査ログに残す SQL は上限までに切る (長すぎて拒否した場合のため)
     let logged_sql: String = sql.chars().take(MAX_SQL_CHARS).collect();
     let (detail, response) = match outcome {

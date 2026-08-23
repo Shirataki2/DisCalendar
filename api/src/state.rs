@@ -7,6 +7,9 @@ use crate::{auth::AuthConfig, discord::DiscordClient};
 /// 全ハンドラで共有する状態 (`web::Data<AppState>`)
 pub struct AppState {
     pub pool: PgPool,
+    /// SQL コンソール (#36) 専用のプール。権限を絞ったロール `discalendar_sql_console` でログインする
+    /// (`models::admin_sql`)。接続は遅延なので、ロールが無い環境でも起動はできる
+    pub sql_console_pool: PgPool,
     pub discord: DiscordClient,
     pub auth: AuthConfig,
     pub admin: AdminConfig,

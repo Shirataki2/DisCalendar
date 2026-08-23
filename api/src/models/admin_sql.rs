@@ -4,21 +4,25 @@
 //!
 //! 1. 先頭のキーワードを `SELECT` / `WITH` / `VALUES` / `TABLE` / `EXPLAIN` / `SHOW` に限る
 //!    (`SET` / `DO` / `COPY` / DDL / `BEGIN` などはここで弾く)
-//! 2. `BEGIN READ ONLY` のトランザクションで実行する (`WITH ... DELETE` のような書き込みは Postgres が拒否する)
-//!    ので、稼働中の旧 Bot と共有している `events` などを誤って壊せない
-//! 3. `SET LOCAL statement_timeout` で長いクエリを打ち切る
-//! 4. **専用の DB ロールで実行する (P0)**: `SET LOCAL ROLE` で [`ROLE`] (`discalendar_sql_console`、NOLOGIN、
-//!    superuser ではない) に切り替える。このロールには `public` スキーマのテーブルの SELECT だけを与え、
-//!    Better Auth の `account` (Discord の access / refresh token)、`session` (セッショントークン)、`verification`
-//!    ([`PROTECTED_TABLES`]) は権限を外してあるので、`table_to_xml('account', ...)` や `query_to_xml(...)` のように
-//!    関数の内部で実行される SQL でも読めない (`permission denied`)。superuser でないので `pg_read_file` や
-//!    他の接続の `pg_terminate_backend` も使えず、プランナ統計 `pg_statistic` (列のサンプル値に実トークンが入る) も
-//!    読めない (`pg_stats` ビューは権限のある表の行しか見せない)。ロールの作成と権限付与は api の起動時に
-//!    [`setup_role`] が行い、できない環境では手で作る (README)。実行のたびに保護テーブルを読めないことを
-//!    `has_table_privilege` で確かめ、ロールが使えなければ実行しない (fail closed)
-//! 5. **実行計画での事前判定**: `EXPLAIN (FORMAT JSON)` の計画を走査し、`Relation Name` に保護テーブルが出てくる文は
-//!    実行前に拒否する (4 の多層防御。権限エラーより分かりやすいメッセージにもなる)。SQL の文字列を見て判定すると
-//!    別名・サブクエリ・`U&"..."` の識別子などですり抜けられるが、計画に出てくる名前はどう書いても変わらない
+//! 2. **専用の DB ロールでログインした別の接続プールで実行する (P0)**: [`ROLE`] (`discalendar_sql_console`、
+//!    superuser ではない) には `public` スキーマのテーブルの SELECT だけを与え、Better Auth の `account`
+//!    (Discord の access / refresh token)、`session` (セッショントークン)、`verification` ([`PROTECTED_TABLES`]) は
+//!    権限を外してあるので、`table_to_xml('account', ...)` や `query_to_xml(...)` のように関数の内部で実行される
+//!    SQL でも読めない (`permission denied`)。superuser でないので `pg_read_file` や他の接続の
+//!    `pg_terminate_backend` も使えず、プランナ統計 `pg_statistic` (列のサンプル値に実トークンが入る) も読めない。
+//!    api の接続で `SET ROLE` するのではなくこのロール自身でログインするので、`set_config('role', 'none', true)` の
+//!    ような SQL からのロール解除でも api のロールには戻れない。ロールの作成・パスワード設定・権限付与は
+//!    api の起動時に [`setup_role`] が行い (パスワードは `BETTER_AUTH_SECRET` から導出)、できない環境では
+//!    手で作って `SQL_CONSOLE_DATABASE_URL` で渡す (README)。実行のたびに接続のセッションユーザーが
+//!    このロールで superuser でなく保護テーブルを読めないことを確かめ、満たさなければ実行しない (fail closed)
+//! 3. `BEGIN READ ONLY` のトランザクションで実行する (`WITH ... DELETE` のような書き込みは Postgres が拒否し、
+//!    ロールにも書き込み権限が無い) ので、稼働中の旧 Bot と共有している `events` などを誤って壊せない
+//! 4. `SET LOCAL statement_timeout` で長いクエリを打ち切る。カーソルからの `FETCH` は複数回に分けるので、
+//!    コマンドごとではなく開始時刻からの締切 ([`STATEMENT_TIMEOUT`]) で残り時間を設定し直す
+//! 5. **実行計画での事前判定**: `EXPLAIN (FORMAT JSON)` の計画を走査し、`Relation Name` に保護テーブルや
+//!    プランナ統計が出てくる文は実行前に拒否する (2 の多層防御。権限が誤って付いても直接の読み取りは止まる)。
+//!    SQL の文字列を見て判定すると別名・サブクエリ・`U&"..."` の識別子などですり抜けられるが、
+//!    計画に出てくる名前はどう書いても変わらない
 //! 6. 文字列はプリペアドステートメントとして `prepare` する (カラム名・型の取得も兼ねる)。Postgres は
 //!    1 つのプリペアドステートメントに複数の文を入れられないので、`SELECT 1; SET ...` のような複数文は
 //!    ここ (と 5 の EXPLAIN) で失敗する
@@ -33,11 +37,14 @@
 
 use std::time::{Duration, Instant};
 
+use hmac::{Hmac, KeyInit as _, Mac as _};
 use serde::Serialize;
+use sha2::Sha256;
 use sqlx::{
     AssertSqlSafe, Column as _, Connection as _, Executor as _, PgConnection, PgPool, Row as _,
-    SqlSafeStr as _, Statement as _, TypeInfo as _, ValueRef as _, pool::PoolConnection,
-    postgres::Postgres,
+    SqlSafeStr as _, Statement as _, TypeInfo as _, ValueRef as _,
+    pool::PoolConnection,
+    postgres::{PgConnectOptions, PgPoolOptions, Postgres},
 };
 use utoipa::ToSchema;
 
@@ -51,12 +58,14 @@ pub const MAX_CELL_CHARS: usize = 4_000;
 pub const CELL_TRUNCATED_MARK: &str = "…(切り詰め)";
 /// カーソルから 1 回に取り出す行数
 const FETCH_BATCH: usize = 100;
-/// 1 文の実行時間の上限 (`statement_timeout`)
+/// 1 回の実行 (計画の確認からすべての FETCH まで) に使える時間
 pub const STATEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 /// 受け付ける SQL の長さ (文字数) の上限。監査ログにもそのまま残す
 pub const MAX_SQL_CHARS: usize = 10_000;
-/// SQL コンソールの実行に使う DB ロール (NOLOGIN、superuser ではない。[`setup_role`] が作る)
+/// SQL コンソールの実行に使う DB ロール (superuser ではない。[`setup_role`] が作る)
 pub const ROLE: &str = "discalendar_sql_console";
+/// コンソール用プールの接続数 (管理者が同時に使う数は少ない)
+const POOL_SIZE: u32 = 2;
 /// 読み取りを禁止するテーブル (Better Auth のトークン類を持つ)。このロールには権限を与えず、
 /// さらに実行計画にこれらが出てくる文は実行前に拒否する (スキーマに関係なく名前で判定)
 pub const PROTECTED_TABLES: [&str; 3] = ["account", "session", "verification"];
@@ -106,7 +115,7 @@ pub enum SqlError {
     /// Postgres がエラーを返した (構文エラー、権限エラー、読み取り専用違反、タイムアウトなど)。メッセージはそのまま見せてよい
     #[error("{0}")]
     Query(String),
-    /// SQL コンソール用のロールが使えない (作られていない / 権限が正しくない)。実行していない
+    /// SQL コンソール用のロール / 接続が使えない (作られていない / 権限が正しくない)。実行していない
     #[error("{0}")]
     Unavailable(String),
     /// 接続や内部の失敗
@@ -139,6 +148,13 @@ impl SqlError {
             other => Self::Other(other),
         }
     }
+
+    fn timed_out() -> Self {
+        Self::Query(format!(
+            "canceling statement due to statement timeout (上限 {} 秒)",
+            STATEMENT_TIMEOUT.as_secs()
+        ))
+    }
 }
 
 /// 文の種類 (先頭キーワードで判定)
@@ -152,28 +168,70 @@ enum Statement<'a> {
     Show,
 }
 
+/// [`ROLE`] のパスワードを `BETTER_AUTH_SECRET` から導出する (HMAC-SHA256 の hex)。
+/// 複数の api インスタンスが同じ値になり、新しい env を増やさずに済む。
+/// この秘密が漏れた時点でセッションの偽造ができてしまうので、ここから導出しても守るものは増えも減りもしない
+pub fn derive_password(better_auth_secret: &str) -> String {
+    let mut mac = Hmac::<Sha256>::new_from_slice(better_auth_secret.as_bytes())
+        .expect("HMAC accepts keys of any length");
+    mac.update(b"discalendar_sql_console_password");
+    mac.finalize()
+        .into_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// [`ROLE`] でログインするコンソール用のプール。`base` (api の `DATABASE_URL`) のホスト・DB はそのままに
+/// ユーザーとパスワードだけ差し替える。接続は遅延 (最初の実行時)
+pub fn console_pool(base: &PgConnectOptions, password: &str) -> PgPool {
+    PgPoolOptions::new()
+        .max_connections(POOL_SIZE)
+        .connect_lazy_with(base.clone().username(ROLE).password(password))
+}
+
+/// `SQL_CONSOLE_DATABASE_URL` で渡された接続文字列からコンソール用のプールを作る (手動でロールを用意する環境向け)
+pub fn console_pool_from_url(url: &str) -> Result<PgPool, sqlx::Error> {
+    let options: PgConnectOptions = url.parse()?;
+    Ok(PgPoolOptions::new()
+        .max_connections(POOL_SIZE)
+        .connect_lazy_with(options))
+}
+
 /// SQL コンソール用のロール [`ROLE`] を用意する (api の起動時に呼ぶ。冪等)。
 ///
-/// - ロールが無ければ `CREATE ROLE ... NOLOGIN` し、api の接続ユーザーをメンバーにする (`SET ROLE` に必要)
-/// - `public` スキーマの全テーブルに SELECT を与え、[`PROTECTED_TABLES`] (存在するもの) からは取り上げる。
-///   Better Auth のテーブルは web が起動時に作るので、api を先に起動した環境では次回の起動で付与される
-///   (それまでロールは読めない = 安全側)
+/// 1. ロールが無ければ `CREATE ROLE`、`password` があれば `ALTER ROLE ... LOGIN PASSWORD` で
+///    ログインできるようにする (CREATEROLE か superuser が要る。compose の Postgres (`POSTGRES_USER`) は superuser)
+/// 2. `public` スキーマの全テーブルに SELECT を与え、[`PROTECTED_TABLES`] (存在するもの) からは取り上げる
+///    (api の接続ユーザーがテーブルの所有者であればよい)。Better Auth のテーブルは web が起動時に作るので、
+///    api を先に起動した環境では次回の起動で付与される (それまでロールは読めない = 安全側)
 ///
-/// `CREATE ROLE` には CREATEROLE か superuser が要る。compose の Postgres (`POSTGRES_USER`) は superuser なので
-/// そのまま通る。権限が無い環境では Err を返すので、README の SQL を手で流す (コンソールは [`execute`] が
-/// 毎回ロールを検証して、使えなければ実行しない)
-pub async fn setup_role(pool: &PgPool) -> anyhow::Result<()> {
-    let mut tx = pool.begin().await?;
+/// 1 と 2 は別のトランザクションで、1 が権限不足で失敗しても 2 は試みる (手でロールを作った環境で、
+/// 後から増えたテーブルの権限を api の再起動で追従させるため)。どちらかが失敗したら Err
+pub async fn setup_role(pool: &PgPool, password: Option<&str>) -> anyhow::Result<()> {
+    let role_result = ensure_role(pool, password).await;
+    let grant_result = grant_privileges(pool).await;
+    match (role_result, grant_result) {
+        (Ok(()), Ok(())) => {
+            tracing::info!(role = ROLE, "SQL console role is ready");
+            Ok(())
+        }
+        (Err(e), Ok(())) | (Ok(()), Err(e)) => Err(e),
+        (Err(role), Err(grant)) => Err(grant.context(format!("also: {role:#}"))),
+    }
+}
+
+async fn ensure_role(pool: &PgPool, password: Option<&str>) -> anyhow::Result<()> {
     let role_exists: bool =
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)")
             .bind(ROLE)
-            .fetch_one(&mut *tx)
+            .fetch_one(pool)
             .await?;
     if !role_exists {
         // 同時に起動した別インスタンスと競合したら duplicate_object (42710) か pg_authid の一意制約違反 (23505)
         // になるので、それは成功扱い
         if let Err(error) = sqlx::raw_sql(AssertSqlSafe(format!("CREATE ROLE {ROLE} NOLOGIN")))
-            .execute(&mut *tx)
+            .execute(pool)
             .await
         {
             let duplicate = matches!(&error, sqlx::Error::Database(db)
@@ -183,13 +241,41 @@ pub async fn setup_role(pool: &PgPool) -> anyhow::Result<()> {
                     "failed to create the role {ROLE} (CREATEROLE or superuser is required)"
                 )));
             }
-            // 競合相手のトランザクションが進んでいるので、こちらはやり直す
-            tx.rollback().await?;
-            tx = pool.begin().await?;
         }
     }
+    if let Some(password) = password {
+        // パスワードは derive_password の hex (英数字のみ) なのでそのまま埋め込める
+        debug_assert!(password.chars().all(|c| c.is_ascii_hexdigit()));
+        let statement = format!("ALTER ROLE {ROLE} LOGIN PASSWORD '{password}'");
+        // 複数の api インスタンスが同時に起動すると pg_authid の同じ行を更新して
+        // "tuple concurrently updated" (XX000) になることがあるので、少し待って再試行する
+        let mut attempt = 0;
+        loop {
+            match sqlx::raw_sql(AssertSqlSafe(statement.clone()))
+                .execute(pool)
+                .await
+            {
+                Ok(_) => break,
+                Err(sqlx::Error::Database(db))
+                    if attempt < 5 && db.message().contains("tuple concurrently updated") =>
+                {
+                    attempt += 1;
+                    tokio::time::sleep(Duration::from_millis(100 * attempt)).await;
+                }
+                Err(e) => {
+                    return Err(anyhow::Error::new(e).context(format!(
+                        "failed to set the password of {ROLE} (CREATEROLE or superuser is required)"
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn grant_privileges(pool: &PgPool) -> anyhow::Result<()> {
+    let mut tx = pool.begin().await?;
     for statement in [
-        format!("GRANT {ROLE} TO CURRENT_USER"),
         format!("GRANT USAGE ON SCHEMA public TO {ROLE}"),
         format!("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {ROLE}"),
     ] {
@@ -216,12 +302,17 @@ pub async fn setup_role(pool: &PgPool) -> anyhow::Result<()> {
         })?;
     }
     tx.commit().await?;
-    tracing::info!(role = ROLE, protected = ?existing, "SQL console role is ready");
+    tracing::debug!(role = ROLE, protected = ?existing, "SQL console privileges applied");
     Ok(())
 }
 
-/// 読み取り専用 SQL を実行する。`timeout` は `statement_timeout` (通常は [`STATEMENT_TIMEOUT`]、テスト用に変えられる)
-pub async fn execute(pool: &PgPool, sql: &str, timeout: Duration) -> Result<SqlResult, SqlError> {
+/// 読み取り専用 SQL を実行する。`console` は [`console_pool`] で作った [`ROLE`] のプール。
+/// `timeout` は 1 回の実行全体の上限 (通常は [`STATEMENT_TIMEOUT`]、テスト用に変えられる)
+pub async fn execute(
+    console: &PgPool,
+    sql: &str,
+    timeout: Duration,
+) -> Result<SqlResult, SqlError> {
     let sql = sql.trim();
     if sql.is_empty() {
         return Err(SqlError::Rejected("SQL が空です".into()));
@@ -234,11 +325,17 @@ pub async fn execute(pool: &PgPool, sql: &str, timeout: Duration) -> Result<SqlR
     let statement = classify(sql)?;
     let sql = strip_trailing_trivia(sql);
 
-    let mut conn = pool.acquire().await?;
+    let mut conn = console.acquire().await.map_err(|error| {
+        // ロールが無い / パスワードが違う等。設定の問題なので利用者に案内する
+        SqlError::Unavailable(format!(
+            "SQL コンソール用の DB 接続 (ロール {ROLE}) を開けません ({error})。README の手順でロールを用意してください"
+        ))
+    })?;
     let started = Instant::now();
+    let deadline = started + timeout;
     let result = {
         let mut tx = conn.begin_with("BEGIN READ ONLY").await?;
-        let result = run_in_transaction(&mut tx, sql, statement, timeout).await;
+        let result = run_in_transaction(&mut tx, sql, statement, deadline).await;
         // 読み取り専用なので常にロールバック (カーソルも SET LOCAL も一緒に消える)
         if let Err(error) = tx.rollback().await {
             tracing::warn!(error = %error, "failed to roll back the admin SQL transaction");
@@ -278,25 +375,20 @@ async fn run_in_transaction(
     conn: &mut PgConnection,
     sql: &str,
     statement: Statement<'_>,
-    timeout: Duration,
+    deadline: Instant,
 ) -> Result<RowsOutput, SqlError> {
-    // (3) 値は SET LOCAL に直接埋め込めないので文字列で組み立てる (数値なので安全)
-    let timeout_ms = timeout.as_millis().max(1);
-    sqlx::raw_sql(AssertSqlSafe(format!(
-        "SET LOCAL statement_timeout = {timeout_ms}"
-    )))
-    .execute(&mut *conn)
-    .await?;
+    // (2) この接続が専用ロールのもので、保護テーブルを読めないことを毎回確かめる (fail closed)
+    verify_console_role(conn).await?;
 
-    // (5) 保護テーブルを読んでいないか、実行計画で確認する (実行はしない。api のロールで計画だけ立てるので、
-    // 権限エラーではなく分かりやすいメッセージで拒否できる)。EXPLAIN 文自体もプリペアドステートメントなので、
-    // 複数文はここでも失敗する
+    // (5) 保護テーブルを読んでいないか、実行計画で確認する (実行はしない)。
+    // EXPLAIN 文自体もプリペアドステートメントなので、複数文はここでも失敗する
     let explain_target = match statement {
         Statement::Select => Some(sql),
         Statement::Explain { inner } => Some(inner),
         Statement::Show => None,
     };
     if let Some(target) = explain_target {
+        apply_deadline(conn, deadline).await?;
         let plan: serde_json::Value =
             sqlx::query_scalar(AssertSqlSafe(format!("EXPLAIN (FORMAT JSON) {target}")))
                 .persistent(false)
@@ -314,10 +406,6 @@ async fn run_in_transaction(
             )));
         }
     }
-
-    // (4) 専用ロールに切り替え、保護テーブルを読めないことを毎回確かめる (fail closed)。
-    // ここから先 (prepare / DECLARE / FETCH) はすべてこのロールの権限で動く
-    switch_to_console_role(conn).await?;
 
     // (6) 単一文であることの確認と、カラム情報の取得 (0 行でもカラム名を返せるように)。
     // `prepare` は他のクエリと同じく接続ごとのステートメントキャッシュ (LRU) に乗る。
@@ -337,7 +425,8 @@ async fn run_in_transaction(
 
     // (7) 実行。SELECT 系はセルを切り詰めるサブクエリに包んでカーソルにし、小分けに取り出す。
     // EXPLAIN / SHOW の出力は小さいのでそのまま (prepare が通っているので単一文)
-    let rows = match statement {
+    apply_deadline(conn, deadline).await?;
+    let (rows, truncated) = match statement {
         Statement::Select => {
             sqlx::query(AssertSqlSafe(format!(
                 "DECLARE admin_console_cursor NO SCROLL CURSOR FOR {}",
@@ -347,7 +436,7 @@ async fn run_in_transaction(
             .execute(&mut *conn)
             .await
             .map_err(SqlError::from_sqlx)?;
-            fetch_from_cursor(conn).await?
+            fetch_from_cursor(conn, deadline).await?
         }
         Statement::Explain { .. } | Statement::Show => {
             let rows = sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))
@@ -360,22 +449,31 @@ async fn run_in_transaction(
             (out, truncated)
         }
     };
-    Ok((columns, rows.0, rows.1))
+    Ok((columns, rows, truncated))
 }
 
-/// `SET LOCAL ROLE` で専用ロールに切り替え、そのロールが保護テーブルを読めないことを確認する。
-/// ロールが無い・メンバーでない・権限が残っている、のどれでも `Unavailable` (実行しない)
-async fn switch_to_console_role(conn: &mut PgConnection) -> Result<(), SqlError> {
-    sqlx::raw_sql(AssertSqlSafe(format!("SET LOCAL ROLE {ROLE}")))
+/// 次のコマンドの `statement_timeout` を締切までの残り時間にする。残りが無ければタイムアウト扱い
+async fn apply_deadline(conn: &mut PgConnection, deadline: Instant) -> Result<(), SqlError> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(SqlError::timed_out());
+    }
+    // 値は SET LOCAL に直接埋め込めないので文字列で組み立てる (数値なので安全)。最低 1ms
+    let ms = remaining.as_millis().max(1);
+    sqlx::raw_sql(AssertSqlSafe(format!("SET LOCAL statement_timeout = {ms}")))
         .execute(&mut *conn)
-        .await
-        .map_err(|error| match error {
-            sqlx::Error::Database(db) => SqlError::Unavailable(format!(
-                "SQL コンソール用の DB ロール {ROLE} に切り替えられません ({})。README の手順でロールを作成してください",
-                db.message()
-            )),
-            other => SqlError::Other(other),
-        })?;
+        .await?;
+    Ok(())
+}
+
+/// 接続のセッションユーザーが専用ロールで superuser でなく、保護テーブルを読めないことを確認する。
+/// どれかが満たされなければ `Unavailable` (実行しない)
+async fn verify_console_role(conn: &mut PgConnection) -> Result<(), SqlError> {
+    let (session_user, superuser): (String, bool) = sqlx::query_as(
+        "SELECT session_user::text, (SELECT rolsuper FROM pg_roles WHERE rolname = session_user)",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
     let readable: Vec<String> = sqlx::query_scalar(
         r#"
         SELECT c.relname::text
@@ -384,19 +482,15 @@ async fn switch_to_console_role(conn: &mut PgConnection) -> Result<(), SqlError>
         WHERE c.relname = ANY($1)
           AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
           AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-          AND has_table_privilege(current_user, c.oid, 'SELECT')
+          AND has_table_privilege(session_user, c.oid, 'SELECT')
         "#,
     )
     .bind(PROTECTED_TABLES.as_slice())
     .fetch_all(&mut *conn)
     .await?;
-    let superuser: bool =
-        sqlx::query_scalar("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
-            .fetch_one(&mut *conn)
-            .await?;
-    if superuser || !readable.is_empty() {
+    if session_user != ROLE || superuser || !readable.is_empty() {
         return Err(SqlError::Unavailable(format!(
-            "SQL コンソール用の DB ロール {ROLE} の権限が正しくありません (superuser: {superuser}, 読める保護テーブル: {readable:?})。README の手順で権限を直してください"
+            "SQL コンソール用の DB 接続の権限が正しくありません (session_user: {session_user}, superuser: {superuser}, 読める保護テーブル: {readable:?})。README の手順でロール {ROLE} を直してください"
         )));
     }
     Ok(())
@@ -421,13 +515,16 @@ fn wrap_for_cursor(sql: &str, column_count: usize) -> String {
     )
 }
 
-/// カーソルから小分けに取り出し、行数かバイト数の上限で打ち切る。戻り値は (行, truncated)
+/// カーソルから小分けに取り出し、行数かバイト数の上限で打ち切る。FETCH ごとに締切までの残り時間を設定し直す。
+/// 戻り値は (行, truncated)
 async fn fetch_from_cursor(
     conn: &mut PgConnection,
+    deadline: Instant,
 ) -> Result<(Vec<Vec<Option<String>>>, bool), SqlError> {
     let mut out = Vec::new();
     let mut bytes = 0usize;
     loop {
+        apply_deadline(conn, deadline).await?;
         let batch = sqlx::raw_sql(AssertSqlSafe(format!(
             "FETCH FORWARD {FETCH_BATCH} FROM admin_console_cursor"
         )))

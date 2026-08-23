@@ -12,7 +12,8 @@ use super::events::EventRow;
 pub const DELETE_SNAPSHOT_LIMIT: i64 = 200;
 
 /// 指定ギルドの予定をすべて削除する。戻り値は (スナップショット (先頭 `DELETE_SNAPSHOT_LIMIT` 件、id 順), 削除件数)。
-/// 呼び出し側のトランザクションの中で動かす
+/// 呼び出し側のトランザクションの中で動かす。スナップショットの行は `FOR UPDATE` でロックしてから消すので、
+/// 監査ログに残る内容と実際に消えた行が (同時に更新されても) 一致する
 pub async fn delete_guild_events(
     conn: &mut PgConnection,
     guild_id: &str,
@@ -26,6 +27,7 @@ pub async fn delete_guild_events(
         WHERE guild_id = $1
         ORDER BY id
         LIMIT $2
+        FOR UPDATE
         "#,
         guild_id,
         DELETE_SNAPSHOT_LIMIT

@@ -16,6 +16,10 @@ pub struct Config {
     /// 管理コンソール (`/admin/*`) を使える Discord ユーザー ID (`ADMIN_DISCORD_USER_IDS`、カンマ区切り)。
     /// 空なら管理者はいない (全員 403)
     pub admin_discord_user_ids: Vec<String>,
+    /// SQL コンソール (`POST /admin/sql`) が使う接続文字列 (`SQL_CONSOLE_DATABASE_URL`)。
+    /// 未設定なら `DATABASE_URL` のユーザーを `discalendar_sql_console` に差し替え、パスワードは
+    /// `BETTER_AUTH_SECRET` から導出したものを起動時にロールへ設定する (ロールを手で用意する環境だけ指定する)
+    pub sql_console_database_url: Option<String>,
 }
 
 impl Config {
@@ -36,6 +40,9 @@ impl Config {
                 "ADMIN_DISCORD_USER_IDS",
                 "",
             ))?,
+            sql_console_database_url: std::env::var("SQL_CONSOLE_DATABASE_URL")
+                .ok()
+                .filter(|v| !v.is_empty()),
         })
     }
 

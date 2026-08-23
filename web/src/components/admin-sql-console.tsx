@@ -74,7 +74,9 @@ export function AdminSqlConsole() {
     }
   };
 
-  const tooLong = sql.length > ADMIN_SQL_MAX_CHARS;
+  // api は Unicode スカラー値 (Rust の chars().count()) で数えるので、UTF-16 の length ではなく code point で数える
+  const sqlChars = Array.from(sql).length;
+  const tooLong = sqlChars > ADMIN_SQL_MAX_CHARS;
 
   return (
     <section aria-labelledby="sql-heading" className="flex flex-col gap-3">
@@ -120,7 +122,7 @@ export function AdminSqlConsole() {
           実行
         </Button>
         <span className="text-xs text-neutral-500">
-          {sql.length.toLocaleString()} / {ADMIN_SQL_MAX_CHARS.toLocaleString()}{" "}
+          {sqlChars.toLocaleString()} / {ADMIN_SQL_MAX_CHARS.toLocaleString()}{" "}
           文字
         </span>
         {result && (

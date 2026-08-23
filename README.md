@@ -105,19 +105,20 @@ web の `/admin` を開け、api の `/admin/*` を呼べる。それ以外は a
 管理コンソールからの書き込み操作は `admin_audit_logs` テーブルに記録する (`api/src/models/admin_audit.rs`)。
 `/admin/guilds` で全ギルドの一覧・検索、`/admin/guilds/[id]` で (自分が所属していないギルドも含めて) 予定の閲覧・編集・削除と
 `restricted` の切替ができる (#35)。カレンダーは `/dashboard/[id]` と同じ部品を admin 用 API (`/admin/guilds/{guild_id}/events`) に向けて使っている。
-`/admin/sql` は読み取り専用の SQL コンソールと定型操作 (#36)。SQL は専用の DB ロール `discalendar_sql_console`
-(NOLOGIN・非 superuser。`SET LOCAL ROLE` で切り替える) と `BEGIN READ ONLY` のトランザクションで実行し、`statement_timeout` 10 秒・
+`/admin/sql` は読み取り専用の SQL コンソールと定型操作 (#36)。SQL は権限を絞った DB ロール `discalendar_sql_console`
+(非 superuser) で**ログインした専用の接続**と `BEGIN READ ONLY` のトランザクションで実行し、10 秒の締切・
 先頭 500 行 / 4 MiB (1 セル 4,000 文字) までを返す。SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文だけ受け付ける。
 このロールには `public` スキーマのテーブルの SELECT だけを与え、Better Auth の `account` / `session` / `verification` (トークン類) は
-権限を外してあるので、`table_to_xml()` のような関数経由でも読めない。さらに `EXPLAIN` の実行計画にこれらの表 (とプランナ統計
-`pg_statistic` / `pg_stats`。列のサンプル値に実値が入る) が出てくる文は実行前に拒否する (`api/src/models/admin_sql.rs`)。
-ロールの作成と権限付与は api の起動時に自動で行う (compose の Postgres ユーザーは superuser なのでそのまま通る)。
-api の接続ユーザーに `CREATEROLE` が無い環境では起動ログに警告が出て `POST /admin/sql` は 503 を返すので、
-superuser で次を流してから api を再起動する (Better Auth のテーブルを後から作った場合も、api の再起動で権限が付く):
+権限を外してあるので、`table_to_xml()` のような関数経由でも読めない (api の接続で `SET ROLE` するのではなくこのロール自身で
+ログインするので、SQL から `set_config('role', ...)` で api のロールに戻ることもできない)。さらに `EXPLAIN` の実行計画にこれらの表
+(とプランナ統計 `pg_statistic` / `pg_stats`。列のサンプル値に実値が入る) が出てくる文は実行前に拒否する (`api/src/models/admin_sql.rs`)。
+ロールの作成・パスワード設定 (`BETTER_AUTH_SECRET` から導出するので env は増えない)・権限付与は api の起動時に自動で行う
+(compose の Postgres ユーザーは superuser なのでそのまま通る。Better Auth のテーブルを後から作った場合も api の再起動で権限が付く)。
+api の接続ユーザーに `CREATEROLE` が無い環境では起動ログに警告が出て `POST /admin/sql` は 503 を返すので、superuser で次を流し、
+その接続文字列を api の `SQL_CONSOLE_DATABASE_URL` に設定して再起動する:
 
 ```sql
-CREATE ROLE discalendar_sql_console NOLOGIN;
-GRANT discalendar_sql_console TO <api の接続ユーザー>;
+CREATE ROLE discalendar_sql_console LOGIN PASSWORD '<任意のパスワード>';
 GRANT USAGE ON SCHEMA public TO discalendar_sql_console;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO discalendar_sql_console;
 REVOKE ALL ON TABLE account, session, verification FROM discalendar_sql_console;

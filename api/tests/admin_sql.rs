@@ -34,10 +34,23 @@ fn input(name: &str) -> EventInput {
     }
 }
 
-/// 起動時と同じくロールを用意してから実行する (冪等なので毎回呼んでよい。テスト DB ごとに権限を付ける必要がある)
+/// 起動時と同じくロールを用意し、そのロールでログインするプールを作る。
+/// ロール (クラスタ共通) のパスワード設定はプロセスで 1 回だけにし、テスト DB ごとの権限付与は毎回行う
+async fn console(pool: &PgPool) -> PgPool {
+    static ROLE_READY: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
+    let password = ROLE_READY
+        .get_or_init(|| async {
+            let password = admin_sql::derive_password("test-secret");
+            admin_sql::setup_role(pool, Some(&password)).await.unwrap();
+            password
+        })
+        .await;
+    admin_sql::setup_role(pool, None).await.unwrap();
+    admin_sql::console_pool(&pool.connect_options(), password)
+}
+
 async fn run(pool: &PgPool, sql: &str) -> Result<SqlResult, SqlError> {
-    admin_sql::setup_role(pool).await.unwrap();
-    admin_sql::execute(pool, sql, TIMEOUT).await
+    admin_sql::execute(&console(pool).await, sql, TIMEOUT).await
 }
 
 /// Better Auth のテーブルをテスト DB に用意し、秘密の値を入れる
@@ -183,8 +196,8 @@ async fn row_limit_truncates_large_results(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn statement_timeout_cancels_long_queries(pool: PgPool) {
-    admin_sql::setup_role(&pool).await.unwrap();
-    let error = admin_sql::execute(&pool, "SELECT pg_sleep(5)", Duration::from_millis(200))
+    let console = console(&pool).await;
+    let error = admin_sql::execute(&console, "SELECT pg_sleep(5)", Duration::from_millis(200))
         .await
         .unwrap_err();
     assert!(
@@ -192,7 +205,29 @@ async fn statement_timeout_cancels_long_queries(pool: PgPool) {
         "{error:?}"
     );
     // 打ち切られた後も接続は使える
-    run(&pool, "SELECT 1").await.unwrap();
+    admin_sql::execute(&console, "SELECT 1", TIMEOUT)
+        .await
+        .unwrap();
+
+    // 締切は 1 回の実行全体にかかる (FETCH ごとにリセットされない)。
+    // 100 行ごとの FETCH が 0.4 秒ずつかかる文を 1 秒の締切で実行すると、3 回目の FETCH で打ち切られる
+    let started = std::time::Instant::now();
+    let error = admin_sql::execute(
+        &console,
+        "SELECT pg_sleep(0.004) FROM generate_series(1, 600)",
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(&error, SqlError::Query(message) if message.contains("statement timeout")),
+        "{error:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -308,11 +343,33 @@ async fn protected_tables_are_rejected_before_execution(pool: PgPool) {
     ] {
         let error = run(&pool, sql).await.unwrap_err();
         let message = error.to_string();
+        // 専用ロールには権限が無いので EXPLAIN の時点で permission denied になる。
+        // (権限が誤って付いていても計画の走査が「秘密情報」として拒否する)
         assert!(
-            matches!(&error, SqlError::Rejected(m) if m.contains("秘密情報")),
+            matches!(&error, SqlError::Rejected(m) | SqlError::Query(m)
+                if m.contains("秘密情報") || m.contains("permission denied")),
             "{sql:?}: {error:?}"
         );
         assert!(!message.contains(SECRET), "{sql:?} leaked the secret");
+    }
+
+    // api の接続ロールに戻そうとしても、接続自体が専用ロールでログインしているので戻れない
+    let api_user: String = sqlx::query_scalar("SELECT current_user::text")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    for sql in [
+        "SELECT set_config('role', 'none', true), query_to_xml('SELECT token FROM session', true, false, '')".to_owned(),
+        "SELECT CASE WHEN set_config('role', 'none', true) = 'none' THEN query_to_xml('SELECT token FROM session', true, false, '') END".to_owned(),
+        format!("SELECT set_config('role', '{api_user}', true)"),
+        format!("SELECT set_config('session_authorization', '{api_user}', true)"),
+    ] {
+        let error = run(&pool, &sql).await.unwrap_err();
+        assert!(
+            matches!(&error, SqlError::Query(m) if m.contains("permission denied")),
+            "{sql:?}: {error:?}"
+        );
+        assert!(!error.to_string().contains(SECRET), "{sql:?} leaked the secret");
     }
 
     // 実行計画に表が現れない経路 (関数の内部で実行される SQL) は、専用ロールに権限が無いので Postgres が拒否する。
