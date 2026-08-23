@@ -13,6 +13,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: discalendar
+      # 各サービスの DATABASE_URL にそのまま埋め込む (URL エンコードされない) ので英数字のみにする (.env.example)
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: discalendar
     volumes:
