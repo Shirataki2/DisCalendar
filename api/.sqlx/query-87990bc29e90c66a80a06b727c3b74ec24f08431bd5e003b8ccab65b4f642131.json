@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        DELETE FROM events\n        WHERE guild_id = $1\n        RETURNING id, guild_id, name, description, notifications, color, is_all_day,\n                  start_at, end_at, created_at\n        ",
+  "query": "\n        SELECT id, guild_id, name, description, notifications, color, is_all_day,\n               start_at, end_at, created_at\n        FROM events\n        WHERE guild_id = $1\n        ORDER BY id\n        LIMIT $2\n        ",
   "describe": {
     "columns": [
       {
@@ -116,7 +116,8 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "Int8"
       ]
     },
     "nullable": [
@@ -132,5 +133,5 @@
       false
     ]
   },
-  "hash": "0e0a48e83ddad5e3fe992f7eb4857cea4acfce95220fdfb37afb89feb71267ce"
+  "hash": "87990bc29e90c66a80a06b727c3b74ec24f08431bd5e003b8ccab65b4f642131"
 }

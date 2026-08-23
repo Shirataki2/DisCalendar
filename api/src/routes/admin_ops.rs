@@ -35,7 +35,8 @@ pub struct OpsResult {
     pub deleted: u64,
 }
 
-/// 指定ギルドの予定をすべて削除する。削除した予定は監査ログ (`ops.delete_guild_events`) の `before` に残す。
+/// 指定ギルドの予定をすべて削除する。削除した予定は監査ログ (`ops.delete_guild_events`) の `before.events` に
+/// 先頭 200 件まで残し (`before.omitted` に残りの件数)、`detail.deleted` に削除件数を記録する。
 /// どのテーブルにも無いギルド ID (打ち間違い) は 404
 #[utoipa::path(
     tag = "admin",
@@ -57,12 +58,9 @@ pub async fn delete_guild_events(
     let guild_id = validated_guild_id(&body.guild_id)?;
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
-    let deleted: Vec<Event> = admin_ops::delete_guild_events(&mut *tx, guild_id)
-        .await?
-        .into_iter()
-        .map(Event::from)
-        .collect();
-    let count = deleted.len() as u64;
+    let (snapshot_rows, count) = admin_ops::delete_guild_events(&mut tx, guild_id).await?;
+    let sampled: Vec<Event> = snapshot_rows.into_iter().map(Event::from).collect();
+    let omitted = count.saturating_sub(sampled.len() as u64);
     admin_audit::record(
         &mut *tx,
         &admin,
@@ -70,8 +68,14 @@ pub async fn delete_guild_events(
             action: "ops.delete_guild_events",
             target_type: Some("guild"),
             target_id: Some(guild_id),
-            before: Some(serde_json::json!({ "events": snapshot(&deleted)? })),
-            detail: Some(serde_json::json!({ "deleted": count })),
+            before: Some(serde_json::json!({
+                "events": snapshot(&sampled)?,
+                "omitted": omitted,
+            })),
+            detail: Some(serde_json::json!({
+                "deleted": count,
+                "snapshot_limit": admin_ops::DELETE_SNAPSHOT_LIMIT,
+            })),
             ..Default::default()
         },
     )

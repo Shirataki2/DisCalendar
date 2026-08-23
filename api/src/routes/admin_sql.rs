@@ -31,9 +31,9 @@ pub struct SqlRequest {
     pub sql: String,
 }
 
-/// 読み取り専用 SQL の実行。`BEGIN READ ONLY` + `statement_timeout` (10 秒) + 500 行上限。
-/// Better Auth の `account` / `session` / `verification` を読む文は実行前に拒否する。
-/// 成功・失敗にかかわらず `admin_audit_logs` に残す
+/// 読み取り専用 SQL の実行。専用の DB ロール (`discalendar_sql_console`) + `BEGIN READ ONLY` +
+/// `statement_timeout` (10 秒) + 500 行 / 4 MiB 上限。Better Auth の `account` / `session` / `verification` は
+/// ロールに権限が無く、読む文は実行前にも拒否する。成功・失敗にかかわらず `admin_audit_logs` に残す
 #[utoipa::path(
     tag = "admin",
     request_body = SqlRequest,
@@ -42,6 +42,7 @@ pub struct SqlRequest {
         (status = 400, description = "実行できない文 / Postgres のエラー (メッセージにそのまま入る)", body = ErrorBody),
         (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody),
+        (status = 503, description = "SQL コンソール用の DB ロールが使えない (README の手順で作成する)", body = ErrorBody),
     )
 )]
 #[post("/sql")]
@@ -72,6 +73,14 @@ pub async fn run_sql(
             serde_json::json!({ "sql": logged_sql, "error": message }),
             Err(ApiError::BadRequest(message)),
         ),
+        // DB ロールの不備 (設定ミス)。実行していないが、試みたことは残す
+        Err(SqlError::Unavailable(message)) => {
+            tracing::error!(%message, "SQL console is unavailable");
+            (
+                serde_json::json!({ "sql": logged_sql, "error": message, "rejected": true }),
+                Err(ApiError::Unavailable(message)),
+            )
+        }
         // 接続エラーなど。監査ログも書けない可能性が高いのでそのまま 500
         Err(SqlError::Other(error)) => return Err(error.into()),
     };

@@ -7,7 +7,7 @@ use std::time::Duration;
 use chrono::NaiveDateTime;
 use discalendar_api::models::{
     admin_ops,
-    admin_sql::{self, MAX_ROWS, SqlError, SqlResult},
+    admin_sql::{self, CELL_TRUNCATED_MARK, MAX_CELL_CHARS, MAX_ROWS, SqlError, SqlResult},
     events::{self, EventInput},
 };
 use sqlx::PgPool;
@@ -34,7 +34,9 @@ fn input(name: &str) -> EventInput {
     }
 }
 
+/// 起動時と同じくロールを用意してから実行する (冪等なので毎回呼んでよい。テスト DB ごとに権限を付ける必要がある)
 async fn run(pool: &PgPool, sql: &str) -> Result<SqlResult, SqlError> {
+    admin_sql::setup_role(pool).await.unwrap();
     admin_sql::execute(pool, sql, TIMEOUT).await
 }
 
@@ -125,14 +127,14 @@ async fn select_returns_columns_and_text_values(pool: PgPool) {
     assert_eq!(result.columns[3].type_name, "BOOL");
     assert_eq!(result.row_count, 1);
     assert!(!result.truncated);
-    // 値は psql と同じテキスト表現。NULL は None
+    // 値は text にキャストした表現 (psql とほぼ同じ。boolean は true / false)。NULL は None
     assert_eq!(
         result.rows[0],
         vec![
             Some(created.id.to_string()),
             Some("meeting".to_owned()),
             None,
-            Some("f".to_owned()),
+            Some("false".to_owned()),
             Some("2026-08-22 10:00:00".to_owned()),
             Some("{}".to_owned()),
         ]
@@ -181,6 +183,7 @@ async fn row_limit_truncates_large_results(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn statement_timeout_cancels_long_queries(pool: PgPool) {
+    admin_sql::setup_role(&pool).await.unwrap();
     let error = admin_sql::execute(&pool, "SELECT pg_sleep(5)", Duration::from_millis(200))
         .await
         .unwrap_err();
@@ -236,8 +239,8 @@ async fn writes_and_non_read_only_statements_are_rejected(pool: PgPool) {
         "{error:?}"
     );
 
-    // SELECT 系の見た目でも書き込みを含めば Postgres が拒否する
-    // (データ変更を含む WITH はカーソルにできない。それ以外は READ ONLY トランザクションが止める)
+    // SELECT 系の見た目でも書き込みを含めば Postgres が拒否する (データ変更を含む WITH はカーソルにできない。
+    // シーケンス操作は専用ロールに権限が無い。それ以外は READ ONLY トランザクションが止める)
     for sql in [
         "WITH d AS (DELETE FROM events RETURNING id) SELECT * FROM d",
         "WITH i AS (INSERT INTO guild_config (guild_id, restricted) VALUES ('1', true) RETURNING guild_id) SELECT * FROM i",
@@ -248,7 +251,9 @@ async fn writes_and_non_read_only_statements_are_rejected(pool: PgPool) {
         let error = run(&pool, sql).await.unwrap_err();
         assert!(
             matches!(&error, SqlError::Query(message)
-                if message.contains("read-only") || message.contains("data-modifying")),
+                if message.contains("read-only")
+                    || message.contains("data-modifying")
+                    || message.contains("permission denied")),
             "{sql:?}: {error:?}"
         );
     }
@@ -310,9 +315,44 @@ async fn protected_tables_are_rejected_before_execution(pool: PgPool) {
         assert!(!message.contains(SECRET), "{sql:?} leaked the secret");
     }
 
-    // 保護テーブルを読まない文は通る (同名の文字列や別名は関係ない)
+    // 実行計画に表が現れない経路 (関数の内部で実行される SQL) は、専用ロールに権限が無いので Postgres が拒否する。
+    // 値はエラーメッセージにも出ない
+    for sql in [
+        "SELECT table_to_xml('account', true, false, '')",
+        "SELECT table_to_xml('public.session', true, false, '')",
+        "SELECT query_to_xml('SELECT token FROM session', true, false, '')",
+        "SELECT query_to_xml('SELECT value FROM verification', true, false, '')",
+    ] {
+        let error = run(&pool, sql).await.unwrap_err();
+        assert!(
+            matches!(&error, SqlError::Query(m) if m.contains("permission denied")),
+            "{sql:?}: {error:?}"
+        );
+        assert!(
+            !error.to_string().contains(SECRET),
+            "{sql:?} leaked the secret"
+        );
+    }
+
+    // superuser 専用の機能も使えない (api の接続ユーザーが superuser でも、コンソールのロールは違う)
+    for sql in [
+        "SELECT pg_read_file('/etc/hosts')",
+        "SELECT pg_ls_dir('.')",
+        "SELECT * FROM pg_statistic",
+    ] {
+        let error = run(&pool, sql).await.unwrap_err();
+        assert!(
+            matches!(&error, SqlError::Query(m) | SqlError::Rejected(m)
+                if m.contains("permission denied") || m.contains("秘密情報")),
+            "{sql:?}: {error:?}"
+        );
+    }
+
+    // 保護テーブルを読まない文は通る (同名の文字列や別名は関係ない)。
+    // schema_to_xml は権限のある表だけを出すので、保護テーブルは含まれない
     for sql in [
         "SELECT 'session' AS session, 'account' AS account",
+        "SELECT schema_to_xml('public', true, false, '')",
         r#"SELECT id, name, email FROM "user""#,
         "SELECT * FROM events",
         "SELECT count(*) FROM admin_audit_logs",
@@ -325,6 +365,106 @@ async fn protected_tables_are_rejected_before_execution(pool: PgPool) {
         let dumped = format!("{:?}", result.rows);
         assert!(!dumped.contains(SECRET), "{sql:?} leaked the secret");
     }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn session_advisory_locks_do_not_leak_into_the_pool(pool: PgPool) {
+    run(
+        &pool,
+        "SELECT pg_advisory_lock(8612004), pg_try_advisory_lock(424242)",
+    )
+    .await
+    .unwrap();
+    let held: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid IN (8612004, 424242)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(held, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn cells_and_total_size_are_bounded(pool: PgPool) {
+    // 1 セルはサーバー側で切り詰められ、印が付く
+    let result = run(&pool, "SELECT repeat('x', 1000000) AS big, 'ok' AS small")
+        .await
+        .unwrap();
+    let big = result.rows[0][0].as_deref().unwrap();
+    assert_eq!(
+        big.chars().count(),
+        MAX_CELL_CHARS + CELL_TRUNCATED_MARK.chars().count()
+    );
+    assert!(big.ends_with(CELL_TRUNCATED_MARK));
+    assert_eq!(result.rows[0][1].as_deref(), Some("ok"));
+    // 列名と型名は元の列のもの
+    assert_eq!(result.columns[0].name, "big");
+    assert_eq!(result.columns[0].type_name, "TEXT");
+
+    // 合計バイト数の上限で行数上限より前に打ち切られる (10 列 × 4000 文字 = 40KB/行)
+    let cols: Vec<String> = (0..10)
+        .map(|i| format!("repeat('y', 4000) AS c{i}"))
+        .collect();
+    let sql = format!("SELECT {} FROM generate_series(1, 1000)", cols.join(", "));
+    let result = run(&pool, &sql).await.unwrap();
+    assert!(result.truncated);
+    assert!(result.row_count < MAX_ROWS, "{}", result.row_count);
+    assert!(result.row_count > 50, "{}", result.row_count);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn wrapping_keeps_odd_but_valid_statements_working(pool: PgPool) {
+    // 同名の列、末尾の `;`、末尾行のコメント、列の無い SELECT、ORDER BY
+    let dup = run(&pool, "SELECT 1 AS a, 2 AS a;").await.unwrap();
+    assert_eq!(
+        dup.columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "a"]
+    );
+    assert_eq!(
+        dup.rows[0],
+        vec![Some("1".to_owned()), Some("2".to_owned())]
+    );
+
+    let commented = run(
+        &pool,
+        "SELECT 1 AS n -- trailing comment
+;
+-- last line comment",
+    )
+    .await
+    .unwrap();
+    assert_eq!(commented.rows[0][0].as_deref(), Some("1"));
+
+    let no_columns = run(&pool, "SELECT FROM guilds").await.unwrap();
+    assert!(no_columns.columns.is_empty());
+
+    let ordered = run(
+        &pool,
+        "SELECT n FROM generate_series(1, 3) AS n ORDER BY n DESC",
+    )
+    .await
+    .unwrap();
+    let values: Vec<&str> = ordered
+        .rows
+        .iter()
+        .map(|r| r[0].as_deref().unwrap())
+        .collect();
+    assert_eq!(values, ["3", "2", "1"]);
+
+    // bytea / json / 配列 / timestamptz も psql と同じテキスト表現
+    let typed = run(
+        &pool,
+        r#"SELECT '\xdead'::bytea, '{"a": 1}'::jsonb, ARRAY[1, 2], TIMESTAMPTZ '2026-08-23 10:00:00+09'"#,
+    )
+    .await
+    .unwrap();
+    assert_eq!(typed.rows[0][0].as_deref(), Some("\\xdead"));
+    assert_eq!(typed.rows[0][1].as_deref(), Some(r#"{"a": 1}"#));
+    assert_eq!(typed.rows[0][2].as_deref(), Some("{1,2}"));
+    assert_eq!(typed.columns[3].type_name, "TIMESTAMPTZ");
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -360,12 +500,12 @@ async fn delete_guild_events_removes_only_that_guild(pool: PgPool) {
         .unwrap();
 
     let mut tx = pool.begin().await.unwrap();
-    let deleted = admin_ops::delete_guild_events(&mut *tx, GUILD)
+    let (snapshot, deleted) = admin_ops::delete_guild_events(&mut tx, GUILD)
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    let mut names: Vec<&str> = deleted.iter().map(|e| e.name.as_str()).collect();
-    names.sort();
+    assert_eq!(deleted, 2);
+    let names: Vec<&str> = snapshot.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, ["a", "b"]);
 
     let remaining = run(&pool, "SELECT guild_id, name FROM events")
@@ -377,12 +517,38 @@ async fn delete_guild_events_removes_only_that_guild(pool: PgPool) {
     );
 
     // 予定が無いギルドは 0 件
-    assert!(
-        admin_ops::delete_guild_events(&pool, GUILD)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    let mut tx = pool.begin().await.unwrap();
+    let (snapshot, deleted) = admin_ops::delete_guild_events(&mut tx, GUILD)
+        .await
+        .unwrap();
+    assert!(snapshot.is_empty());
+    assert_eq!(deleted, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn delete_guild_events_snapshot_is_bounded(pool: PgPool) {
+    let n = admin_ops::DELETE_SNAPSHOT_LIMIT + 5;
+    sqlx::query(
+        "INSERT INTO events (guild_id, name, notifications, color, is_all_day, start_at, end_at, created_at)
+         SELECT $1, 'e' || g, '{}', '#000000', false, now(), now(), now() FROM generate_series(1, $2) g",
+    )
+    .bind(GUILD)
+    .bind(n as i32)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let (snapshot, deleted) = admin_ops::delete_guild_events(&mut tx, GUILD)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(deleted, n as u64);
+    assert_eq!(snapshot.len(), admin_ops::DELETE_SNAPSHOT_LIMIT as usize);
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(remaining, 0);
 }
 
 #[sqlx::test(migrations = "./migrations")]

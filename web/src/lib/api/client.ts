@@ -91,6 +91,8 @@ export function describeApiError(error: unknown): string {
       return `入力内容が正しくありません (${error.message})`;
     case "rate_limited":
       return "Discord API の制限中です。しばらく待ってから再度お試しください";
+    case "unavailable":
+      return `この機能は現在使えません (${error.message})`;
     case "discord_error":
       return "Discord との通信に失敗しました。時間をおいて再度お試しください";
     default:

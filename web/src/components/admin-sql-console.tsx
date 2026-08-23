@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, describeApiError } from "@/lib/api";
 import {
+  ADMIN_SQL_MAX_CELL_CHARS,
   ADMIN_SQL_MAX_CHARS,
   ADMIN_SQL_MAX_ROWS,
   ADMIN_SQL_TIMEOUT_SECONDS,
@@ -17,9 +18,15 @@ import { useRunSql, useSqlHistory } from "@/lib/query/admin-sql";
 const PLACEHOLDER = `SELECT guild_id, name FROM guilds ORDER BY name LIMIT 20
 -- Ctrl/⌘ + Enter で実行`;
 
-/** SQL コンソールのエラー表示。api が 400 で返す Postgres のメッセージはそのまま見せる */
+/**
+ * SQL コンソールのエラー表示。api が 400 で返す Postgres のメッセージと、
+ * 503 (SQL コンソール用の DB ロールが無い) の案内はそのまま見せる
+ */
 function describeSqlError(error: unknown): string {
-  if (error instanceof ApiError && error.kind === "bad_request") {
+  if (
+    error instanceof ApiError &&
+    (error.kind === "bad_request" || error.kind === "unavailable")
+  ) {
     return error.message;
   }
   return describeApiError(error);
@@ -76,10 +83,12 @@ export function AdminSqlConsole() {
           SQL コンソール (読み取り専用)
         </h2>
         <p className="mt-1 text-xs text-neutral-400">
-          SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文だけ。READ ONLY
-          トランザクションで実行し、{ADMIN_SQL_TIMEOUT_SECONDS}{" "}
-          秒で打ち切り、先頭 {ADMIN_SQL_MAX_ROWS} 行まで返す。Better Auth の
-          account / session / verification (トークン類)
+          SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1
+          文だけ。読み取り専用の DB ロールと READ ONLY
+          トランザクションで実行し、
+          {ADMIN_SQL_TIMEOUT_SECONDS} 秒で打ち切り、先頭 {ADMIN_SQL_MAX_ROWS} 行
+          (1 セル {ADMIN_SQL_MAX_CELL_CHARS.toLocaleString()} 文字)
+          まで返す。Better Auth の account / session / verification (トークン類)
           は読めない。実行はすべて監査ログに残る
         </p>
       </div>
@@ -119,8 +128,8 @@ export function AdminSqlConsole() {
             {result.row_count.toLocaleString()} 行 ({result.duration_ms} ms)
             {result.truncated && (
               <span className="ml-2 text-amber-300">
-                先頭 {ADMIN_SQL_MAX_ROWS} 行で打ち切りました (続きは LIMIT /
-                OFFSET で)
+                行数 ({ADMIN_SQL_MAX_ROWS}) かサイズの上限で打ち切りました
+                (続きは LIMIT / OFFSET で)
               </span>
             )}
           </span>

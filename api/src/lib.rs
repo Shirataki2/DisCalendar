@@ -42,6 +42,11 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .context("failed to connect to database")?;
 
     run_startup_migrations(&pool).await?;
+    // SQL コンソール (#36) 用の非 superuser ロールを用意する。作れない環境 (CREATEROLE が無い) では
+    // 警告だけ出し、コンソールは実行時にロールを検証して 503 を返す (README の手順で手動作成する)
+    if let Err(error) = models::admin_sql::setup_role(&pool).await {
+        tracing::warn!(error = ?error, "failed to set up the SQL console role; POST /admin/sql will be unavailable");
+    }
 
     let state = web::Data::new(AppState {
         pool,

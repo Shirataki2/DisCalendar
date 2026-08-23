@@ -106,7 +106,7 @@ export interface SqlResult {
   columns: SqlColumn[];
   rows: (string | null)[][];
   row_count: number;
-  /** ADMIN_SQL_MAX_ROWS を超えたので打ち切った */
+  /** ADMIN_SQL_MAX_ROWS 行か合計サイズ (4 MiB) を超えたので打ち切った */
   truncated: boolean;
   duration_ms: number;
 }
@@ -117,6 +117,8 @@ export const ADMIN_SQL_MAX_ROWS = 500;
 export const ADMIN_SQL_MAX_CHARS = 10_000;
 /** 1 文の実行時間の上限 (秒。api の `admin_sql::STATEMENT_TIMEOUT`) */
 export const ADMIN_SQL_TIMEOUT_SECONDS = 10;
+/** 1 セルの文字数の上限 (api の `admin_sql::MAX_CELL_CHARS`。超えた分は切り詰めて末尾に印が付く) */
+export const ADMIN_SQL_MAX_CELL_CHARS = 4_000;
 
 /** GET /admin/sql/history の 1 件 (監査ログの sql.select から組み立てたもの) */
 export interface SqlHistoryEntry {
@@ -154,6 +156,7 @@ export type ApiErrorKind =
   | "not_found"
   | "bad_request"
   | "rate_limited"
+  | "unavailable"
   | "discord_error"
   | "database_error"
   | "internal_error";

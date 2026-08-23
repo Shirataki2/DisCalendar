@@ -45,13 +45,13 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | GET | `/admin/guilds/{guild_id}/events?start=&end=` | 任意のギルドの予定 (条件は `/events/{guild_id}` と同じ) |
 | POST / PUT / DELETE | `/admin/guilds/{guild_id}/events[/{event_id}]` | 予定の作成・更新・削除。`admin_audit_logs` に変更前後を記録 (変更前は `FOR UPDATE` で読む)。どのテーブルにも無いギルドへの作成は 404 |
 | PUT | `/admin/guilds/{guild_id}/config` | `restricted` の切替 (監査ログに記録)。未知のギルドは 404 |
-| POST | `/admin/sql` | 読み取り専用 SQL の実行 (`{ "sql": "..." }`)。`BEGIN READ ONLY` + `statement_timeout` 10 秒 + 先頭 500 行 (`truncated` で通知)。SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文のみ。`account` / `session` / `verification` / `pg_statistic` (`pg_stats`) を読む文は `EXPLAIN` の計画を見て実行前に 400。Postgres のエラーも 400 でメッセージをそのまま返す。成功・失敗とも `admin_audit_logs` (`sql.select`) に残す |
+| POST | `/admin/sql` | 読み取り専用 SQL の実行 (`{ "sql": "..." }`)。専用ロール `discalendar_sql_console` (`SET LOCAL ROLE`、保護テーブルの権限なし・非 superuser) + `BEGIN READ ONLY` + `statement_timeout` 10 秒 + 先頭 500 行 / 4 MiB / 1 セル 4,000 文字 (`truncated` で通知)。SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文のみ。`account` / `session` / `verification` / `pg_statistic` (`pg_stats`) を読む文は `EXPLAIN` の計画を見て実行前に 400。Postgres のエラーも 400 でメッセージをそのまま返す。ロールが使えなければ 503。成功・失敗とも `admin_audit_logs` (`sql.select`) に残す |
 | GET | `/admin/sql/history` | SQL コンソールの実行履歴 (全管理者分、新しい順 20 件。監査ログから組み立てる) |
-| POST | `/admin/ops/delete-guild-events` | 指定ギルド (`{ "guild_id": "..." }`) の予定をすべて削除。削除した予定は監査ログ (`ops.delete_guild_events`) の `before` に残す。未知のギルドは 404 |
+| POST | `/admin/ops/delete-guild-events` | 指定ギルド (`{ "guild_id": "..." }`) の予定をすべて削除。削除した予定は監査ログ (`ops.delete_guild_events`) の `before.events` に先頭 200 件まで残す (`detail.deleted` に件数)。未知のギルドは 404 |
 | POST | `/admin/ops/purge-expired-sessions` | Better Auth の期限切れ `session` を削除 (`ops.purge_expired_sessions`) |
 
 エラーは `{ "error": "<kind>", "message": "<説明>" }` (kind: `unauthorized` / `forbidden` / `not_found` /
-`bad_request` / `rate_limited` / `discord_error` / `database_error` / `internal_error`)。
+`bad_request` / `rate_limited` / `unavailable` / `discord_error` / `database_error` / `internal_error`)。
 
 日時は旧実装と同じく**タイムゾーンなしの JST** (`2026-08-22T10:00:00`)。
 
@@ -99,7 +99,7 @@ docker run --rm -p 8080:8080 --env-file api/.env discalendar-api
 ```
 src/
   main.rs           エントリポイント (dotenv, tracing, Config)
-  lib.rs            run(): DB 接続・マイグレーション・HttpServer 構築
+  lib.rs            run(): DB 接続・マイグレーション・SQL コンソール用ロールの用意・HttpServer 構築
   config.rs         環境変数
   error.rs          ApiError → JSON エラーレスポンス
   state.rs          AppState (pool / Discord client / auth 設定 / 管理者設定)
