@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { describeApiError } from "@/lib/api";
+import { ADMIN_DELETE_SNAPSHOT_LIMIT } from "@/lib/api/types";
 import {
   useDeleteGuildEvents,
   usePurgeExpiredSessions,
@@ -127,7 +128,10 @@ export function DeleteGuildEventsButton({
         <>
           {shown} の予定
           {eventCount !== undefined && ` ${eventCount.toLocaleString()} 件`}
-          をすべて削除します。削除した予定は監査ログに残りますが、この操作は取り消せません。
+          をすべて削除します。監査ログに残るのは先頭{" "}
+          {ADMIN_DELETE_SNAPSHOT_LIMIT}{" "}
+          件の内容と件数だけで、それ以降の内容は保存されません。
+          この操作は取り消せません。
         </>
       }
       disabled={!/^\d{1,20}$/.test(guildId)}
@@ -159,8 +163,9 @@ export function AdminOps() {
       <div className="rounded-lg border border-white/10 p-4">
         <h3 className="text-sm font-medium">指定ギルドの全予定を削除</h3>
         <p className="mt-1 mb-3 text-xs text-neutral-400">
-          退出済みギルドのデータ整理や、荒らされた予定の一括削除に。削除した予定は監査ログの
-          before に残る
+          退出済みギルドのデータ整理や、荒らされた予定の一括削除に。削除した予定は先頭{" "}
+          {ADMIN_DELETE_SNAPSHOT_LIMIT} 件まで監査ログの before に残る
+          (それ以降は件数のみ)
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <label htmlFor={guildInputId} className="sr-only">

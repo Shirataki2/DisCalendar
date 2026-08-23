@@ -14,7 +14,10 @@ use crate::{
     error::{ApiError, ErrorBody},
     models::{
         admin_audit::{self, AuditEntry, AuditLog},
-        admin_sql::{self, MAX_SQL_CHARS, STATEMENT_TIMEOUT, SqlError, SqlResult, redact_sql},
+        admin_sql::{
+            self, STATEMENT_TIMEOUT, SqlError, SqlResult, sanitize_error_for_audit,
+            sanitize_sql_for_audit,
+        },
     },
     state::AppState,
 };
@@ -53,9 +56,9 @@ pub async fn run_sql(
 ) -> Result<web::Json<SqlResult>, ApiError> {
     let sql = body.sql.trim();
     let outcome = admin_sql::execute(&state.sql_console_pool, sql, STATEMENT_TIMEOUT).await;
-    // 監査ログに残す SQL は文字列リテラルとコメントを伏せ (貼り付けた秘密値を残さない)、
-    // 上限までに切る (長すぎて拒否した場合のため)
-    let logged_sql: String = redact_sql(sql).chars().take(MAX_SQL_CHARS).collect();
+    // 監査ログに残す SQL は文字列リテラルとコメントを伏せ (貼り付けた秘密値を残さない)、NUL を除き、
+    // 上限までに切る (長すぎて拒否した場合のため)。エラーメッセージも Postgres が埋め込む値 ("...") を伏せる
+    let logged_sql = sanitize_sql_for_audit(sql);
     let (detail, response) = match outcome {
         Ok(result) => (
             serde_json::json!({
@@ -67,18 +70,26 @@ pub async fn run_sql(
             Ok(result),
         ),
         Err(SqlError::Rejected(message)) => (
-            serde_json::json!({ "sql": logged_sql, "error": message, "rejected": true }),
+            serde_json::json!({
+                "sql": logged_sql,
+                "error": sanitize_error_for_audit(&message),
+                "rejected": true,
+            }),
             Err(ApiError::BadRequest(message)),
         ),
         Err(SqlError::Query(message)) => (
-            serde_json::json!({ "sql": logged_sql, "error": message }),
+            serde_json::json!({ "sql": logged_sql, "error": sanitize_error_for_audit(&message) }),
             Err(ApiError::BadRequest(message)),
         ),
         // DB ロールの不備 (設定ミス)。実行していないが、試みたことは残す
         Err(SqlError::Unavailable(message)) => {
             tracing::error!(%message, "SQL console is unavailable");
             (
-                serde_json::json!({ "sql": logged_sql, "error": message, "rejected": true }),
+                serde_json::json!({
+                    "sql": logged_sql,
+                    "error": sanitize_error_for_audit(&message),
+                    "rejected": true,
+                }),
                 Err(ApiError::Unavailable(message)),
             )
         }
@@ -87,7 +98,10 @@ pub async fn run_sql(
         Err(SqlError::Other(error)) => {
             tracing::error!(error = %error, "admin SQL failed with a connection/internal error");
             (
-                serde_json::json!({ "sql": logged_sql, "error": format!("internal error: {error}") }),
+                serde_json::json!({
+                    "sql": logged_sql,
+                    "error": sanitize_error_for_audit(&format!("internal error: {error}")),
+                }),
                 Err(ApiError::Database(error)),
             )
         }
@@ -119,7 +133,7 @@ pub struct SqlHistoryEntry {
     pub row_count: Option<u64>,
     pub truncated: Option<bool>,
     pub duration_ms: Option<u64>,
-    /// 失敗・拒否時のメッセージ
+    /// 失敗・拒否時のメッセージ (Postgres が埋め込む値は `"…"` に伏せてある)
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
 }

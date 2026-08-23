@@ -331,14 +331,24 @@ pub async fn execute(
     let statement = classify(sql)?;
     let sql = strip_trailing_trivia(sql);
 
-    let mut conn = console.acquire().await.map_err(|error| {
-        // ロールが無い / パスワードが違う等。設定の問題なので利用者に案内する
-        SqlError::Unavailable(format!(
-            "SQL コンソール用の DB 接続 (ロール {ROLE}) を開けません ({error})。README の手順でロールを用意してください"
-        ))
-    })?;
+    // 締切は接続待ちも含む (プールが埋まっていても案内している上限を超えて待たない)
     let started = Instant::now();
     let deadline = started + timeout;
+    let mut conn = match tokio::time::timeout(timeout, console.acquire()).await {
+        Ok(Ok(conn)) => conn,
+        Ok(Err(error)) => {
+            // ロールが無い / パスワードが違う等。設定の問題なので利用者に案内する
+            return Err(SqlError::Unavailable(format!(
+                "SQL コンソール用の DB 接続 (ロール {ROLE}) を開けません ({error})。README の手順でロールを用意してください"
+            )));
+        }
+        Err(_elapsed) => {
+            return Err(SqlError::Query(format!(
+                "SQL コンソールの接続が空くのを待っている間に上限 {} 秒を超えました (他の実行が終わるのを待ってください)",
+                STATEMENT_TIMEOUT.as_secs()
+            )));
+        }
+    };
     let result = {
         let mut tx = conn.begin_with("BEGIN READ ONLY").await?;
         let result = run_in_transaction(&mut tx, sql, statement, deadline).await;
@@ -660,6 +670,46 @@ pub fn redact_sql(sql: &str) -> String {
     out
 }
 
+/// 監査ログに残す文字列を整える: [`redact_sql`] で文字列リテラルとコメントを伏せ、jsonb に入らない NUL (U+0000) を
+/// 置き換え、`MAX_SQL_CHARS` 文字までに切る (長すぎて拒否した場合のため)。どんな入力でも監査の INSERT が失敗しないように
+pub fn sanitize_sql_for_audit(sql: &str) -> String {
+    redact_sql(sql)
+        .replace('\0', "\u{FFFD}")
+        .chars()
+        .take(MAX_SQL_CHARS)
+        .collect()
+}
+
+/// 監査ログに残すエラーメッセージを整える。Postgres は `invalid input syntax for type uuid: "<値>"` のように
+/// 入力の値を二重引用符で埋め込むので、引用符の中身を伏せる (貼り付けた秘密値が履歴に残らないように)。NUL も置き換える
+pub fn sanitize_error_for_audit(message: &str) -> String {
+    let mut out = String::with_capacity(message.len());
+    let mut rest = message.replace('\0', "\u{FFFD}");
+    loop {
+        match rest.find('"') {
+            None => {
+                out.push_str(&rest);
+                return out;
+            }
+            Some(start) => {
+                out.push_str(&rest[..start]);
+                let after = &rest[start + 1..];
+                match after.find('"') {
+                    Some(end) => {
+                        out.push_str("\"…\"");
+                        rest = after[end + 1..].to_owned();
+                    }
+                    None => {
+                        // 閉じていない引用符: 残りを全部伏せる
+                        out.push_str("\"…");
+                        return out;
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// `quote` で閉じられるまで読み飛ばし、閉じ引用符の後ろを返す (閉じ引用符も含めて消費する)。
 /// `quote` の 2 連続はエスケープ。`backslash_escapes` なら `\x` も読み飛ばす。閉じていなければ空文字列
 fn skip_quoted(s: &str, quote: char, backslash_escapes: bool) -> &str {
@@ -913,6 +963,25 @@ mod tests {
         assert_eq!(redact_sql("SELECT 'open"), "SELECT '…'");
         assert_eq!(redact_sql("SELECT 1 /* open"), "SELECT 1  ");
         assert_eq!(redact_sql("SELECT \"a\"\"b\""), "SELECT \"a\"\"b\"");
+    }
+
+    #[test]
+    fn audit_strings_are_safe_to_store() {
+        assert_eq!(sanitize_sql_for_audit("SELECT 'a'\0"), "SELECT '…'\u{FFFD}");
+        assert_eq!(
+            sanitize_error_for_audit(
+                r#"invalid input syntax for type uuid: "cookie-value" (SQLSTATE 22P02)"#
+            ),
+            r#"invalid input syntax for type uuid: "…" (SQLSTATE 22P02)"#
+        );
+        assert_eq!(
+            sanitize_error_for_audit(r#"relation "nope" does not exist, near "x"#),
+            r#"relation "…" does not exist, near "…"#
+        );
+        assert_eq!(
+            sanitize_error_for_audit("no quotes\0here"),
+            "no quotes\u{FFFD}here"
+        );
     }
 
     #[test]

@@ -135,6 +135,9 @@ export interface SqlHistoryEntry {
   created_at: string;
 }
 
+/** 全予定削除で監査ログに残す予定のスナップショット上限 (api の `admin_ops::DELETE_SNAPSHOT_LIMIT`)。超えた分は件数だけ残る */
+export const ADMIN_DELETE_SNAPSHOT_LIMIT = 200;
+
 /** POST /admin/ops/* の結果 */
 export interface OpsResult {
   deleted: number;
