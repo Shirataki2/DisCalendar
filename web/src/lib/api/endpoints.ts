@@ -1,5 +1,6 @@
 import type { ApiFetcher } from "./client";
 import type {
+  AdminMe,
   ApiEvent,
   ApiEventInput,
   Guild,
@@ -53,6 +54,10 @@ export function createApi(request: ApiFetcher) {
         }),
       remove: (guildId: string, eventId: number) =>
         request<void>(`/events/${guildId}/${eventId}`, { method: "DELETE" }),
+    },
+    /** 管理コンソール (api/src/routes/admin.rs)。管理者以外は 403 */
+    admin: {
+      me: () => request<AdminMe>("/admin/me"),
     },
   };
 }

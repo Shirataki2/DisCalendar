@@ -39,6 +39,7 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | POST | `/events/{guild_id}` | 予定の作成 (201) |
 | PUT | `/events/{guild_id}/{event_id}` | 予定の更新 |
 | DELETE | `/events/{guild_id}/{event_id}` | 予定の削除 (204) |
+| GET | `/admin/me` | 管理者の確認 (`ADMIN_DISCORD_USER_IDS` 以外は 403)。`/admin/*` は管理コンソール用で、ギルドのメンバーシップを見ない代わりにホワイトリストで制限する (#33) |
 
 エラーは `{ "error": "<kind>", "message": "<説明>" }` (kind: `unauthorized` / `forbidden` / `not_found` /
 `bad_request` / `rate_limited` / `discord_error` / `database_error` / `internal_error`)。
@@ -92,10 +93,11 @@ src/
   lib.rs            run(): DB 接続・マイグレーション・HttpServer 構築
   config.rs         環境変数
   error.rs          ApiError → JSON エラーレスポンス
-  state.rs          AppState (pool / Discord client / auth 設定)
+  state.rs          AppState (pool / Discord client / auth 設定 / 管理者設定)
   auth.rs           AuthUser extractor (Better Auth の署名付き cookie を検証)
+  admin.rs          AdminUser extractor (AuthUser + ADMIN_DISCORD_USER_IDS のホワイトリスト)
   discord/          Bot トークンでの Discord API 呼び出し + 権限計算 + キャッシュ
-  models/           sqlx クエリ (events / guilds / guild_config) と通知形式の変換
+  models/           sqlx クエリ (events / guilds / guild_config / admin_audit_logs) と通知形式の変換
   routes/           ハンドラ (utoipa の path 定義付き)、GuildMember extractor
   openapi.rs        OpenAPI ドキュメント定義
 migrations/         旧実装から引き継いだスキーマ (変更禁止、追加は新ファイルで)

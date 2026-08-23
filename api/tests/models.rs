@@ -176,3 +176,56 @@ async fn joined_guilds_filters_by_bot_registry(pool: PgPool) {
             .is_none()
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn admin_audit_log_is_recorded(pool: PgPool) {
+    use discalendar_api::{
+        auth::AuthUser,
+        models::admin_audit::{self, AuditEntry},
+    };
+    use serde_json::json;
+
+    let actor = AuthUser {
+        id: "user_1".to_owned(),
+        name: "admin".to_owned(),
+        discord_user_id: "123456789012345678".to_owned(),
+    };
+    let entry = AuditEntry {
+        action: "event.update",
+        target_type: Some("event"),
+        target_id: Some("42"),
+        before: Some(json!({ "name": "old" })),
+        after: Some(json!({ "name": "new" })),
+        detail: None,
+    };
+    let log = admin_audit::record(&pool, &actor, entry).await.unwrap();
+    assert_eq!(log.actor_user_id, "user_1");
+    assert_eq!(log.actor_discord_user_id, "123456789012345678");
+    assert_eq!(log.action, "event.update");
+    assert_eq!(log.target_type.as_deref(), Some("event"));
+    assert_eq!(log.target_id.as_deref(), Some("42"));
+    assert_eq!(log.before, Some(json!({ "name": "old" })));
+    assert_eq!(log.after, Some(json!({ "name": "new" })));
+    assert!(log.detail.is_none());
+
+    // 対象なし・スナップショットなし (SQL 実行など) でも書ける
+    let log = admin_audit::record(
+        &pool,
+        &actor,
+        AuditEntry {
+            action: "sql.select",
+            detail: Some(json!({ "sql": "SELECT 1", "rows": 1 })),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(log.target_type.is_none());
+    assert_eq!(log.detail, Some(json!({ "sql": "SELECT 1", "rows": 1 })));
+
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM admin_audit_logs")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+}

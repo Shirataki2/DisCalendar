@@ -97,6 +97,15 @@ Client Secret を `.env.local` の `DISCORD_CLIENT_SECRET` に設定する。
 psql -d discalendar_dev -c "INSERT INTO guilds (guild_id, name, avatar_url, locale) VALUES ('<guild_id>', '<name>', NULL, 'ja') ON CONFLICT DO NOTHING"
 ```
 
+### 管理コンソール (/admin)
+
+運用・障害対応用の画面 (#33)。api の `ADMIN_DISCORD_USER_IDS` (カンマ区切りの Discord ユーザー ID) に含まれるユーザーだけが
+web の `/admin` を開け、api の `/admin/*` を呼べる。それ以外は api が 403 を返し、web は 404 を表示する
+(判定は api の `AdminUser` extractor に一本化していて、web は `GET /admin/me` の結果で表示を切り替えるだけ)。
+管理コンソールからの書き込み操作は `admin_audit_logs` テーブルに記録する (`api/src/models/admin_audit.rs`)。
+ローカルで試すときは `api/.env` に自分の Discord ユーザー ID を入れて api を再起動し、`/dashboard` のヘッダーに出る
+「管理コンソール」から開く。compose / staging では ルートの `.env` (`ADMIN_DISCORD_USER_IDS`) で渡す。
+
 ### bot
 
 api と同じ DB と Bot トークンを使う。起動すると Discord に接続し、参加中のサーバーを `guilds` テーブルに反映する
@@ -176,5 +185,6 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
 | `/login` | Discord ログイン |
 | `/dashboard` | サーバー選択（Bot 参加済み / 招待可能なサーバー） |
 | `/dashboard/[id]` | ギルドごとのカレンダー |
+| `/admin` | 管理コンソール（`ADMIN_DISCORD_USER_IDS` のユーザーのみ。それ以外は 404） |
 | `/api/auth/*` | Better Auth（OAuth コールバック含む） |
 | `/local/api/*` | Rust API へのプロキシ（rewrites） |

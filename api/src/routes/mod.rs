@@ -1,5 +1,6 @@
 //! ルーティング。`utoipa_actix_web` 経由で登録することで OpenAPI にも自動で載る。
 
+mod admin;
 mod events;
 mod guilds;
 mod health;
@@ -26,5 +27,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(events::create)
                 .service(events::update)
                 .service(events::delete),
-        );
+        )
+        // 管理コンソール。各ハンドラが AdminUser を要求する (#34)
+        .service(scope("/admin").service(admin::me));
 }

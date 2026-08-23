@@ -17,6 +17,8 @@ sqlx = { version = "0.9", default-features = false, features = [
   "runtime-tokio",
   "tls-rustls-aws-lc-rs",
   "chrono",
+  # admin_audit_logs の JSONB カラム (serde_json::Value) 用
+  "json",
   "macros",
   "migrate",
 ] }
