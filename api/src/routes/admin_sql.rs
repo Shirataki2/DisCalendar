@@ -14,7 +14,7 @@ use crate::{
     error::{ApiError, ErrorBody},
     models::{
         admin_audit::{self, AuditEntry, AuditLog},
-        admin_sql::{self, MAX_SQL_CHARS, STATEMENT_TIMEOUT, SqlError, SqlResult},
+        admin_sql::{self, MAX_SQL_CHARS, STATEMENT_TIMEOUT, SqlError, SqlResult, redact_sql},
     },
     state::AppState,
 };
@@ -53,8 +53,9 @@ pub async fn run_sql(
 ) -> Result<web::Json<SqlResult>, ApiError> {
     let sql = body.sql.trim();
     let outcome = admin_sql::execute(&state.sql_console_pool, sql, STATEMENT_TIMEOUT).await;
-    // 監査ログに残す SQL は上限までに切る (長すぎて拒否した場合のため)
-    let logged_sql: String = sql.chars().take(MAX_SQL_CHARS).collect();
+    // 監査ログに残す SQL は文字列リテラルとコメントを伏せ (貼り付けた秘密値を残さない)、
+    // 上限までに切る (長すぎて拒否した場合のため)
+    let logged_sql: String = redact_sql(sql).chars().take(MAX_SQL_CHARS).collect();
     let (detail, response) = match outcome {
         Ok(result) => (
             serde_json::json!({
@@ -81,8 +82,15 @@ pub async fn run_sql(
                 Err(ApiError::Unavailable(message)),
             )
         }
-        // 接続エラーなど。監査ログも書けない可能性が高いのでそのまま 500
-        Err(SqlError::Other(error)) => return Err(error.into()),
+        // 接続エラーなど (自分のバックエンドを pg_terminate_backend した場合も含む)。
+        // 監査ログは別のプール (api のロール) に書けるので、記録してから 500
+        Err(SqlError::Other(error)) => {
+            tracing::error!(error = %error, "admin SQL failed with a connection/internal error");
+            (
+                serde_json::json!({ "sql": logged_sql, "error": format!("internal error: {error}") }),
+                Err(ApiError::Database(error)),
+            )
+        }
     };
     admin_audit::record(
         &state.pool,
@@ -98,12 +106,14 @@ pub async fn run_sql(
     response.map(web::Json)
 }
 
-/// SQL コンソールの実行履歴 1 件 (監査ログの `sql.select` から組み立てる)
+/// SQL コンソールの実行履歴 1 件 (監査ログの `sql.select` から組み立てる)。
+/// `sql` は文字列リテラルとコメントを伏せたもの (`redact_sql`)
 #[derive(Serialize, ToSchema)]
 pub struct SqlHistoryEntry {
     pub id: i64,
     #[schema(example = "123456789012345678")]
     pub actor_discord_user_id: String,
+    /// 実行した SQL (文字列リテラルは `'…'`、コメントは除いてある)
     pub sql: String,
     /// 成功時の行数
     pub row_count: Option<u64>,

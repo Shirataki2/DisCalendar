@@ -223,7 +223,12 @@ function History({
 }) {
   return (
     <div>
-      <h3 className="mb-2 text-sm font-semibold">直近の実行履歴</h3>
+      <h3 className="mb-2 text-sm font-semibold">
+        直近の実行履歴
+        <span className="ml-2 font-normal text-neutral-500">
+          (監査ログから。文字列リテラルは '…'、コメントは除いて保存される)
+        </span>
+      </h3>
       {isError ? (
         <p className="text-xs text-red-300">履歴を取得できませんでした</p>
       ) : !entries ? (

@@ -124,6 +124,7 @@ export const ADMIN_SQL_MAX_CELL_CHARS = 4_000;
 export interface SqlHistoryEntry {
   id: number;
   actor_discord_user_id: string;
+  /** 実行した SQL。文字列リテラルは '…' に、コメントは除いて保存されている (貼り付けた秘密値を残さないため) */
   sql: string;
   row_count: number | null;
   truncated: boolean | null;

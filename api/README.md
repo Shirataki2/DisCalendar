@@ -45,7 +45,7 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | GET | `/admin/guilds/{guild_id}/events?start=&end=` | 任意のギルドの予定 (条件は `/events/{guild_id}` と同じ) |
 | POST / PUT / DELETE | `/admin/guilds/{guild_id}/events[/{event_id}]` | 予定の作成・更新・削除。`admin_audit_logs` に変更前後を記録 (変更前は `FOR UPDATE` で読む)。どのテーブルにも無いギルドへの作成は 404 |
 | PUT | `/admin/guilds/{guild_id}/config` | `restricted` の切替 (監査ログに記録)。未知のギルドは 404 |
-| POST | `/admin/sql` | 読み取り専用 SQL の実行 (`{ "sql": "..." }`)。権限を絞ったロール `discalendar_sql_console` (保護テーブルの権限なし・非 superuser) でログインした専用の接続 + `BEGIN READ ONLY` + 10 秒の締切 + 先頭 500 行 / 4 MiB / 1 セル 4,000 文字 (`truncated` で通知)。SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文のみ。`account` / `session` / `verification` / `pg_statistic` (`pg_stats`) を読む文は `EXPLAIN` の計画を見て実行前に 400。Postgres のエラーも 400 でメッセージをそのまま返す。ロールが使えなければ 503。成功・失敗とも `admin_audit_logs` (`sql.select`) に残す |
+| POST | `/admin/sql` | 読み取り専用 SQL の実行 (`{ "sql": "..." }`)。権限を絞ったロール `discalendar_sql_console` (保護テーブルの権限なし・非 superuser) でログインした専用の接続 + `BEGIN READ ONLY` + 10 秒の締切 + 先頭 500 行 / 4 MiB / 1 セル 4,000 文字 (`truncated` で通知)。SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文のみ。`account` / `session` / `verification` / `pg_statistic` (`pg_stats`) を読む文は `EXPLAIN` の計画を見て実行前に 400。Postgres のエラーも 400 でメッセージをそのまま返す。ロールが使えなければ 503。成功・失敗とも `admin_audit_logs` (`sql.select`) に残す (SQL は文字列リテラルとコメントを伏せて保存) |
 | GET | `/admin/sql/history` | SQL コンソールの実行履歴 (全管理者分、新しい順 20 件。監査ログから組み立てる) |
 | POST | `/admin/ops/delete-guild-events` | 指定ギルド (`{ "guild_id": "..." }`) の予定をすべて削除。削除した予定は監査ログ (`ops.delete_guild_events`) の `before.events` に先頭 200 件まで残す (`detail.deleted` に件数)。未知のギルドは 404 |
 | POST | `/admin/ops/purge-expired-sessions` | Better Auth の期限切れ `session` を削除 (`ops.purge_expired_sessions`) |

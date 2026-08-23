@@ -28,12 +28,16 @@
 //!    ここ (と 5 の EXPLAIN) で失敗する
 //! 7. 行数とサイズ: SELECT 系は `SELECT left(c1::text, N), ... FROM (<sql>) AS q(c1, ...)` に包んで
 //!    `DECLARE ... CURSOR` にし、`FETCH` を小分けにして [`MAX_ROWS`] 行・[`MAX_RESULT_BYTES`] バイトで打ち切る。
-//!    セルの切り詰め ([`MAX_CELL_CHARS`]) もサーバー側で行うので、巨大な値でサーバーから送られてくる量が膨らまない
+//!    セルの切り詰め ([`MAX_CELL_CHARS`]) もサーバー側で行うので、巨大な値でサーバーから送られてくる量が膨らまない。
+//!    1 回の FETCH の行数は列数から決めて (最悪でも [`MAX_FETCH_BATCH_BYTES`] 程度)、列が多くても 1 バッチが膨らまない
 //! 8. 実行後は `pg_advisory_unlock_all()` で、セッションに残りうる advisory lock
 //!    (`pg_advisory_lock(...)` はロールバックでは解放されない) を外してから接続をプールに返す。外せなければ接続を閉じる
 //!
 //! 結果の値は text にキャストして simple query protocol (text format) で受け取り、型ごとのデコードをせずに
 //! 文字列表現のまま返す (psql とほぼ同じ。boolean は `true` / `false`。NULL は null)。
+//!
+//! 監査ログ・履歴に残す SQL は [`redact_sql`] で文字列リテラルとコメントを伏せる (管理者が調査中に貼り付けた
+//! cookie やトークンが履歴として永続化・他の管理者に表示されないように)。
 
 use std::time::{Duration, Instant};
 
@@ -56,8 +60,10 @@ pub const MAX_RESULT_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_CELL_CHARS: usize = 4_000;
 /// 切り詰めたセルの末尾に付ける印
 pub const CELL_TRUNCATED_MARK: &str = "…(切り詰め)";
-/// カーソルから 1 回に取り出す行数
-const FETCH_BATCH: usize = 100;
+/// カーソルから 1 回に取り出す行数の上限 (列数が多いときは [`fetch_batch_rows`] で減らす)
+const MAX_FETCH_BATCH: usize = 100;
+/// 1 回の FETCH で受け取る最悪サイズの目安 (行数 × 列数 × セル上限がこれを超えないように行数を決める)
+const MAX_FETCH_BATCH_BYTES: usize = 8 * 1024 * 1024;
 /// 1 回の実行 (計画の確認からすべての FETCH まで) に使える時間
 pub const STATEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 /// 受け付ける SQL の長さ (文字数) の上限。監査ログにもそのまま残す
@@ -436,7 +442,7 @@ async fn run_in_transaction(
             .execute(&mut *conn)
             .await
             .map_err(SqlError::from_sqlx)?;
-            fetch_from_cursor(conn, deadline).await?
+            fetch_from_cursor(conn, deadline, columns.len()).await?
         }
         Statement::Explain { .. } | Statement::Show => {
             let rows = sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))
@@ -515,23 +521,33 @@ fn wrap_for_cursor(sql: &str, column_count: usize) -> String {
     )
 }
 
+/// 1 回の FETCH で取り出す行数。セルは最大 `MAX_CELL_CHARS + 1` 文字 (UTF-8 で最大 4 バイト/文字) なので、
+/// 行数 × 列数 × セル上限が `MAX_FETCH_BATCH_BYTES` を超えないようにする (列が 1,600 あっても 1 行ずつになるだけ)
+fn fetch_batch_rows(column_count: usize) -> usize {
+    let cell_max_bytes = (MAX_CELL_CHARS + 1) * 4;
+    let row_max_bytes = column_count.max(1) * cell_max_bytes;
+    (MAX_FETCH_BATCH_BYTES / row_max_bytes).clamp(1, MAX_FETCH_BATCH)
+}
+
 /// カーソルから小分けに取り出し、行数かバイト数の上限で打ち切る。FETCH ごとに締切までの残り時間を設定し直す。
 /// 戻り値は (行, truncated)
 async fn fetch_from_cursor(
     conn: &mut PgConnection,
     deadline: Instant,
+    column_count: usize,
 ) -> Result<(Vec<Vec<Option<String>>>, bool), SqlError> {
+    let batch_rows = fetch_batch_rows(column_count);
     let mut out = Vec::new();
     let mut bytes = 0usize;
     loop {
         apply_deadline(conn, deadline).await?;
         let batch = sqlx::raw_sql(AssertSqlSafe(format!(
-            "FETCH FORWARD {FETCH_BATCH} FROM admin_console_cursor"
+            "FETCH FORWARD {batch_rows} FROM admin_console_cursor"
         )))
         .fetch_all(&mut *conn)
         .await
         .map_err(SqlError::from_sqlx)?;
-        let exhausted = batch.len() < FETCH_BATCH;
+        let exhausted = batch.len() < batch_rows;
         if push_rows(&batch, &mut out, &mut bytes)? {
             return Ok((out, true));
         }
@@ -541,16 +557,18 @@ async fn fetch_from_cursor(
     }
 }
 
-/// 取り出した行を `out` に移す。`MAX_ROWS` 行か `MAX_RESULT_BYTES` バイトを超えたら true (打ち切り) を返す
+/// 取り出した行を `out` に移す。`MAX_ROWS` 行に達したか、その行を足すと `MAX_RESULT_BYTES` バイトを超えるなら
+/// その行は含めずに true (打ち切り) を返す (返す量が上限を超えない)
 fn push_rows(
     rows: &[sqlx::postgres::PgRow],
     out: &mut Vec<Vec<Option<String>>>,
     bytes: &mut usize,
 ) -> Result<bool, SqlError> {
     for row in rows {
-        if out.len() >= MAX_ROWS || *bytes >= MAX_RESULT_BYTES {
+        if out.len() >= MAX_ROWS {
             return Ok(true);
         }
+        let mut row_bytes = 0usize;
         let mut values = Vec::with_capacity(row.len());
         for i in 0..row.len() {
             let raw = row.try_get_raw(i)?;
@@ -567,12 +585,112 @@ fn push_rows(
                 Some((end, _)) => format!("{}{CELL_TRUNCATED_MARK}", &text[..end]),
                 None => text.to_owned(),
             };
-            *bytes += value.len();
+            row_bytes += value.len();
             values.push(Some(value));
         }
+        if *bytes + row_bytes > MAX_RESULT_BYTES {
+            return Ok(true);
+        }
+        *bytes += row_bytes;
         out.push(values);
     }
     Ok(false)
+}
+
+/// 監査ログ・履歴に残す用に、SQL の文字列リテラル (`'...'`、`E'...'`、`$tag$...$tag$`) の中身を `…` に、
+/// コメント (`-- ...`、`/* ... */`) を空白に置き換える。識別子 (`"..."`) と数値はそのまま。
+/// 管理者が貼り付けたトークンや cookie が履歴として残らないようにするためで、構文として正しい必要はない
+pub fn redact_sql(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut rest = sql;
+    while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix("--") {
+            // 行コメント: 改行まで捨てる (改行は残す)
+            rest = after.find('\n').map_or("", |i| &after[i..]);
+        } else if let Some(after) = rest.strip_prefix("/*") {
+            // ブロックコメント (入れ子可)
+            let mut depth = 1usize;
+            let mut r = after;
+            while depth > 0 {
+                match (r.find("/*"), r.find("*/")) {
+                    (Some(o), Some(c)) if o < c => {
+                        depth += 1;
+                        r = &r[o + 2..];
+                    }
+                    (_, Some(c)) => {
+                        depth -= 1;
+                        r = &r[c + 2..];
+                    }
+                    _ => {
+                        r = "";
+                        break;
+                    }
+                }
+            }
+            out.push(' ');
+            rest = r;
+        } else if let Some(after) = rest.strip_prefix('\'') {
+            // 標準の文字列 ('' は引用符のエスケープ)。直前が E / e なら \ エスケープも読み飛ばす
+            let escapes = out.ends_with(['E', 'e']);
+            out.push_str("'…'");
+            rest = skip_quoted(after, '\'', escapes);
+        } else if let Some(after) = rest.strip_prefix('"') {
+            // 識別子はそのまま ("" は引用符のエスケープ)
+            let end = skip_quoted(after, '"', false);
+            out.push('"');
+            out.push_str(&after[..after.len() - end.len()]);
+            rest = end;
+        } else if rest.starts_with('$')
+            && let Some((tag, after)) = dollar_tag(rest)
+        {
+            // ドル引用: 同じタグまで捨てる
+            out.push_str(tag);
+            out.push('…');
+            out.push_str(tag);
+            rest = match after.find(tag) {
+                Some(i) => &after[i + tag.len()..],
+                None => "",
+            };
+        } else {
+            let ch = rest.chars().next().expect("non-empty");
+            out.push(ch);
+            rest = &rest[ch.len_utf8()..];
+        }
+    }
+    out
+}
+
+/// `quote` で閉じられるまで読み飛ばし、閉じ引用符の後ろを返す (閉じ引用符も含めて消費する)。
+/// `quote` の 2 連続はエスケープ。`backslash_escapes` なら `\x` も読み飛ばす。閉じていなければ空文字列
+fn skip_quoted(s: &str, quote: char, backslash_escapes: bool) -> &str {
+    let mut chars = s.char_indices();
+    while let Some((i, c)) = chars.next() {
+        if backslash_escapes && c == '\\' {
+            chars.next();
+        } else if c == quote {
+            let after = &s[i + c.len_utf8()..];
+            if after.starts_with(quote) {
+                chars.next();
+            } else {
+                return after;
+            }
+        }
+    }
+    ""
+}
+
+/// 先頭の `$tag$` (タグは空か識別子) を返す。`$1` のようなプレースホルダは対象外
+fn dollar_tag(s: &str) -> Option<(&str, &str)> {
+    let after = s.strip_prefix('$')?;
+    let end = after
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(after.len());
+    let tag = &after[..end];
+    if !after[end..].starts_with('$') || tag.starts_with(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
+    let full = &s[..end + 2];
+    Some((full, &s[end + 2..]))
 }
 
 /// 末尾の `;` と空白、末尾行の `-- コメント` を取り除く (サブクエリに包めるように)
@@ -777,6 +895,32 @@ mod tests {
             kind("EXPLAIN (ANALYZE) -- c\n SELECT 1").unwrap(),
             Statement::Explain { inner: "SELECT 1" }
         );
+    }
+
+    #[test]
+    fn redacts_literals_and_comments_but_keeps_structure() {
+        assert_eq!(
+            redact_sql(
+                "SELECT 'secret', \"col\", 42 FROM t WHERE a = 'x''y' -- tok\nAND b = E'a\\'b'"
+            ),
+            "SELECT '…', \"col\", 42 FROM t WHERE a = '…' \nAND b = E'…'"
+        );
+        assert_eq!(
+            redact_sql("SELECT $$raw 'token'$$, $tag$x$tag$, $1 /* c /* n */ */ + 1"),
+            "SELECT $$…$$, $tag$…$tag$, $1   + 1"
+        );
+        // 閉じていないリテラルやコメントは末尾まで伏せる
+        assert_eq!(redact_sql("SELECT 'open"), "SELECT '…'");
+        assert_eq!(redact_sql("SELECT 1 /* open"), "SELECT 1  ");
+        assert_eq!(redact_sql("SELECT \"a\"\"b\""), "SELECT \"a\"\"b\"");
+    }
+
+    #[test]
+    fn fetch_batch_shrinks_with_wide_rows() {
+        assert_eq!(fetch_batch_rows(1), MAX_FETCH_BATCH);
+        assert_eq!(fetch_batch_rows(5), MAX_FETCH_BATCH);
+        assert!(fetch_batch_rows(50) < MAX_FETCH_BATCH);
+        assert_eq!(fetch_batch_rows(1600), 1);
     }
 
     #[test]

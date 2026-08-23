@@ -125,7 +125,8 @@ REVOKE ALL ON TABLE account, session, verification FROM discalendar_sql_console;
 ```
 
 書き込みは自由 SQL ではなく定型操作 (指定ギルドの全予定削除、期限切れセッションの削除) として `POST /admin/ops/*` にあり、
-SQL の実行 (成功・失敗とも) と定型操作はすべて `admin_audit_logs` に残る。
+SQL の実行 (成功・失敗とも) と定型操作はすべて `admin_audit_logs` に残る (SQL は文字列リテラルを `'…'` に、コメントを除いて保存し、
+貼り付けたトークン等が履歴に残らないようにしている)。
 ローカルで試すときは `api/.env` に自分の Discord ユーザー ID を入れて api を再起動し、`/dashboard` のヘッダーに出る
 「管理コンソール」から開く。compose / staging では ルートの `.env` (`ADMIN_DISCORD_USER_IDS`) で渡す。
 

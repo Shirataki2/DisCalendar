@@ -467,6 +467,25 @@ async fn cells_and_total_size_are_bounded(pool: PgPool) {
     assert!(result.truncated);
     assert!(result.row_count < MAX_ROWS, "{}", result.row_count);
     assert!(result.row_count > 50, "{}", result.row_count);
+    let total: usize = result
+        .rows
+        .iter()
+        .flatten()
+        .flatten()
+        .map(String::len)
+        .sum();
+    assert!(total <= admin_sql::MAX_RESULT_BYTES, "{total}");
+
+    // 列が非常に多い 1 行 (1,500 列 × 4,001 文字 ≈ 6MB) でも 4 MiB を超える行は返さず truncated になる
+    let many = vec!["q.c"; 1500];
+    let sql = format!(
+        "SELECT {} FROM (SELECT repeat('z', 5000) AS c) AS q, generate_series(1, 3)",
+        many.join(", ")
+    );
+    let result = run(&pool, &sql).await.unwrap();
+    assert_eq!(result.columns.len(), 1500);
+    assert!(result.truncated);
+    assert!(result.rows.is_empty());
 }
 
 #[sqlx::test(migrations = "./migrations")]
