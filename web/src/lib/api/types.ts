@@ -77,6 +77,9 @@ export interface AdminGuild {
   event_count: number;
 }
 
+/** GET /admin/guilds の page の上限 (api の `admin_guilds::MAX_PAGE` と同じ。超えると 400) */
+export const ADMIN_GUILDS_MAX_PAGE = 1_000_000;
+
 export interface AdminGuildPage {
   items: AdminGuild[];
   /** 検索条件に一致する総件数 */

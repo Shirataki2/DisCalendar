@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { serverApi } from "@/lib/api/server";
-import type { AdminGuild } from "@/lib/api/types";
+import { ADMIN_GUILDS_MAX_PAGE, type AdminGuild } from "@/lib/api/types";
 import { ROUTES } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -15,9 +15,11 @@ function firstParam(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
 }
 
+/** URL の page を api が受け付ける範囲 (1..=ADMIN_GUILDS_MAX_PAGE) に正規化する。不正な値は 1 ページ目 */
 function parsePage(value: string): number {
   const n = Number.parseInt(value, 10);
-  return Number.isFinite(n) && n >= 1 ? n : 1;
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.min(n, ADMIN_GUILDS_MAX_PAGE);
 }
 
 function listHref(q: string, page: number): string {
