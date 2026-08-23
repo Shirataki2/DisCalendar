@@ -1,8 +1,8 @@
 //! 管理コンソールの監査ログ (`admin_audit_logs` テーブル、#34 で追加)。
 //!
 //! `/admin/*` で行った書き込み操作 (予定の編集・削除、設定変更、定型操作) と SQL 実行は
-//! すべて [`record`] を通して残す。SQL コンソールの履歴は [`list_recent_by_action`] で読む。
-//! 全体の閲覧 API は #37 で足す。
+//! すべて [`record`] を通して残す。SQL コンソールの履歴は [`list_recent_by_action`]、
+//! 監査ログ画面 (#37) の一覧は [`list`] で読む。
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -75,6 +75,72 @@ pub async fn record<'e>(
         entry.detail,
     )
     .fetch_one(executor)
+    .await
+}
+
+/// 監査ログ一覧の 1 ページあたりの件数
+pub const PAGE_SIZE: i64 = 50;
+/// ページ番号の上限 (`admin_guilds::MAX_PAGE` と同じ理由)
+pub const MAX_PAGE: i64 = 1_000_000;
+/// 絞り込み用に返す `action` の種類の上限
+pub const ACTIONS_LIMIT: i64 = 100;
+
+/// 監査ログの一覧 (新しい順)。`action` / `actor` (Discord ユーザー ID) が空なら絞り込まない
+pub async fn list<'e>(
+    executor: impl PgExecutor<'e>,
+    action: &str,
+    actor: &str,
+    page: i64,
+) -> sqlx::Result<Vec<AuditLog>> {
+    let offset = (page.clamp(1, MAX_PAGE) - 1) * PAGE_SIZE;
+    sqlx::query_as!(
+        AuditLog,
+        r#"
+        SELECT id, actor_user_id, actor_discord_user_id, action, target_type, target_id,
+               before, after, detail, created_at
+        FROM admin_audit_logs
+        WHERE ($1::text = '' OR action = $1)
+          AND ($2::text = '' OR actor_discord_user_id = $2)
+        ORDER BY id DESC
+        LIMIT $3 OFFSET $4
+        "#,
+        action,
+        actor,
+        PAGE_SIZE,
+        offset,
+    )
+    .fetch_all(executor)
+    .await
+}
+
+/// [`list`] と同じ条件での総件数
+pub async fn count<'e>(
+    executor: impl PgExecutor<'e>,
+    action: &str,
+    actor: &str,
+) -> sqlx::Result<i64> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT count(*) AS "count!"
+        FROM admin_audit_logs
+        WHERE ($1::text = '' OR action = $1)
+          AND ($2::text = '' OR actor_discord_user_id = $2)
+        "#,
+        action,
+        actor,
+    )
+    .fetch_one(executor)
+    .await
+}
+
+/// 記録されている `action` の種類 (画面の絞り込み用)。
+/// 監査ログは管理者の操作しか入らないので行数は少なく、全表走査でも問題にならない
+pub async fn actions<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar!(
+        r#"SELECT DISTINCT action AS "action!" FROM admin_audit_logs ORDER BY action LIMIT $1"#,
+        ACTIONS_LIMIT
+    )
+    .fetch_all(executor)
     .await
 }
 

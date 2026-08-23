@@ -4,6 +4,7 @@ import { Loader2Icon, PlayIcon } from "lucide-react";
 import { useCallback, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { formatShortDateTime } from "@/lib/admin-format";
 import { ApiError, describeApiError } from "@/lib/api";
 import {
   ADMIN_SQL_MAX_CELL_CHARS,
@@ -30,17 +31,6 @@ function describeSqlError(error: unknown): string {
     return error.message;
   }
   return describeApiError(error);
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 }
 
 /**
@@ -246,7 +236,7 @@ function History({
                 className="flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-white/5"
               >
                 <span className="shrink-0 text-neutral-500 tabular-nums">
-                  {formatTime(entry.created_at)}
+                  {formatShortDateTime(entry.created_at)}
                 </span>
                 <code className="min-w-0 flex-1 truncate font-mono text-neutral-200">
                   {entry.sql}

@@ -21,6 +21,11 @@ export const queryKeys = {
     guild: (guildId: string) => ["admin", "guild", guildId] as const,
     /** SQL コンソールの実行履歴 (監査ログ) */
     sqlHistory: ["admin", "sql", "history"] as const,
+    /** Bot の参加ギルドと guilds テーブルの差分 (#37) */
+    syncCheck: ["admin", "guilds", "sync-check"] as const,
+    /** あるユーザーのセッション一覧 (#37) */
+    userSessions: (userId: string) =>
+      ["admin", "user", userId, "sessions"] as const,
     events: {
       all: (guildId: string) => ["admin", "events", guildId] as const,
       range: (guildId: string, start: string, end: string) =>

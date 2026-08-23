@@ -1,8 +1,11 @@
 import { SearchIcon } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AdminPagination } from "@/components/admin-pagination";
+import { AdminSyncCheck } from "@/components/admin-sync-check";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { firstParam, lastPageOf, listHref, parsePage } from "@/lib/admin-list";
 import { serverApi } from "@/lib/api/server";
 import { ADMIN_GUILDS_MAX_PAGE, type AdminGuild } from "@/lib/api/types";
 import { ROUTES } from "@/lib/site";
@@ -11,27 +14,9 @@ export const metadata: Metadata = {
   title: "ギルド一覧 | 管理コンソール",
 };
 
-function firstParam(value: string | string[] | undefined): string {
-  return (Array.isArray(value) ? value[0] : value) ?? "";
-}
-
-/** URL の page を api が受け付ける範囲 (1..=ADMIN_GUILDS_MAX_PAGE) に正規化する。不正な値は 1 ページ目 */
-function parsePage(value: string): number {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n) || n < 1) return 1;
-  return Math.min(n, ADMIN_GUILDS_MAX_PAGE);
-}
-
-function listHref(q: string, page: number): string {
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
-  if (page > 1) params.set("page", String(page));
-  const query = params.toString();
-  return query ? `${ROUTES.adminGuilds}?${query}` : ROUTES.adminGuilds;
-}
-
 /**
- * 全ギルドの一覧・検索 (#35)。検索とページングは URL (q / page) に持たせて RSC で取得する
+ * 全ギルドの一覧・検索 (#35) と、Discord 側との差分検出 (#37)。
+ * 検索とページングは URL (q / page) に持たせて RSC で取得する
  * (件数が少なく、共有・再読込しやすい方が運用には向く)
  */
 export default async function AdminGuildsPage({
@@ -39,9 +24,9 @@ export default async function AdminGuildsPage({
 }: PageProps<"/admin/guilds">) {
   const params = await searchParams;
   const q = firstParam(params.q).trim();
-  const page = parsePage(firstParam(params.page));
+  const page = parsePage(firstParam(params.page), ADMIN_GUILDS_MAX_PAGE);
   const result = await serverApi.admin.guilds.list(q, page);
-  const lastPage = Math.max(1, Math.ceil(result.total / result.page_size));
+  const lastPage = lastPageOf(result.total, result.page_size);
 
   return (
     <main className="flex-1 overflow-y-auto p-8">
@@ -104,36 +89,15 @@ export default async function AdminGuildsPage({
         </table>
       </div>
 
-      {lastPage > 1 && (
-        <nav
-          aria-label="ページ"
-          className="mt-4 flex items-center justify-between text-sm"
-        >
-          {page > 1 ? (
-            <Link
-              href={listHref(q, page - 1)}
-              className="rounded-md border border-white/15 px-3 py-1 hover:bg-white/10"
-            >
-              前のページ
-            </Link>
-          ) : (
-            <span />
-          )}
-          <span className="text-neutral-400">
-            {page} / {lastPage} ページ
-          </span>
-          {page < lastPage ? (
-            <Link
-              href={listHref(q, page + 1)}
-              className="rounded-md border border-white/15 px-3 py-1 hover:bg-white/10"
-            >
-              次のページ
-            </Link>
-          ) : (
-            <span />
-          )}
-        </nav>
-      )}
+      <AdminPagination
+        page={page}
+        lastPage={lastPage}
+        href={(next) => listHref(ROUTES.adminGuilds, { q }, next)}
+      />
+
+      <div className="mt-10">
+        <AdminSyncCheck />
+      </div>
     </main>
   );
 }

@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            (SELECT count(*) FROM guilds) AS \"guilds!\",\n            (SELECT count(*) FROM (\n                SELECT guild_id FROM guilds\n                UNION SELECT guild_id FROM guild_config\n                UNION SELECT guild_id FROM event_settings\n                UNION SELECT guild_id FROM events\n            ) k) AS \"known_guilds!\",\n            (SELECT count(*) FROM events) AS \"events!\",\n            (SELECT count(*) FROM events WHERE\n                CASE WHEN is_all_day\n                     -- 終日予定は終了日の 0:00 が入っているので、その日いっぱいは残す\n                     THEN date_trunc('day', end_at) + interval '1 day' > $1\n                     ELSE end_at >= $1\n                END\n            ) AS \"upcoming_events!\",\n            (SELECT count(*) FROM \"user\") AS \"users!\",\n            (SELECT count(*) FROM \"session\" WHERE \"expiresAt\" > now()) AS \"active_sessions!\",\n            (SELECT count(*) FROM \"session\") AS \"sessions!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guilds!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "known_guilds!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "events!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "upcoming_events!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "users!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "active_sessions!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "sessions!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "9c9378c120edbe690b48518312fc021e560d37807cfeabffd430b720a85edbf0"
+}

@@ -30,6 +30,11 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
+      # 管理コンソール (/admin) に出すビルド情報。実行ファイルに焼き込まれるので build 時に渡す (#37)。
+      # 未設定なら「不明」と表示されるだけ (ローカルの build では気にしなくてよい)
+      args:
+        GIT_SHA: ${GIT_SHA:-}
+        IMAGE_TAG: ${IMAGE_TAG:-}
     restart: unless-stopped
     depends_on:
       db:

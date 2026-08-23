@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH counts AS (\n            SELECT guild_id, count(*) AS n, max(created_at) AS last_created\n            FROM events GROUP BY guild_id\n        ),\n        known AS (\n            SELECT guild_id FROM guild_config\n            UNION SELECT guild_id FROM event_settings\n            UNION SELECT guild_id FROM counts\n        )\n        SELECT k.guild_id AS \"guild_id!\",\n               COALESCE(c.n, 0) AS \"event_count!\",\n               c.last_created AS \"last_event_created_at\"\n        FROM known k\n        LEFT JOIN guilds g ON g.guild_id = k.guild_id\n        LEFT JOIN counts c ON c.guild_id = k.guild_id\n        WHERE g.guild_id IS NULL\n        ORDER BY c.last_created DESC NULLS LAST, k.guild_id\n        LIMIT $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guild_id!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_event_created_at",
+        "type_info": "Timestamp",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "ff2c53143ec5d14a4cfd784190b544250b9f1d3affca1a0f1556d346219547fe"
+}

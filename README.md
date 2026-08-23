@@ -140,6 +140,17 @@ REVOKE ALL ON TABLE account, session, verification FROM discalendar_sql_console_
 書き込みは自由 SQL ではなく定型操作 (指定ギルドの全予定削除、期限切れセッションの削除) として `POST /admin/ops/*` にあり、
 SQL の実行 (成功・失敗とも) と定型操作はすべて `admin_audit_logs` に残る (SQL は文字列リテラルと引用識別子を `'…'` / `"…"` に、コメントを除き、キーワードでも既知の
 テーブル・列・関数名でもない識別子も `…` にして保存し、貼り付けたトークン等が履歴に残らないようにしている)。
+
+`/admin` のトップは稼働状況の概要 (#37)。件数 (ギルド / 予定 / ユーザー / 今日の通知予定) と、DB の疎通・
+`_sqlx_migrations` の適用状況 (未適用・失敗・チェックサム不一致・切り戻しの検出)・api のビルド情報 (コミット SHA / イメージタグ /
+起動時刻) を出す。ビルド情報は実行ファイルに焼き込む値なので、`api/Dockerfile` の `ARG GIT_SHA` / `ARG IMAGE_TAG` として
+ビルド時に渡す (staging へのデプロイは自動で入れる。`cargo run` や引数なしの `docker compose build` では「不明」と表示される)。
+`/admin/guilds` の下部にある「差分を調べる」で Bot の参加ギルド (Discord API の `GET /users/@me/guilds`) と `guilds` テーブルを
+突き合わせられる (Bot の停止中に参加・退出があったときのずれの確認用)。
+`/admin/users` は Better Auth の `user` / `session` の一覧・検索と強制ログアウト (セッションの全削除。監査ログに残る)。
+**セッショントークンや Discord のアクセストークンは API のレスポンスにも画面にも出さない**。
+`/admin/audit-logs` で監査ログを操作の種類・実行者で絞り込みながら追える。
+
 ローカルで試すときは `api/.env` に自分の Discord ユーザー ID を入れて api を再起動し、`/dashboard` のヘッダーに出る
 「管理コンソール」から開く。compose / staging では ルートの `.env` (`ADMIN_DISCORD_USER_IDS`) で渡す。
 
@@ -274,8 +285,10 @@ rustc / cargo、PostgreSQL 16 がプリインストールだが Postgres は未�
 | `/login` | Discord ログイン |
 | `/dashboard` | サーバー選択（Bot 参加済み / 招待可能なサーバー） |
 | `/dashboard/[id]` | ギルドごとのカレンダー |
-| `/admin` | 管理コンソール（`ADMIN_DISCORD_USER_IDS` のユーザーのみ。それ以外は 404） |
-| `/admin/guilds`, `/admin/guilds/[id]` | 管理コンソール: 全ギルドの一覧・検索と、ギルドごとの予定の閲覧・編集 |
+| `/admin` | 管理コンソール（`ADMIN_DISCORD_USER_IDS` のユーザーのみ。それ以外は 404）: 件数・DB / マイグレーション・ビルド情報の概要 |
+| `/admin/guilds`, `/admin/guilds/[id]` | 管理コンソール: 全ギルドの一覧・検索と Discord との差分検出、ギルドごとの予定の閲覧・編集 |
 | `/admin/sql` | 管理コンソール: 読み取り専用 SQL コンソール (結果の表・実行履歴) と定型操作 |
+| `/admin/users` | 管理コンソール: ユーザーの検索とセッションの確認・強制ログアウト |
+| `/admin/audit-logs` | 管理コンソール: 監査ログの閲覧 (操作の種類・実行者で絞り込み) |
 | `/api/auth/*` | Better Auth（OAuth コールバック含む） |
 | `/local/api/*` | Rust API へのプロキシ（rewrites） |
