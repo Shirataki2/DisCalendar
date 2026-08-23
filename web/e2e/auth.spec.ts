@@ -89,7 +89,9 @@ test.describe("ログイン済み", () => {
     await expect(
       page.getByRole("heading", { name: "サーバーを選択" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "ログアウト" }).click();
+    // ログアウトはヘッダ右端のアカウントメニュー (アバター) のドロップダウンから
+    await page.getByRole("button", { name: "アカウントメニュー" }).click();
+    await page.getByRole("menuitem", { name: "ログアウト" }).click();
     await expect(page).toHaveURL(/\/login$/);
     // cookie が消えた / セッションが無効になったので開き直しても入れない
     await page.goto("/dashboard");
