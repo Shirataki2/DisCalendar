@@ -1,3 +1,8 @@
+# postinstall を実行しない依存。どれもネイティブバイナリの確認・フォールバック取得だけで、
+# pnpm が platform ごとの optional 依存 (esbuild は @esbuild/<platform>、@swc/core は @swc/core-<platform>) を入れるので不要。
+# esbuild と @swc/core は @serwist/turbopack (Service Worker のビルド) が使う
 ignoredBuiltDependencies:
+  - "@swc/core"
+  - esbuild
   - sharp
   - unrs-resolver

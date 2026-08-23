@@ -42,6 +42,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.2",
     "@playwright/test": "^1.62.1",
+    "@serwist/turbopack": "^9.5.12",
     "@tailwindcss/postcss": "^4",
     "@tanstack/react-query-devtools": "^5.101.4",
     "@types/mdx": "^2.0.14",
@@ -49,6 +50,8 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
+    "serwist": "^9.5.12",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.11"
