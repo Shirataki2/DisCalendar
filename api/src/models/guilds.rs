@@ -62,6 +62,25 @@ pub async fn get_config<'e>(
     }))
 }
 
+/// `get_config` と同じだが、行があればトランザクションの終わりまでロックする (`FOR UPDATE`)。
+/// 管理コンソールが監査ログの「変更前」として読むのに使う (行が無ければ既定値。その場合ロックは掛からない)
+pub async fn get_config_for_update<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+) -> sqlx::Result<GuildConfig> {
+    let config = sqlx::query_as!(
+        GuildConfig,
+        "SELECT guild_id, restricted FROM guild_config WHERE guild_id = $1 FOR UPDATE",
+        guild_id
+    )
+    .fetch_optional(executor)
+    .await?;
+    Ok(config.unwrap_or_else(|| GuildConfig {
+        guild_id: guild_id.to_owned(),
+        restricted: false,
+    }))
+}
+
 /// 管理コンソールからは監査ログと同じトランザクションで呼べるよう executor を受け取る
 pub async fn upsert_config<'e>(
     executor: impl PgExecutor<'e>,

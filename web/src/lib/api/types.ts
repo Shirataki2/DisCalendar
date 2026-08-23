@@ -56,12 +56,19 @@ export interface AdminMe {
   discord_user_id: string;
 }
 
-/** GET /admin/guilds の 1 行 (guilds + guild_config + event_settings + 予定数) */
+/**
+ * GET /admin/guilds の 1 行 (guilds + guild_config + event_settings + 予定数)。
+ * Bot が退出すると guilds の行は消えるが予定や設定は残るので、そういうギルドも含まれる
+ * (name などが null、registered が false)
+ */
 export interface AdminGuild {
   guild_id: string;
-  name: string;
+  /** guilds の名前。退出済みで行が消えていれば null */
+  name: string | null;
   avatar_url: string | null;
-  locale: string;
+  locale: string | null;
+  /** guilds に行があるか (Bot が参加中として登録しているか) */
+  registered: boolean;
   /** guild_config.restricted (行が無ければ false) */
   restricted: boolean;
   /** /init で設定した通知先チャンネル ID。未設定なら null */

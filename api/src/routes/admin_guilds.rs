@@ -172,7 +172,8 @@ pub async fn list_events(
     Ok(web::Json(rows.into_iter().map(Event::from).collect()))
 }
 
-/// 予定の作成 (管理者による代理登録)。`admin_audit_logs` に `event.create` を記録する
+/// 予定の作成 (管理者による代理登録)。`admin_audit_logs` に `event.create` を記録する。
+/// どのテーブルにも無いギルド ID (打ち間違い) には 404 を返し、孤立した予定を作らない
 #[utoipa::path(
     tag = "admin",
     params(GuildPath),
@@ -182,6 +183,7 @@ pub async fn list_events(
         (status = 400, body = ErrorBody),
         (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody),
+        (status = 404, description = "存在しない (したことのない) ギルド", body = ErrorBody),
     )
 )]
 #[post("/guilds/{guild_id}/events")]
@@ -194,6 +196,7 @@ pub async fn create_event(
     let guild_id = validated_guild_id(&path.guild_id)?;
     body.validate()?;
     let mut tx = state.pool.begin().await?;
+    ensure_guild_known(&mut *tx, guild_id).await?;
     let event = Event::from(events::create(&mut *tx, guild_id, &body, now_jst()).await?);
     admin_audit::record(
         &mut *tx,
@@ -236,7 +239,7 @@ pub async fn update_event(
     let guild_id = validated_guild_id(&path.guild_id)?;
     body.validate()?;
     let mut tx = state.pool.begin().await?;
-    let before = events::find_by_id(&mut *tx, guild_id, path.event_id)
+    let before = events::find_by_id_for_update(&mut *tx, guild_id, path.event_id)
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
@@ -282,7 +285,7 @@ pub async fn delete_event(
 ) -> Result<HttpResponse, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
     let mut tx = state.pool.begin().await?;
-    let before = events::find_by_id(&mut *tx, guild_id, path.event_id)
+    let before = events::find_by_id_for_update(&mut *tx, guild_id, path.event_id)
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
@@ -308,7 +311,8 @@ pub async fn delete_event(
 }
 
 /// ギルド設定 (restricted) の変更。通常 API の `PUT /guilds/{guild_id}/config` と同じ保存処理で、
-/// 管理権限の判定の代わりに `AdminUser` を要求し、`admin_audit_logs` に変更前後を記録する
+/// 管理権限の判定の代わりに `AdminUser` を要求し、`admin_audit_logs` に変更前後を記録する。
+/// どのテーブルにも無いギルド ID には 404 (孤立した設定行を作らない)
 #[utoipa::path(
     tag = "admin",
     params(GuildPath),
@@ -318,6 +322,7 @@ pub async fn delete_event(
         (status = 400, body = ErrorBody),
         (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody),
+        (status = 404, description = "存在しない (したことのない) ギルド", body = ErrorBody),
     )
 )]
 #[put("/guilds/{guild_id}/config")]
@@ -329,7 +334,8 @@ pub async fn put_config(
 ) -> Result<web::Json<GuildConfig>, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
     let mut tx = state.pool.begin().await?;
-    let before = guilds::get_config(&mut *tx, guild_id).await?;
+    ensure_guild_known(&mut *tx, guild_id).await?;
+    let before = guilds::get_config_for_update(&mut *tx, guild_id).await?;
     let after = guilds::upsert_config(&mut *tx, guild_id, body.restricted).await?;
     admin_audit::record(
         &mut *tx,
@@ -347,6 +353,17 @@ pub async fn put_config(
     tx.commit().await?;
     tracing::info!(guild_id, restricted = after.restricted, admin = %admin.discord_user_id, "guild config updated by admin");
     Ok(web::Json(after))
+}
+
+/// 書き込み前に、現在または過去に存在したギルドであることを確認する (無ければ 404)
+async fn ensure_guild_known<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    guild_id: &str,
+) -> Result<(), ApiError> {
+    if !admin_guilds::exists(executor, guild_id).await? {
+        return Err(ApiError::NotFound("guild not found".into()));
+    }
+    Ok(())
 }
 
 /// 監査ログに入れるスナップショット (API レスポンスと同じ JSON)

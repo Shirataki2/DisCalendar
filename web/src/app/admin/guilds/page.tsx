@@ -47,8 +47,9 @@ export default async function AdminGuildsPage({
         <div>
           <h1 className="text-xl font-bold">ギルド一覧</h1>
           <p className="mt-1 text-sm text-neutral-400">
-            Bot が参加した (ことのある) 全ギルド。{result.total} 件
-            {q && <> (「{q}」で検索)</>}
+            Bot が参加した (ことのある)
+            全ギルド。退出済みでも予定や設定が残っていれば載る。
+            {result.total} 件{q && <> (「{q}」で検索)</>}
           </p>
         </div>
         <form
@@ -155,10 +156,15 @@ function GuildRow({ guild }: { guild: AdminGuild }) {
               aria-hidden="true"
               className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs"
             >
-              {guild.name.slice(0, 1)}
+              {guild.name?.slice(0, 1) ?? "?"}
             </span>
           )}
-          {guild.name}
+          {guild.name ?? <span className="text-neutral-400">(名前不明)</span>}
+          {!guild.registered && (
+            <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-300">
+              退出済み
+            </span>
+          )}
         </Link>
       </td>
       <td className="px-3 py-2 font-mono text-xs text-neutral-300">

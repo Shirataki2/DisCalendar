@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH known AS (\n            SELECT guild_id FROM guilds\n            UNION SELECT guild_id FROM guild_config\n            UNION SELECT guild_id FROM event_settings\n            UNION SELECT guild_id FROM events\n        ),\n        counts AS (SELECT guild_id, count(*) AS n FROM events GROUP BY guild_id)\n        SELECT k.guild_id AS \"guild_id!\", g.name AS \"name?\", g.avatar_url AS \"avatar_url?\", g.locale AS \"locale?\",\n               (g.guild_id IS NOT NULL) AS \"registered!\",\n               COALESCE(c.restricted, false) AS \"restricted!\",\n               (SELECT s.channel_id FROM event_settings s WHERE s.guild_id = k.guild_id ORDER BY s.id LIMIT 1) AS channel_id,\n               COALESCE(n.n, 0) AS \"event_count!\"\n        FROM known k\n        LEFT JOIN guilds g ON g.guild_id = k.guild_id\n        LEFT JOIN guild_config c ON c.guild_id = k.guild_id\n        LEFT JOIN counts n ON n.guild_id = k.guild_id\n        WHERE $1::text = '' OR k.guild_id = $1 OR g.name ILIKE $2\n        ORDER BY g.name NULLS LAST, k.guild_id\n        LIMIT $3 OFFSET $4\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guild_id!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "guilds",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "avatar_url?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "guilds",
+            "name": "avatar_url"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "locale?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "guilds",
+            "name": "locale"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "registered!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "restricted!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "channel_id",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "event_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      true,
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "d8e93501904ba772e64bafacb73f9b3a079821646c502be8abf7badebf3c78e6"
+}

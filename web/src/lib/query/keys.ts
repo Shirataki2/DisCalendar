@@ -20,6 +20,8 @@ export const queryKeys = {
       all: (guildId: string) => ["admin", "events", guildId] as const,
       range: (guildId: string, start: string, end: string) =>
         ["admin", "events", guildId, { start, end }] as const,
+      // ギルド詳細の event_count を古いままにしない
+      onCountChanged: (guildId: string) => [["admin", "guild", guildId]],
     },
   },
 };
@@ -28,4 +30,6 @@ export const queryKeys = {
 export interface EventsQueryKeys {
   all: (guildId: string) => QueryKey;
   range: (guildId: string, start: string, end: string) => QueryKey;
+  /** 予定の件数が変わったとき (作成・削除) に一緒に無効化するキー (管理コンソールのギルド詳細など) */
+  onCountChanged?: (guildId: string) => QueryKey[];
 }

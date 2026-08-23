@@ -176,8 +176,11 @@ pub async fn create<'e>(
     .await
 }
 
-/// ギルドに属する予定を 1 件取得する (他ギルドの ID を指定しても返さない)。該当なしなら `None`
-pub async fn find_by_id<'e>(
+/// ギルドに属する予定を 1 件取得し、トランザクションの終わりまで行をロックする (`FOR UPDATE`)。
+/// 管理コンソールが監査ログの「変更前」として読むのに使う。更新・削除までの間に別トランザクション
+/// (通常 API や旧 Bot) が同じ行を書き換えて、ログの before と実際の直前の値がずれるのを防ぐ。
+/// 他ギルドの ID を指定しても返さない。該当なしなら `None`
+pub async fn find_by_id_for_update<'e>(
     executor: impl PgExecutor<'e>,
     guild_id: &str,
     id: i32,
@@ -188,6 +191,7 @@ pub async fn find_by_id<'e>(
         SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
         FROM events
         WHERE id = $1 AND guild_id = $2
+        FOR UPDATE
         "#,
         id,
         guild_id

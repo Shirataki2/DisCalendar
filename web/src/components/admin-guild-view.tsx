@@ -53,6 +53,14 @@ export function AdminGuildView({ guildId }: Props) {
           <img src={guild.avatar_url} alt="" className="h-8 w-8 rounded-full" />
         )}
         <h1 className="text-lg font-semibold">{guild?.name ?? guildId}</h1>
+        {guild && !guild.registered && (
+          <span
+            title="Bot が退出して guilds の行が消えているが、予定や設定は残っている"
+            className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-300"
+          >
+            退出済み
+          </span>
+        )}
         {guild && (
           <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-400">
             <div className="flex gap-1">

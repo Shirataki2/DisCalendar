@@ -40,11 +40,11 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | PUT | `/events/{guild_id}/{event_id}` | 予定の更新 |
 | DELETE | `/events/{guild_id}/{event_id}` | 予定の削除 (204) |
 | GET | `/admin/me` | 管理者の確認 (`ADMIN_DISCORD_USER_IDS` 以外は 403)。`/admin/*` は管理コンソール用で、ギルドのメンバーシップを見ない代わりにホワイトリストで制限する (#33) |
-| GET | `/admin/guilds?q=&page=` | 全ギルドの一覧・検索 (guild_id 完全一致 / 名前部分一致、50 件ずつ)。`restricted` / 通知チャンネル / 予定数付き |
+| GET | `/admin/guilds?q=&page=` | 全ギルドの一覧・検索 (guild_id 完全一致 / 名前部分一致、50 件ずつ)。Bot 退出後にデータだけ残っているギルドも含む (`registered` = false)。`restricted` / 通知チャンネル / 予定数付き |
 | GET | `/admin/guilds/{guild_id}` | ギルド詳細 (+ Bot の参加状況を Discord API で確認) |
 | GET | `/admin/guilds/{guild_id}/events?start=&end=` | 任意のギルドの予定 (条件は `/events/{guild_id}` と同じ) |
-| POST / PUT / DELETE | `/admin/guilds/{guild_id}/events[/{event_id}]` | 予定の作成・更新・削除。`admin_audit_logs` に変更前後を記録 |
-| PUT | `/admin/guilds/{guild_id}/config` | `restricted` の切替 (監査ログに記録) |
+| POST / PUT / DELETE | `/admin/guilds/{guild_id}/events[/{event_id}]` | 予定の作成・更新・削除。`admin_audit_logs` に変更前後を記録 (変更前は `FOR UPDATE` で読む)。どのテーブルにも無いギルドへの作成は 404 |
+| PUT | `/admin/guilds/{guild_id}/config` | `restricted` の切替 (監査ログに記録)。未知のギルドは 404 |
 
 エラーは `{ "error": "<kind>", "message": "<説明>" }` (kind: `unauthorized` / `forbidden` / `not_found` /
 `bad_request` / `rate_limited` / `discord_error` / `database_error` / `internal_error`)。

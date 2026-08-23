@@ -56,6 +56,20 @@ export function useEventsQuery(
   });
 }
 
+/** 予定一覧と、件数に依存するキャッシュ (`keys.onCountChanged`) をまとめて無効化する */
+function invalidateEvents(
+  queryClient: ReturnType<typeof useQueryClient>,
+  keys: EventsQueryKeys,
+  guildId: string,
+  countChanged: boolean,
+) {
+  const targets = [keys.all(guildId)];
+  if (countChanged) targets.push(...(keys.onCountChanged?.(guildId) ?? []));
+  return Promise.all(
+    targets.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  );
+}
+
 export function useCreateEvent(
   guildId: string,
   { client, keys }: EventsSource = dashboardEventsSource,
@@ -63,10 +77,7 @@ export function useCreateEvent(
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: ApiEventInput) => client.create(guildId, input),
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: keys.all(guildId),
-      }),
+    onSuccess: () => invalidateEvents(queryClient, keys, guildId, true),
   });
 }
 
@@ -105,7 +116,7 @@ export function useUpdateEvent(
         queryClient.setQueryData(key, data);
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: listsKey }),
+    onSettled: () => invalidateEvents(queryClient, keys, guildId, false),
   });
 }
 
@@ -132,6 +143,6 @@ export function useDeleteEvent(
         queryClient.setQueryData(key, data);
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: listsKey }),
+    onSettled: () => invalidateEvents(queryClient, keys, guildId, true),
   });
 }
