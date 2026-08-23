@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { QueryProvider } from "@/lib/query/provider";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL, THEME_COLOR } from "@/lib/site";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,13 +14,32 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// favicon / アイコン / OGP 画像は app/ 直下のファイル規約 (favicon.ico, icon.png, apple-icon.png, opengraph-image.png) で、
+// マニフェストは app/manifest.ts で出す。旧実装の siteconfig.js / @nuxtjs/pwa の設定に相当
 export const metadata: Metadata = {
+  // OGP など絶対 URL が必要な項目の基準。旧実装と同じく公開 URL を固定する (staging でも本番の URL になる)
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: "DisCalendar",
-    template: "%s | DisCalendar",
+    default: SITE_NAME,
+    template: `%s | ${SITE_NAME}`,
   },
-  description:
-    "DisCalendarはDiscord用のカレンダーアプリです。予定の作成から投稿まで面倒なコマンド操作はほとんど必要ありません。",
+  description: SITE_DESCRIPTION,
+  keywords: ["Discord", "Bot", "カレンダー", "予定管理", "スケジュール"],
+  openGraph: {
+    type: "website",
+    locale: "ja_JP",
+    siteName: SITE_NAME,
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: THEME_COLOR,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

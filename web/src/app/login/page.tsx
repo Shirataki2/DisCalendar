@@ -1,5 +1,6 @@
 "use client";
 
+import { Logo } from "@/components/logo";
 import { authClient } from "@/lib/auth-client";
 
 export default function LoginPage() {
@@ -12,8 +13,8 @@ export default function LoginPage() {
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-10 p-8">
-      <h1 className="font-mono text-4xl font-bold tracking-widest">
-        DISCALENDAR
+      <h1>
+        <Logo className="text-4xl" />
       </h1>
       <p className="text-sm text-neutral-300">
         Discordアカウントでログインして、サーバーのカレンダーを管理できます。

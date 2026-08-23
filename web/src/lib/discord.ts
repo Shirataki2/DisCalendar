@@ -63,10 +63,11 @@ export function canInviteBot(guild: DiscordGuild): boolean {
 const DEFAULT_BOT_PERMISSIONS = "2147568640";
 
 /**
- * Bot の招待 URL (guild_id 付き)。DISCORD_BOT_INVITE_URL (旧実装の INVITATION_URL 相当) が
- * あればそれを使い、なければ DISCORD_CLIENT_ID から組み立てる
+ * Bot の招待 URL。DISCORD_BOT_INVITE_URL (旧実装の INVITATION_URL 相当) があればそれを使い、
+ * なければ DISCORD_CLIENT_ID から組み立てる。guildId を渡すとそのサーバーを選んだ状態で開く
+ * (サーバー選択画面)。渡さなければ Discord 側でサーバーを選ぶ (LP の「BOT を導入する」)
  */
-export function botInviteUrl(guildId: string): string {
+export function botInviteUrl(guildId?: string): string {
   const base = process.env.DISCORD_BOT_INVITE_URL
     ? new URL(process.env.DISCORD_BOT_INVITE_URL)
     : new URL("https://discord.com/oauth2/authorize");
@@ -75,7 +76,9 @@ export function botInviteUrl(guildId: string): string {
     base.searchParams.set("scope", "bot applications.commands");
     base.searchParams.set("permissions", DEFAULT_BOT_PERMISSIONS);
   }
-  base.searchParams.set("guild_id", guildId);
-  base.searchParams.set("disable_guild_select", "true");
+  if (guildId) {
+    base.searchParams.set("guild_id", guildId);
+    base.searchParams.set("disable_guild_select", "true");
+  }
   return base.toString();
 }

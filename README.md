@@ -10,7 +10,7 @@ Discord 用のカレンダーアプリ。予定の作成から通知まで、ブ
 
 | ディレクトリ | 内容 | 状態 |
 |---|---|---|
-| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
+| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | LP (静的生成、OGP / favicon / manifest)、Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
 | `api/` | Rust API（actix-web 4 + sqlx 0.9、旧版から移行） | 移行済み（[README](api/README.md)） |
 | `bot/` | Discord Bot（poise 0.6 + serenity 0.12 + sqlx 0.9、旧版から移行中） | 基盤 (起動 / DB 接続 / ギルドの参加・退出・更新を `guilds` に反映) とスラッシュコマンド (help / create / list / init / invite / register) を移行済み（[README](bot/README.md)）。定期タスク (#4) は未着手 |
 | `docs/` | 技術選定・設計ドキュメント | [技術選定](docs/tech-stack-selection.md) |
@@ -73,6 +73,8 @@ cargo run              # 起動時にマイグレーション適用、http://127
 
 http://localhost:3000 でランディング、`/login` から Discord ログイン、
 `/dashboard` でサーバー選択 → 各サーバーのカレンダーが開く。
+LP の「BOT を導入する」は `/invite` (Route Handler) が `DISCORD_BOT_INVITE_URL` (未設定なら `DISCORD_CLIENT_ID` から組み立て) へリダイレクトする。
+サイト名・説明・公開 URL・外部リンクなどの定数は `web/src/lib/site.ts` にまとめてある。
 
 Discord ログインを通すには [Discord Developer Portal](https://discord.com/developers/applications) のアプリで
 OAuth2 Redirects に `http://localhost:3000/api/auth/callback/discord` を登録し、
