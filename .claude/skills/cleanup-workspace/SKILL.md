@@ -38,7 +38,7 @@ Docker ビルドが ENOSPC で落ちたこともある。
 | 判定 | 意味 | 次にすること |
 |---|---|---|
 | 削除候補 | PR が MERGED / CLOSED で、未コミット・使用中プロセス・直近の更新・`.env` の危険がない | 2 へ |
-| 要確認 | 未コミットがある / PR なし (作った直後かもしれない) / 他プロセスが使用中 / 直近に更新 / main に無い `.env` がある / 状態が取れない | 根拠を添えてユーザーに判断を仰ぐ |
+| 要確認 | 未コミットがある / PR なし (作った直後かもしれない) / マージ済み PR の後にローカルコミットがある (`PR 後 +N`) / 他プロセスが使用中 / 直近に更新 / main に無い `.env` がある / 状態が取れない | 根拠を添えてユーザーに判断を仰ぐ |
 | 作業中 | PR が OPEN | 残す (ユーザーが「この PR は閉じた」と言わない限り) |
 
 ### 2. ユーザーに提示して了解を得る
@@ -62,7 +62,7 @@ diff <path>/bot/.env bot/.env                            # main に無い / 違�
 .claude/skills/cleanup-workspace/scripts/remove-worktree.sh <worktree 名> --keep-branch      # ブランチは残したいとき
 ```
 
-スクリプトは未コミット・OPEN な PR・PR なしの先行コミットや直近の更新・他プロセスの使用・main に無い `.env` があれば拒否し (exit 3、理由を表示)、問題なければ
+スクリプトは未コミット・OPEN な PR・PR なしの先行コミットや直近の更新・**マージ済み PR の head より後のローカルコミット**・他プロセスの使用・main に無い `.env` があれば拒否し (exit 3、理由を表示)、問題なければ
 `git worktree remove` → `git branch -D` → `git worktree prune` を行う。worktree を消すとその中の `target/` / `node_modules` / `.next` も一緒に消える (表の「合計」列でどれだけ空くか分かる。数 MB しかない worktree は整理目的、容量目的なら 4 へ)。
 リモートブランチには触れない (残っていれば案内だけ出す。消すなら `git push origin --delete <branch>` をユーザー確認のうえで)。
 

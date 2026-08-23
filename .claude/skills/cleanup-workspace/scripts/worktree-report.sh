@@ -40,17 +40,34 @@ if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
 fi
 
 # 他プロセスの cwd (worktree を使っているセッションの検出用)。"<pid> <cmd> <cwd>" の行
-cwd_table=$(lsof -a -d cwd -Fpcn 2>/dev/null | awk '/^p/{pid=substr($0,2)} /^c/{c=substr($0,2)} /^n/{print pid, c, substr($0,2)}')
+cwd_table=""
+if command -v lsof >/dev/null 2>&1; then
+  cwd_table=$(lsof -a -d cwd -Fpcn 2>/dev/null | awk '/^p/{pid=substr($0,2)} /^c/{c=substr($0,2)} /^n/{print pid, c, substr($0,2)}')
+else
+  echo "警告: lsof が無いため「使用中プロセス」列は確認できません" >&2
+fi
 
 size_of() { if [ -d "$1" ]; then du -sh "$1" 2>/dev/null | cut -f1; else echo "-"; fi; }
 
 # <branch> → "#12 MERGED" / "なし" / "?"。同じブランチに複数 PR があれば OPEN > MERGED > CLOSED の順で代表させる
+# マージ / クローズ済み PR の head より後にローカルコミットがあれば "PR 後 +N" を付ける (branch -D で失われるため)
 pr_state() {
   [ "$have_gh" = 1 ] || { echo "?"; return; }
-  local out
-  out=$(gh pr list --head "$1" --state all --limit 10 --json number,state \
-    --jq 'map(select(.state=="OPEN"))[0] // map(select(.state=="MERGED"))[0] // .[0] // empty | "#\(.number) \(.state)"' 2>/dev/null) || { echo "?"; return; }
-  echo "${out:-なし}"
+  local out st head n
+  out=$(gh pr list --head "$1" --state all --limit 10 --json number,state,headRefOid \
+    --jq 'map(select(.state=="OPEN"))[0] // map(select(.state=="MERGED"))[0] // .[0] // empty | "#\(.number) \(.state) \(.headRefOid)"' 2>/dev/null) || { echo "?"; return; }
+  [ -n "$out" ] || { echo "なし"; return; }
+  st=$(echo "$out" | cut -d' ' -f1-2); head=$(echo "$out" | cut -d' ' -f3)
+  case "$st" in
+    *MERGED*|*CLOSED*)
+      if ! git cat-file -e "${head}^{commit}" 2>/dev/null || ! git merge-base --is-ancestor "$head" "$1" 2>/dev/null; then
+        st+=" (PR の head がローカルに無い)"
+      else
+        n=$(git rev-list --count "${head}..$1" 2>/dev/null || echo 0)
+        [ "$n" != "0" ] && st+=" (PR 後 +${n})"
+      fi ;;
+  esac
+  echo "$st"
 }
 
 track_of() {
@@ -91,6 +108,7 @@ verdict_of() { # <dirty> <pr> <ahead> <recent> <users> <envrisk>
   local dirty=$1 pr=$2 ahead=$3 recent=$4 users=$5 envrisk=$6 base=""
   if [ "$dirty" != "0" ]; then echo "要確認: 未コミットの変更あり"; return; fi
   case "$pr" in
+    *"PR 後 +"*|*"ローカルに無い"*) echo "要確認: ${pr} → マージ後のローカルコミットが branch -D で失われる"; return ;;
     *MERGED*) base="削除候補 (PR マージ済み)" ;;
     *CLOSED*) base="削除候補 (PR クローズ、未マージ)" ;;
     *OPEN*)   echo "作業中 (残す)"; return ;;
@@ -176,6 +194,7 @@ while IFS= read -r b; do
   ahead=$(git rev-list --count "${base_ref}..${b}" 2>/dev/null || echo "?")
   track=$(track_of "$b")
   case "$pr" in
+    *"PR 後 +"*|*"ローカルに無い"*) verdict="要確認: ${pr} → マージ後のローカルコミットが branch -D で失われる" ;;
     *MERGED*) verdict="削除候補 (PR マージ済み → git branch -D)" ;;
     *CLOSED*) verdict="削除候補 (PR クローズ → git branch -D)" ;;
     *OPEN*)   verdict="作業中 (残す)" ;;
