@@ -14,7 +14,7 @@ import classicThemePlugin from "@fullcalendar/react/themes/classic";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
 import { addHours, format, startOfHour } from "date-fns";
 import { PlusIcon } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type EventDialogState,
   EventFormDialog,
@@ -86,6 +86,12 @@ export function EventCalendar({
   const [scrollTime] = useState(() =>
     format(startOfHour(addHours(new Date(), -1)), "HH:mm"),
   );
+  // FullCalendar は描画時の new Date() で「今日」を決めるため、サーバー (本番コンテナ・CI は UTC) と
+  // ブラウザ (Asia/Tokyo) で日付がずれる時間帯は SSR の「今日」のセル (aria-current="date") が
+  // hydration 後も残る (React は属性の差分を patch しない)。カレンダーはマウント後にだけ描画して
+  // ブラウザの日付で決める (#48)。予定はもともとクライアントで取得しており SSR で出す内容は無い
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const eventsQuery = useEventsQuery(guildId, range, eventsSource);
   const createEvent = useCreateEvent(guildId, eventsSource);
@@ -225,43 +231,45 @@ export function EventCalendar({
         )}
       </div>
       <div className="min-h-0 flex-1">
-        <Calendar
-          ref={calendarRef}
-          plugins={[
-            dayGridPlugin,
-            timeGridPlugin,
-            interactionPlugin,
-            classicThemePlugin,
-          ]}
-          locale={jaLocale}
-          initialView="dayGridMonth"
-          headerToolbar={{
-            start: "prev,next today",
-            center: "title",
-            end: "dayGridMonth,timeGridWeek,timeGridFourDay,timeGridDay",
-          }}
-          views={{
-            timeGridFourDay: {
-              type: "timeGrid",
-              duration: { days: 4 },
-            },
-          }}
-          buttons={{ timeGridFourDay: { text: "4日" } }}
-          events={events}
-          editable={canEdit}
-          selectable={canEdit}
-          selectMirror
-          nowIndicator
-          snapDuration="00:15"
-          slotDuration="00:30"
-          scrollTime={scrollTime}
-          longPressDelay={400}
-          height="100%"
-          datesSet={handleDatesSet}
-          select={handleSelect}
-          eventClick={handleEventClick}
-          eventChange={handleEventChange}
-        />
+        {mounted && (
+          <Calendar
+            ref={calendarRef}
+            plugins={[
+              dayGridPlugin,
+              timeGridPlugin,
+              interactionPlugin,
+              classicThemePlugin,
+            ]}
+            locale={jaLocale}
+            initialView="dayGridMonth"
+            headerToolbar={{
+              start: "prev,next today",
+              center: "title",
+              end: "dayGridMonth,timeGridWeek,timeGridFourDay,timeGridDay",
+            }}
+            views={{
+              timeGridFourDay: {
+                type: "timeGrid",
+                duration: { days: 4 },
+              },
+            }}
+            buttons={{ timeGridFourDay: { text: "4日" } }}
+            events={events}
+            editable={canEdit}
+            selectable={canEdit}
+            selectMirror
+            nowIndicator
+            snapDuration="00:15"
+            slotDuration="00:30"
+            scrollTime={scrollTime}
+            longPressDelay={400}
+            height="100%"
+            datesSet={handleDatesSet}
+            select={handleSelect}
+            eventClick={handleEventClick}
+            eventChange={handleEventChange}
+          />
+        )}
       </div>
 
       <EventPopover
