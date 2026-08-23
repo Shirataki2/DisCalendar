@@ -69,8 +69,9 @@ services:
     environment:
       DATABASE_URL: postgres://discalendar:${POSTGRES_PASSWORD}@db:5432/discalendar
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
-      # ブラウザから見た URL。Discord Developer Portal の Redirects に <BETTER_AUTH_URL>/api/auth/callback/discord を登録する
-      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      # ブラウザから見た URL。Discord Developer Portal の Redirects に <BETTER_AUTH_URL>/api/auth/callback/discord を登録する。
+      # 未設定なら公開ポート (WEB_PORT) に合わせた http://localhost:<WEB_PORT>。ドメインで公開するときは .env で明示する
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:${WEB_PORT:-3000}}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?set DISCORD_CLIENT_ID in .env}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?set DISCORD_CLIENT_SECRET in .env}
       DISCORD_BOT_INVITE_URL: ${DISCORD_BOT_INVITE_URL:-}
