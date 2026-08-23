@@ -44,12 +44,13 @@ else
 fi
 
 # git worktree list から該当レコードを探す (ディレクトリが消えている prunable なものも拾う)
-branch="" found=0 path="" wb=""
+branch="" head_sha="" found=0 path="" wb="" wh=""
 while IFS= read -r line; do
   case "$line" in
-    "worktree "*) path=${line#worktree }; wb="(detached)" ;;
+    "worktree "*) path=${line#worktree }; wb="(detached)"; wh="" ;;
+    "HEAD "*)     wh=${line#HEAD } ;;
     "branch "*)   wb=${line#branch refs/heads/} ;;
-    "") if [ -n "$path" ] && [ "$path" = "$abs" ]; then found=1; branch=$wb; fi; path="" ;;
+    "") if [ -n "$path" ] && [ "$path" = "$abs" ]; then found=1; branch=$wb; head_sha=$wh; fi; path="" ;;
   esac
 done < <(git worktree list --porcelain; echo)
 
@@ -62,6 +63,7 @@ base_ref="origin/${default_branch:-main}"
 
 # --- ブランチ側の確認 (worktree のディレクトリが無くても行う) ---
 pr="?" pr_head=""
+[ "$branch" = "(detached)" ] && pr="-"
 if [ "$branch" != "(detached)" ] && command -v gh >/dev/null 2>&1; then
   # 同じブランチ名の PR が複数あれば OPEN > MERGED > CLOSED の順で代表させ、その head SHA も取る
   pr_json=$(gh pr list --head "$branch" --state all --limit 10 --json number,state,headRefOid \
@@ -88,7 +90,22 @@ fi
 
 if [ ! -d "$abs" ]; then
   echo "対象: ${abs} (ディレクトリは既にありません → git worktree prune)"
-  echo "ブランチ: ${branch} / PR: ${pr} / ${base_ref} に無いコミット: ${ahead}"
+  echo "ブランチ: ${branch} / HEAD: ${head_sha:0:7} / PR: ${pr} / ${base_ref} に無いコミット: ${ahead}"
+  # detached HEAD は worktree の登録 (.git/worktrees/<name>/HEAD) が最後の参照かもしれない。
+  # どのブランチ / リモートにも含まれないコミットなら prune で unreachable になるので止める
+  if [ "$branch" = "(detached)" ] && [ -n "$head_sha" ] && [ "$force" = 0 ] \
+     && [ -z "$(git for-each-ref --contains "$head_sha" refs/heads refs/remotes 2>/dev/null)" ]; then
+    echo "削除を中止しました: detached HEAD のコミット ${head_sha:0:7} はどのブランチにも含まれておらず、prune すると失われます。" >&2
+    echo "残すなら先に退避してから再実行してください: git branch rescue/$(basename "$abs") ${head_sha}" >&2
+    echo "不要だと確認できたら --force で prune します" >&2
+    exit 3
+  fi
+  if [ "$branch" = "(detached)" ]; then
+    # detached ならブランチは無いので、登録を消すだけ (上の未参照チェックを通過している)
+    git worktree prune
+    echo "worktree の登録を消しました: ${abs}"
+    exit 0
+  fi
   if [ "$force" = 0 ]; then
     reasons=()
     case "$pr" in
