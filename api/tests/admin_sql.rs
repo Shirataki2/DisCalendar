@@ -425,6 +425,27 @@ async fn protected_tables_are_rejected_before_execution(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn console_sessions_do_not_expose_their_queries(pool: PgPool) {
+    // ロールに track_activities = off が設定され、pg_stat_activity.query に実行中の SQL が載らない
+    let setting = run(&pool, "SELECT current_setting('track_activities')")
+        .await
+        .unwrap();
+    assert_eq!(setting.rows[0][0].as_deref(), Some("off"));
+    let shown = run(
+        &pool,
+        "SELECT query FROM pg_stat_activity WHERE pid = pg_backend_pid()",
+    )
+    .await
+    .unwrap();
+    // 収集されていないので空 (または "<command string not enabled>") になり、文そのものは見えない
+    let query = shown.rows[0][0].clone().unwrap_or_default();
+    assert!(
+        query.is_empty() || query == "<command string not enabled>",
+        "{query:?}"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn session_advisory_locks_do_not_leak_into_the_pool(pool: PgPool) {
     run(
         &pool,

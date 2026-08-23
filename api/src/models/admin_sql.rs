@@ -36,11 +36,13 @@
 //! 結果の値は text にキャストして simple query protocol (text format) で受け取り、型ごとのデコードをせずに
 //! 文字列表現のまま返す (psql とほぼ同じ。boolean は `true` / `false`。NULL は null)。
 //!
-//! 監査ログ・履歴に残す SQL は [`redact_sql`] で文字列リテラルとコメントを伏せる (管理者が調査中に貼り付けた
-//! cookie やトークンが履歴として永続化・他の管理者に表示されないように)。
+//! 監査ログ・履歴に残す SQL は [`redact_sql`] で文字列リテラル・引用識別子・コメントを伏せる (管理者が調査中に
+//! 貼り付けた cookie やトークンが履歴として永続化・他の管理者に表示されないように)。同じ理由でロールには
+//! `track_activities = off` を設定し、実行中の SQL 全文が `pg_stat_activity` から他の管理者に見えないようにする。
 
 use std::time::{Duration, Instant};
 
+use futures_util::TryStreamExt as _;
 use hmac::{Hmac, KeyInit as _, Mac as _};
 use serde::Serialize;
 use sha2::Sha256;
@@ -252,31 +254,45 @@ async fn ensure_role(pool: &PgPool, password: Option<&str>) -> anyhow::Result<()
     if let Some(password) = password {
         // パスワードは derive_password の hex (英数字のみ) なのでそのまま埋め込める
         debug_assert!(password.chars().all(|c| c.is_ascii_hexdigit()));
-        let statement = format!("ALTER ROLE {ROLE} LOGIN PASSWORD '{password}'");
-        // 複数の api インスタンスが同時に起動すると pg_authid の同じ行を更新して
-        // "tuple concurrently updated" (XX000) になることがあるので、少し待って再試行する
-        let mut attempt = 0;
-        loop {
-            match sqlx::raw_sql(AssertSqlSafe(statement.clone()))
-                .execute(pool)
-                .await
+        alter_role(
+            pool,
+            format!("ALTER ROLE {ROLE} LOGIN PASSWORD '{password}'"),
+            "failed to set the password (CREATEROLE or superuser is required)",
+        )
+        .await?;
+    }
+    // このロールのセッションの実行中 SQL を pg_stat_activity.query に出さない (同じロールの別セッション =
+    // 別の管理者から、貼り付けたリテラル付きの SQL 全文が見えてしまうため)。SUSET パラメータなので superuser が要る
+    alter_role(
+        pool,
+        format!("ALTER ROLE {ROLE} SET track_activities = off"),
+        "failed to set track_activities = off (superuser is required)",
+    )
+    .await?;
+    Ok(())
+}
+
+/// `ALTER ROLE` を実行する。複数の api インスタンスが同時に起動すると pg_authid の同じ行を更新して
+/// "tuple concurrently updated" (XX000) になることがあるので、少し待って再試行する
+async fn alter_role(pool: &PgPool, statement: String, context: &str) -> anyhow::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match sqlx::raw_sql(AssertSqlSafe(statement.clone()))
+            .execute(pool)
+            .await
+        {
+            Ok(_) => return Ok(()),
+            Err(sqlx::Error::Database(db))
+                if attempt < 5 && db.message().contains("tuple concurrently updated") =>
             {
-                Ok(_) => break,
-                Err(sqlx::Error::Database(db))
-                    if attempt < 5 && db.message().contains("tuple concurrently updated") =>
-                {
-                    attempt += 1;
-                    tokio::time::sleep(Duration::from_millis(100 * attempt)).await;
-                }
-                Err(e) => {
-                    return Err(anyhow::Error::new(e).context(format!(
-                        "failed to set the password of {ROLE} (CREATEROLE or superuser is required)"
-                    )));
-                }
+                attempt += 1;
+                tokio::time::sleep(Duration::from_millis(100 * attempt)).await;
+            }
+            Err(e) => {
+                return Err(anyhow::Error::new(e).context(format!("{ROLE}: {context}")));
             }
         }
     }
-    Ok(())
 }
 
 async fn grant_privileges(pool: &PgPool) -> anyhow::Result<()> {
@@ -426,6 +442,7 @@ async fn run_in_transaction(
     // (6) 単一文であることの確認と、カラム情報の取得 (0 行でもカラム名を返せるように)。
     // `prepare` は他のクエリと同じく接続ごとのステートメントキャッシュ (LRU) に乗る。
     // 実行は次の DECLARE / FETCH で行うので、ここでは結果を取り出さない
+    apply_deadline(conn, deadline).await?;
     let prepared = conn
         .prepare(AssertSqlSafe(sql.to_owned()).into_sql_str())
         .await
@@ -455,13 +472,18 @@ async fn run_in_transaction(
             fetch_from_cursor(conn, deadline, columns.len()).await?
         }
         Statement::Explain { .. } | Statement::Show => {
-            let rows = sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))
-                .fetch_all(&mut *conn)
-                .await
-                .map_err(SqlError::from_sqlx)?;
+            // カーソルにできないので、行をストリームで受け取りながら上限で読むのをやめる
+            // (残りは sqlx が読み捨てる。1 行の大きさは Postgres が作る計画のテキスト次第)
             let mut out = Vec::new();
             let mut bytes = 0;
-            let truncated = push_rows(&rows, &mut out, &mut bytes)?;
+            let mut truncated = false;
+            let mut stream = sqlx::raw_sql(AssertSqlSafe(sql.to_owned())).fetch(&mut *conn);
+            while let Some(row) = stream.try_next().await.map_err(SqlError::from_sqlx)? {
+                if push_rows(std::slice::from_ref(&row), &mut out, &mut bytes)? {
+                    truncated = true;
+                    break;
+                }
+            }
             (out, truncated)
         }
     };
@@ -482,11 +504,12 @@ async fn apply_deadline(conn: &mut PgConnection, deadline: Instant) -> Result<()
     Ok(())
 }
 
-/// 接続のセッションユーザーが専用ロールで superuser でなく、保護テーブルを読めないことを確認する。
-/// どれかが満たされなければ `Unavailable` (実行しない)
+/// 接続のセッションユーザーが専用ロールで superuser でなく、保護テーブルを読めず、`track_activities` が off
+/// (他の管理者の実行中 SQL が `pg_stat_activity` で見えない) ことを確認する。どれかが満たされなければ `Unavailable` (実行しない)
 async fn verify_console_role(conn: &mut PgConnection) -> Result<(), SqlError> {
-    let (session_user, superuser): (String, bool) = sqlx::query_as(
-        "SELECT session_user::text, (SELECT rolsuper FROM pg_roles WHERE rolname = session_user)",
+    let (session_user, superuser, track_activities): (String, bool, String) = sqlx::query_as(
+        "SELECT session_user::text, (SELECT rolsuper FROM pg_roles WHERE rolname = session_user), \
+         current_setting('track_activities')",
     )
     .fetch_one(&mut *conn)
     .await?;
@@ -504,9 +527,9 @@ async fn verify_console_role(conn: &mut PgConnection) -> Result<(), SqlError> {
     .bind(PROTECTED_TABLES.as_slice())
     .fetch_all(&mut *conn)
     .await?;
-    if session_user != ROLE || superuser || !readable.is_empty() {
+    if session_user != ROLE || superuser || !readable.is_empty() || track_activities != "off" {
         return Err(SqlError::Unavailable(format!(
-            "SQL コンソール用の DB 接続の権限が正しくありません (session_user: {session_user}, superuser: {superuser}, 読める保護テーブル: {readable:?})。README の手順でロール {ROLE} を直してください"
+            "SQL コンソール用の DB 接続の設定が正しくありません (session_user: {session_user}, superuser: {superuser}, 読める保護テーブル: {readable:?}, track_activities: {track_activities})。README の手順でロール {ROLE} を直してください"
         )));
     }
     Ok(())
@@ -607,8 +630,8 @@ fn push_rows(
     Ok(false)
 }
 
-/// 監査ログ・履歴に残す用に、SQL の文字列リテラル (`'...'`、`E'...'`、`$tag$...$tag$`) の中身を `…` に、
-/// コメント (`-- ...`、`/* ... */`) を空白に置き換える。識別子 (`"..."`) と数値はそのまま。
+/// 監査ログ・履歴に残す用に、SQL の文字列リテラル (`'...'`、`E'...'`、`$tag$...$tag$`) と引用識別子 (`"..."`) の
+/// 中身を `…` に、コメント (`-- ...`、`/* ... */`) を空白に置き換える。引用符の無い識別子と数値はそのまま。
 /// 管理者が貼り付けたトークンや cookie が履歴として残らないようにするためで、構文として正しい必要はない
 pub fn redact_sql(sql: &str) -> String {
     let mut out = String::with_capacity(sql.len());
@@ -645,11 +668,9 @@ pub fn redact_sql(sql: &str) -> String {
             out.push_str("'…'");
             rest = skip_quoted(after, '\'', escapes);
         } else if let Some(after) = rest.strip_prefix('"') {
-            // 識別子はそのまま ("" は引用符のエスケープ)
-            let end = skip_quoted(after, '"', false);
-            out.push('"');
-            out.push_str(&after[..after.len() - end.len()]);
-            rest = end;
+            // 引用識別子も中身は利用者の入力 (`SELECT 1 AS "<秘密>"` と書ける) なので伏せる ("" は引用符のエスケープ)
+            out.push_str("\"…\"");
+            rest = skip_quoted(after, '"', false);
         } else if rest.starts_with('$')
             && let Some((tag, after)) = dollar_tag(rest)
         {
@@ -953,7 +974,7 @@ mod tests {
             redact_sql(
                 "SELECT 'secret', \"col\", 42 FROM t WHERE a = 'x''y' -- tok\nAND b = E'a\\'b'"
             ),
-            "SELECT '…', \"col\", 42 FROM t WHERE a = '…' \nAND b = E'…'"
+            "SELECT '…', \"…\", 42 FROM t WHERE a = '…' \nAND b = E'…'"
         );
         assert_eq!(
             redact_sql("SELECT $$raw 'token'$$, $tag$x$tag$, $1 /* c /* n */ */ + 1"),
@@ -962,7 +983,10 @@ mod tests {
         // 閉じていないリテラルやコメントは末尾まで伏せる
         assert_eq!(redact_sql("SELECT 'open"), "SELECT '…'");
         assert_eq!(redact_sql("SELECT 1 /* open"), "SELECT 1  ");
-        assert_eq!(redact_sql("SELECT \"a\"\"b\""), "SELECT \"a\"\"b\"");
+        assert_eq!(
+            redact_sql("SELECT 1 AS \"a\"\"b\", x"),
+            "SELECT 1 AS \"…\", x"
+        );
     }
 
     #[test]
