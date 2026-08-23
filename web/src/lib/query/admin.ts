@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { revalidateAdminPages } from "@/app/admin/guilds/actions";
 import { api } from "@/lib/api";
 import type { AdminGuildDetail, GuildConfig } from "@/lib/api/types";
 import { queryKeys } from "./keys";
@@ -16,7 +17,8 @@ export function useAdminGuildQuery(guildId: string) {
 /**
  * restricted の切替 (api 側で監査ログに残る)。成功したらキャッシュ上の詳細を書き換える。
  * 同じギルドのダッシュボード (`/dashboard/[id]`) が使う設定キャッシュも同じ QueryClient にあるので、
- * そちらも置き換えて、戻ったときに編集可否が古いまま (staleTime 内) にならないようにする
+ * そちらも置き換えて、戻ったときに編集可否が古いまま (staleTime 内) にならないようにする。
+ * RSC が描画するギルド一覧 (`/admin/guilds`) は Router Cache を捨てて再取得させる
  */
 export function useUpdateAdminGuildConfig(guildId: string) {
   const queryClient = useQueryClient();
@@ -33,6 +35,7 @@ export function useUpdateAdminGuildConfig(guildId: string) {
         queryKeys.guild.config(guildId),
         config,
       );
+      return revalidateAdminPages();
     },
   });
 }
