@@ -3,6 +3,7 @@
 import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 import { useId, useState } from "react";
+import { DeleteGuildEventsButton } from "@/components/admin-ops";
 import { EventCalendar } from "@/components/event-calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { describeApiError } from "@/lib/api";
@@ -126,10 +127,19 @@ export function AdminGuildView({ guildId }: Props) {
           </span>
         )}
       </div>
-      <p className="shrink-0 text-xs text-amber-300/80">
-        管理者として操作しています。予定の作成・編集・削除と restricted
-        の切替は監査ログに記録されます
-      </p>
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+        <p className="text-xs text-amber-300/80">
+          管理者として操作しています。予定の作成・編集・削除と restricted
+          の切替は監査ログに記録されます
+        </p>
+        <div className="ml-auto">
+          <DeleteGuildEventsButton
+            guildId={guildId}
+            guildName={guild?.name}
+            eventCount={guild?.event_count}
+          />
+        </div>
+      </div>
       <EventCalendar
         guildId={guildId}
         canEdit

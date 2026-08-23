@@ -105,6 +105,12 @@ web の `/admin` を開け、api の `/admin/*` を呼べる。それ以外は a
 管理コンソールからの書き込み操作は `admin_audit_logs` テーブルに記録する (`api/src/models/admin_audit.rs`)。
 `/admin/guilds` で全ギルドの一覧・検索、`/admin/guilds/[id]` で (自分が所属していないギルドも含めて) 予定の閲覧・編集・削除と
 `restricted` の切替ができる (#35)。カレンダーは `/dashboard/[id]` と同じ部品を admin 用 API (`/admin/guilds/{guild_id}/events`) に向けて使っている。
+`/admin/sql` は読み取り専用の SQL コンソールと定型操作 (#36)。SQL は `BEGIN READ ONLY` のトランザクションで
+`statement_timeout` 10 秒・先頭 500 行までを返し、SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文だけ受け付ける。
+Better Auth の `account` / `session` / `verification` (トークン類) とプランナ統計 (`pg_statistic` / `pg_stats`、列のサンプル値に
+実値が入る) を読む文は `EXPLAIN` の実行計画を見て実行前に拒否する (`api/src/models/admin_sql.rs`)。
+書き込みは自由 SQL ではなく定型操作 (指定ギルドの全予定削除、期限切れセッションの削除) として `POST /admin/ops/*` にあり、
+SQL の実行 (成功・失敗とも) と定型操作はすべて `admin_audit_logs` に残る。
 ローカルで試すときは `api/.env` に自分の Discord ユーザー ID を入れて api を再起動し、`/dashboard` のヘッダーに出る
 「管理コンソール」から開く。compose / staging では ルートの `.env` (`ADMIN_DISCORD_USER_IDS`) で渡す。
 
@@ -189,5 +195,6 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
 | `/dashboard/[id]` | ギルドごとのカレンダー |
 | `/admin` | 管理コンソール（`ADMIN_DISCORD_USER_IDS` のユーザーのみ。それ以外は 404） |
 | `/admin/guilds`, `/admin/guilds/[id]` | 管理コンソール: 全ギルドの一覧・検索と、ギルドごとの予定の閲覧・編集 |
+| `/admin/sql` | 管理コンソール: 読み取り専用 SQL コンソール (結果の表・実行履歴) と定型操作 |
 | `/api/auth/*` | Better Auth（OAuth コールバック含む） |
 | `/local/api/*` | Rust API へのプロキシ（rewrites） |

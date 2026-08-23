@@ -100,7 +100,7 @@ pub struct GuildEventPath {
 }
 
 /// パスの guild_id が Snowflake の形式であることを確認する (`GuildMember` extractor と同じ扱い)
-fn validated_guild_id(guild_id: &str) -> Result<&str, ApiError> {
+pub(super) fn validated_guild_id(guild_id: &str) -> Result<&str, ApiError> {
     if !is_snowflake(guild_id) {
         return Err(ApiError::BadRequest("guild_id must be a snowflake".into()));
     }
@@ -358,7 +358,7 @@ pub async fn put_config(
 }
 
 /// 書き込み前に、現在または過去に存在したギルドであることを確認する (無ければ 404)
-async fn ensure_guild_known<'e>(
+pub(super) async fn ensure_guild_known<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     guild_id: &str,
 ) -> Result<(), ApiError> {
@@ -369,7 +369,7 @@ async fn ensure_guild_known<'e>(
 }
 
 /// 監査ログに入れるスナップショット (API レスポンスと同じ JSON)
-fn snapshot<T: Serialize>(value: &T) -> Result<serde_json::Value, ApiError> {
+pub(super) fn snapshot<T: Serialize>(value: &T) -> Result<serde_json::Value, ApiError> {
     serde_json::to_value(value)
         .map_err(|e| anyhow::anyhow!("failed to serialize audit snapshot: {e}").into())
 }

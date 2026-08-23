@@ -94,6 +94,49 @@ export interface AdminGuildDetail extends AdminGuild {
   bot_joined: boolean | null;
 }
 
+/** POST /admin/sql の 1 カラム */
+export interface SqlColumn {
+  name: string;
+  /** Postgres の型名 (INT4 / TEXT / TIMESTAMPTZ など) */
+  type: string;
+}
+
+/** POST /admin/sql の結果。値は Postgres のテキスト表現 (psql と同じ)、NULL は null */
+export interface SqlResult {
+  columns: SqlColumn[];
+  rows: (string | null)[][];
+  row_count: number;
+  /** ADMIN_SQL_MAX_ROWS を超えたので打ち切った */
+  truncated: boolean;
+  duration_ms: number;
+}
+
+/** SQL コンソールが 1 回で返す最大行数 (api の `admin_sql::MAX_ROWS`) */
+export const ADMIN_SQL_MAX_ROWS = 500;
+/** SQL の長さの上限 (文字数。api の `admin_sql::MAX_SQL_CHARS`、超えると 400) */
+export const ADMIN_SQL_MAX_CHARS = 10_000;
+/** 1 文の実行時間の上限 (秒。api の `admin_sql::STATEMENT_TIMEOUT`) */
+export const ADMIN_SQL_TIMEOUT_SECONDS = 10;
+
+/** GET /admin/sql/history の 1 件 (監査ログの sql.select から組み立てたもの) */
+export interface SqlHistoryEntry {
+  id: number;
+  actor_discord_user_id: string;
+  sql: string;
+  row_count: number | null;
+  truncated: boolean | null;
+  duration_ms: number | null;
+  /** 失敗・拒否時のメッセージ */
+  error: string | null;
+  /** ISO 8601 (UTC) */
+  created_at: string;
+}
+
+/** POST /admin/ops/* の結果 */
+export interface OpsResult {
+  deleted: number;
+}
+
 export interface MyPermissions {
   user_id: string;
   permissions: string;

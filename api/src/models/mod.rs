@@ -5,6 +5,8 @@
 
 pub mod admin_audit;
 pub mod admin_guilds;
+pub mod admin_ops;
+pub mod admin_sql;
 pub mod events;
 pub mod guilds;
 pub mod notifications;

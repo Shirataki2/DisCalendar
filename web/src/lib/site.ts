@@ -29,6 +29,8 @@ export const ROUTES = {
   admin: "/admin",
   /** 管理コンソールのギルド一覧 (`/admin/guilds/[id]` が詳細) */
   adminGuilds: "/admin/guilds",
+  /** 管理コンソールの SQL コンソールと定型操作 */
+  adminSql: "/admin/sql",
   /** Bot の招待 URL へリダイレクトする (app/invite/route.ts) */
   invite: "/invite",
   docs: "/docs/gettingstarted",

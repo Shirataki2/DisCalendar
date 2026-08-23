@@ -9,7 +9,7 @@ import { ROUTES } from "@/lib/site";
 const ITEMS: { label: string; href?: string }[] = [
   { label: "概要", href: ROUTES.admin },
   { label: "ギルド・予定", href: ROUTES.adminGuilds },
-  { label: "SQL" },
+  { label: "SQL・定型操作", href: ROUTES.adminSql },
   { label: "ユーザー" },
   { label: "監査ログ" },
 ];

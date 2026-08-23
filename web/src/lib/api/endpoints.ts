@@ -8,6 +8,9 @@ import type {
   Guild,
   GuildConfig,
   MyPermissions,
+  OpsResult,
+  SqlHistoryEntry,
+  SqlResult,
 } from "./types";
 
 /**
@@ -67,7 +70,7 @@ export function createApi(request: ApiFetcher) {
         request<MyPermissions>(`/guilds/${guildId}/@me/permissions`),
     },
     events: createEventsClient(request, (guildId) => `/events/${guildId}`),
-    /** 管理コンソール (api/src/routes/admin.rs, admin_guilds.rs)。管理者以外は 403 */
+    /** 管理コンソール (api/src/routes/admin*.rs)。管理者以外は 403 */
     admin: {
       me: () => request<AdminMe>("/admin/me"),
       guilds: {
@@ -90,6 +93,27 @@ export function createApi(request: ApiFetcher) {
         request,
         (guildId) => `/admin/guilds/${guildId}/events`,
       ),
+      /** 読み取り専用 SQL コンソール (#36)。実行は成功・失敗とも監査ログに残る */
+      sql: {
+        /** 実行できない文や Postgres のエラーは 400 (bad_request) で、message にそのまま入る */
+        run: (sql: string) =>
+          request<SqlResult>("/admin/sql", { method: "POST", body: { sql } }),
+        history: () => request<SqlHistoryEntry[]>("/admin/sql/history"),
+      },
+      /** 定型の書き込み操作 (#36)。すべて監査ログに残る */
+      ops: {
+        /** 指定ギルドの予定をすべて削除する (未知のギルドは 404) */
+        deleteGuildEvents: (guildId: string) =>
+          request<OpsResult>("/admin/ops/delete-guild-events", {
+            method: "POST",
+            body: { guild_id: guildId },
+          }),
+        /** Better Auth の期限切れセッションを削除する */
+        purgeExpiredSessions: () =>
+          request<OpsResult>("/admin/ops/purge-expired-sessions", {
+            method: "POST",
+          }),
+      },
     },
   };
 }

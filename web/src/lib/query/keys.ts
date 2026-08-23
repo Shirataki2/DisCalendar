@@ -19,6 +19,8 @@ export const queryKeys = {
   /** 管理コンソール。通常画面とは別のエンドポイントなので、キャッシュも別に持つ */
   admin: {
     guild: (guildId: string) => ["admin", "guild", guildId] as const,
+    /** SQL コンソールの実行履歴 (監査ログ) */
+    sqlHistory: ["admin", "sql", "history"] as const,
     events: {
       all: (guildId: string) => ["admin", "events", guildId] as const,
       range: (guildId: string, start: string, end: string) =>
