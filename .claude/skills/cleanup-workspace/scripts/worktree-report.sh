@@ -97,8 +97,19 @@ users_of() {
 
 # <path> → git 管理外 (ignored) のファイルのうち、再生成できる成果物 (target/ node_modules/ .next/ など) 以外で
 #           メインの checkout に無い / 内容が違うもの (.env 系、*.pem などの鍵、tmp/ など)
+# <wt> <相対パス> → メインの checkout と比べて「main に無い」「内容が違う」「リンク先が違う」なら理由を出力 (同じなら何も出さない)。
+# シンボリックリンクは中身ではなくリンク自体の有無と readlink の結果で比べる (リンク先の内容が偶然同じでも設定は別物)
+entry_diff() {
+  local wt=$1 rel=$2
+  if [ -L "$wt/$rel" ]; then
+    if [ ! -L "${main_wt}/${rel}" ]; then echo "main に無いシンボリックリンク (→ $(readlink "$wt/$rel"))"
+    elif [ "$(readlink "$wt/$rel")" != "$(readlink "${main_wt}/${rel}")" ]; then echo "main とリンク先が違う (→ $(readlink "$wt/$rel"))"; fi
+  elif [ ! -f "${main_wt}/${rel}" ] || [ -L "${main_wt}/${rel}" ]; then echo "main に無い"
+  elif ! cmp -s "$wt/$rel" "${main_wt}/${rel}"; then echo "main と内容が違う"; fi
+}
+
 env_risk_of() {
-  local rec f g n out=""
+  local rec f g n why out=""
   # --porcelain -z で NUL 区切りにし、空白や引用を含むパスもそのまま扱う ("!! <path>" のレコードだけ見る)
   while IFS= read -r -d '' rec; do
     [ "${rec:0:2}" = "!!" ] || continue
@@ -106,20 +117,16 @@ env_risk_of() {
     [[ "$f" =~ $REGEN_RE ]] && continue
     case "$f" in
       tmp/) [ -n "$(ls -A "$1/tmp" 2>/dev/null)" ] && out+="tmp/ ($(du -sh "$1/tmp" 2>/dev/null | cut -f1)、復元不能) " ;;
-      */)   # ignored ディレクトリは 1 項目に集約されるので中のファイルを個別に比べる (集約のまま「同名あり」で安全扱いしない)
+      */)   # ignored ディレクトリは 1 項目に集約されるので中のファイル / リンクを個別に比べる (集約のまま「同名あり」で安全扱いしない)
             if [ ! -d "${main_wt}/${f}" ]; then out+="${f} (main に無いディレクトリ) "
             else
               n=0
               while IFS= read -r -d '' g; do
-                g=${g#./}
-                if [ -L "$1/$g" ]; then  # シンボリックリンクはリンク先の文字列で比べる
-                  [ -L "${main_wt}/${g}" ] && [ "$(readlink "$1/$g")" = "$(readlink "${main_wt}/${g}")" ] || n=$((n + 1))
-                elif [ ! -f "${main_wt}/${g}" ] || ! cmp -s "$1/$g" "${main_wt}/${g}"; then n=$((n + 1)); fi
+                [ -n "$(entry_diff "$1" "${g#./}")" ] && n=$((n + 1))
               done < <(cd "$1" && find "./${f%/}" \( -type f -o -type l \) -print0 2>/dev/null)
               [ "$n" -gt 0 ] && out+="${f} (main に無い / 違うファイル ${n} 件) "
             fi ;;
-      *)    if [ ! -f "${main_wt}/${f}" ]; then out+="${f} (main に無い) "
-            elif ! cmp -s "$1/$f" "${main_wt}/${f}"; then out+="${f} (main と内容が違う) "; fi ;;
+      *)    why=$(entry_diff "$1" "$f"); [ -n "$why" ] && out+="${f} (${why}) " ;;
     esac
   done < <(git -C "$1" status --ignored --porcelain -z 2>/dev/null)
   [ -n "$out" ] && echo "${out% }" || echo "-"

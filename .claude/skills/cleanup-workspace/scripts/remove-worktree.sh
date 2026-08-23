@@ -63,6 +63,17 @@ base_ref="origin/${default_branch:-main}"
 # 再生成できる ignored 成果物 (消えても困らないもの)。これ以外の ignored は退避の要否を確認する
 REGEN_RE='(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo)/$|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$'
 
+# <wt> <相対パス> → メインの checkout と比べて「main に無い」「内容が違う」「リンク先が違う」なら理由を出力 (同じなら何も出さない)。
+# シンボリックリンクは中身ではなくリンク自体の有無と readlink の結果で比べる (リンク先の内容が偶然同じでも設定は別物)
+entry_diff() {
+  local wt=$1 rel=$2
+  if [ -L "$wt/$rel" ]; then
+    if [ ! -L "${main_wt}/${rel}" ]; then echo "main に無いシンボリックリンク (→ $(readlink "$wt/$rel"))"
+    elif [ "$(readlink "$wt/$rel")" != "$(readlink "${main_wt}/${rel}")" ]; then echo "main とリンク先が違う (→ $(readlink "$wt/$rel"))"; fi
+  elif [ ! -f "${main_wt}/${rel}" ] || [ -L "${main_wt}/${rel}" ]; then echo "main に無い"
+  elif ! cmp -s "$wt/$rel" "${main_wt}/${rel}"; then echo "main と内容が違う"; fi
+}
+
 # git worktree prune はパスを取らず、消失済みの登録をすべて消す。対象以外に「未参照コミットを指す detached HEAD」の
 # 消失済み登録があれば、その最後の参照を巻き込まないよう prune を見送る (対象そのものは remove --force で個別に消す)
 safe_prune() {
@@ -186,28 +197,25 @@ else
     [[ "$f" =~ $REGEN_RE ]] && continue
     case "$f" in
       tmp/) ;;  # 上で停止済み
-      */)   # ignored ディレクトリは 1 項目に集約されるので、中のファイルを個別にメインの checkout と比べる
+      */)   # ignored ディレクトリは 1 項目に集約されるので、中のファイル / リンクを個別にメインの checkout と比べる
             if [ ! -d "${main_wt}/${f}" ]; then
               env_risk+="  - ${f}: メインの checkout に無いディレクトリ (必要なら mv \"${abs}/${f}\" <退避先>)"$'\n'
             else
               n=0; shown=0
               while IFS= read -r -d '' g; do
                 g=${g#./}
-                if [ -L "$abs/$g" ]; then  # シンボリックリンクはリンク先の文字列で比べる
-                  if [ ! -L "${main_wt}/${g}" ]; then why="main に無いシンボリックリンク (→ $(readlink "$abs/$g"))"
-                  elif [ "$(readlink "$abs/$g")" != "$(readlink "${main_wt}/${g}")" ]; then why="main とリンク先が違う (→ $(readlink "$abs/$g"))"
-                  else continue; fi
-                elif [ ! -f "${main_wt}/${g}" ]; then why="main に無い"
-                elif ! cmp -s "$abs/$g" "${main_wt}/${g}"; then why="main と内容が違う"
-                else continue; fi
+                why=$(entry_diff "$abs" "$g"); [ -n "$why" ] || continue
                 n=$((n + 1))
                 if [ "$shown" -lt 10 ]; then env_risk+="  - ${g}: ${why}"$'\n'; shown=$((shown + 1)); fi
               done < <(cd "$abs" && find "./${f%/}" \( -type f -o -type l \) -print0 2>/dev/null)
               [ "$n" -gt "$shown" ] && env_risk+="  - ... 他 $((n - shown)) 件 (${f} 配下)"$'\n'
             fi ;;
-      *)    if [ ! -f "${main_wt}/${f}" ]; then env_risk+="  - ${f}: メインの checkout に無い (残すなら cp \"${abs}/${f}\" \"${main_wt}/${f}\")"$'\n'
-            elif ! cmp -s "$abs/$f" "${main_wt}/${f}"; then env_risk+="  - ${f}: メインの checkout と内容が違う (diff を確認)"$'\n'
-            fi ;;
+      *)    why=$(entry_diff "$abs" "$f")
+            case "$why" in
+              "") ;;
+              "main に無い") env_risk+="  - ${f}: メインの checkout に無い (残すなら cp \"${abs}/${f}\" \"${main_wt}/${f}\")"$'\n' ;;
+              *) env_risk+="  - ${f}: ${why}"$'\n' ;;
+            esac ;;
     esac
   done < <(git -C "$abs" status --ignored --porcelain -z 2>/dev/null)
 
