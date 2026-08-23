@@ -60,6 +60,8 @@ case "$orig_pwd/" in "$abs"/*) echo "このセッションは対象 worktree の
 
 default_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 base_ref="origin/${default_branch:-main}"
+# 再生成できる ignored 成果物 (消えても困らないもの)。これ以外の ignored は退避の要否を確認する
+REGEN_RE='(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo)/$|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$'
 
 # git worktree prune はパスを取らず、消失済みの登録をすべて消す。対象以外に「未参照コミットを指す detached HEAD」の
 # 消失済み登録があれば、その最後の参照を巻き込まないよう prune を見送る (対象そのものは remove --force で個別に消す)
@@ -177,8 +179,11 @@ else
   # git 管理外 (ignored) のうち再生成できる成果物 (target/ node_modules/ .next/ など) 以外は worktree ごと消えるので、
   # メインの checkout に無い / 内容が違うもの (.env 系、*.pem などの鍵、見知らぬディレクトリ) を洗い出す
   env_risk=""
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
+  # --porcelain -z で NUL 区切りにし、空白や引用を含むパスもそのまま扱う ("!! <path>" のレコードだけ見る)
+  while IFS= read -r -d '' rec; do
+    [ "${rec:0:2}" = "!!" ] || continue
+    f=${rec:3}
+    [[ "$f" =~ $REGEN_RE ]] && continue
     case "$f" in
       tmp/) ;;  # 上で停止済み
       */)   # ignored ディレクトリは 1 項目に集約されるので、中のファイルを個別にメインの checkout と比べる
@@ -186,21 +191,21 @@ else
               env_risk+="  - ${f}: メインの checkout に無いディレクトリ (必要なら mv \"${abs}/${f}\" <退避先>)"$'\n'
             else
               n=0; shown=0
-              while IFS= read -r g; do
-                [ -n "$g" ] || continue
+              while IFS= read -r -d '' g; do
+                g=${g#./}
                 if [ ! -f "${main_wt}/${g}" ]; then why="main に無い"
                 elif ! cmp -s "$abs/$g" "${main_wt}/${g}"; then why="main と内容が違う"
                 else continue; fi
                 n=$((n + 1))
                 if [ "$shown" -lt 10 ]; then env_risk+="  - ${g}: ${why}"$'\n'; shown=$((shown + 1)); fi
-              done < <(cd "$abs" && find "${f%/}" -type f 2>/dev/null)
+              done < <(cd "$abs" && find "./${f%/}" -type f -print0 2>/dev/null)
               [ "$n" -gt "$shown" ] && env_risk+="  - ... 他 $((n - shown)) 件 (${f} 配下)"$'\n'
             fi ;;
       *)    if [ ! -f "${main_wt}/${f}" ]; then env_risk+="  - ${f}: メインの checkout に無い (残すなら cp \"${abs}/${f}\" \"${main_wt}/${f}\")"$'\n'
             elif ! cmp -s "$abs/$f" "${main_wt}/${f}"; then env_risk+="  - ${f}: メインの checkout と内容が違う (diff を確認)"$'\n'
             fi ;;
     esac
-  done < <(git -C "$abs" status --ignored --porcelain 2>/dev/null | awk '$1=="!!"{print $2}' | grep -Ev '(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo)/$|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$')
+  done < <(git -C "$abs" status --ignored --porcelain -z 2>/dev/null)
 
   echo "対象: ${abs}"
   echo "ブランチ: ${branch} / PR: ${pr} / 未コミット: ${dirty} / ${base_ref} に無いコミット: ${ahead}"
