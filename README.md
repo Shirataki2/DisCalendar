@@ -134,8 +134,9 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
   DB は compose 内の `db-data` ボリューム。公開は compose の `cloudflared` (Cloudflare Zero Trust で Tunnel を作り、Public Hostname を
   `http://web:3000` に向けてトークンを `.env` の `TUNNEL_TOKEN` に入れる)
 - **GitHub 側の設定** (Environment `staging`): secrets `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` (Tailscale の OAuth クライアント。scope `auth_keys`、
-  tag `tag:ci`。ACL の `tagOwners` に `tag:ci` を足し、`tag:ci` からホストへの ssh を許可する)、`STAGING_SSH_HOST` / `STAGING_SSH_USER`、
-  `STAGING_SSH_KEY` (鍵認証のとき。Tailscale SSH を使うなら不要)。
+  tag `tag:ci`。ACL の `tagOwners` に `tag:ci` を足し、`tag:ci` からホストの ssh ポートへの接続を許可する)、`STAGING_SSH_HOST` / `STAGING_SSH_USER`、
+  `STAGING_SSH_KEY` (鍵認証のとき。Tailscale SSH を使うなら不要)。ssh のポートが 22 以外なら variable `STAGING_SSH_PORT`
+  (deploy ジョブは Environment に属するので Environment `staging` / Repository どちらの Variables でもよい)。
   Repository variables (Environment ではなくリポジトリの Variables。build ジョブは Environment に属さないため): `STAGING_PLATFORMS`
   (ホストが arm64 なら `linux/arm64`)、`STAGING_BUILD_RUNNER` (arm64 なら `ubuntu-24.04-arm`。QEMU でもビルドできるが Rust が極端に遅い)、
   `STAGING_COMPOSE_DIR` (任意)

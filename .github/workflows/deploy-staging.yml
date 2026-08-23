@@ -4,6 +4,7 @@
 # ロールバック: Actions の "Run workflow" で image_tag に過去の sha-xxxxxxx を指定する (ビルドは飛ばして deploy だけ行う)。
 # 必要な設定 (Environment "staging"): secrets TS_OAUTH_CLIENT_ID / TS_OAUTH_SECRET (Tailscale の OAuth クライアント、tag:ci)、
 #   STAGING_SSH_HOST (Tailnet 上のホスト名か 100.x の IP) / STAGING_SSH_USER / STAGING_SSH_KEY (Tailscale SSH を使うなら不要)。
+#   vars STAGING_SSH_PORT (既定 22。deploy ジョブは Environment に属するので Environment / Repository どちらの variable でもよい)
 # Repository variables (build ジョブは Environment に属さないので Environment variables ではなくリポジトリ側に置く):
 #   STAGING_PLATFORMS (既定 linux/amd64) / STAGING_BUILD_RUNNER (既定 ubuntu-latest。arm64 ホストなら ubuntu-24.04-arm) /
 #   STAGING_COMPOSE_DIR (既定 /opt/discalendar-staging)。詳細は README
@@ -116,6 +117,7 @@ jobs:
       - name: SSH の準備
         env:
           SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          SSH_PORT: ${{ vars.STAGING_SSH_PORT || '22' }}
           SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -125,13 +127,14 @@ jobs:
             chmod 600 ~/.ssh/id_ed25519
           fi
           # Tailnet 内 (WireGuard で相手が認証済み) なのでホスト鍵はその場で取得する
-          ssh-keyscan -T 20 -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
       - name: compose.yaml を配ってデプロイする
         env:
           SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          SSH_PORT: ${{ vars.STAGING_SSH_PORT || '22' }}
           SSH_USER: ${{ secrets.STAGING_SSH_USER }}
           COMPOSE_DIR: ${{ vars.STAGING_COMPOSE_DIR || '/opt/discalendar-staging' }}
           IMAGE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          scp -q compose.yaml "$SSH_USER@$SSH_HOST:$COMPOSE_DIR/compose.yaml"
-          ssh "$SSH_USER@$SSH_HOST" bash -s -- "$COMPOSE_DIR" "$IMAGE_TAG" < .github/scripts/deploy-staging.sh
+          scp -q -P "$SSH_PORT" compose.yaml "$SSH_USER@$SSH_HOST:$COMPOSE_DIR/compose.yaml"
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash -s -- "$COMPOSE_DIR" "$IMAGE_TAG" < .github/scripts/deploy-staging.sh
