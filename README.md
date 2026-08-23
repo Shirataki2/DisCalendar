@@ -98,6 +98,28 @@ cp .env.example .env   # DATABASE_URL / DISCORD_BOT_TOKEN (api と同じ値)、B
 cargo run              # マイグレーションは api が適用するので、先に api を一度起動しておく
 ```
 
+### Docker (compose) で動かす
+
+ルートの `compose.yaml` で db (postgres:18) / api / web / bot をまとめて動かせる。各イメージは
+`web/Dockerfile` (Next.js standalone) / `api/Dockerfile` / `bot/Dockerfile` から作る。ステージング (#26) や本番 (#12) でも
+同じ compose を使い、イメージは GHCR (`ghcr.io/shirataki2/discalendar-{web,api,bot}`) から pull する想定。
+
+```sh
+cp .env.example .env          # POSTGRES_PASSWORD / BETTER_AUTH_SECRET / DISCORD_* を設定 (コメント参照)
+docker compose build          # web は pnpm install + next build、api / bot は cargo build --release (初回は時間がかかる)
+docker compose up -d          # db → api → web の順に起動。http://localhost:3000 (WEB_PORT で変更。BETTER_AUTH_URL は未設定ならこの URL に追従する)
+docker compose logs -f web api
+```
+
+- マイグレーション: api は起動時に `api/migrations/` を適用する。web は `AUTO_MIGRATE=true` (compose / Dockerfile の既定) のとき
+  起動時に Better Auth のテーブルを作成・更新する (`web/src/instrumentation.ts`。ローカル開発の `pnpm db:migrate` と同じ内容)
+- web の `/local/api/*` → api の rewrites の宛先は **ビルド時**に決まる (`web/Dockerfile` の `API_URL`、既定 `http://api:8080`)。
+  compose のサービス名 `api` を変えるときは `--build-arg API_URL=...` でビルドし直す。api のポートはホストに公開しない
+  (必要なら `compose.override.yaml` で `ports` を足す)
+- bot は既定では起動しない。`docker compose --profile bot up -d` で起動する。**同じトークンの Bot が他で動いていると通知が
+  二重に届く**ので、ローカルではテスト用 Discord アプリのトークンを使うこと (旧 Bot との入れ替え手順は #12)
+- DB は compose 内のボリューム `db-data` に保存される。既存の DB を使う場合は各サービスの `DATABASE_URL` を override する
+
 ## 開発の進め方 (GitHub)
 
 - 作業は Issue に登録する (`.github/ISSUE_TEMPLATE/` のフォーム: 不具合報告 / 機能要望 / 開発タスク)。
