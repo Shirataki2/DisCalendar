@@ -179,6 +179,53 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
   レビューの観点は [AGENTS.md](AGENTS.md) の「Code Review Rules」
 - 依存の更新は Dependabot (`.github/dependabot.yml`) が毎週まとめて PR を出す
 
+### Claude Code のクラウド環境で使う
+
+[claude.ai/code](https://claude.ai/code) のクラウドセッションや `claude --cloud "..."` は、Anthropic 管理の VM (Ubuntu 24.04。Node 22 + pnpm、
+rustc / cargo、PostgreSQL 16 がプリインストールだが Postgres は未起動) にこのリポジトリを clone して動く。持ち込まれるのはリポジトリにコミットしたもの
+(`CLAUDE.md` / `.claude/settings.json` / `.claude/skills/`) だけで、`~/.claude/` やローカルの MCP、Browser pane は使えない
+(公式: [Configure cloud environments](https://code.claude.com/docs/en/cloud-environments) / [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web))。
+
+- **リポジトリ側 (設定済み)**: `.claude/settings.json` の SessionStart hook が `.claude/hooks/cloud-session-start.sh` を呼び、クラウドのときだけ
+  (`CLAUDE_CODE_REMOTE=true`) Postgres の起動と `discalendar_dev` の作成、`web/` の `pnpm install`、`.env.example` からのダミー `.env` 生成を行う。ローカルでは何もしない
+- **一度だけ**: claude.ai/code で Claude GitHub App を入れるか、ローカルの Claude Code で `/web-setup` (`gh` のトークンを同期)。
+  Auto-fix (PR の CI 失敗・レビューコメントへの自動対応) を使うならこのリポジトリにも App をインストールする
+- **環境 (Environment) の設定** (claude.ai/code の environment selector から編集):
+  - Network access: 既定の **Trusted** のまま (npm / crates.io / static.rust-lang.org / GitHub が許可リストに入っている)
+  - Environment variables: **秘密情報は入れない** (環境を使う人全員が読める)。CI (`ci.yml`) と同じダミーで足りる
+
+    ```dotenv
+    SQLX_OFFLINE=true
+    DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/discalendar_dev
+    BETTER_AUTH_SECRET=cloud-dummy-secret-not-used-at-runtime
+    BETTER_AUTH_URL=http://localhost:3000
+    ```
+
+  - Setup script (root で実行、5 分以内、結果はスナップショットとして約 7 日キャッシュ): toolchain と依存の取得まで。
+    ワークスペースのフルビルドは 5 分に収まらない可能性が高いので入れない
+
+    ```bash
+    #!/bin/bash
+    set -x
+    cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    # rust-toolchain.toml (1.98.0 + rustfmt / clippy)。rustup が無ければ導入する (その場合は PATH に ~/.cargo/bin が要る)
+    if ! command -v rustup >/dev/null 2>&1; then
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || true
+      export PATH="$HOME/.cargo/bin:$PATH"
+    fi
+    rustup toolchain install || true
+    cargo fetch || true
+    corepack enable || true   # pnpm を web/package.json の packageManager の版に揃える
+    (cd web && pnpm install --frozen-lockfile) || true
+    exit 0
+    ```
+
+- **できないこと**: Discord ログイン、ブラウザでの動作確認、旧実装 (`tmp/DisCalendarV2/`) の参照。検証は CI 相当のコマンドまでなので、
+  UI や Discord 連携の確認が要るタスクはローカル向き。`git push` はセッションのカレントブランチのみ (main 直 push 禁止のルールと整合)。
+  ターミナルから `claude --cloud` で投げるときは GitHub 上のカレントブランチが clone される (ローカルの未 push コミットは見えない)
+- 最初のセッションでは `check-tools` / `rustup --version` / `pnpm -v` / `psql --version` を実行させ、hook のログ (`[cloud-session-start] ...`) で
+  Postgres と `pnpm install` が通ったことを確認してから Setup script を確定する
+
 ## ルート構成 (web)
 
 | パス | 内容 |

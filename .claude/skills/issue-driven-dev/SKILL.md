@@ -57,6 +57,11 @@ description: DisCalendar の GitHub Issue を起点にした開発フロー (Iss
 
 既定は worktree で作業する (メインの checkout を `main` のまま汚さず、複数の Issue を並行でき、dev サーバーも別々に立てられる)。
 
+**クラウドセッション (claude.ai/code / `claude --cloud`、環境変数 `CLAUDE_CODE_REMOTE=true`) では worktree を作らない。**
+セッションごとに VM とブランチが分かれていて、`git push` もそのカレントブランチにしかできないので、この節は飛ばして
+カレントブランチのまま 2 以降へ進む (ブランチ名が `claude/issue-<N>-<slug>` でなくてもよい)。旧実装 `tmp/DisCalendarV2/` は無く、
+Browser pane での動作確認もできない (検証は CI 相当まで。AGENTS.md「Claude Code のクラウドセッションでの注意」)。
+
 ```bash
 # <N>: Issue 番号、<slug>: 英小文字とハイフン 2〜4 語 (例: bot-tasks, staging-deploy, ga4)
 .claude/skills/issue-driven-dev/scripts/setup-worktree.sh <N> <slug>            # Rust だけなら

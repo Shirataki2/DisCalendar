@@ -20,6 +20,18 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - コメント・ドキュメント・PR の文章は日本語
 - Issue 着手から PR・レビュー対応までの手順は `.claude/skills/issue-driven-dev/`、worktree や `target/` の後片付けは `.claude/skills/cleanup-workspace/` (Claude Code のプロジェクトスキル) にまとめてある
 
+## Claude Code のクラウドセッションでの注意
+
+claude.ai/code や `claude --cloud` のセッション (環境変数 `CLAUDE_CODE_REMOTE=true`) は Anthropic 管理の VM にこのリポジトリを clone して動く。
+セッション開始時に `.claude/settings.json` の SessionStart hook (`.claude/hooks/cloud-session-start.sh`) が Postgres の起動・`web/` の `pnpm install`・
+ダミー値の `.env` 生成を行う。環境 (Environment) 側の設定手順は [README.md](README.md) の「Claude Code のクラウド環境で使う」。
+
+- **旧実装 `tmp/DisCalendarV2/` は無い** (git 管理外)。挙動の根拠が要るときは `docs/`・Issue・PR の記述で代用し、確認できなければ PR 本文にその旨を書く
+- **ブラウザ (Browser pane / Playwright) と Discord ログインでの動作確認はできない**。検証は CI 相当のコマンド (`pnpm lint` / `tsc` / `pnpm build`、
+  `cargo fmt` / `clippy` / `test`) まで。UI の見た目や Discord 連携の確認は PR の「動作確認」に未実施として残し、ユーザーに引き継ぐ
+- worktree は作らない (セッションごとに VM とブランチが分かれている)。`git push` はセッションのカレントブランチにしかできない
+- 秘密情報 (Bot トークン・Client Secret・本番の `BETTER_AUTH_SECRET`) は環境に入っていない前提で進める。`.env` の値はダミー
+
 ## Code Review Rules
 
 PR レビュー (Codex / Claude) では以下を優先し、指摘は日本語で書く。
