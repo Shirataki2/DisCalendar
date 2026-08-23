@@ -335,7 +335,7 @@ pub async fn put_config(
     let guild_id = validated_guild_id(&path.guild_id)?;
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
-    let before = guilds::get_config_for_update(&mut *tx, guild_id).await?;
+    let before = guilds::lock_config_for_update(&mut tx, guild_id).await?;
     let after = guilds::upsert_config(&mut *tx, guild_id, body.restricted).await?;
     admin_audit::record(
         &mut *tx,

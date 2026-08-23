@@ -153,6 +153,35 @@ async fn guild_config_defaults_and_upserts(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn lock_config_for_update_creates_default_row_inside_transaction(pool: PgPool) {
+    // 行が無いギルド: 既定値の行を確保して返す (ロールバックすれば残らない)
+    let mut tx = pool.begin().await.unwrap();
+    let before = guilds::lock_config_for_update(&mut tx, GUILD)
+        .await
+        .unwrap();
+    assert!(!before.restricted);
+    tx.rollback().await.unwrap();
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM guild_config WHERE guild_id = $1")
+        .bind(GUILD)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+
+    // 既に行があれば、その値を返して上書きしない
+    guilds::upsert_config(&pool, GUILD, true).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let before = guilds::lock_config_for_update(&mut tx, GUILD)
+        .await
+        .unwrap();
+    assert!(before.restricted);
+    let after = guilds::upsert_config(&mut *tx, GUILD, false).await.unwrap();
+    assert!(!after.restricted);
+    tx.commit().await.unwrap();
+    assert!(!guilds::get_config(&pool, GUILD).await.unwrap().restricted);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn joined_guilds_filters_by_bot_registry(pool: PgPool) {
     sqlx::query(
         "INSERT INTO guilds (guild_id, name, avatar_url, locale) VALUES ($1, 'A', NULL, 'ja')",

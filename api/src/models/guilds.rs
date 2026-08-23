@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{PgExecutor, PgPool};
+use sqlx::{PgConnection, PgExecutor, PgPool};
 use utoipa::ToSchema;
 
 /// Bot が参加しているギルド (`guilds` テーブル。Bot が参加/更新時に書き込む)
@@ -62,23 +62,29 @@ pub async fn get_config<'e>(
     }))
 }
 
-/// `get_config` と同じだが、行があればトランザクションの終わりまでロックする (`FOR UPDATE`)。
-/// 管理コンソールが監査ログの「変更前」として読むのに使う (行が無ければ既定値。その場合ロックは掛からない)
-pub async fn get_config_for_update<'e>(
-    executor: impl PgExecutor<'e>,
+/// 監査ログの「変更前」として設定を読み、同じトランザクションの終わりまで行をロックする。
+/// 行がまだ無いギルドでは `FOR UPDATE` だけだと何もロックできず、読み取りから upsert までの間に
+/// 通常 API や別の管理リクエストが最初の行を作ると before (既定値) と実際の直前値がずれるので、
+/// 先に既定値の行を `INSERT ... ON CONFLICT DO NOTHING` で確保してから `FOR UPDATE` で読む
+/// (並行する upsert はこのトランザクションの完了まで行ロックで待つ。トランザクションを
+/// ロールバックすれば確保した行も消える)。トランザクション内で呼ぶこと
+pub async fn lock_config_for_update(
+    conn: &mut PgConnection,
     guild_id: &str,
 ) -> sqlx::Result<GuildConfig> {
-    let config = sqlx::query_as!(
+    sqlx::query!(
+        "INSERT INTO guild_config (guild_id, restricted) VALUES ($1, false) ON CONFLICT (guild_id) DO NOTHING",
+        guild_id
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query_as!(
         GuildConfig,
         "SELECT guild_id, restricted FROM guild_config WHERE guild_id = $1 FOR UPDATE",
         guild_id
     )
-    .fetch_optional(executor)
-    .await?;
-    Ok(config.unwrap_or_else(|| GuildConfig {
-        guild_id: guild_id.to_owned(),
-        restricted: false,
-    }))
+    .fetch_one(&mut *conn)
+    .await
 }
 
 /// 管理コンソールからは監査ログと同じトランザクションで呼べるよう executor を受け取る
