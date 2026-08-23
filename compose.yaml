@@ -65,7 +65,9 @@ services:
       api:
         condition: service_started
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      # 既定では loopback にだけ公開する (Cloudflare Tunnel 経由で公開する staging でホストのポートを開けないため)。
+      # LAN の別端末から見たいときは .env で WEB_BIND=0.0.0.0
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:3000"
     environment:
       DATABASE_URL: postgres://discalendar:${POSTGRES_PASSWORD}@db:5432/discalendar
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
@@ -113,6 +115,20 @@ services:
       DISCORD_BOT_INVITE_URL: ${DISCORD_BOT_INVITE_URL:-}
       BOT_SUPPORT_GUILD_ID: ${BOT_SUPPORT_GUILD_ID:-}
       RUST_LOG: ${BOT_RUST_LOG:-info,discalendar_bot=info,sqlx=warn}
+
+  # Cloudflare Tunnel でホストのポートを開けずに公開する (staging.discalendar.app など)。
+  # Cloudflare Zero Trust で Tunnel を作り、Public Hostname の Service を http://web:3000 に向け、
+  # トークンを .env の TUNNEL_TOKEN に入れる。--profile tunnel (または .env の COMPOSE_PROFILES) で起動する
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      web:
+        condition: service_started
 
 volumes:
   db-data:

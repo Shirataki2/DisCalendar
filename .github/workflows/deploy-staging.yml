@@ -1,0 +1,151 @@
+# main にマージされたら web / api / bot のイメージを GHCR に push し、staging ホスト (Tailnet 内) に反映する (#26)。
+# 手順: build (GHCR へ sha-<short sha> と staging タグで push) → deploy (tailscale/github-action で Tailnet に参加 →
+# ssh で compose.yaml を配り、docker compose pull && up -d → healthy になるまで待つ)。
+# ロールバック: Actions の "Run workflow" で image_tag に過去の sha-xxxxxxx を指定する (ビルドは飛ばして deploy だけ行う)。
+# 手動実行も main 以外の ref では動かさない (別ブランチの deploy-staging.sh をホストに流し込めないようにする。
+# Environment "staging" の Deployment branches も main だけに制限しておくこと)。
+# 必要な設定 (Environment "staging"): secrets TS_OAUTH_CLIENT_ID / TS_OAUTH_SECRET (Tailscale の OAuth クライアント、tag:ci)、
+#   STAGING_SSH_HOST (Tailnet 上のホスト名か 100.x の IP) / STAGING_SSH_USER / STAGING_SSH_KEY (Tailscale SSH を使うなら不要)。
+#   vars STAGING_SSH_PORT (既定 22。deploy ジョブは Environment に属するので Environment / Repository どちらの variable でもよい)
+# Repository variables (build ジョブは Environment に属さないので Environment variables ではなくリポジトリ側に置く):
+#   STAGING_PLATFORMS (既定 linux/amd64) / STAGING_BUILD_RUNNER (既定 ubuntu-latest。arm64 ホストなら ubuntu-24.04-arm) /
+#   STAGING_COMPOSE_DIR (既定 /opt/discalendar-staging)。詳細は README
+name: Deploy staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "デプロイするイメージタグ (例: sha-abc1234)。空なら今のコミットからビルドして push する"
+        required: false
+        default: ""
+
+# デプロイは直列にする (後から来た実行は待つ。cancel すると pull と up の途中で止まりかねない)
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: build (${{ matrix.image }})
+    # image_tag が指定されたとき (ロールバック) はビルドしない。push イベントでは inputs は空。main 以外の ref では動かさない
+    if: github.ref == 'refs/heads/main' && inputs.image_tag == ''
+    # arm64 のイメージを作るときは QEMU でも動くが Rust のビルドが極端に遅いので、ネイティブの arm ランナーを使う
+    # (Repository variable STAGING_BUILD_RUNNER=ubuntu-24.04-arm)
+    runs-on: ${{ vars.STAGING_BUILD_RUNNER || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: web
+            context: ./web
+            dockerfile: ./web/Dockerfile
+          - image: api
+            context: .
+            dockerfile: ./api/Dockerfile
+          - image: bot
+            context: .
+            dockerfile: ./bot/Dockerfile
+    steps:
+      - uses: actions/checkout@v7
+      # ランナーと違う CPU 向け (platforms) にビルドするときのために QEMU を入れる (buildx より前に置く)
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # compose.yaml の image と同じ名前 (GHCR は小文字のみ)
+          images: ghcr.io/shirataki2/discalendar-${{ matrix.image }}
+          tags: |
+            type=raw,value=staging
+            type=sha,prefix=sha-,format=short
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # ホストの CPU に合わせる (arm64 のホストなら Repository variable STAGING_PLATFORMS=linux/arm64)
+          platforms: ${{ vars.STAGING_PLATFORMS || 'linux/amd64' }}
+          # attestation を付けると GHCR の一覧に unknown/unknown のエントリが増えるので切る
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  deploy:
+    name: deploy
+    needs: build
+    # build が skipped (image_tag 指定) でも進み、失敗したら止める。main 以外の ref では動かさない
+    if: >-
+      always() && github.ref == 'refs/heads/main'
+      && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.discalendar.app
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            compose.yaml
+            .github/scripts/deploy-staging.sh
+          sparse-checkout-cone-mode: false
+      - name: デプロイするタグを決める
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.image_tag }}
+        run: |
+          tag="$INPUT_TAG"
+          # metadata-action の type=sha,format=short と同じ 7 桁
+          [ -n "$tag" ] || tag="sha-${GITHUB_SHA:0:7}"
+          # リモートのシェルに渡すので、想定する形式 (sha-<hex>) 以外は受け付けない
+          if ! [[ "$tag" =~ ^sha-[0-9a-f]{7,40}$ ]]; then
+            echo "::error::image_tag must look like sha-<hex> (got: $tag)"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image tag: $tag"
+      - name: Tailnet に参加する
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+      - name: SSH の準備
+        env:
+          SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          SSH_PORT: ${{ vars.STAGING_SSH_PORT || '22' }}
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # 鍵が設定されていればそれを使う。未設定なら Tailscale SSH (ACL の ssh ルールで tag:ci を許可) に任せる
+          if [ -n "$SSH_KEY" ]; then
+            printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+            chmod 600 ~/.ssh/id_ed25519
+          fi
+          # Tailnet 内 (WireGuard で相手が認証済み) なのでホスト鍵はその場で取得する
+          ssh-keyscan -T 20 -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+      - name: compose.yaml を配ってデプロイする
+        env:
+          SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          SSH_PORT: ${{ vars.STAGING_SSH_PORT || '22' }}
+          SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          COMPOSE_DIR: ${{ vars.STAGING_COMPOSE_DIR || '/opt/discalendar-staging' }}
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # ssh はリモート側でもう一度シェルが解釈するので、引数は printf %q でクォートして渡す
+          scp -q -P "$SSH_PORT" compose.yaml "$SSH_USER@$SSH_HOST:$(printf '%q' "$COMPOSE_DIR")/compose.yaml"
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash -s -- "$(printf '%q' "$COMPOSE_DIR")" "$(printf '%q' "$IMAGE_TAG")" \
+            < .github/scripts/deploy-staging.sh
