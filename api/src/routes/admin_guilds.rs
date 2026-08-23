@@ -14,7 +14,7 @@ use crate::{
     error::{ApiError, ErrorBody},
     models::{
         admin_audit::{self, AuditEntry},
-        admin_guilds::{self, AdminGuild, PAGE_SIZE},
+        admin_guilds::{self, AdminGuild, MAX_PAGE, PAGE_SIZE},
         events::{self, Event, EventInput},
         guilds::{self, GuildConfig},
         now_jst,
@@ -27,9 +27,9 @@ pub struct GuildListQuery {
     /// guild_id の完全一致か名前の部分一致。空なら全件
     #[serde(default)]
     pub q: String,
-    /// 1 始まりのページ番号
+    /// 1 始まりのページ番号 (上限 1,000,000)
     #[serde(default = "default_page")]
-    #[param(example = 1, minimum = 1)]
+    #[param(example = 1, minimum = 1, maximum = 1_000_000)]
     pub page: i64,
 }
 
@@ -67,8 +67,10 @@ pub async fn list_guilds(
     query: web::Query<GuildListQuery>,
     state: web::Data<AppState>,
 ) -> Result<web::Json<AdminGuildPage>, ApiError> {
-    if query.page < 1 {
-        return Err(ApiError::BadRequest("page must be 1 or greater".into()));
+    if !(1..=MAX_PAGE).contains(&query.page) {
+        return Err(ApiError::BadRequest(format!(
+            "page must be between 1 and {MAX_PAGE}"
+        )));
     }
     let q = query.q.trim();
     let (items, total) = tokio::try_join!(

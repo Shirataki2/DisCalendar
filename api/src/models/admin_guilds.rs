@@ -49,17 +49,20 @@ fn name_pattern(q: &str) -> String {
     escaped
 }
 
+/// 一覧に使えるページ番号の上限 (OFFSET の計算がオーバーフローしないように。50 件 × 100 万ページで十分)
+pub const MAX_PAGE: i64 = 1_000_000;
+
 /// 一覧 (検索・ページング)。`q` が空なら全件。guild_id の完全一致か名前の部分一致 (大文字小文字を区別しない)。
-/// `page` は 1 始まり。名前順 (退出済みで名前が無いものは末尾)
+/// `page` は 1 始まりで `1..=MAX_PAGE` (範囲外は呼び出し側で 400 にする)。名前順 (退出済みで名前が無いものは末尾)
 ///
-/// 予定数は `GROUP BY guild_id` で 1 回だけ集計する (`events.guild_id` にインデックスが無いので、
-/// ギルドごとの相関サブクエリにすると行数分だけ全表走査になる)
+/// 予定数と通知チャンネルは CTE で 1 回だけ集約して結合する (`events.guild_id` / `event_settings.guild_id` に
+/// インデックスが無いので、ギルドごとの相関サブクエリにすると行数分だけ全表走査になる)
 pub async fn list<'e>(
     executor: impl PgExecutor<'e>,
     q: &str,
     page: i64,
 ) -> sqlx::Result<Vec<AdminGuild>> {
-    let offset = (page.max(1) - 1) * PAGE_SIZE;
+    let offset = (page.clamp(1, MAX_PAGE) - 1) * PAGE_SIZE;
     sqlx::query_as!(
         AdminGuild,
         r#"
@@ -69,16 +72,18 @@ pub async fn list<'e>(
             UNION SELECT guild_id FROM event_settings
             UNION SELECT guild_id FROM events
         ),
-        counts AS (SELECT guild_id, count(*) AS n FROM events GROUP BY guild_id)
+        counts AS (SELECT guild_id, count(*) AS n FROM events GROUP BY guild_id),
+        channels AS (SELECT DISTINCT ON (guild_id) guild_id, channel_id FROM event_settings ORDER BY guild_id, id)
         SELECT k.guild_id AS "guild_id!", g.name AS "name?", g.avatar_url AS "avatar_url?", g.locale AS "locale?",
                (g.guild_id IS NOT NULL) AS "registered!",
                COALESCE(c.restricted, false) AS "restricted!",
-               (SELECT s.channel_id FROM event_settings s WHERE s.guild_id = k.guild_id ORDER BY s.id LIMIT 1) AS channel_id,
+               s.channel_id AS "channel_id?",
                COALESCE(n.n, 0) AS "event_count!"
         FROM known k
         LEFT JOIN guilds g ON g.guild_id = k.guild_id
         LEFT JOIN guild_config c ON c.guild_id = k.guild_id
         LEFT JOIN counts n ON n.guild_id = k.guild_id
+        LEFT JOIN channels s ON s.guild_id = k.guild_id
         WHERE $1::text = '' OR k.guild_id = $1 OR g.name ILIKE $2
         ORDER BY g.name NULLS LAST, k.guild_id
         LIMIT $3 OFFSET $4

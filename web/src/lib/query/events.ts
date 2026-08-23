@@ -56,14 +56,17 @@ export function useEventsQuery(
   });
 }
 
-/** 予定一覧と、件数に依存するキャッシュ (`keys.onCountChanged`) をまとめて無効化する */
+/**
+ * 予定一覧と、同じ予定を見ている他のキャッシュ (`keys.onChanged`: もう一方の一覧、
+ * `keys.onCountChanged`: 件数に依存するもの) をまとめて無効化する
+ */
 function invalidateEvents(
   queryClient: ReturnType<typeof useQueryClient>,
   keys: EventsQueryKeys,
   guildId: string,
   countChanged: boolean,
 ) {
-  const targets = [keys.all(guildId)];
+  const targets = [keys.all(guildId), ...(keys.onChanged?.(guildId) ?? [])];
   if (countChanged) targets.push(...(keys.onCountChanged?.(guildId) ?? []));
   return Promise.all(
     targets.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
