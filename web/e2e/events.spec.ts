@@ -18,7 +18,9 @@ const eventsApi = new RegExp(`/local/api/events/${guildId}(/|\\?|$)`);
 
 test.describe.configure({ mode: "serial" });
 
-// テスト間で同じ名前の予定が残らないよう、実行ごとに変える
+// テスト間で同じ名前の予定が残らないよう、実行ごとに変える。
+// serial グループは失敗すると新しいワーカーで先頭から再実行される (retries) ので、そのときも別の名前になり、
+// 前の試行で残った予定とは区別できる
 const stamp = Date.now().toString(36);
 const createdTitle = `E2E 予定 ${stamp}`;
 const editedTitle = `E2E 予定 ${stamp} (編集済み)`;

@@ -14,12 +14,23 @@ async function openSettings(page: Page) {
   return dialog;
 }
 
-test.describe("管理権限のあるギルド", () => {
-  test.describe.configure({ mode: "serial" });
+/**
+ * 各テストの開始時に API で restricted を決め打ちにする (ブラウザと同じ cookie で叩く)。
+ * 前のテストの結果や retry で再実行されたときの状態に依存しないようにするため
+ */
+async function setRestricted(page: Page, restricted: boolean) {
+  const res = await page.request.put(
+    `/local/api/guilds/${E2E_GUILDS.admin.id}/config`,
+    { data: { restricted } },
+  );
+  expect(res.status()).toBe(200);
+}
 
+test.describe("管理権限のあるギルド", () => {
   test("restricted を有効にして保存すると、再読込後も有効で自分は編集できる", async ({
     page,
   }) => {
+    await setRestricted(page, false);
     await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
     await expect(page.getByText(RESTRICTED_NOTICE)).toHaveCount(0);
 
@@ -47,6 +58,7 @@ test.describe("管理権限のあるギルド", () => {
   });
 
   test("restricted を無効に戻せる", async ({ page }) => {
+    await setRestricted(page, true);
     await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
     const dialog = await openSettings(page);
     const checkbox = dialog.getByRole("checkbox");
