@@ -1,0 +1,116 @@
+# web / api / bot / db をまとめて動かす compose。設定値はルートの .env から読む (.env.example をコピー)。
+#   docker compose build            # 各 Dockerfile からイメージを作る (web/Dockerfile, api/Dockerfile, bot/Dockerfile)
+#   docker compose up -d            # db + api + web。web は http://localhost:${WEB_PORT:-3000}
+#   docker compose --profile bot up -d   # bot も起動する (下の注意を読むこと)
+# イメージ名は GHCR に push するときの名前に合わせてある (IMAGE_TAG 既定 latest)。
+# ステージング / 本番ではこのファイルを pull 先として使い、差分は compose.override.yaml や環境変数で与える。
+
+name: discalendar
+
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: discalendar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: discalendar
+    volumes:
+      # postgres:18 以降の公式イメージはデータの親ディレクトリ (/var/lib/postgresql) をボリュームにする
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "discalendar", "-d", "discalendar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: ghcr.io/shirataki2/discalendar-api:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DATABASE_URL: postgres://discalendar:${POSTGRES_PASSWORD}@db:5432/discalendar
+      DATABASE_MAX_CONNECTIONS: ${API_DATABASE_MAX_CONNECTIONS:-5}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:?set DISCORD_BOT_TOKEN in .env}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      AUTH_COOKIE_PREFIX: better-auth
+      RUST_LOG: ${API_RUST_LOG:-info,discalendar_api=info,sqlx=warn}
+    # 起動時のマイグレーション適用が終わって待ち受けを始めたら healthy になる (bot はそれを待つ)
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  web:
+    image: ghcr.io/shirataki2/discalendar-web:${IMAGE_TAG:-latest}
+    build:
+      context: ./web
+      # rewrites の宛先はビルド時に決まる (web/Dockerfile)。サービス名 api のままなら指定不要
+      # args:
+      #   API_URL: http://api:8080
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgres://discalendar:${POSTGRES_PASSWORD}@db:5432/discalendar
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      # ブラウザから見た URL。Discord Developer Portal の Redirects に <BETTER_AUTH_URL>/api/auth/callback/discord を登録する
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?set DISCORD_CLIENT_ID in .env}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?set DISCORD_CLIENT_SECRET in .env}
+      DISCORD_BOT_INVITE_URL: ${DISCORD_BOT_INVITE_URL:-}
+      # 起動時に Better Auth のテーブルを作成・更新する (web/src/instrumentation.ts)
+      AUTO_MIGRATE: "true"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # 注意: Bot は起動するとトークンのアプリとして Discord に接続し、参加中の全サーバーに対して
+  # 予定の通知 / presence / アイコン更新を行う。同じトークンの Bot (旧版を含む) が別の場所で動いていると
+  # 通知が二重に届くので、ローカルで試すときはテスト用の Discord アプリのトークンを使うこと。
+  # 既定では起動せず、--profile bot を付けたときだけ起動する
+  bot:
+    image: ghcr.io/shirataki2/discalendar-bot:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    restart: unless-stopped
+    profiles: ["bot"]
+    depends_on:
+      # マイグレーションは api が適用するので、api が healthy (= 適用済みで待ち受け中) になってから起動する
+      api:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://discalendar:${POSTGRES_PASSWORD}@db:5432/discalendar
+      DATABASE_MAX_CONNECTIONS: ${BOT_DATABASE_MAX_CONNECTIONS:-5}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      BOT_LOG_CHANNEL_ID: ${BOT_LOG_CHANNEL_ID:-}
+      DISCORD_BOT_INVITE_URL: ${DISCORD_BOT_INVITE_URL:-}
+      BOT_SUPPORT_GUILD_ID: ${BOT_SUPPORT_GUILD_ID:-}
+      RUST_LOG: ${BOT_RUST_LOG:-info,discalendar_bot=info,sqlx=warn}
+
+volumes:
+  db-data:
