@@ -10,7 +10,7 @@ Discord 用のカレンダーアプリ。予定の作成から通知まで、ブ
 
 | ディレクトリ | 内容 | 状態 |
 |---|---|---|
-| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | LP (静的生成、OGP / favicon / manifest)、使い方ページ・規約ページ (MDX、静的生成)、Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
+| `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | LP (静的生成、OGP / favicon)、PWA (manifest / Service Worker)、使い方ページ・規約ページ (MDX、静的生成)、Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
 | `api/` | Rust API（actix-web 4 + sqlx 0.9、旧版から移行） | 移行済み（[README](api/README.md)） |
 | `bot/` | Discord Bot（poise 0.6 + serenity 0.12 + sqlx 0.9、旧版から移行中） | 基盤 (起動 / DB 接続 / ギルドの参加・退出・更新を `guilds` に反映) とスラッシュコマンド (help / create / list / init / invite / register) を移行済み（[README](bot/README.md)）。定期タスク (#4) は未着手 |
 | `docs/` | 技術選定・設計ドキュメント | [技術選定](docs/tech-stack-selection.md) |
@@ -57,6 +57,24 @@ Rust 側（api / bot）はルートの `Cargo.toml` を workspace とし、`rust
 - 導線はヘッダ・フッタ（`site-header.tsx` / `site-footer.tsx`）とログイン画面（`app/login/page.tsx`）から。
 - プライバシーポリシーは実装に合わせて書いてあるので、取得する情報（Better Auth のスコープ、保存するカラム）や
   Cookie の使い方、アクセス解析の導入を変えたときは本文と `updatedAt` を更新する。
+
+### web の PWA (manifest / Service Worker)
+
+- マニフェストは `web/src/app/manifest.ts`（`/manifest.webmanifest`。名前・説明・`theme_color` は `web/src/lib/site.ts`）。
+  アイコンは `web/public/icons/`（通常の 192 / 512 と、Android の adaptive icon 用に余白を付けた `icon-maskable-*`）。
+  iOS のホーム画面用アイコンは `web/src/app/apple-icon.png`。
+- Service Worker は [Serwist](https://serwist.pages.dev/) の `@serwist/turbopack`（`@serwist/next` は webpack プラグインなので
+  Turbopack の Next 16 では使えない）。本体は `web/src/app/sw.ts`、配信は `web/src/app/serwist/[path]/route.ts`
+  （`createSerwistRoute` が `sw.ts` を esbuild で束ね、`next build` 時に `/serwist/sw.js` として静的生成する。
+  `.next/static/` の JS / CSS の一覧が precache として埋め込まれる）。登録は `web/src/components/service-worker-provider.tsx`。
+- キャッシュするのはハッシュ付きの `/_next/static/*`（precache の JS / CSS と、使われたときに残すフォント・画像）だけ。
+  ページ（HTML / RSC）・Better Auth（`/api/auth/*`）・Rust API（`/local/api/*`）は Service Worker が関与しないので、
+  認証付きのレスポンスが Cache Storage に残ることはない。オフライン用のフォールバックページは無い。
+- `next dev` では登録しない（同じオリジンに残っている登録とキャッシュも消す）。挙動を確かめるときは本番ビルドで:
+  `pnpm build && pnpm start -p 3100` → DevTools の Application タブ（Manifest / Service workers / Cache storage）。
+  Lighthouse の PWA カテゴリは v12 で廃止されたため、`pnpm dlx lighthouse@11 http://localhost:3100/ --only-categories=pwa` で見る。
+- `/serwist/*` には `next.config.ts` の `headers()` で `Cache-Control: no-cache` を付けている
+  （静的生成されたルートに Next が付ける `s-maxage=31536000` のままだと、CDN に古い `sw.js` が残ってデプロイ後も更新されない）。
 
 ## 開発
 
@@ -317,4 +335,5 @@ rustc / cargo、PostgreSQL 16 がプリインストールだが Postgres は未�
 | `/admin/users` | 管理コンソール: ユーザーの検索とセッションの確認・強制ログアウト |
 | `/admin/audit-logs` | 管理コンソール: 監査ログの閲覧 (操作の種類・実行者で絞り込み) |
 | `/api/auth/*` | Better Auth（OAuth コールバック含む） |
+| `/manifest.webmanifest`, `/serwist/sw.js` | PWA のマニフェストと Service Worker（`app/manifest.ts`, `app/sw.ts`） |
 | `/local/api/*` | Rust API へのプロキシ（rewrites） |

@@ -1,4 +1,5 @@
 import createMDX from "@next/mdx";
+import { withSerwist } from "@serwist/turbopack";
 import type { NextConfig } from "next";
 
 // Rust API (api/) の URL。rewrites はサーバー側で解決されるので、この値がブラウザに出ることはない
@@ -15,6 +16,17 @@ const nextConfig: NextConfig = {
     "/*": [
       "./node_modules/.pnpm/@swc+helpers@*/node_modules/@swc/helpers/esm/**",
     ],
+  },
+  async headers() {
+    return [
+      // Service Worker (app/serwist/[path]/route.ts) は静的に生成されるため Next が s-maxage=31536000 を付けるが、
+      // URL が変わらない sw.js を CDN (Cloudflare) に長期間キャッシュされると、デプロイしても古い SW が配られ続ける。
+      // 常に再検証させる (ブラウザは SW スクリプトの取得で HTTP キャッシュを元々バイパスする)
+      {
+        source: "/serwist/:path*",
+        headers: [{ key: "Cache-Control", value: "no-cache" }],
+      },
+    ];
   },
   async redirects() {
     return [
@@ -48,4 +60,6 @@ const withMDX = createMDX({
   },
 });
 
-export default withMDX(nextConfig);
+// Service Worker (app/serwist/[path]/route.ts が app/sw.ts を esbuild で束ねる)。
+// withSerwist は esbuild を serverExternalPackages に足すだけで、SW の生成は Route Handler 側で行う
+export default withSerwist(withMDX(nextConfig));
