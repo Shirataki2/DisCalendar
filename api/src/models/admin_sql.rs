@@ -4,8 +4,8 @@
 //!
 //! 1. 先頭のキーワードを `SELECT` / `WITH` / `VALUES` / `TABLE` / `EXPLAIN` / `SHOW` に限る
 //!    (`SET` / `DO` / `COPY` / DDL / `BEGIN` などはここで弾く)
-//! 2. **専用の DB ロールでログインした別の接続プールで実行する (P0)**: [`ROLE`] (`discalendar_sql_console`、
-//!    superuser ではない) には `public` スキーマのテーブルの SELECT だけを与え、Better Auth の `account`
+//! 2. **専用の DB ロールでログインした別の接続プールで実行する (P0)**: [`role_name`] (`discalendar_sql_console_<db 名>`、
+//!    superuser ではなく、どのロールのメンバーでもない) には `public` スキーマのテーブルの SELECT だけを与え、Better Auth の `account`
 //!    (Discord の access / refresh token)、`session` (セッショントークン)、`verification` ([`PROTECTED_TABLES`]) は
 //!    権限を外してあるので、`table_to_xml('account', ...)` や `query_to_xml(...)` のように関数の内部で実行される
 //!    SQL でも読めない (`permission denied`)。superuser でないので `pg_read_file` や他の接続の
@@ -76,8 +76,9 @@ const MAX_FETCH_BATCH_BYTES: usize = 8 * 1024 * 1024;
 pub const STATEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 /// 受け付ける SQL の長さ (文字数) の上限。監査ログにもそのまま残す
 pub const MAX_SQL_CHARS: usize = 10_000;
-/// SQL コンソールの実行に使う DB ロール (superuser ではない。[`setup_role`] が作る)
-pub const ROLE: &str = "discalendar_sql_console";
+/// SQL コンソールの実行に使う DB ロール名の接頭辞。ロールはクラスタ全体で共有されるので、同じクラスタに複数の
+/// DisCalendar 用データベースがあっても衝突しないよう、[`role_name`] でデータベース名を付ける
+pub const ROLE_PREFIX: &str = "discalendar_sql_console_";
 /// コンソール用プールの接続数。**1 にしている**のは、同じロールのセッションが同時に 2 つ存在すると
 /// `pg_stat_activity` の `application_name` (`set_config` で書き換えられる) のようにセッション間で値を渡せる
 /// 経路が残るため。複数の api インスタンスに跨っても 1 つにするため、ロール側にも `CONNECTION LIMIT 1` を設定する
@@ -190,7 +191,26 @@ enum Statement<'a> {
     Show,
 }
 
-/// [`ROLE`] のパスワードを `BETTER_AUTH_SECRET` から導出する (HMAC-SHA256 の hex)。
+/// データベース `database` 用のコンソールロール名 (`discalendar_sql_console_<db 名>`、英数字と `_` 以外は `_`、63 文字まで)
+pub fn role_name(database: &str) -> String {
+    let mut name = String::from(ROLE_PREFIX);
+    name.extend(database.chars().map(|c| {
+        if c.is_ascii_alphanumeric() {
+            c.to_ascii_lowercase()
+        } else {
+            '_'
+        }
+    }));
+    name.truncate(63);
+    name
+}
+
+/// 接続先のデータベース名から決まるコンソールロール名
+fn role_for(options: &PgConnectOptions) -> String {
+    role_name(options.get_database().unwrap_or("postgres"))
+}
+
+/// コンソールロールのパスワードを `BETTER_AUTH_SECRET` から導出する (HMAC-SHA256 の hex)。
 /// 複数の api インスタンスが同じ値になり、新しい env を増やさずに済む。
 /// この秘密が漏れた時点でセッションの偽造ができてしまうので、ここから導出しても守るものは増えも減りもしない
 pub fn derive_password(better_auth_secret: &str) -> String {
@@ -204,12 +224,13 @@ pub fn derive_password(better_auth_secret: &str) -> String {
         .collect()
 }
 
-/// [`ROLE`] でログインするコンソール用のプール。`base` (api の `DATABASE_URL`) のホスト・DB はそのままに
-/// ユーザーとパスワードだけ差し替える。接続は遅延 (最初の実行時)
+/// コンソールロール ([`role_name`]) でログインするコンソール用のプール。`base` (api の `DATABASE_URL`) のホスト・DB は
+/// そのままにユーザーとパスワードだけ差し替える。接続は遅延 (最初の実行時)
 pub fn console_pool(base: &PgConnectOptions, password: &str) -> PgPool {
+    let role = role_for(base);
     PgPoolOptions::new()
         .max_connections(POOL_SIZE)
-        .connect_lazy_with(base.clone().username(ROLE).password(password))
+        .connect_lazy_with(base.clone().username(&role).password(password))
 }
 
 /// `SQL_CONSOLE_DATABASE_URL` で渡された接続文字列からコンソール用のプールを作る (手動でロールを用意する環境向け)
@@ -252,7 +273,7 @@ pub async fn load_known_words(pool: &PgPool) -> sqlx::Result<HashSet<String>> {
     Ok(words.into_iter().collect())
 }
 
-/// SQL コンソール用のロール [`ROLE`] を用意する (api の起動時に呼ぶ。冪等)。
+/// SQL コンソール用のロール ([`role_name`]) を用意する (api の起動時に呼ぶ。冪等)。
 ///
 /// 1. ロールが無ければ `CREATE ROLE`、`password` があれば `ALTER ROLE ... LOGIN PASSWORD` で
 ///    ログインできるようにする (CREATEROLE か superuser が要る。compose の Postgres (`POSTGRES_USER`) は superuser)
@@ -263,11 +284,12 @@ pub async fn load_known_words(pool: &PgPool) -> sqlx::Result<HashSet<String>> {
 /// 1 と 2 は別のトランザクションで、1 が権限不足で失敗しても 2 は試みる (手でロールを作った環境で、
 /// 後から増えたテーブルの権限を api の再起動で追従させるため)。どちらかが失敗したら Err
 pub async fn setup_role(pool: &PgPool, password: Option<&str>) -> anyhow::Result<()> {
-    let role_result = ensure_role(pool, password).await;
-    let grant_result = grant_privileges(pool).await;
+    let role = role_for(&pool.connect_options());
+    let role_result = ensure_role(pool, &role, password).await;
+    let grant_result = grant_privileges(pool, &role).await;
     match (role_result, grant_result) {
         (Ok(()), Ok(())) => {
-            tracing::info!(role = ROLE, "SQL console role is ready");
+            tracing::info!(role, "SQL console role is ready");
             Ok(())
         }
         (Err(e), Ok(())) | (Ok(()), Err(e)) => Err(e),
@@ -275,16 +297,16 @@ pub async fn setup_role(pool: &PgPool, password: Option<&str>) -> anyhow::Result
     }
 }
 
-async fn ensure_role(pool: &PgPool, password: Option<&str>) -> anyhow::Result<()> {
+async fn ensure_role(pool: &PgPool, role: &str, password: Option<&str>) -> anyhow::Result<()> {
     let role_exists: bool =
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)")
-            .bind(ROLE)
+            .bind(role)
             .fetch_one(pool)
             .await?;
     if !role_exists {
         // 同時に起動した別インスタンスと競合したら duplicate_object (42710) か pg_authid の一意制約違反 (23505)
         // になるので、それは成功扱い
-        if let Err(error) = sqlx::raw_sql(AssertSqlSafe(format!("CREATE ROLE {ROLE} NOLOGIN")))
+        if let Err(error) = sqlx::raw_sql(AssertSqlSafe(format!("CREATE ROLE {role} NOLOGIN")))
             .execute(pool)
             .await
         {
@@ -292,17 +314,22 @@ async fn ensure_role(pool: &PgPool, password: Option<&str>) -> anyhow::Result<()
                 if matches!(db.code().as_deref(), Some("42710" | "23505")));
             if !duplicate {
                 return Err(anyhow::Error::new(error).context(format!(
-                    "failed to create the role {ROLE} (CREATEROLE or superuser is required)"
+                    "failed to create the role {role} (CREATEROLE or superuser is required)"
                 )));
             }
         }
     }
     if let Some(password) = password {
-        // パスワードは derive_password の hex (英数字のみ) なのでそのまま埋め込める
+        // パスワードは derive_password の hex (英数字のみ) なのでそのまま埋め込める。
+        // 属性は毎回明示的に落とす (手で付けられていても戻す)。接続は 1 本だけ
         debug_assert!(password.chars().all(|c| c.is_ascii_hexdigit()));
         alter_role(
             pool,
-            format!("ALTER ROLE {ROLE} LOGIN CONNECTION LIMIT 1 PASSWORD '{password}'"),
+            role,
+            format!(
+                "ALTER ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT \
+                 CONNECTION LIMIT 1 PASSWORD '{password}'"
+            ),
             "failed to set the password (CREATEROLE or superuser is required)",
         )
         .await?;
@@ -311,7 +338,8 @@ async fn ensure_role(pool: &PgPool, password: Option<&str>) -> anyhow::Result<()
     // 別の管理者から、貼り付けたリテラル付きの SQL 全文が見えてしまうため)。SUSET パラメータなので superuser が要る
     alter_role(
         pool,
-        format!("ALTER ROLE {ROLE} SET track_activities = off"),
+        role,
+        format!("ALTER ROLE {role} SET track_activities = off"),
         "failed to set track_activities = off (superuser is required)",
     )
     .await?;
@@ -320,7 +348,12 @@ async fn ensure_role(pool: &PgPool, password: Option<&str>) -> anyhow::Result<()
 
 /// `ALTER ROLE` を実行する。複数の api インスタンスが同時に起動すると pg_authid の同じ行を更新して
 /// "tuple concurrently updated" (XX000) になることがあるので、少し待って再試行する
-async fn alter_role(pool: &PgPool, statement: String, context: &str) -> anyhow::Result<()> {
+async fn alter_role(
+    pool: &PgPool,
+    role: &str,
+    statement: String,
+    context: &str,
+) -> anyhow::Result<()> {
     let mut attempt = 0;
     loop {
         match sqlx::raw_sql(AssertSqlSafe(statement.clone()))
@@ -335,17 +368,17 @@ async fn alter_role(pool: &PgPool, statement: String, context: &str) -> anyhow::
                 tokio::time::sleep(Duration::from_millis(100 * attempt)).await;
             }
             Err(e) => {
-                return Err(anyhow::Error::new(e).context(format!("{ROLE}: {context}")));
+                return Err(anyhow::Error::new(e).context(format!("{role}: {context}")));
             }
         }
     }
 }
 
-async fn grant_privileges(pool: &PgPool) -> anyhow::Result<()> {
+async fn grant_privileges(pool: &PgPool, role: &str) -> anyhow::Result<()> {
     let mut tx = pool.begin().await?;
     for statement in [
-        format!("GRANT USAGE ON SCHEMA public TO {ROLE}"),
-        format!("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {ROLE}"),
+        format!("GRANT USAGE ON SCHEMA public TO {role}"),
+        format!("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {role}"),
     ] {
         sqlx::raw_sql(AssertSqlSafe(statement.clone()))
             .execute(&mut *tx)
@@ -361,16 +394,16 @@ async fn grant_privileges(pool: &PgPool) -> anyhow::Result<()> {
     for table in &existing {
         // テーブル名は pg_tables から取った既知の名前 (PROTECTED_TABLES の要素) なのでそのまま埋め込む
         sqlx::raw_sql(AssertSqlSafe(format!(
-            "REVOKE ALL ON TABLE public.\"{table}\" FROM {ROLE}"
+            "REVOKE ALL ON TABLE public.\"{table}\" FROM {role}"
         )))
         .execute(&mut *tx)
         .await
         .map_err(|e| {
-            anyhow::Error::new(e).context(format!("failed to revoke {table} from {ROLE}"))
+            anyhow::Error::new(e).context(format!("failed to revoke {table} from {role}"))
         })?;
     }
     tx.commit().await?;
-    tracing::debug!(role = ROLE, protected = ?existing, "SQL console privileges applied");
+    tracing::debug!(role, protected = ?existing, "SQL console privileges applied");
     Ok(())
 }
 
@@ -396,10 +429,12 @@ pub async fn execute(
     // 締切は接続待ちも含む (プールが埋まっていても案内している上限を超えて待たない)
     let started = Instant::now();
     let deadline = started + timeout;
+    // 期待するロール = プールがログインに使うユーザー (role_name か SQL_CONSOLE_DATABASE_URL のもの)
+    let expected_role = console.connect_options().get_username().to_owned();
     let mut conn = acquire_console_connection(console, deadline).await?;
     let result = {
         let mut tx = conn.begin_with("BEGIN READ ONLY").await?;
-        let result = run_in_transaction(&mut tx, sql, statement, deadline).await;
+        let result = run_in_transaction(&mut tx, sql, statement, deadline, &expected_role).await;
         // 読み取り専用なので常にロールバック (カーソルも SET LOCAL も一緒に消える)
         if let Err(error) = tx.rollback().await {
             tracing::warn!(error = %error, "failed to roll back the admin SQL transaction");
@@ -445,7 +480,8 @@ async fn acquire_console_connection(
             Ok(Err(error)) => {
                 // ロールが無い / パスワードが違う等。設定の問題なので利用者に案内する
                 return Err(SqlError::Unavailable(format!(
-                    "SQL コンソール用の DB 接続 (ロール {ROLE}) を開けません ({error})。README の手順でロールを用意してください"
+                    "SQL コンソール用の DB 接続 (ロール {}) を開けません ({error})。README の手順でロールを用意してください",
+                    console.connect_options().get_username()
                 )));
             }
             Err(_elapsed) => return Err(busy()),
@@ -467,9 +503,10 @@ async fn run_in_transaction(
     sql: &str,
     statement: Statement<'_>,
     deadline: Instant,
+    expected_role: &str,
 ) -> Result<RowsOutput, SqlError> {
     // (2) この接続が専用ロールのもので、保護テーブルを読めないことを毎回確かめる (fail closed)
-    verify_console_role(conn).await?;
+    verify_console_role(conn, expected_role).await?;
 
     // (5) 保護テーブルを読んでいないか、実行計画で確認する (実行はしない)。
     // EXPLAIN 文自体もプリペアドステートメントなので、複数文はここでも失敗する
@@ -563,17 +600,28 @@ async fn apply_deadline(conn: &mut PgConnection, deadline: Instant) -> Result<()
     Ok(())
 }
 
-/// 接続のセッションユーザーが専用ロールで superuser でなく、接続上限が 1 (api インスタンスを跨いでもセッションが
-/// 同時に 2 つ無い)、保護テーブルを読めず、`track_activities` が off (実行中 SQL が `pg_stat_activity` で見えない)
-/// ことを確認する。どれかが満たされなければ `Unavailable` (実行しない)
-async fn verify_console_role(conn: &mut PgConnection) -> Result<(), SqlError> {
-    let (session_user, superuser, conn_limit, track_activities): (String, bool, i32, String) =
-        sqlx::query_as(
-            "SELECT session_user::text, r.rolsuper, r.rolconnlimit, current_setting('track_activities') \
-             FROM pg_roles r WHERE r.rolname = session_user",
-        )
-        .fetch_one(&mut *conn)
-        .await?;
+/// 接続のセッションユーザーが期待するロールで、特権属性 (superuser / CREATEROLE / CREATEDB / REPLICATION / BYPASSRLS) が
+/// 無く、接続上限が 1 (api インスタンスを跨いでもセッションが同時に 2 つ無い)、どのロールのメンバーでもない
+/// (`pg_read_server_files` や `pg_signal_backend` などの定義済みロール経由の権限が無い)、保護テーブルを読めず、
+/// `track_activities` が off (実行中 SQL が `pg_stat_activity` で見えない) ことを確認する。
+/// どれかが満たされなければ `Unavailable` (実行しない)
+async fn verify_console_role(conn: &mut PgConnection, expected_role: &str) -> Result<(), SqlError> {
+    let (session_user, privileged, conn_limit, memberships, track_activities): (
+        String,
+        bool,
+        i32,
+        i64,
+        String,
+    ) = sqlx::query_as(
+        "SELECT session_user::text, \
+                (r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls), \
+                r.rolconnlimit, \
+                (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid), \
+                current_setting('track_activities') \
+         FROM pg_roles r WHERE r.rolname = session_user",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
     let readable: Vec<String> = sqlx::query_scalar(
         r#"
         SELECT c.relname::text
@@ -588,14 +636,15 @@ async fn verify_console_role(conn: &mut PgConnection) -> Result<(), SqlError> {
     .bind(PROTECTED_TABLES.as_slice())
     .fetch_all(&mut *conn)
     .await?;
-    if session_user != ROLE
-        || superuser
+    if session_user != expected_role
+        || privileged
         || conn_limit != 1
+        || memberships != 0
         || !readable.is_empty()
         || track_activities != "off"
     {
         return Err(SqlError::Unavailable(format!(
-            "SQL コンソール用の DB 接続の設定が正しくありません (session_user: {session_user}, superuser: {superuser}, connection limit: {conn_limit}, 読める保護テーブル: {readable:?}, track_activities: {track_activities})。README の手順でロール {ROLE} を直してください"
+            "SQL コンソール用の DB 接続の設定が正しくありません (session_user: {session_user}, 期待: {expected_role}, 特権属性: {privileged}, connection limit: {conn_limit}, 所属ロール数: {memberships}, 読める保護テーブル: {readable:?}, track_activities: {track_activities})。README の手順でロールを直してください"
         )));
     }
     Ok(())
@@ -711,26 +760,8 @@ pub fn redact_sql(sql: &str, is_known: impl Fn(&str) -> bool) -> String {
             rest = after.find('\n').map_or("", |i| &after[i..]);
         } else if let Some(after) = rest.strip_prefix("/*") {
             // ブロックコメント (入れ子可)
-            let mut depth = 1usize;
-            let mut r = after;
-            while depth > 0 {
-                match (r.find("/*"), r.find("*/")) {
-                    (Some(o), Some(c)) if o < c => {
-                        depth += 1;
-                        r = &r[o + 2..];
-                    }
-                    (_, Some(c)) => {
-                        depth -= 1;
-                        r = &r[c + 2..];
-                    }
-                    _ => {
-                        r = "";
-                        break;
-                    }
-                }
-            }
             out.push(' ');
-            rest = r;
+            rest = skip_block_comment(after);
         } else if let Some(after) = rest.strip_prefix('\'') {
             // 標準の文字列 ('' は引用符のエスケープ)。直前が E / e なら \ エスケープも読み飛ばす
             let escapes = out.ends_with(['E', 'e']);
@@ -888,48 +919,61 @@ fn dollar_tag(s: &str) -> Option<(&str, &str)> {
 
 /// 末尾の `;` と空白、末尾行の `-- コメント` を取り除く (サブクエリに包めるように)
 fn strip_trailing_trivia(sql: &str) -> &str {
-    let mut s = sql.trim_end();
-    loop {
-        if let Some(rest) = s.strip_suffix(';') {
-            s = rest.trim_end();
-            continue;
-        }
-        let last_line_start = s.rfind('\n').map_or(0, |i| i + 1);
-        if s[last_line_start..].trim_start().starts_with("--") && last_line_start > 0 {
-            s = s[..last_line_start].trim_end();
-            continue;
-        }
-        if s.ends_with("*/")
-            && let Some(start) = block_comment_start(s)
+    // 先頭から字句を追い、文字列・引用識別子・ドル引用・コメントを区別しながら
+    // 「最後の意味のある字句の終わり」を覚えておく (`;`・空白・コメントは意味のある字句に数えない)
+    let total = sql.len();
+    let mut rest = sql;
+    let mut end = 0usize;
+    while !rest.is_empty() {
+        let pos = total - rest.len();
+        let first = rest.chars().next().expect("non-empty");
+        if first.is_whitespace() || first == ';' {
+            rest = &rest[first.len_utf8()..];
+        } else if let Some(after) = rest.strip_prefix("--") {
+            rest = after.find('\n').map_or("", |i| &after[i..]);
+        } else if let Some(after) = rest.strip_prefix("/*") {
+            rest = skip_block_comment(after);
+        } else if let Some(after) = rest.strip_prefix('\'') {
+            let escapes = sql[..pos].ends_with(['E', 'e']);
+            rest = skip_quoted(after, '\'', escapes);
+            end = total - rest.len();
+        } else if let Some(after) = rest.strip_prefix('"') {
+            rest = skip_quoted(after, '"', false);
+            end = total - rest.len();
+        } else if first == '$'
+            && let Some((tag, after)) = dollar_tag(rest)
         {
-            s = s[..start].trim_end();
-            continue;
+            rest = match after.find(tag) {
+                Some(i) => &after[i + tag.len()..],
+                None => "",
+            };
+            end = total - rest.len();
+        } else {
+            rest = &rest[first.len_utf8()..];
+            end = total - rest.len();
         }
-        return s;
     }
+    &sql[..end]
 }
 
-/// 末尾が `*/` で終わる文字列について、そのブロックコメント (入れ子可) の開始位置 `/*` を返す。
-/// 対応する開始が無ければ None
-fn block_comment_start(s: &str) -> Option<usize> {
-    let bytes = s.as_bytes();
-    let mut depth = 0usize;
-    let mut i = bytes.len();
-    while i >= 2 {
-        if &bytes[i - 2..i] == b"*/" {
-            depth += 1;
-            i -= 2;
-        } else if &bytes[i - 2..i] == b"/*" {
-            depth -= 1;
-            i -= 2;
-            if depth == 0 {
-                return Some(i);
+/// `/*` の直後から、対応する `*/` (入れ子可) の後ろまで読み飛ばす。閉じていなければ空文字列
+fn skip_block_comment(mut s: &str) -> &str {
+    let mut depth = 1usize;
+    while depth > 0 {
+        match (s.find("/*"), s.find("*/")) {
+            (Some(o), Some(c)) if o < c => {
+                depth += 1;
+                s = &s[o + 2..];
             }
-        } else {
-            i -= 1;
+            (_, Some(c)) => {
+                depth -= 1;
+                s = &s[c + 2..];
+            }
+            // 閉じていないコメント。残りは全部コメント扱い (Postgres も構文エラーにする)
+            _ => return "",
         }
     }
-    None
+    s
 }
 
 /// 実行計画 (EXPLAIN FORMAT JSON) の中から保護テーブルの `Relation Name` を集める。
@@ -1008,31 +1052,7 @@ fn skip_trivia(mut s: &str) -> &str {
         if let Some(after) = s.strip_prefix("--") {
             s = after.find('\n').map_or("", |i| &after[i + 1..]);
         } else if let Some(after) = s.strip_prefix("/*") {
-            let mut depth = 1usize;
-            let mut rest = after;
-            loop {
-                let next_open = rest.find("/*");
-                let next_close = rest.find("*/");
-                match (next_open, next_close) {
-                    (Some(o), Some(c)) if o < c => {
-                        depth += 1;
-                        rest = &rest[o + 2..];
-                    }
-                    (_, Some(c)) => {
-                        depth -= 1;
-                        rest = &rest[c + 2..];
-                        if depth == 0 {
-                            break;
-                        }
-                    }
-                    // 閉じていないコメント。残りは全部コメント扱い (Postgres も構文エラーにする)
-                    _ => {
-                        rest = "";
-                        break;
-                    }
-                }
-            }
-            s = rest;
+            s = skip_block_comment(after);
         } else {
             return s;
         }
@@ -1208,11 +1228,25 @@ mod tests {
             "SELECT 1"
         );
         assert_eq!(strip_trailing_trivia("SELECT 1;\n-- c\n  "), "SELECT 1");
-        assert_eq!(
-            strip_trailing_trivia("SELECT 1 -- same line"),
-            "SELECT 1 -- same line"
-        );
+        assert_eq!(strip_trailing_trivia("SELECT 1 -- same line"), "SELECT 1");
         assert_eq!(strip_trailing_trivia("SELECT '*/'"), "SELECT '*/'");
+        assert_eq!(strip_trailing_trivia("SELECT '/* */'"), "SELECT '/* */'");
+        assert_eq!(
+            strip_trailing_trivia("SELECT \"a;\" -- c;"),
+            "SELECT \"a;\""
+        );
+        assert_eq!(strip_trailing_trivia("SELECT $$;$$;"), "SELECT $$;$$");
+        assert_eq!(strip_trailing_trivia("SELECT E'\\';'"), "SELECT E'\\';'");
+    }
+
+    #[test]
+    fn role_name_is_per_database_and_valid() {
+        assert_eq!(
+            role_name("discalendar"),
+            "discalendar_sql_console_discalendar"
+        );
+        assert_eq!(role_name("My-DB.1"), "discalendar_sql_console_my_db_1");
+        assert!(role_name(&"x".repeat(100)).len() <= 63);
     }
 
     #[test]

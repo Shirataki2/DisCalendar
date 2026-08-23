@@ -94,7 +94,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
 /// SQL コンソール (#36) 用の権限を絞ったロールとプールを用意する。
 /// `SQL_CONSOLE_DATABASE_URL` があればそれで接続し (ロールは手で用意した前提)、無ければ `DATABASE_URL` と同じ DB に
-/// `discalendar_sql_console` でログインする (パスワードは `BETTER_AUTH_SECRET` から導出し、起動時にロールへ設定)。
+/// `discalendar_sql_console_<DB 名>` でログインする (パスワードは `BETTER_AUTH_SECRET` から導出し、起動時にロールへ設定)。
 /// ロールの作成・権限付与ができない環境 (CREATEROLE が無い等) では警告だけ出し、コンソールは実行時に接続と権限を
 /// 検証して 503 を返す (README の手順で手動作成する)。プールの接続は遅延なので、ここでは DB に繋がない
 async fn setup_sql_console(pool: &sqlx::PgPool, config: &Config) -> anyhow::Result<sqlx::PgPool> {

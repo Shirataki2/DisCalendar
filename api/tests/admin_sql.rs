@@ -1,6 +1,8 @@
 //! SQL コンソール (#36) と定型操作の統合テスト。`#[sqlx::test]` がテストごとに一時 DB を作って
 //! `migrations/` を適用する (Postgres が必要)。Better Auth のテーブル (`session` など) はマイグレーションに
 //! 含まれないので、必要なテストでは最小限の形で作る。
+//! SQL コンソールのロールはテスト DB ごとに作られ (`discalendar_sql_console__sqlx_test_...`)、ロールはクラスタに残る
+//! (邪魔なら `DROP ROLE` する)。
 
 use std::time::Duration;
 
@@ -37,19 +39,12 @@ fn input(name: &str) -> EventInput {
     }
 }
 
-/// 起動時と同じくロールを用意し、そのロールでログインするプールを作る。
-/// ロール (クラスタ共通) のパスワード設定はプロセスで 1 回だけにし、テスト DB ごとの権限付与は毎回行う
+/// 起動時と同じくロールを用意し、そのロールでログインするプールを作る
+/// (ロールはテスト DB ごとに別の名前になるので、テスト間で競合しない。冪等なので毎回呼んでよい)
 async fn console(pool: &PgPool) -> PgPool {
-    static ROLE_READY: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
-    let password = ROLE_READY
-        .get_or_init(|| async {
-            let password = admin_sql::derive_password("test-secret");
-            admin_sql::setup_role(pool, Some(&password)).await.unwrap();
-            password
-        })
-        .await;
-    admin_sql::setup_role(pool, None).await.unwrap();
-    admin_sql::console_pool(&pool.connect_options(), password)
+    let password = admin_sql::derive_password("test-secret");
+    admin_sql::setup_role(pool, Some(&password)).await.unwrap();
+    admin_sql::console_pool(&pool.connect_options(), &password)
 }
 
 async fn run(pool: &PgPool, sql: &str) -> Result<SqlResult, SqlError> {
@@ -440,6 +435,28 @@ async fn console_sessions_do_not_expose_their_queries(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(setting.rows[0][0].as_deref(), Some("off"));
+    // ロール名はデータベースごと
+    let who = run(&pool, "SELECT session_user, current_database()")
+        .await
+        .unwrap();
+    let db = who.rows[0][1].clone().unwrap();
+    assert_eq!(
+        who.rows[0][0].as_deref(),
+        Some(admin_sql::role_name(&db).as_str())
+    );
+    // 特権属性もロールのメンバーシップも無い
+    let attrs = run(
+        &pool,
+        "SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls, \
+                (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid) \
+         FROM pg_roles r WHERE rolname = current_user",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        attrs.rows[0],
+        vec![Some("false".to_owned()), Some("0".to_owned())]
+    );
     // 接続上限はクラスタ全体で 1 (複数の api インスタンスでもセッションは同時に 1 つ)
     let limit = run(
         &pool,

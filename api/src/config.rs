@@ -17,7 +17,7 @@ pub struct Config {
     /// 空なら管理者はいない (全員 403)
     pub admin_discord_user_ids: Vec<String>,
     /// SQL コンソール (`POST /admin/sql`) が使う接続文字列 (`SQL_CONSOLE_DATABASE_URL`)。
-    /// 未設定なら `DATABASE_URL` のユーザーを `discalendar_sql_console` に差し替え、パスワードは
+    /// 未設定なら `DATABASE_URL` のユーザーを `discalendar_sql_console_<DB 名>` に差し替え、パスワードは
     /// `BETTER_AUTH_SECRET` から導出したものを起動時にロールへ設定する (ロールを手で用意する環境だけ指定する)
     pub sql_console_database_url: Option<String>,
 }
