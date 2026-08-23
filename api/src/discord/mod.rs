@@ -156,18 +156,20 @@ impl DiscordClient {
 
     /// Bot が参加している全ギルド (`GET /users/@me/guilds` を 200 件ずつ辿る)。
     /// 管理コンソールの差分検出 (#37) 専用。何度も押されても Discord に負荷をかけないよう
-    /// [`BOT_GUILDS_TTL`] の間はキャッシュを返す
+    /// [`BOT_GUILDS_TTL`] の間はキャッシュを返す。
+    ///
+    /// カーソルを付けずに呼ぶと Discord は ID の**降順**で返し、`after` を付けると**昇順**になる。
+    /// 1 ページ目だけカーソル無しにすると 2 ページ目から向きが変わり、重複と取りこぼしが出る
+    /// (200 ギルドを超えたときだけ表面化する) ので、1 ページ目から `after=0` で昇順に統一する
     pub async fn bot_guilds(&self) -> Result<Arc<Vec<BotGuild>>, DiscordError> {
         if let Some(cached) = self.bot_guilds.get(&()).await {
             return Ok(cached);
         }
         let mut all: Vec<BotGuild> = Vec::new();
-        let mut after: Option<String> = None;
+        // Snowflake の 0 より大きい ID から昇順に (どのギルドの ID も 0 より大きい)
+        let mut after = "0".to_owned();
         for _ in 0..BOT_GUILDS_MAX_PAGES {
-            let path = match &after {
-                Some(id) => format!("/users/@me/guilds?limit={BOT_GUILDS_PAGE_SIZE}&after={id}"),
-                None => format!("/users/@me/guilds?limit={BOT_GUILDS_PAGE_SIZE}"),
-            };
+            let path = format!("/users/@me/guilds?limit={BOT_GUILDS_PAGE_SIZE}&after={after}");
             let page: Vec<ApiPartialGuild> = self
                 .get_json(&path)
                 .await?
@@ -180,12 +182,16 @@ impl DiscordClient {
                 name: g.name,
                 icon: g.icon,
             }));
-            if count < BOT_GUILDS_PAGE_SIZE {
-                let all = Arc::new(all);
-                self.bot_guilds.insert((), all.clone()).await;
-                return Ok(all);
+            // 昇順なので、次のページはこのページの末尾 (最大の ID) の続きから
+            match last {
+                Some(id) if count >= BOT_GUILDS_PAGE_SIZE => after = id,
+                // 上限に満たなければ最後のページ (空のページも含む)
+                _ => {
+                    let all = Arc::new(all);
+                    self.bot_guilds.insert((), all.clone()).await;
+                    return Ok(all);
+                }
             }
-            after = last;
         }
         // ここまで来るのは 20,000 ギルドを超えたとき (現実には起きない)。
         // 途中までの一覧を「全部」として差分を出すと誤検出になるのでエラーにする
