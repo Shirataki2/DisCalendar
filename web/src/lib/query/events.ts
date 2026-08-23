@@ -6,10 +6,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { revalidateAdminPages } from "@/app/admin/guilds/actions";
 import { api } from "@/lib/api";
 import type { EventsClient } from "@/lib/api/endpoints";
 import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
+import { revalidateAdminPagesQuietly } from "./admin-cache";
 import { type EventsQueryKeys, queryKeys } from "./keys";
 
 export interface EventRange {
@@ -29,21 +29,24 @@ export interface EventsSource {
   keys: EventsQueryKeys;
   /**
    * 予定の件数が変わった (作成・削除した) 後に追加で行うこと。
-   * TanStack Query の外にあるキャッシュ (RSC が描画する画面の Router Cache など) を捨てるのに使う
+   * TanStack Query の外にあるキャッシュ (RSC が描画する画面の Router Cache など) を捨てるのに使う。
+   * 書き込み本体は成功済みなので、ここでの失敗は mutation の結果に影響させない (返り値なし)
    */
-  afterCountChanged?: () => Promise<void>;
+  afterCountChanged?: () => void;
 }
 
+// どちらの画面で予定を作成・削除しても、管理コンソールのギルド一覧 (RSC) の予定数を古いままにしない
+// (管理者でない利用者からも呼ばれるが、Router Cache を捨てるだけなので害はない)
 export const dashboardEventsSource: EventsSource = {
   client: api.events,
   keys: queryKeys.events,
+  afterCountChanged: revalidateAdminPagesQuietly,
 };
 
 export const adminEventsSource: EventsSource = {
   client: api.admin.events,
   keys: queryKeys.admin.events,
-  // ギルド一覧 (RSC) の予定数を古いままにしない
-  afterCountChanged: revalidateAdminPages,
+  afterCountChanged: revalidateAdminPagesQuietly,
 };
 
 /** 表示範囲に重なる予定。範囲が決まるまで (FullCalendar の datesSet 前) は取得しない */
@@ -75,11 +78,13 @@ function invalidateEvents(
   countChanged: boolean,
 ) {
   const targets = [keys.all(guildId), ...(keys.onChanged?.(guildId) ?? [])];
-  if (countChanged) targets.push(...(keys.onCountChanged?.(guildId) ?? []));
-  return Promise.all([
-    ...targets.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-    countChanged ? afterCountChanged?.() : undefined,
-  ]);
+  if (countChanged) {
+    targets.push(...(keys.onCountChanged?.(guildId) ?? []));
+    afterCountChanged?.();
+  }
+  return Promise.all(
+    targets.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  );
 }
 
 export function useCreateEvent(

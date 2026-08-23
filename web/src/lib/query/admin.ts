@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { revalidateAdminPages } from "@/app/admin/guilds/actions";
 import { api } from "@/lib/api";
-import type { AdminGuildDetail, GuildConfig } from "@/lib/api/types";
+import type { GuildConfig } from "@/lib/api/types";
+import { syncAdminGuildConfig } from "./admin-cache";
 import { queryKeys } from "./keys";
 
 // 管理コンソール (#35)。初回の値は admin/guilds/[id]/page.tsx (RSC) が取得して hydrate する
@@ -26,16 +26,11 @@ export function useUpdateAdminGuildConfig(guildId: string) {
     mutationFn: (restricted: boolean) =>
       api.admin.guilds.updateConfig(guildId, restricted),
     onSuccess: (config) => {
-      queryClient.setQueryData<AdminGuildDetail>(
-        queryKeys.admin.guild(guildId),
-        (detail) =>
-          detail ? { ...detail, restricted: config.restricted } : detail,
-      );
+      syncAdminGuildConfig(queryClient, guildId, config);
       queryClient.setQueryData<GuildConfig>(
         queryKeys.guild.config(guildId),
         config,
       );
-      return revalidateAdminPages();
     },
   });
 }
