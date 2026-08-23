@@ -47,6 +47,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let state = web::Data::new(AppState {
         pool,
         sql_console_pool,
+        sql_known_words: tokio::sync::Mutex::new(None),
         discord: DiscordClient::new(&config.discord_bot_token)?,
         auth: AuthConfig {
             secret: config.better_auth_secret.clone(),

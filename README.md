@@ -106,7 +106,7 @@ web の `/admin` を開け、api の `/admin/*` を呼べる。それ以外は a
 `/admin/guilds` で全ギルドの一覧・検索、`/admin/guilds/[id]` で (自分が所属していないギルドも含めて) 予定の閲覧・編集・削除と
 `restricted` の切替ができる (#35)。カレンダーは `/dashboard/[id]` と同じ部品を admin 用 API (`/admin/guilds/{guild_id}/events`) に向けて使っている。
 `/admin/sql` は読み取り専用の SQL コンソールと定型操作 (#36)。SQL は権限を絞った DB ロール `discalendar_sql_console`
-(非 superuser) で**ログインした専用の接続**と `BEGIN READ ONLY` のトランザクションで実行し、10 秒の締切・
+(非 superuser) で**ログインした専用の接続** (1 本。同時に実行しようとした管理者は空くのを待つ) と `BEGIN READ ONLY` のトランザクションで実行し、10 秒の締切・
 先頭 500 行 / 4 MiB (1 セル 4,000 文字) までを返す。SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文だけ受け付ける。
 このロールには `public` スキーマのテーブルの SELECT だけを与え、Better Auth の `account` / `session` / `verification` (トークン類) は
 権限を外してあるので、`table_to_xml()` のような関数経由でも読めない (api の接続で `SET ROLE` するのではなくこのロール自身で
@@ -126,8 +126,8 @@ REVOKE ALL ON TABLE account, session, verification FROM discalendar_sql_console;
 ```
 
 書き込みは自由 SQL ではなく定型操作 (指定ギルドの全予定削除、期限切れセッションの削除) として `POST /admin/ops/*` にあり、
-SQL の実行 (成功・失敗とも) と定型操作はすべて `admin_audit_logs` に残る (SQL は文字列リテラルと引用識別子を `'…'` / `"…"` に、コメントを除いて保存し、
-貼り付けたトークン等が履歴に残らないようにしている)。
+SQL の実行 (成功・失敗とも) と定型操作はすべて `admin_audit_logs` に残る (SQL は文字列リテラルと引用識別子を `'…'` / `"…"` に、コメントを除き、キーワードでも既知の
+テーブル・列・関数名でもない識別子も `…` にして保存し、貼り付けたトークン等が履歴に残らないようにしている)。
 ローカルで試すときは `api/.env` に自分の Discord ユーザー ID を入れて api を再起動し、`/dashboard` のヘッダーに出る
 「管理コンソール」から開く。compose / staging では ルートの `.env` (`ADMIN_DISCORD_USER_IDS`) で渡す。
 

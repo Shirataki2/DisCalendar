@@ -4,6 +4,8 @@
 //! [`crate::models::admin_sql`] にある。ここでは実行のたびに (成功・失敗・拒否のどれでも) SQL と結果の概要を
 //! `admin_audit_logs` に `sql.select` として残し、その履歴を返す。
 
+use std::{collections::HashSet, sync::Arc, time::Instant};
+
 use actix_web::{get, post, web};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -15,12 +17,40 @@ use crate::{
     models::{
         admin_audit::{self, AuditEntry, AuditLog},
         admin_sql::{
-            self, STATEMENT_TIMEOUT, SqlError, SqlResult, sanitize_error_for_audit,
-            sanitize_sql_for_audit,
+            self, KNOWN_WORDS_TTL, STATEMENT_TIMEOUT, SqlError, SqlResult,
+            sanitize_error_for_audit, sanitize_sql_for_audit,
         },
     },
-    state::AppState,
+    state::{AppState, KnownWords},
 };
+
+/// 監査用の伏せ字で残してよい既知の単語。`KNOWN_WORDS_TTL` の間キャッシュし、取れなければ
+/// 空集合 (= 引用符の無い識別子をすべて伏せる) にして安全側に倒す
+async fn known_words(state: &AppState) -> Arc<HashSet<String>> {
+    let mut cache = state.sql_known_words.lock().await;
+    if let Some(cached) = cache.as_ref()
+        && cached.loaded_at.elapsed() < KNOWN_WORDS_TTL
+    {
+        return Arc::clone(&cached.words);
+    }
+    match admin_sql::load_known_words(&state.pool).await {
+        Ok(words) => {
+            let words = Arc::new(words);
+            *cache = Some(KnownWords {
+                words: Arc::clone(&words),
+                loaded_at: Instant::now(),
+            });
+            words
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "failed to load known words for SQL audit redaction; redacting all identifiers");
+            cache
+                .as_ref()
+                .map(|c| Arc::clone(&c.words))
+                .unwrap_or_default()
+        }
+    }
+}
 
 /// 監査ログ上の action。履歴 (`GET /sql/history`) もこれで絞る
 pub const SQL_AUDIT_ACTION: &str = "sql.select";
@@ -58,7 +88,8 @@ pub async fn run_sql(
     let outcome = admin_sql::execute(&state.sql_console_pool, sql, STATEMENT_TIMEOUT).await;
     // 監査ログに残す SQL は文字列リテラルとコメントを伏せ (貼り付けた秘密値を残さない)、NUL を除き、
     // 上限までに切る (長すぎて拒否した場合のため)。エラーメッセージも Postgres が埋め込む値 ("...") を伏せる
-    let logged_sql = sanitize_sql_for_audit(sql);
+    let known_words = known_words(&state).await;
+    let logged_sql = sanitize_sql_for_audit(sql, |word| known_words.contains(word));
     let (detail, response) = match outcome {
         Ok(result) => (
             serde_json::json!({

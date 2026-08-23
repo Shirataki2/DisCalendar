@@ -226,8 +226,7 @@ function History({
       <h3 className="mb-2 text-sm font-semibold">
         直近の実行履歴
         <span className="ml-2 font-normal text-neutral-500">
-          (監査ログから。文字列リテラルと "引用識別子"
-          は伏せ字、コメントは除いて保存される)
+          (監査ログから。文字列リテラル・"引用識別子"・既知でない識別子は伏せ字、コメントは除いて保存される)
         </span>
       </h3>
       {isError ? (

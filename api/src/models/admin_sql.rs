@@ -37,11 +37,16 @@
 //! 結果の値は text にキャストして simple query protocol (text format) で受け取り、型ごとのデコードをせずに
 //! 文字列表現のまま返す (psql とほぼ同じ。boolean は `true` / `false`。NULL は null)。
 //!
-//! 監査ログ・履歴に残す SQL は [`redact_sql`] で文字列リテラル・引用識別子・コメントを伏せる (管理者が調査中に
-//! 貼り付けた cookie やトークンが履歴として永続化・他の管理者に表示されないように)。同じ理由でロールには
-//! `track_activities = off` を設定し、実行中の SQL 全文が `pg_stat_activity` から他の管理者に見えないようにする。
+//! 監査ログ・履歴に残す SQL は [`redact_sql`] で文字列リテラル・引用識別子・コメントと、既知でない識別子
+//! (SQL キーワード、カタログと `public` のオブジェクト名・列名・関数名・型名・設定名のどれでもない単語。
+//! 引用符を付け忘れて貼り付けたトークンなど) を伏せる (管理者が調査中に貼り付けた cookie やトークンが
+//! 履歴として永続化・他の管理者に表示されないように)。同じ理由でロールには `track_activities = off` を設定し、
+//! プールの接続数を 1 にして、実行中の SQL やセッションの状態が別の管理者のセッションから見えないようにする。
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 
 use futures_util::TryStreamExt as _;
 use hmac::{Hmac, KeyInit as _, Mac as _};
@@ -73,8 +78,12 @@ pub const STATEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const MAX_SQL_CHARS: usize = 10_000;
 /// SQL コンソールの実行に使う DB ロール (superuser ではない。[`setup_role`] が作る)
 pub const ROLE: &str = "discalendar_sql_console";
-/// コンソール用プールの接続数 (管理者が同時に使う数は少ない)
-const POOL_SIZE: u32 = 2;
+/// コンソール用プールの接続数。**1 にしている**のは、同じロールのセッションが同時に 2 つ存在すると
+/// `pg_stat_activity` の `application_name` (`set_config` で書き換えられる) のようにセッション間で値を渡せる
+/// 経路が残るため。同時に実行しようとした管理者は接続が空くのを待ち、締切までに空かなければタイムアウトになる
+const POOL_SIZE: u32 = 1;
+/// 監査用の伏せ字で残してよい既知の単語 ([`load_known_words`]) をキャッシュする時間
+pub const KNOWN_WORDS_TTL: Duration = Duration::from_secs(600);
 /// 読み取りを禁止するテーブル (Better Auth のトークン類を持つ)。このロールには権限を与えず、
 /// さらに実行計画にこれらが出てくる文は実行前に拒否する (スキーマに関係なく名前で判定)
 pub const PROTECTED_TABLES: [&str; 3] = ["account", "session", "verification"];
@@ -205,6 +214,38 @@ pub fn console_pool_from_url(url: &str) -> Result<PgPool, sqlx::Error> {
     Ok(PgPoolOptions::new()
         .max_connections(POOL_SIZE)
         .connect_lazy_with(options))
+}
+
+/// 監査用の伏せ字 ([`redact_sql`]) でそのまま残してよい単語の一覧: SQL キーワードと、カタログ (`pg_catalog` /
+/// `information_schema`) と `public` スキーマにあるテーブル・ビュー・列・関数・型・スキーマ名、設定名 (`SHOW` 用)。
+/// すべて小文字 (引用符の無い識別子は小文字に畳まれるので、比較もそれに合わせる)。
+/// 呼び出し側で [`KNOWN_WORDS_TTL`] の間キャッシュする
+pub async fn load_known_words(pool: &PgPool) -> sqlx::Result<HashSet<String>> {
+    let words: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT lower(w) FROM (
+            SELECT word AS w FROM pg_get_keywords()
+            UNION ALL SELECT c.relname::text FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname IN ('public', 'pg_catalog', 'information_schema')
+            UNION ALL SELECT a.attname::text FROM pg_attribute a
+                JOIN pg_class c ON c.oid = a.attrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname IN ('public', 'pg_catalog', 'information_schema') AND a.attnum > 0
+            UNION ALL SELECT p.proname::text FROM pg_proc p
+                JOIN pg_namespace n ON n.oid = p.pronamespace
+                WHERE n.nspname IN ('public', 'pg_catalog', 'information_schema')
+            UNION ALL SELECT t.typname::text FROM pg_type t
+                JOIN pg_namespace n ON n.oid = t.typnamespace
+                WHERE n.nspname IN ('public', 'pg_catalog', 'information_schema')
+            UNION ALL SELECT nspname::text FROM pg_namespace
+            UNION ALL SELECT name FROM pg_settings
+        ) AS words(w)
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(words.into_iter().collect())
 }
 
 /// SQL コンソール用のロール [`ROLE`] を用意する (api の起動時に呼ぶ。冪等)。
@@ -625,12 +666,15 @@ fn push_rows(
 }
 
 /// 監査ログ・履歴に残す用に、SQL の文字列リテラル (`'...'`、`E'...'`、`$tag$...$tag$`) と引用識別子 (`"..."`) の
-/// 中身を `…` に、コメント (`-- ...`、`/* ... */`) を空白に置き換える。引用符の無い識別子と数値はそのまま。
+/// 中身を `…` に、コメント (`-- ...`、`/* ... */`) を空白に、`is_known` が false の引用符の無い識別子
+/// (4 文字以上。キーワードでも既知のオブジェクト名でもない = 引用符を付け忘れて貼り付けた値かもしれない) を `…` に
+/// 置き換える。数値と 3 文字以下の識別子 (別名など) はそのまま。
 /// 管理者が貼り付けたトークンや cookie が履歴として残らないようにするためで、構文として正しい必要はない
-pub fn redact_sql(sql: &str) -> String {
+pub fn redact_sql(sql: &str, is_known: impl Fn(&str) -> bool) -> String {
     let mut out = String::with_capacity(sql.len());
     let mut rest = sql;
     while !rest.is_empty() {
+        let first = rest.chars().next().expect("non-empty");
         if let Some(after) = rest.strip_prefix("--") {
             // 行コメント: 改行まで捨てる (改行は残す)
             rest = after.find('\n').map_or("", |i| &after[i..]);
@@ -674,10 +718,28 @@ pub fn redact_sql(sql: &str) -> String {
                 Some(i) => &after[i + tag.len()..],
                 None => "",
             };
+        } else if first.is_ascii_digit() {
+            // 数値リテラル (1, 1.5, 1e5, 0x1f など)。ID (Snowflake) もここ
+            let end = rest
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
+                .unwrap_or(rest.len());
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+        } else if first.is_alphabetic() || first == '_' {
+            // 引用符の無い識別子 / キーワード
+            let end = rest
+                .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+                .unwrap_or(rest.len());
+            let word = &rest[..end];
+            if word.chars().count() <= 3 || is_known(&word.to_lowercase()) {
+                out.push_str(word);
+            } else {
+                out.push('…');
+            }
+            rest = &rest[end..];
         } else {
-            let ch = rest.chars().next().expect("non-empty");
-            out.push(ch);
-            rest = &rest[ch.len_utf8()..];
+            out.push(first);
+            rest = &rest[first.len_utf8()..];
         }
     }
     out
@@ -685,8 +747,8 @@ pub fn redact_sql(sql: &str) -> String {
 
 /// 監査ログに残す文字列を整える: [`redact_sql`] で文字列リテラルとコメントを伏せ、jsonb に入らない NUL (U+0000) を
 /// 置き換え、`MAX_SQL_CHARS` 文字までに切る (長すぎて拒否した場合のため)。どんな入力でも監査の INSERT が失敗しないように
-pub fn sanitize_sql_for_audit(sql: &str) -> String {
-    redact_sql(sql)
+pub fn sanitize_sql_for_audit(sql: &str, is_known: impl Fn(&str) -> bool) -> String {
+    redact_sql(sql, is_known)
         .replace('\0', "\u{FFFD}")
         .chars()
         .take(MAX_SQL_CHARS)
@@ -960,30 +1022,65 @@ mod tests {
         );
     }
 
+    /// テスト用の既知の単語 (実際は load_known_words がカタログから集める)
+    fn known(word: &str) -> bool {
+        [
+            "select", "from", "where", "and", "as", "guilds", "guild_id", "name", "count",
+            "events", "union", "all",
+        ]
+        .contains(&word)
+    }
+
     #[test]
     fn redacts_literals_and_comments_but_keeps_structure() {
         assert_eq!(
             redact_sql(
-                "SELECT 'secret', \"col\", 42 FROM t WHERE a = 'x''y' -- tok\nAND b = E'a\\'b'"
+                "SELECT 'secret', \"col\", 42 FROM t WHERE a = 'x''y' -- tok\nAND b = E'a\\'b'",
+                known
             ),
             "SELECT '…', \"…\", 42 FROM t WHERE a = '…' \nAND b = E'…'"
         );
         assert_eq!(
-            redact_sql("SELECT $$raw 'token'$$, $tag$x$tag$, $1 /* c /* n */ */ + 1"),
+            redact_sql(
+                "SELECT $$raw 'token'$$, $tag$x$tag$, $1 /* c /* n */ */ + 1",
+                known
+            ),
             "SELECT $$…$$, $$…$$, $1   + 1"
         );
         // 閉じていないリテラルやコメントは末尾まで伏せる
-        assert_eq!(redact_sql("SELECT 'open"), "SELECT '…'");
-        assert_eq!(redact_sql("SELECT 1 /* open"), "SELECT 1  ");
+        assert_eq!(redact_sql("SELECT 'open", known), "SELECT '…'");
+        assert_eq!(redact_sql("SELECT 1 /* open", known), "SELECT 1  ");
         assert_eq!(
-            redact_sql("SELECT 1 AS \"a\"\"b\", x"),
+            redact_sql("SELECT 1 AS \"a\"\"b\", x", known),
             "SELECT 1 AS \"…\", x"
         );
     }
 
     #[test]
+    fn redacts_unknown_identifiers_but_keeps_known_ones() {
+        // 引用符を付け忘れて貼り付けたトークンや、別名に埋め込んだ値は残らない。
+        // キーワード・既知のテーブル / 列名・3 文字以下の別名・数値はそのまま
+        assert_eq!(
+            redact_sql(
+                "SELECT gxiCbvHTf38uOqOjox9RlHAZKJLI0ZU6, guild_id AS g, 1 AS token_secretvalue, 1e5 \
+                 FROM guilds AS gg WHERE guild_id = 782502586817314816 AND Name = secret",
+                known
+            ),
+            "SELECT …, guild_id AS g, 1 AS …, 1e5 FROM guilds AS gg WHERE guild_id = 782502586817314816 AND Name = …"
+        );
+        // E'...' の E は 1 文字なので残り、エスケープ付き文字列として扱われる
+        assert_eq!(
+            redact_sql("SELECT E'a\\'b', U&'x'", known),
+            "SELECT E'…', U&'…'"
+        );
+    }
+
+    #[test]
     fn audit_strings_are_safe_to_store() {
-        assert_eq!(sanitize_sql_for_audit("SELECT 'a'\0"), "SELECT '…'\u{FFFD}");
+        assert_eq!(
+            sanitize_sql_for_audit("SELECT 'a'\0", known),
+            "SELECT '…'\u{FFFD}"
+        );
         assert_eq!(
             sanitize_error_for_audit(
                 r#"invalid input syntax for type uuid: "cookie-value" (SQLSTATE 22P02)"#

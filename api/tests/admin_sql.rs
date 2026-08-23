@@ -446,6 +446,31 @@ async fn console_sessions_do_not_expose_their_queries(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn known_words_cover_keywords_catalog_and_schema(pool: PgPool) {
+    let words = admin_sql::load_known_words(&pool).await.unwrap();
+    for w in [
+        "select",
+        "from",
+        "guilds",
+        "guild_id",
+        "events",
+        "start_at",
+        "admin_audit_logs",
+        "count",
+        "generate_series",
+        "text",
+        "timestamptz",
+        "pg_class",
+        "relname",
+        "server_version",
+        "public",
+    ] {
+        assert!(words.contains(w), "{w} should be known");
+    }
+    assert!(!words.contains("gxicbvhtf38uoqojox9rlhazkjli0zu6"));
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn session_state_does_not_leak_into_the_pool(pool: PgPool) {
     let console = console(&pool).await;
     admin_sql::execute(
