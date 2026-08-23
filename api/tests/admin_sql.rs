@@ -15,6 +15,9 @@ use sqlx::PgPool;
 const GUILD: &str = "111111111111111111";
 const OTHER_GUILD: &str = "222222222222222222";
 const TIMEOUT: Duration = Duration::from_secs(10);
+/// コンソール用ロールは CONNECTION LIMIT 1 なので、テストを並列に走らせると接続待ちで締切に掛かる。
+/// DB を使うテストは直列にする
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// 漏れてはいけない値。結果やエラーメッセージに一切現れないことを確認する
 const SECRET: &str = "secret-token-value-do-not-leak";
 
@@ -114,6 +117,7 @@ async fn create_auth_tables(pool: &PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn select_returns_columns_and_text_values(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     let created = events::create(&pool, GUILD, &input("meeting"), dt("2026-08-01T00:00:00"))
         .await
         .unwrap();
@@ -177,6 +181,7 @@ async fn select_returns_columns_and_text_values(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn row_limit_truncates_large_results(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     let result = run(&pool, "SELECT generate_series(1, 100000) AS n")
         .await
         .unwrap();
@@ -196,6 +201,7 @@ async fn row_limit_truncates_large_results(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn statement_timeout_cancels_long_queries(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     let console = console(&pool).await;
     let error = admin_sql::execute(&console, "SELECT pg_sleep(5)", Duration::from_millis(200))
         .await
@@ -232,6 +238,7 @@ async fn statement_timeout_cancels_long_queries(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn writes_and_non_read_only_statements_are_rejected(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     events::create(&pool, GUILD, &input("keep"), dt("2026-08-01T00:00:00"))
         .await
         .unwrap();
@@ -314,6 +321,7 @@ async fn writes_and_non_read_only_statements_are_rejected(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn protected_tables_are_rejected_before_execution(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     create_auth_tables(&pool).await;
 
     // どう書いても実行計画に Relation Name が現れるので、すべて実行前に拒否される
@@ -426,6 +434,7 @@ async fn protected_tables_are_rejected_before_execution(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn console_sessions_do_not_expose_their_queries(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     // ロールに track_activities = off が設定され、pg_stat_activity.query に実行中の SQL が載らない
     let setting = run(&pool, "SELECT current_setting('track_activities')")
         .await
@@ -455,6 +464,7 @@ async fn console_sessions_do_not_expose_their_queries(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn known_words_cover_keywords_catalog_and_schema(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     let words = admin_sql::load_known_words(&pool).await.unwrap();
     for w in [
         "select",
@@ -480,6 +490,7 @@ async fn known_words_cover_keywords_catalog_and_schema(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn session_state_does_not_leak_into_the_pool(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     let console = console(&pool).await;
     admin_sql::execute(
         &console,
@@ -509,6 +520,7 @@ async fn session_state_does_not_leak_into_the_pool(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn cells_and_total_size_are_bounded(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     // 1 セルはサーバー側で切り詰められ、印が付く
     let result = run(&pool, "SELECT repeat('x', 1000000) AS big, 'ok' AS small")
         .await
@@ -556,6 +568,7 @@ async fn cells_and_total_size_are_bounded(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn wrapping_keeps_odd_but_valid_statements_working(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     // 同名の列、末尾の `;`、末尾行のコメント、列の無い SELECT、ORDER BY
     let dup = run(&pool, "SELECT 1 AS a, 2 AS a;").await.unwrap();
     assert_eq!(
@@ -579,6 +592,9 @@ async fn wrapping_keeps_odd_but_valid_statements_working(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(commented.rows[0][0].as_deref(), Some("1"));
+
+    let block_commented = run(&pool, "SELECT 2 AS n; /* note */").await.unwrap();
+    assert_eq!(block_commented.rows[0][0].as_deref(), Some("2"));
 
     let no_columns = run(&pool, "SELECT FROM guilds").await.unwrap();
     assert!(no_columns.columns.is_empty());
@@ -611,6 +627,7 @@ async fn wrapping_keeps_odd_but_valid_statements_working(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn explain_and_show_work(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     let plan = run(&pool, "EXPLAIN SELECT * FROM events WHERE guild_id = '1'")
         .await
         .unwrap();
@@ -632,6 +649,7 @@ async fn explain_and_show_work(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn delete_guild_events_removes_only_that_guild(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     for name in ["a", "b"] {
         events::create(&pool, GUILD, &input(name), dt("2026-08-01T00:00:00"))
             .await
@@ -669,6 +687,7 @@ async fn delete_guild_events_removes_only_that_guild(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn delete_guild_events_snapshot_is_bounded(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     let n = admin_ops::DELETE_SNAPSHOT_LIMIT + 5;
     sqlx::query(
         "INSERT INTO events (guild_id, name, notifications, color, is_all_day, start_at, end_at, created_at)
@@ -695,6 +714,7 @@ async fn delete_guild_events_snapshot_is_bounded(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn purge_expired_sessions_keeps_valid_ones(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
     create_auth_tables(&pool).await;
     sqlx::query(
         r#"INSERT INTO "session" (id, token, "expiresAt", "userId")

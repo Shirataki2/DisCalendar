@@ -899,8 +899,37 @@ fn strip_trailing_trivia(sql: &str) -> &str {
             s = s[..last_line_start].trim_end();
             continue;
         }
+        if s.ends_with("*/")
+            && let Some(start) = block_comment_start(s)
+        {
+            s = s[..start].trim_end();
+            continue;
+        }
         return s;
     }
+}
+
+/// 末尾が `*/` で終わる文字列について、そのブロックコメント (入れ子可) の開始位置 `/*` を返す。
+/// 対応する開始が無ければ None
+fn block_comment_start(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut depth = 0usize;
+    let mut i = bytes.len();
+    while i >= 2 {
+        if &bytes[i - 2..i] == b"*/" {
+            depth += 1;
+            i -= 2;
+        } else if &bytes[i - 2..i] == b"/*" {
+            depth -= 1;
+            i -= 2;
+            if depth == 0 {
+                return Some(i);
+            }
+        } else {
+            i -= 1;
+        }
+    }
+    None
 }
 
 /// 実行計画 (EXPLAIN FORMAT JSON) の中から保護テーブルの `Relation Name` を集める。
@@ -1168,6 +1197,22 @@ mod tests {
             sanitize_error_for_audit("no quotes\0here"),
             "no quotes\u{FFFD}here"
         );
+    }
+
+    #[test]
+    fn strips_trailing_semicolons_and_comments() {
+        assert_eq!(strip_trailing_trivia("SELECT 1;"), "SELECT 1");
+        assert_eq!(strip_trailing_trivia("SELECT 1; /* note */"), "SELECT 1");
+        assert_eq!(
+            strip_trailing_trivia("SELECT 1 /* a /* b */ */ ;"),
+            "SELECT 1"
+        );
+        assert_eq!(strip_trailing_trivia("SELECT 1;\n-- c\n  "), "SELECT 1");
+        assert_eq!(
+            strip_trailing_trivia("SELECT 1 -- same line"),
+            "SELECT 1 -- same line"
+        );
+        assert_eq!(strip_trailing_trivia("SELECT '*/'"), "SELECT '*/'");
     }
 
     #[test]
