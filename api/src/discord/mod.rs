@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 pub use self::permissions::Permissions;
 use self::permissions::compute_base_permissions;
 
-const API_BASE: &str = "https://discord.com/api/v10";
+/// Discord API の既定のベース URL。E2E テストではモックに差し替える ([`DiscordClient::new`])
+pub const DEFAULT_API_BASE: &str = "https://discord.com/api/v10";
 const USER_AGENT: &str = concat!(
     "DiscordBot (https://discalendar.app, ",
     env!("CARGO_PKG_VERSION"),
@@ -85,6 +86,8 @@ pub struct MemberAccess {
 #[derive(Clone)]
 pub struct DiscordClient {
     http: reqwest::Client,
+    /// API のベース URL (末尾の `/` なし)。通常は [`DEFAULT_API_BASE`]
+    api_base: String,
     /// guild_id → ギルド情報。Bot が未参加なら None (負のキャッシュ)
     guilds: Cache<String, Option<Arc<GuildSnapshot>>>,
     /// (guild_id, user_id) → メンバーの所持ロール。非メンバーなら None (負のキャッシュ)
@@ -123,7 +126,9 @@ struct ApiPartialGuild {
 }
 
 impl DiscordClient {
-    pub fn new(bot_token: &str) -> anyhow::Result<Self> {
+    /// `api_base` は Discord API のベース URL (`DISCORD_API_BASE_URL`)。
+    /// 本番では [`DEFAULT_API_BASE`] で、E2E テスト (web/e2e) ではモックサーバーの URL を渡す
+    pub fn new(bot_token: &str, api_base: &str) -> anyhow::Result<Self> {
         let mut auth = header::HeaderValue::from_str(&format!("Bot {bot_token}"))
             .context("DISCORD_BOT_TOKEN contains invalid characters")?;
         auth.set_sensitive(true);
@@ -139,6 +144,7 @@ impl DiscordClient {
 
         Ok(Self {
             http,
+            api_base: api_base.trim_end_matches('/').to_owned(),
             guilds: Cache::builder()
                 .max_capacity(10_000)
                 .time_to_live(GUILD_TTL)
@@ -270,7 +276,7 @@ impl DiscordClient {
     /// 404 (Unknown Guild / Unknown Member) と 403 (Missing Access = Bot 未参加) は `Ok(None)`。
     /// 429 は Retry-After が短ければ 1 回だけ待って再試行する
     async fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>, DiscordError> {
-        let url = format!("{API_BASE}{path}");
+        let url = format!("{}{path}", self.api_base);
         let mut retried = false;
         loop {
             let res = self.http.get(&url).send().await?;

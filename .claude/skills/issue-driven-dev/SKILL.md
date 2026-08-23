@@ -92,7 +92,7 @@ worktree 内で気をつけること:
 
 - Issue の完了条件を満たす最小の変更にする。設計判断で迷ったら旧実装の挙動を根拠にし、PR 本文に理由を書く
 - 変更した領域の検証を手元で通す (CI と同じ):
-  - web (`web/` で): `pnpm lint` / `pnpm exec tsc --noEmit` / `pnpm build`
+  - web (`web/` で): `pnpm lint` / `pnpm exec tsc --noEmit` / `pnpm test` / `pnpm build`。カレンダー周りを触ったら `pnpm e2e` (Playwright、README「テスト」)
   - api / bot (ルートで): `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace`
   - `query!` を触ったら該当クレートで `cargo sqlx prepare -- --all-targets` を実行して `.sqlx/` をコミットに含める (CI は `SQLX_OFFLINE=true`)
 - UI の変更は Browser pane (`preview_start`) で実際に動かして確認し、PR の「動作確認」に手順を書く

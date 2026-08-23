@@ -167,6 +167,31 @@ cp .env.example .env   # DATABASE_URL / DISCORD_BOT_TOKEN (api と同じ値)、B
 cargo run              # マイグレーションは api が適用するので、先に api を一度起動しておく
 ```
 
+### テスト
+
+web のユニットテスト (Vitest) と E2E (Playwright) がある。api / bot のテストは `cargo test --workspace` (Postgres が必要、[api/README.md](api/README.md))。
+
+```sh
+cd web
+pnpm test     # Vitest: src/**/*.test.ts (純粋ロジック: 予定フォームのスキーマ・API との変換・終日予定の 1 日ずらし・エラー整形)
+pnpm e2e      # Playwright: e2e/*.spec.ts (初回は pnpm exec playwright install chromium でブラウザを入れる)
+```
+
+E2E は api (Rust) + Postgres + Next.js を自動で立ち上げ、ログイン → サーバー選択 → 予定の作成・編集・ドラッグ移動 (とロールバック)・削除 →
+サーバー設定 (restricted) の切替と非管理者の表示 を通す。Discord には繋がない:
+
+- Discord OAuth は通さず、Better Auth の `user` / `session` / `account` 行を DB に直接作って署名付き cookie をブラウザに入れる (`e2e/seed.ts`)
+- Discord API は `e2e/discord-mock.ts` (固定のユーザー・ギルド・権限、`e2e/fixtures.ts`) に差し替える。
+  web と api は環境変数 `DISCORD_API_BASE_URL` でこのモックに向く (未設定なら本物の Discord)
+- ポートは dev とぶつからない web 3100 / api 8180 / モック 8190 (`E2E_WEB_PORT` などで変更可)。dev サーバーを動かしたままでも実行できる
+- DB は `E2E_DATABASE_URL` (未設定なら `web/.env.local` の `DATABASE_URL` の DB 名を `discalendar_e2e` に変えたもの) を使い、
+  無ければ作る。**開始時に中身を消す**ので、DB 名に `e2e` を含まないと実行を拒否する
+- api は `cargo run -p discalendar-api` (初回はビルドに時間がかかる)。ビルド済みのバイナリを使うなら `E2E_API_COMMAND=./target/debug/discalendar-api`。
+  web はローカルでは `next dev`、CI (`CI=true`) では `next build` + `next start`
+- 失敗時のスクリーンショットは `web/test-results/`、CI では `playwright-report` アーティファクト (`pnpm exec playwright show-report` で見られる)
+
+設定は [web/playwright.config.ts](web/playwright.config.ts) と [web/vitest.config.mts](web/vitest.config.mts)。
+
 ### Docker (compose) で動かす
 
 ルートの `compose.yaml` で db (postgres:18) / api / web / bot をまとめて動かせる。各イメージは
@@ -219,7 +244,8 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
   マイルストーン「v3 リリース」と `area:*` ラベルを付けて進捗を追う
 - `main` への直接 push は禁止 (ルールセット)。ブランチを切って PR を作り、本文の `Closes #N` で Issue と紐付ける
   (`gh issue develop N --checkout` でブランチを作れる)。マージは squash のみで、マージ後のブランチは自動削除される
-- PR では CI (`.github/workflows/ci.yml`: web は Biome / tsc / next build、rust (api / bot) は rustfmt / clippy / test) が通ることが必須
+- PR では CI (`.github/workflows/ci.yml`: web は Biome / tsc / Vitest / next build、rust (api / bot) は rustfmt / clippy / test、
+  e2e は Playwright (web か rust に変更があるとき)) が通ることが必須
 - AI レビュー: Claude (`.github/workflows/claude-code-review.yml`、secret `CLAUDE_CODE_OAUTH_TOKEN` が必要) と
   Codex (Codex クラウドの GitHub 連携で自動レビュー) が PR を確認する。コメントで `@claude` / `@codex review` と呼ぶと追加で依頼できる。
   レビューの観点は [AGENTS.md](AGENTS.md) の「Code Review Rules」

@@ -1,7 +1,9 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 
-const DISCORD_API = "https://discord.com/api/v10";
+// Discord API のベース URL。E2E テスト (e2e/) ではモックサーバーに向ける (api 側の DISCORD_API_BASE_URL と同じ扱い)
+const DISCORD_API =
+  process.env.DISCORD_API_BASE_URL ?? "https://discord.com/api/v10";
 
 export interface DiscordGuild {
   id: string;
