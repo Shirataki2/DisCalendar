@@ -1,9 +1,12 @@
 //! ルーティング。`utoipa_actix_web` 経由で登録することで OpenAPI にも自動で載る。
 
 mod admin;
+mod admin_audit;
 mod admin_guilds;
 mod admin_ops;
 mod admin_sql;
+mod admin_status;
+mod admin_users;
 mod events;
 mod guilds;
 mod health;
@@ -35,6 +38,11 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(
             scope("/admin")
                 .service(admin::me)
+                .service(admin_status::stats)
+                .service(admin_status::status)
+                // `/guilds/sync-check` は `/guilds/{guild_id}` より先に登録する
+                // (後だと sync-check が guild_id として解釈される)
+                .service(admin_status::sync_check)
                 .service(admin_guilds::list_guilds)
                 .service(admin_guilds::get_guild)
                 .service(admin_guilds::list_events)
@@ -45,6 +53,10 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(admin_sql::run_sql)
                 .service(admin_sql::history)
                 .service(admin_ops::delete_guild_events)
-                .service(admin_ops::purge_expired_sessions),
+                .service(admin_ops::purge_expired_sessions)
+                .service(admin_users::list_users)
+                .service(admin_users::list_sessions)
+                .service(admin_users::revoke_sessions)
+                .service(admin_audit::list_audit_logs),
         );
 }

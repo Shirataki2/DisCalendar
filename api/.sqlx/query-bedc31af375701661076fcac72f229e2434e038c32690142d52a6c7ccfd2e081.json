@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT start_at, notifications\n        FROM events\n        WHERE start_at >= $1 AND start_at < $2 AND cardinality(notifications) > 0\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "start_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "start_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "notifications",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "notifications"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "bedc31af375701661076fcac72f229e2434e038c32690142d52a6c7ccfd2e081"
+}

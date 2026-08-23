@@ -49,6 +49,13 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | GET | `/admin/sql/history` | SQL コンソールの実行履歴 (全管理者分、新しい順 20 件。監査ログから組み立てる) |
 | POST | `/admin/ops/delete-guild-events` | 指定ギルド (`{ "guild_id": "..." }`) の予定をすべて削除。削除した予定は監査ログ (`ops.delete_guild_events`) の `before.events` に先頭 200 件まで残す (`detail.deleted` に件数)。未知のギルドは 404 |
 | POST | `/admin/ops/purge-expired-sessions` | Better Auth の期限切れ `session` を削除 (`ops.purge_expired_sessions`) |
+| GET | `/admin/stats` | 概要の件数 (ギルド / 退出済み / 予定 / ユーザー / セッション / 今日 (JST) 発火する通知の数) と、直近に登録されたギルド・退出済みでデータが残っているギルド。`guilds` に日時が無いので「直近」は id 順と残っている予定の作成日時から推測 |
+| GET | `/admin/status` | DB の疎通と PostgreSQL のバージョン・接続プール、`_sqlx_migrations` と実行ファイル内のマイグレーションの突き合わせ (未適用 / 失敗 / チェックサム不一致 / 未知の版)、ビルド情報 (`GIT_SHA` / `IMAGE_TAG` を `option_env!` で埋め込み) と起動時刻・稼働時間 |
+| GET | `/admin/guilds/sync-check` | Bot の参加ギルド (Discord `GET /users/@me/guilds`、60 秒キャッシュ) と `guilds` テーブルの差分 (DB にだけある / Discord にだけある / 名前が違う。一覧は種類ごとに 200 件まで、件数は全数)。`/admin/guilds/{guild_id}` より先に登録すること |
+| GET | `/admin/users?q=&page=` | Better Auth の `user` の一覧・検索 (user.id / Discord ユーザー ID の完全一致、名前・メールの部分一致、50 件ずつ)。連携済み Discord ID とセッション数付き。**トークン類は返さない** |
+| GET | `/admin/users/{user_id}/sessions` | セッション一覧 (新しい順 100 件。作成・更新・期限と IP / User-Agent のみで、`session.token` は含めない)。存在しないユーザーは 404 |
+| DELETE | `/admin/users/{user_id}/sessions` | 強制ログアウト (そのユーザーのセッションを全削除、`user.revoke_sessions` を監査ログに記録)。存在しないユーザーは 404 |
+| GET | `/admin/audit-logs?action=&actor=&page=` | 監査ログの閲覧 (新しい順 50 件ずつ、`action` / 実行者の Discord ユーザー ID で絞り込み)。絞り込み用に記録済みの `action` 一覧も返す |
 
 エラーは `{ "error": "<kind>", "message": "<説明>" }` (kind: `unauthorized` / `forbidden` / `not_found` /
 `bad_request` / `rate_limited` / `unavailable` / `discord_error` / `database_error` / `internal_error`)。
@@ -94,6 +101,14 @@ docker build -f api/Dockerfile -t discalendar-api .
 docker run --rm -p 8080:8080 --env-file api/.env discalendar-api
 ```
 
+`GET /admin/status` に出すビルド情報は実行ファイルに焼き込む (`src/build_info.rs` の `option_env!`) ので、
+実行時の環境変数では変えられない。入れたいときはビルド時に渡す (未指定なら「不明」と表示されるだけ):
+
+```sh
+docker build -f api/Dockerfile -t discalendar-api \
+  --build-arg GIT_SHA="$(git rev-parse HEAD)" --build-arg IMAGE_TAG=local .
+```
+
 ## 構成
 
 ```
@@ -105,11 +120,15 @@ src/
   state.rs          AppState (pool / Discord client / auth 設定 / 管理者設定)
   auth.rs           AuthUser extractor (Better Auth の署名付き cookie を検証)
   admin.rs          AdminUser extractor (AuthUser + ADMIN_DISCORD_USER_IDS のホワイトリスト)
+  build_info.rs     ビルド時に埋め込むコミット SHA / イメージタグ (build.rs + Dockerfile の ARG)
   discord/          Bot トークンでの Discord API 呼び出し + 権限計算 + キャッシュ
   models/           sqlx クエリ (events / guilds / guild_config / admin_audit_logs) と通知形式の変換。
-                    admin_sql.rs が SQL コンソールの実行 (読み取り専用・タイムアウト・行数上限・保護テーブルの判定)
+                    admin_sql.rs が SQL コンソールの実行 (読み取り専用・タイムアウト・行数上限・保護テーブルの判定)、
+                    admin_stats.rs / admin_status.rs / admin_users.rs が概要・稼働状況・ユーザーとセッション
   routes/           ハンドラ (utoipa の path 定義付き)、GuildMember extractor。
-                    admin_guilds.rs / admin_sql.rs / admin_ops.rs が管理コンソールのギルド・予定 / SQL / 定型操作
+                    admin_guilds.rs / admin_sql.rs / admin_ops.rs が管理コンソールのギルド・予定 / SQL / 定型操作、
+                    admin_status.rs / admin_users.rs / admin_audit.rs が稼働状況・ユーザー / セッション・監査ログ
   openapi.rs        OpenAPI ドキュメント定義
+build.rs            migrations/ の変更検知と GIT_SHA / IMAGE_TAG の再ビルド指示
 migrations/         旧実装から引き継いだスキーマ (変更禁止、追加は新ファイルで)
 ```

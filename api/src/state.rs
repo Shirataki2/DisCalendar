@@ -15,6 +15,8 @@ pub struct AppState {
     pub discord: DiscordClient,
     pub auth: AuthConfig,
     pub admin: AdminConfig,
+    /// プロセスの起動時刻 (`GET /admin/status` の稼働時間、#37)
+    pub started_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// 管理コンソール (`/admin/*`) の設定

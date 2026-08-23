@@ -11,7 +11,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use anyhow::Context as _;
 use moka::future::Cache;
 use reqwest::{StatusCode, header};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 pub use self::permissions::Permissions;
 use self::permissions::compute_base_permissions;
@@ -26,6 +26,12 @@ const USER_AGENT: &str = concat!(
 const GUILD_TTL: Duration = Duration::from_secs(300);
 /// メンバー (所持ロール) のキャッシュ期間。ロール変更や退出の反映はこの時間だけ遅れる
 const MEMBER_TTL: Duration = Duration::from_secs(60);
+/// Bot の参加ギルド一覧 ([`DiscordClient::bot_guilds`]) のキャッシュ期間
+const BOT_GUILDS_TTL: Duration = Duration::from_secs(60);
+/// `GET /users/@me/guilds` の 1 ページの件数 (Discord の上限は 200)
+const BOT_GUILDS_PAGE_SIZE: usize = 200;
+/// 辿るページ数の上限 (200 件 × 100 ページ = 20,000 ギルド)。無限ループにしないための安全網
+const BOT_GUILDS_MAX_PAGES: usize = 100;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiscordError {
@@ -35,6 +41,8 @@ pub enum DiscordError {
     Status { status: StatusCode, body: String },
     #[error("rate limited by Discord API")]
     RateLimited,
+    #[error("unexpected response from Discord API: {0}")]
+    Unexpected(&'static str),
 }
 
 /// 権限計算に必要な最小限のギルド情報
@@ -56,6 +64,15 @@ impl GuildSnapshot {
     }
 }
 
+/// Bot が参加しているギルドの一覧 (`GET /users/@me/guilds`) の 1 件。
+/// ロールなどは返らないので権限計算には使えない (管理コンソールの差分検出用、#37)
+#[derive(Debug, Clone, Serialize)]
+pub struct BotGuild {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+}
+
 /// あるユーザーのギルドへのアクセス情報 (メンバーであることが確認済み)
 #[derive(Debug, Clone)]
 pub struct MemberAccess {
@@ -72,6 +89,8 @@ pub struct DiscordClient {
     guilds: Cache<String, Option<Arc<GuildSnapshot>>>,
     /// (guild_id, user_id) → メンバーの所持ロール。非メンバーなら None (負のキャッシュ)
     members: Cache<(String, String), Option<Arc<Vec<String>>>>,
+    /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
+    bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +112,14 @@ struct ApiRole {
 #[derive(Deserialize)]
 struct ApiMember {
     roles: Vec<String>,
+}
+
+/// `GET /users/@me/guilds` が返す部分的なギルド情報
+#[derive(Deserialize)]
+struct ApiPartialGuild {
+    id: String,
+    name: String,
+    icon: Option<String>,
 }
 
 impl DiscordClient {
@@ -120,7 +147,51 @@ impl DiscordClient {
                 .max_capacity(100_000)
                 .time_to_live(MEMBER_TTL)
                 .build(),
+            bot_guilds: Cache::builder()
+                .max_capacity(1)
+                .time_to_live(BOT_GUILDS_TTL)
+                .build(),
         })
+    }
+
+    /// Bot が参加している全ギルド (`GET /users/@me/guilds` を 200 件ずつ辿る)。
+    /// 管理コンソールの差分検出 (#37) 専用。何度も押されても Discord に負荷をかけないよう
+    /// [`BOT_GUILDS_TTL`] の間はキャッシュを返す
+    pub async fn bot_guilds(&self) -> Result<Arc<Vec<BotGuild>>, DiscordError> {
+        if let Some(cached) = self.bot_guilds.get(&()).await {
+            return Ok(cached);
+        }
+        let mut all: Vec<BotGuild> = Vec::new();
+        let mut after: Option<String> = None;
+        for _ in 0..BOT_GUILDS_MAX_PAGES {
+            let path = match &after {
+                Some(id) => format!("/users/@me/guilds?limit={BOT_GUILDS_PAGE_SIZE}&after={id}"),
+                None => format!("/users/@me/guilds?limit={BOT_GUILDS_PAGE_SIZE}"),
+            };
+            let page: Vec<ApiPartialGuild> = self
+                .get_json(&path)
+                .await?
+                // このエンドポイントは Bot トークンがあれば 403 / 404 にはならない
+                .ok_or(DiscordError::Unexpected("cannot list the bot's guilds"))?;
+            let last = page.last().map(|g| g.id.clone());
+            let count = page.len();
+            all.extend(page.into_iter().map(|g| BotGuild {
+                id: g.id,
+                name: g.name,
+                icon: g.icon,
+            }));
+            if count < BOT_GUILDS_PAGE_SIZE {
+                let all = Arc::new(all);
+                self.bot_guilds.insert((), all.clone()).await;
+                return Ok(all);
+            }
+            after = last;
+        }
+        // ここまで来るのは 20,000 ギルドを超えたとき (現実には起きない)。
+        // 途中までの一覧を「全部」として差分を出すと誤検出になるのでエラーにする
+        Err(DiscordError::Unexpected(
+            "the bot is in too many guilds to list",
+        ))
     }
 
     /// Bot が参加しているギルドの情報。未参加 (404 / 403) なら `Ok(None)`

@@ -70,10 +70,24 @@ jobs:
           tags: |
             type=raw,value=staging
             type=sha,prefix=sha-,format=short
+      # 管理コンソール (/admin) に「今どのコミット・イメージが動いているか」を出すため、api の実行ファイルに
+      # 焼き込む (#37)。他のイメージは受け取らないので、api のときだけ build-args を作る
+      - name: api に埋め込むビルド情報を決める
+        id: build_info
+        if: matrix.image == 'api'
+        run: |
+          {
+            echo "args<<ARGS_EOF"
+            echo "GIT_SHA=$GITHUB_SHA"
+            # metadata-action の type=sha,format=short と同じ 7 桁 (実際に push されるタグに合わせる)
+            echo "IMAGE_TAG=sha-${GITHUB_SHA:0:7}"
+            echo "ARGS_EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
+          build-args: ${{ steps.build_info.outputs.args }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

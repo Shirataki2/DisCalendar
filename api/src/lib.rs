@@ -8,6 +8,7 @@
 
 pub mod admin;
 pub mod auth;
+pub mod build_info;
 pub mod config;
 pub mod discord;
 pub mod error;
@@ -56,6 +57,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         admin: AdminConfig {
             discord_user_ids: config.admin_discord_user_ids.iter().cloned().collect(),
         },
+        started_at: chrono::Utc::now(),
     });
     if config.admin_discord_user_ids.is_empty() {
         tracing::info!("ADMIN_DISCORD_USER_IDS is empty: the admin console (/admin) is disabled");

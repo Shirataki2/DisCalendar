@@ -1,8 +1,14 @@
 import type { ApiFetcher } from "./client";
 import type {
+  AdminAuditLogPage,
   AdminGuildDetail,
   AdminGuildPage,
+  AdminGuildSyncCheck,
   AdminMe,
+  AdminSession,
+  AdminStats,
+  AdminStatus,
+  AdminUserPage,
   ApiEvent,
   ApiEventInput,
   Guild,
@@ -73,6 +79,10 @@ export function createApi(request: ApiFetcher) {
     /** 管理コンソール (api/src/routes/admin*.rs)。管理者以外は 403 */
     admin: {
       me: () => request<AdminMe>("/admin/me"),
+      /** 概要の件数と直近のギルドの出入り (#37) */
+      stats: () => request<AdminStats>("/admin/stats"),
+      /** DB 疎通・マイグレーション・ビルド情報 (#37) */
+      status: () => request<AdminStatus>("/admin/status"),
       guilds: {
         /** 全ギルドの一覧・検索 (q: guild_id の完全一致 or 名前の部分一致、page: 1 始まり) */
         list: (q: string, page: number) => {
@@ -81,6 +91,9 @@ export function createApi(request: ApiFetcher) {
         },
         get: (guildId: string) =>
           request<AdminGuildDetail>(`/admin/guilds/${guildId}`),
+        /** Bot の参加ギルド (Discord API) と guilds テーブルの差分 (#37) */
+        syncCheck: () =>
+          request<AdminGuildSyncCheck>("/admin/guilds/sync-check"),
         /** restricted の切替 (監査ログに残る) */
         updateConfig: (guildId: string, restricted: boolean) =>
           request<GuildConfig>(`/admin/guilds/${guildId}/config`, {
@@ -113,6 +126,35 @@ export function createApi(request: ApiFetcher) {
           request<OpsResult>("/admin/ops/purge-expired-sessions", {
             method: "POST",
           }),
+      },
+      /** ユーザーとセッション (#37)。セッショントークンは返らない */
+      users: {
+        /** 一覧・検索 (q: user.id / Discord ID の完全一致か名前・メールの部分一致) */
+        list: (q: string, page: number) => {
+          const query = new URLSearchParams({ q, page: String(page) });
+          return request<AdminUserPage>(`/admin/users?${query}`);
+        },
+        sessions: (userId: string) =>
+          request<AdminSession[]>(
+            `/admin/users/${encodeURIComponent(userId)}/sessions`,
+          ),
+        /** 強制ログアウト (全セッションの削除。監査ログに残る) */
+        revokeSessions: (userId: string) =>
+          request<OpsResult>(
+            `/admin/users/${encodeURIComponent(userId)}/sessions`,
+            { method: "DELETE" },
+          ),
+      },
+      /** 監査ログの閲覧 (#37) */
+      auditLogs: {
+        list: (action: string, actor: string, page: number) => {
+          const query = new URLSearchParams({
+            action,
+            actor,
+            page: String(page),
+          });
+          return request<AdminAuditLogPage>(`/admin/audit-logs?${query}`);
+        },
       },
     },
   };

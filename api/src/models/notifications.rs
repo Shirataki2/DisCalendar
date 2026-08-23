@@ -46,6 +46,16 @@ impl NotificationUnit {
             _ => None,
         }
     }
+
+    /// 1 単位あたりの分数 (bot/src/models/notifications.rs と同じ)
+    fn minutes_per_unit(self) -> i64 {
+        match self {
+            Self::Minutes => 1,
+            Self::Hours => 60,
+            Self::Days => 24 * 60,
+            Self::Weeks => 7 * 24 * 60,
+        }
+    }
 }
 
 /// DB に保存されている形式
@@ -59,6 +69,12 @@ struct Legacy {
 }
 
 impl Notification {
+    /// 「予定の開始から何分前か」。Bot はこの分だけ手前で通知を送る
+    /// (bot/src/models/notifications.rs の同名の関数と同じ値)
+    pub fn total_minutes(self) -> i64 {
+        i64::from(self.num) * self.unit.minutes_per_unit()
+    }
+
     pub fn from_legacy(raw: &str) -> Option<Self> {
         let legacy: Legacy = serde_json::from_str(raw).ok()?;
         Some(Self {
@@ -169,6 +185,16 @@ mod tests {
             Notification::decode_all(&Notification::encode_all(&list)),
             list
         );
+    }
+
+    #[test]
+    fn converts_to_minutes_before_start() {
+        let minutes = |num, unit| Notification { num, unit }.total_minutes();
+        assert_eq!(minutes(30, NotificationUnit::Minutes), 30);
+        assert_eq!(minutes(2, NotificationUnit::Hours), 120);
+        assert_eq!(minutes(1, NotificationUnit::Days), 1440);
+        assert_eq!(minutes(1, NotificationUnit::Weeks), 10080);
+        assert_eq!(minutes(0, NotificationUnit::Minutes), 0);
     }
 
     #[test]

@@ -10,6 +10,8 @@ use serde::Serialize;
 use sqlx::PgExecutor;
 use utoipa::ToSchema;
 
+use super::like_pattern;
+
 /// 1 ページあたりの件数
 pub const PAGE_SIZE: i64 = 50;
 
@@ -33,20 +35,6 @@ pub struct AdminGuild {
     /// 予定の総数
     #[schema(example = 12)]
     pub event_count: i64,
-}
-
-/// 名前の部分一致用に `ILIKE` のパターンを作る (`%` / `_` / `\` はリテラル扱い)
-fn name_pattern(q: &str) -> String {
-    let mut escaped = String::with_capacity(q.len() + 2);
-    escaped.push('%');
-    for c in q.chars() {
-        if matches!(c, '%' | '_' | '\\') {
-            escaped.push('\\');
-        }
-        escaped.push(c);
-    }
-    escaped.push('%');
-    escaped
 }
 
 /// 一覧に使えるページ番号の上限 (OFFSET の計算がオーバーフローしないように。50 件 × 100 万ページで十分)
@@ -89,7 +77,7 @@ pub async fn list<'e>(
         LIMIT $3 OFFSET $4
         "#,
         q,
-        name_pattern(q),
+        like_pattern(q),
         PAGE_SIZE,
         offset
     )
@@ -113,7 +101,7 @@ pub async fn count<'e>(executor: impl PgExecutor<'e>, q: &str) -> sqlx::Result<i
         WHERE $1::text = '' OR k.guild_id = $1 OR g.name ILIKE $2
         "#,
         q,
-        name_pattern(q)
+        like_pattern(q)
     )
     .fetch_one(executor)
     .await
@@ -146,6 +134,27 @@ pub async fn find<'e>(
     .await
 }
 
+/// `guilds` テーブルに登録されているギルド (Bot が参加中として記録しているもの) の 1 行。
+/// Discord 側との差分検出 (#37) で使う
+#[derive(Debug, Serialize, ToSchema, sqlx::FromRow)]
+pub struct RegisteredGuild {
+    #[schema(example = "782502586817314816")]
+    pub guild_id: String,
+    pub name: String,
+}
+
+/// `guilds` テーブルの全行 (Discord 側との差分検出用)
+pub async fn all_registered<'e>(
+    executor: impl PgExecutor<'e>,
+) -> sqlx::Result<Vec<RegisteredGuild>> {
+    sqlx::query_as!(
+        RegisteredGuild,
+        "SELECT guild_id, name FROM guilds ORDER BY guild_id"
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// 現在または過去に存在した (どれかのテーブルに行がある) ギルドか。
 /// 管理 API の書き込み (予定の作成・設定変更) で、打ち間違えた ID に孤立データを作らないための確認に使う
 pub async fn exists<'e>(executor: impl PgExecutor<'e>, guild_id: &str) -> sqlx::Result<bool> {
@@ -162,15 +171,4 @@ pub async fn exists<'e>(executor: impl PgExecutor<'e>, guild_id: &str) -> sqlx::
     )
     .fetch_one(executor)
     .await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::name_pattern;
-
-    #[test]
-    fn escapes_like_metacharacters() {
-        assert_eq!(name_pattern("abc"), "%abc%");
-        assert_eq!(name_pattern("50%_off\\"), "%50\\%\\_off\\\\%");
-    }
 }

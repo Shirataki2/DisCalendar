@@ -4,14 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ROUTES } from "@/lib/site";
 
-// 管理コンソールのメニュー。画面は子 Issue (#35〜#37) で順に足すので、未実装のものは
-// リンクにせず「準備中」と出す (存在しないパスへ飛ばして 404 にしない)
+// 管理コンソールのメニュー。href が無い項目はリンクにせず「準備中」と出す
+// (存在しないパスへ飛ばして 404 にしない)
 const ITEMS: { label: string; href?: string }[] = [
   { label: "概要", href: ROUTES.admin },
   { label: "ギルド・予定", href: ROUTES.adminGuilds },
   { label: "SQL・定型操作", href: ROUTES.adminSql },
-  { label: "ユーザー" },
-  { label: "監査ログ" },
+  { label: "ユーザー", href: ROUTES.adminUsers },
+  { label: "監査ログ", href: ROUTES.adminAuditLogs },
 ];
 
 /** 概要 (/admin) は完全一致、それ以外は配下のページ (/admin/guilds/123 など) も現在地扱い */
