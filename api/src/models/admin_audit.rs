@@ -1,7 +1,8 @@
 //! 管理コンソールの監査ログ (`admin_audit_logs` テーブル、#34 で追加)。
 //!
 //! `/admin/*` で行った書き込み操作 (予定の編集・削除、設定変更、定型操作) と SQL 実行は
-//! すべて [`record`] を通して残す。閲覧 API は #37 で足す。
+//! すべて [`record`] を通して残す。SQL コンソールの履歴は [`list_recent_by_action`] で読む。
+//! 全体の閲覧 API は #37 で足す。
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -74,5 +75,28 @@ pub async fn record<'e>(
         entry.detail,
     )
     .fetch_one(executor)
+    .await
+}
+
+/// 指定した `action` の監査ログを新しい順に `limit` 件返す (SQL コンソールの実行履歴用)
+pub async fn list_recent_by_action<'e>(
+    executor: impl PgExecutor<'e>,
+    action: &str,
+    limit: i64,
+) -> sqlx::Result<Vec<AuditLog>> {
+    sqlx::query_as!(
+        AuditLog,
+        r#"
+        SELECT id, actor_user_id, actor_discord_user_id, action, target_type, target_id,
+               before, after, detail, created_at
+        FROM admin_audit_logs
+        WHERE action = $1
+        ORDER BY id DESC
+        LIMIT $2
+        "#,
+        action,
+        limit,
+    )
+    .fetch_all(executor)
     .await
 }

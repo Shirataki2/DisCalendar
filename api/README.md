@@ -45,9 +45,13 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | GET | `/admin/guilds/{guild_id}/events?start=&end=` | 任意のギルドの予定 (条件は `/events/{guild_id}` と同じ) |
 | POST / PUT / DELETE | `/admin/guilds/{guild_id}/events[/{event_id}]` | 予定の作成・更新・削除。`admin_audit_logs` に変更前後を記録 (変更前は `FOR UPDATE` で読む)。どのテーブルにも無いギルドへの作成は 404 |
 | PUT | `/admin/guilds/{guild_id}/config` | `restricted` の切替 (監査ログに記録)。未知のギルドは 404 |
+| POST | `/admin/sql` | 読み取り専用 SQL の実行 (`{ "sql": "..." }`)。権限を絞ったロール `discalendar_sql_console` (保護テーブルの権限なし・非 superuser) でログインした専用の接続 + `BEGIN READ ONLY` + 10 秒の締切 + 先頭 500 行 / 4 MiB / 1 セル 4,000 文字 (`truncated` で通知)。SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文のみ。`account` / `session` / `verification` / `pg_statistic` (`pg_stats`) を読む文は `EXPLAIN` の計画を見て実行前に 400。Postgres のエラーも 400 でメッセージをそのまま返す。ロールが使えなければ 503。成功・失敗とも `admin_audit_logs` (`sql.select`) に残す (SQL は文字列リテラルとコメントを伏せて保存) |
+| GET | `/admin/sql/history` | SQL コンソールの実行履歴 (全管理者分、新しい順 20 件。監査ログから組み立てる) |
+| POST | `/admin/ops/delete-guild-events` | 指定ギルド (`{ "guild_id": "..." }`) の予定をすべて削除。削除した予定は監査ログ (`ops.delete_guild_events`) の `before.events` に先頭 200 件まで残す (`detail.deleted` に件数)。未知のギルドは 404 |
+| POST | `/admin/ops/purge-expired-sessions` | Better Auth の期限切れ `session` を削除 (`ops.purge_expired_sessions`) |
 
 エラーは `{ "error": "<kind>", "message": "<説明>" }` (kind: `unauthorized` / `forbidden` / `not_found` /
-`bad_request` / `rate_limited` / `discord_error` / `database_error` / `internal_error`)。
+`bad_request` / `rate_limited` / `unavailable` / `discord_error` / `database_error` / `internal_error`)。
 
 日時は旧実装と同じく**タイムゾーンなしの JST** (`2026-08-22T10:00:00`)。
 
@@ -95,15 +99,17 @@ docker run --rm -p 8080:8080 --env-file api/.env discalendar-api
 ```
 src/
   main.rs           エントリポイント (dotenv, tracing, Config)
-  lib.rs            run(): DB 接続・マイグレーション・HttpServer 構築
+  lib.rs            run(): DB 接続・マイグレーション・SQL コンソール用ロールとプールの用意・HttpServer 構築
   config.rs         環境変数
   error.rs          ApiError → JSON エラーレスポンス
   state.rs          AppState (pool / Discord client / auth 設定 / 管理者設定)
   auth.rs           AuthUser extractor (Better Auth の署名付き cookie を検証)
   admin.rs          AdminUser extractor (AuthUser + ADMIN_DISCORD_USER_IDS のホワイトリスト)
   discord/          Bot トークンでの Discord API 呼び出し + 権限計算 + キャッシュ
-  models/           sqlx クエリ (events / guilds / guild_config / admin_audit_logs) と通知形式の変換
-  routes/           ハンドラ (utoipa の path 定義付き)、GuildMember extractor。admin_guilds.rs が管理コンソールのギルド・予定
+  models/           sqlx クエリ (events / guilds / guild_config / admin_audit_logs) と通知形式の変換。
+                    admin_sql.rs が SQL コンソールの実行 (読み取り専用・タイムアウト・行数上限・保護テーブルの判定)
+  routes/           ハンドラ (utoipa の path 定義付き)、GuildMember extractor。
+                    admin_guilds.rs / admin_sql.rs / admin_ops.rs が管理コンソールのギルド・予定 / SQL / 定型操作
   openapi.rs        OpenAPI ドキュメント定義
 migrations/         旧実装から引き継いだスキーマ (変更禁止、追加は新ファイルで)
 ```

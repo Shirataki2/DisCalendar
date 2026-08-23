@@ -69,9 +69,10 @@ export function useEventsQuery(
 
 /**
  * 予定一覧と、同じ予定を見ている他のキャッシュ (`keys.onChanged`: もう一方の一覧、
- * `keys.onCountChanged`: 件数に依存するもの) をまとめて無効化する
+ * `keys.onCountChanged`: 件数に依存するもの) をまとめて無効化する。
+ * 管理コンソールの定型操作 (全予定削除、lib/query/admin-sql.ts) からも使う
  */
-function invalidateEvents(
+export function invalidateEvents(
   queryClient: ReturnType<typeof useQueryClient>,
   { keys, afterCountChanged }: EventsSource,
   guildId: string,

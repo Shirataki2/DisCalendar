@@ -2,6 +2,8 @@
 
 mod admin;
 mod admin_guilds;
+mod admin_ops;
+mod admin_sql;
 mod events;
 mod guilds;
 mod health;
@@ -39,6 +41,10 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(admin_guilds::create_event)
                 .service(admin_guilds::update_event)
                 .service(admin_guilds::delete_event)
-                .service(admin_guilds::put_config),
+                .service(admin_guilds::put_config)
+                .service(admin_sql::run_sql)
+                .service(admin_sql::history)
+                .service(admin_ops::delete_guild_events)
+                .service(admin_ops::purge_expired_sessions),
         );
 }

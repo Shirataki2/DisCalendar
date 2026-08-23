@@ -94,6 +94,55 @@ export interface AdminGuildDetail extends AdminGuild {
   bot_joined: boolean | null;
 }
 
+/** POST /admin/sql の 1 カラム */
+export interface SqlColumn {
+  name: string;
+  /** Postgres の型名 (INT4 / TEXT / TIMESTAMPTZ など) */
+  type: string;
+}
+
+/** POST /admin/sql の結果。値は Postgres のテキスト表現 (psql と同じ)、NULL は null */
+export interface SqlResult {
+  columns: SqlColumn[];
+  rows: (string | null)[][];
+  row_count: number;
+  /** ADMIN_SQL_MAX_ROWS 行か合計サイズ (4 MiB) を超えたので打ち切った */
+  truncated: boolean;
+  duration_ms: number;
+}
+
+/** SQL コンソールが 1 回で返す最大行数 (api の `admin_sql::MAX_ROWS`) */
+export const ADMIN_SQL_MAX_ROWS = 500;
+/** SQL の長さの上限 (文字数。api の `admin_sql::MAX_SQL_CHARS`、超えると 400) */
+export const ADMIN_SQL_MAX_CHARS = 10_000;
+/** 1 文の実行時間の上限 (秒。api の `admin_sql::STATEMENT_TIMEOUT`) */
+export const ADMIN_SQL_TIMEOUT_SECONDS = 10;
+/** 1 セルの文字数の上限 (api の `admin_sql::MAX_CELL_CHARS`。超えた分は切り詰めて末尾に印が付く) */
+export const ADMIN_SQL_MAX_CELL_CHARS = 4_000;
+
+/** GET /admin/sql/history の 1 件 (監査ログの sql.select から組み立てたもの) */
+export interface SqlHistoryEntry {
+  id: number;
+  actor_discord_user_id: string;
+  /** 実行した SQL。文字列リテラルは '…' に、コメントは除いて保存されている (貼り付けた秘密値を残さないため) */
+  sql: string;
+  row_count: number | null;
+  truncated: boolean | null;
+  duration_ms: number | null;
+  /** 失敗・拒否時のメッセージ */
+  error: string | null;
+  /** ISO 8601 (UTC) */
+  created_at: string;
+}
+
+/** 全予定削除で監査ログに残す予定のスナップショット上限 (api の `admin_ops::DELETE_SNAPSHOT_LIMIT`)。超えた分は件数だけ残る */
+export const ADMIN_DELETE_SNAPSHOT_LIMIT = 200;
+
+/** POST /admin/ops/* の結果 */
+export interface OpsResult {
+  deleted: number;
+}
+
 export interface MyPermissions {
   user_id: string;
   permissions: string;
@@ -111,6 +160,7 @@ export type ApiErrorKind =
   | "not_found"
   | "bad_request"
   | "rate_limited"
+  | "unavailable"
   | "discord_error"
   | "database_error"
   | "internal_error";

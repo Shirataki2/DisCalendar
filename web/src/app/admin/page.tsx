@@ -14,15 +14,16 @@ const AVAILABLE = [
     description: "全ギルドの一覧・検索と、ギルドごとの予定の閲覧・編集・削除",
     href: ROUTES.adminGuilds,
   },
+  {
+    title: "SQL コンソール・定型操作",
+    description:
+      "読み取り専用 SQL の実行 (結果は表で表示、履歴付き) と、全予定削除などの定型の書き込み操作",
+    href: ROUTES.adminSql,
+  },
 ] as const;
 
 // 今後の画面 (子 Issue)
 const UPCOMING = [
-  {
-    title: "SQL コンソール",
-    description: "読み取り専用 SQL の実行と、定型の書き込み操作",
-    issue: 36,
-  },
   {
     title: "稼働状況・ユーザー",
     description:

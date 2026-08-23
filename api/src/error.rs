@@ -17,6 +17,9 @@ pub enum ApiError {
     BadRequest(String),
     #[error("Discord API is rate limited, retry later")]
     RateLimited,
+    /// 機能が設定不備などで使えない (SQL コンソール用の DB ロールが無い等)。メッセージは利用者に見せる
+    #[error("{0}")]
+    Unavailable(String),
     #[error("failed to call Discord API")]
     Discord(#[source] DiscordError),
     #[error("database error")]
@@ -28,7 +31,7 @@ pub enum ApiError {
 /// エラーレスポンスのボディ
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorBody {
-    /// 機械可読なエラー種別 (`unauthorized`, `forbidden`, `not_found`, `bad_request`, ...)
+    /// 機械可読なエラー種別 (`unauthorized`, `forbidden`, `not_found`, `bad_request`, `unavailable`, ...)
     #[schema(example = "not_found")]
     pub error: &'static str,
     /// 人間向けのメッセージ
@@ -44,6 +47,7 @@ impl ApiError {
             Self::NotFound(_) => "not_found",
             Self::BadRequest(_) => "bad_request",
             Self::RateLimited => "rate_limited",
+            Self::Unavailable(_) => "unavailable",
             Self::Discord(_) => "discord_error",
             Self::Database(_) => "database_error",
             Self::Internal(_) => "internal_error",
@@ -67,7 +71,7 @@ impl ResponseError for ApiError {
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
-            Self::RateLimited => StatusCode::SERVICE_UNAVAILABLE,
+            Self::RateLimited | Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Discord(_) => StatusCode::BAD_GATEWAY,
             Self::Database(_) | Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
