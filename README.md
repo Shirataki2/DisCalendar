@@ -137,7 +137,8 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
   tag `tag:ci`。ACL の `tagOwners` に `tag:ci` を足し、`tag:ci` からホストへの ssh を許可する)、`STAGING_SSH_HOST` / `STAGING_SSH_USER`、
   `STAGING_SSH_KEY` (鍵認証のとき。Tailscale SSH を使うなら不要)。
   Repository variables (Environment ではなくリポジトリの Variables。build ジョブは Environment に属さないため): `STAGING_PLATFORMS`
-  (ホストが arm64 なら `linux/arm64`)、`STAGING_COMPOSE_DIR` (任意)
+  (ホストが arm64 なら `linux/arm64`)、`STAGING_BUILD_RUNNER` (arm64 なら `ubuntu-24.04-arm`。QEMU でもビルドできるが Rust が極端に遅い)、
+  `STAGING_COMPOSE_DIR` (任意)
 - ホストで動く手順は `.github/scripts/deploy-staging.sh` (healthy になるまで待ち、失敗したらログを出して exit 1)
 
 ## 開発の進め方 (GitHub)

@@ -5,7 +5,8 @@
 # 必要な設定 (Environment "staging"): secrets TS_OAUTH_CLIENT_ID / TS_OAUTH_SECRET (Tailscale の OAuth クライアント、tag:ci)、
 #   STAGING_SSH_HOST (Tailnet 上のホスト名か 100.x の IP) / STAGING_SSH_USER / STAGING_SSH_KEY (Tailscale SSH を使うなら不要)。
 # Repository variables (build ジョブは Environment に属さないので Environment variables ではなくリポジトリ側に置く):
-#   STAGING_PLATFORMS (既定 linux/amd64) / STAGING_COMPOSE_DIR (既定 /opt/discalendar-staging)。詳細は README
+#   STAGING_PLATFORMS (既定 linux/amd64) / STAGING_BUILD_RUNNER (既定 ubuntu-latest。arm64 ホストなら ubuntu-24.04-arm) /
+#   STAGING_COMPOSE_DIR (既定 /opt/discalendar-staging)。詳細は README
 name: Deploy staging
 
 on:
@@ -32,7 +33,9 @@ jobs:
     name: build (${{ matrix.image }})
     # image_tag が指定されたとき (ロールバック) はビルドしない。push イベントでは inputs は空
     if: inputs.image_tag == ''
-    runs-on: ubuntu-latest
+    # arm64 のイメージを作るときは QEMU でも動くが Rust のビルドが極端に遅いので、ネイティブの arm ランナーを使う
+    # (Repository variable STAGING_BUILD_RUNNER=ubuntu-24.04-arm)
+    runs-on: ${{ vars.STAGING_BUILD_RUNNER || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +51,8 @@ jobs:
             dockerfile: ./bot/Dockerfile
     steps:
       - uses: actions/checkout@v7
+      # ランナーと違う CPU 向け (platforms) にビルドするときのために QEMU を入れる (buildx より前に置く)
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:

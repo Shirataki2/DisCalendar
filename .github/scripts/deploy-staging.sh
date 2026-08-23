@@ -36,6 +36,8 @@ if [ -n "$unhealthy" ]; then
   exit 1
 fi
 
-# 古いイメージを掃除する (参照されていないものだけ)
-docker image prune -f >/dev/null
+# 古いイメージを掃除する。sha-* タグが付いたままの旧イメージは dangling にならないので、
+# metadata-action が付ける OCI ラベルでこのリポジトリのイメージに絞り、コンテナから参照されていないものを消す
+# (同じホストの他のイメージには触れない。ロールバックは GHCR から pull し直す)
+docker image prune -af --filter "label=org.opencontainers.image.source=https://github.com/Shirataki2/DisCalendarV3-new" >/dev/null
 echo "deployed IMAGE_TAG=${tag}"
