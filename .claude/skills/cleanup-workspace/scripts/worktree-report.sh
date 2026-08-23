@@ -95,12 +95,21 @@ users_of() {
 # <path> → git 管理外 (ignored) のファイルのうち、再生成できる成果物 (target/ node_modules/ .next/ など) 以外で
 #           メインの checkout に無い / 内容が違うもの (.env 系、*.pem などの鍵、tmp/ など)
 env_risk_of() {
-  local f out=""
+  local f g n out=""
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     case "$f" in
       tmp/) [ -n "$(ls -A "$1/tmp" 2>/dev/null)" ] && out+="tmp/ ($(du -sh "$1/tmp" 2>/dev/null | cut -f1)、復元不能) " ;;
-      */)   [ -d "${main_wt}/${f}" ] || out+="${f} (main に無いディレクトリ) " ;;
+      */)   # ignored ディレクトリは 1 項目に集約されるので中のファイルを個別に比べる (集約のまま「同名あり」で安全扱いしない)
+            if [ ! -d "${main_wt}/${f}" ]; then out+="${f} (main に無いディレクトリ) "
+            else
+              n=0
+              while IFS= read -r g; do
+                [ -n "$g" ] || continue
+                if [ ! -f "${main_wt}/${g}" ] || ! cmp -s "$1/$g" "${main_wt}/${g}"; then n=$((n + 1)); fi
+              done < <(cd "$1" && find "${f%/}" -type f 2>/dev/null)
+              [ "$n" -gt 0 ] && out+="${f} (main に無い / 違うファイル ${n} 件) "
+            fi ;;
       *)    if [ ! -f "${main_wt}/${f}" ]; then out+="${f} (main に無い) "
             elif ! cmp -s "$1/$f" "${main_wt}/${f}"; then out+="${f} (main と内容が違う) "; fi ;;
     esac

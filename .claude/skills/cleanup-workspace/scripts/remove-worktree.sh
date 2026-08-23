@@ -181,7 +181,21 @@ else
     [ -n "$f" ] || continue
     case "$f" in
       tmp/) ;;  # 上で停止済み
-      */)   [ -d "${main_wt}/${f}" ] || env_risk+="  - ${f}: メインの checkout に無いディレクトリ (必要なら mv \"${abs}/${f}\" <退避先>)"$'\n' ;;
+      */)   # ignored ディレクトリは 1 項目に集約されるので、中のファイルを個別にメインの checkout と比べる
+            if [ ! -d "${main_wt}/${f}" ]; then
+              env_risk+="  - ${f}: メインの checkout に無いディレクトリ (必要なら mv \"${abs}/${f}\" <退避先>)"$'\n'
+            else
+              n=0; shown=0
+              while IFS= read -r g; do
+                [ -n "$g" ] || continue
+                if [ ! -f "${main_wt}/${g}" ]; then why="main に無い"
+                elif ! cmp -s "$abs/$g" "${main_wt}/${g}"; then why="main と内容が違う"
+                else continue; fi
+                n=$((n + 1))
+                if [ "$shown" -lt 10 ]; then env_risk+="  - ${g}: ${why}"$'\n'; shown=$((shown + 1)); fi
+              done < <(cd "$abs" && find "${f%/}" -type f 2>/dev/null)
+              [ "$n" -gt "$shown" ] && env_risk+="  - ... 他 $((n - shown)) 件 (${f} 配下)"$'\n'
+            fi ;;
       *)    if [ ! -f "${main_wt}/${f}" ]; then env_risk+="  - ${f}: メインの checkout に無い (残すなら cp \"${abs}/${f}\" \"${main_wt}/${f}\")"$'\n'
             elif ! cmp -s "$abs/$f" "${main_wt}/${f}"; then env_risk+="  - ${f}: メインの checkout と内容が違う (diff を確認)"$'\n'
             fi ;;
