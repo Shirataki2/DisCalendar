@@ -61,6 +61,32 @@ case "$orig_pwd/" in "$abs"/*) echo "このセッションは対象 worktree の
 default_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 base_ref="origin/${default_branch:-main}"
 
+# git worktree prune はパスを取らず、消失済みの登録をすべて消す。対象以外に「未参照コミットを指す detached HEAD」の
+# 消失済み登録があれば、その最後の参照を巻き込まないよう prune を見送る (対象そのものは remove --force で個別に消す)
+safe_prune() {
+  local p="" h="" b="" pr=0 blocked="" line
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*) p=${line#worktree }; h=""; b="(detached)"; pr=0 ;;
+      "HEAD "*)     h=${line#HEAD } ;;
+      "branch "*)   b=${line#branch refs/heads/} ;;
+      prunable*)    pr=1 ;;
+      "") if [ -n "$p" ] && [ "$pr" = 1 ] && [ "$p" != "$abs" ] && [ "$b" = "(detached)" ] && [ -n "$h" ] \
+             && [ -z "$(git for-each-ref --contains "$h" refs/heads refs/remotes 2>/dev/null)" ]; then
+            blocked+="  - ${p} (HEAD ${h:0:7})"$'\n'
+          fi
+          p="" ;;
+    esac
+  done < <(git worktree list --porcelain; echo)
+  if [ -n "$blocked" ]; then
+    echo "注意: git worktree prune は見送りました。別の消失済み worktree が未参照コミットの detached HEAD を持っています:" >&2
+    printf '%s' "$blocked" >&2
+    echo "  残すなら git branch rescue/<name> <sha> で退避、不要なら remove-worktree.sh <その worktree> --force で個別に消してください" >&2
+    return 0
+  fi
+  git worktree prune
+}
+
 # --- ブランチ側の確認 (worktree のディレクトリが無くても行う) ---
 pr="?" pr_head=""
 [ "$branch" = "(detached)" ] && pr="-"
@@ -101,8 +127,8 @@ if [ ! -d "$abs" ]; then
     exit 3
   fi
   if [ "$branch" = "(detached)" ]; then
-    # detached ならブランチは無いので、登録を消すだけ (上の未参照チェックを通過している)
-    git worktree prune
+    # detached ならブランチは無いので、この登録だけ消す (上の未参照チェックを通過している)
+    git worktree remove --force "$abs"
     echo "worktree の登録を消しました: ${abs}"
     exit 0
   fi
@@ -119,11 +145,12 @@ if [ ! -d "$abs" ]; then
       echo "worktree の登録は消しますが、ブランチ ${branch} は残します:" >&2
       for r in "${reasons[@]}"; do echo "  - $r" >&2; done
       echo "ブランチも消すなら、内容を確認しユーザーの了解を得たうえで --force を付けて再実行してください" >&2
-      git worktree prune
+      git worktree remove --force "$abs"
       exit 3
     fi
   fi
-  git worktree prune
+  git worktree remove --force "$abs"
+  echo "worktree の登録を消しました: ${abs}"
 else
   # 他プロセスの cwd になっていないか (別の Claude Code セッション、シェル、dev サーバーなど)
   users=""
@@ -183,7 +210,7 @@ if [ "$keep_branch" = 0 ] && [ -n "$branch" ] && [ "$branch" != "(detached)" ] &
   git branch -D "$branch"
   echo "ローカルブランチを削除しました: ${branch}"
 fi
-git worktree prune
+safe_prune
 
 if [ -n "$branch" ] && [ "$branch" != "(detached)" ] && git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
   echo "注意: origin/${branch} はまだリモートに残っています。消す場合はユーザーに確認のうえ: git push origin --delete ${branch}"
