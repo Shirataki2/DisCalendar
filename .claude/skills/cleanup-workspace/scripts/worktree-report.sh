@@ -92,17 +92,19 @@ users_of() {
   [ -n "$u" ] && echo "$u" || echo "-"
 }
 
-# <path> → git 管理外の .env 系のうち、メインの checkout に無い / 内容が違うもの
+# <path> → git 管理外 (ignored) のファイルのうち、再生成できる成果物 (target/ node_modules/ .next/ など) 以外で
+#           メインの checkout に無い / 内容が違うもの (.env 系、*.pem などの鍵、tmp/ など)
 env_risk_of() {
   local f out=""
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    if [ ! -f "${main_wt}/${f}" ]; then out+="${f} (main に無い) "
-    elif ! cmp -s "$1/$f" "${main_wt}/${f}"; then out+="${f} (main と内容が違う) "
-    fi
-  done < <(git -C "$1" status --ignored --porcelain 2>/dev/null | awk '$1=="!!"{print $2}' | grep -E '(^|/)\.env(\.|$)' | grep -v '\.example$')
-  # git 管理外の tmp/ (旧実装の置き場。復元できない) があれば必ず知らせる
-  if [ -d "$1/tmp" ] && [ -n "$(ls -A "$1/tmp" 2>/dev/null)" ]; then out+="tmp/ ($(du -sh "$1/tmp" 2>/dev/null | cut -f1)、復元不能) "; fi
+    case "$f" in
+      tmp/) [ -n "$(ls -A "$1/tmp" 2>/dev/null)" ] && out+="tmp/ ($(du -sh "$1/tmp" 2>/dev/null | cut -f1)、復元不能) " ;;
+      */)   [ -d "${main_wt}/${f}" ] || out+="${f} (main に無いディレクトリ) " ;;
+      *)    if [ ! -f "${main_wt}/${f}" ]; then out+="${f} (main に無い) "
+            elif ! cmp -s "$1/$f" "${main_wt}/${f}"; then out+="${f} (main と内容が違う) "; fi ;;
+    esac
+  done < <(git -C "$1" status --ignored --porcelain 2>/dev/null | awk '$1=="!!"{print $2}' | grep -Ev '(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo)/$|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$')
   [ -n "$out" ] && echo "${out% }" || echo "-"
 }
 
@@ -120,7 +122,7 @@ verdict_of() { # <dirty> <pr> <ahead> <recent> <users> <envrisk>
   local warn=""
   [ "$users" != "-" ] && warn+=" / 他プロセスが使用中"
   [ "$recent" != "-" ] && warn+=" / ${recent_hours}h 以内に更新"
-  case "$envrisk" in *tmp/*) warn+=" / tmp/ を移してから (remove-worktree.sh は停止する)" ;; -) ;; *) warn+=" / .env を退避してから" ;; esac
+  case "$envrisk" in *tmp/*) warn+=" / tmp/ を移してから (remove-worktree.sh は停止する)" ;; -) ;; *) warn+=" / main に無い ignored ファイルを退避してから" ;; esac
   case "$base" in
     削除候補*) if [ -n "$warn" ]; then echo "要確認: ${base}${warn}"; else echo "$base"; fi ;;
     *) echo "要確認: ${base}${warn}" ;;
@@ -142,7 +144,7 @@ echo
 
 echo "## worktree (.claude/worktrees/ など)"
 echo
-echo "| worktree | ブランチ | PR | 未コミット | ${base_ref} に無いコミット | upstream | 合計 | target | node_modules | .next | ${recent_hours}h 以内の更新 | 使用中プロセス | main に無い .env / tmp | 判定 |"
+echo "| worktree | ブランチ | PR | 未コミット | ${base_ref} に無いコミット | upstream | 合計 | target | node_modules | .next | ${recent_hours}h 以内の更新 | 使用中プロセス | main に無い ignored (.env / 鍵 / tmp) | 判定 |"
 echo "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
 
 wt_branches=$'\n'
@@ -188,7 +190,7 @@ while IFS= read -r line; do
 done < <(git worktree list --porcelain; echo)
 echo
 echo "※ squash マージ後も「${base_ref} に無いコミット」は 0 にならない。マージ済みかは PR 列で判断する。"
-echo "※ 「main に無い .env / tmp」は worktree 削除で失われる。.env は残すなら先にメインの checkout へコピー、tmp/ (git 管理外の旧実装) は必ず外へ移す。"
+echo "※ 「main に無い ignored」(.env 系、*.pem などの鍵、tmp/ など) は worktree 削除で失われる。残すなら先にメインの checkout へコピー、tmp/ (git 管理外の旧実装) は必ず外へ移す。"
 echo
 
 echo "## worktree を持たないローカルブランチ"

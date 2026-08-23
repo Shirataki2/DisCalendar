@@ -2,7 +2,7 @@
 # worktree を安全に削除する。次のどれかに当てはまれば拒否する (exit 3):
 #   未コミットの変更 / PR が OPEN / PR なしで origin/main より先行 / PR なしで直近 3 時間以内に更新 /
 #   マージ済み PR の head より後にローカルコミットがある / 他プロセスが cwd にしている /
-#   メインの checkout に無い・内容が違う .env 系ファイルがある / git 管理外の tmp/ がある / detached HEAD
+#   メインの checkout に無い・内容が違う ignored ファイル (.env 系、*.pem などの鍵) がある / git 管理外の tmp/ がある / detached HEAD
 #   (ディレクトリが既に無い prunable な worktree でも、ブランチ側の確認は同じように行う)
 #
 # 使い方: remove-worktree.sh <worktree のパス | .claude/worktrees/ 配下の名前> [--force] [--keep-branch]
@@ -174,13 +174,19 @@ else
 
   dirty=$(git -C "$abs" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
   recent=$(find "$abs" \( -name target -o -name node_modules -o -name .next -o -name .git \) -prune -o -type f -mmin "-$((recent_hours * 60))" -print -quit 2>/dev/null)
+  # git 管理外 (ignored) のうち再生成できる成果物 (target/ node_modules/ .next/ など) 以外は worktree ごと消えるので、
+  # メインの checkout に無い / 内容が違うもの (.env 系、*.pem などの鍵、見知らぬディレクトリ) を洗い出す
   env_risk=""
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    if [ ! -f "${main_wt}/${f}" ]; then env_risk+="  - ${f}: メインの checkout に無い (残すなら cp \"${abs}/${f}\" \"${main_wt}/${f}\")"$'\n'
-    elif ! cmp -s "$abs/$f" "${main_wt}/${f}"; then env_risk+="  - ${f}: メインの checkout と内容が違う (diff を確認)"$'\n'
-    fi
-  done < <(git -C "$abs" status --ignored --porcelain 2>/dev/null | awk '$1=="!!"{print $2}' | grep -E '(^|/)\.env(\.|$)' | grep -v '\.example$')
+    case "$f" in
+      tmp/) ;;  # 上で停止済み
+      */)   [ -d "${main_wt}/${f}" ] || env_risk+="  - ${f}: メインの checkout に無いディレクトリ (必要なら mv \"${abs}/${f}\" <退避先>)"$'\n' ;;
+      *)    if [ ! -f "${main_wt}/${f}" ]; then env_risk+="  - ${f}: メインの checkout に無い (残すなら cp \"${abs}/${f}\" \"${main_wt}/${f}\")"$'\n'
+            elif ! cmp -s "$abs/$f" "${main_wt}/${f}"; then env_risk+="  - ${f}: メインの checkout と内容が違う (diff を確認)"$'\n'
+            fi ;;
+    esac
+  done < <(git -C "$abs" status --ignored --porcelain 2>/dev/null | awk '$1=="!!"{print $2}' | grep -Ev '(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo)/$|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$')
 
   echo "対象: ${abs}"
   echo "ブランチ: ${branch} / PR: ${pr} / 未コミット: ${dirty} / ${base_ref} に無いコミット: ${ahead}"
@@ -198,7 +204,7 @@ else
     esac
     [ -n "$after_pr" ] && reasons+=("$after_pr")
     [ "$branch" = "(detached)" ] && reasons+=("detached HEAD です")
-    [ -n "$env_risk" ] && reasons+=("git 管理外の .env 系ファイルが worktree ごと消えます:"$'\n'"${env_risk%$'\n'}")
+    [ -n "$env_risk" ] && reasons+=("git 管理外 (ignored) のファイルが worktree ごと消えます:"$'\n'"${env_risk%$'\n'}")
     if [ ${#reasons[@]} -gt 0 ]; then
       echo "削除を中止しました:" >&2
       for r in "${reasons[@]}"; do echo "  - $r" >&2; done
@@ -207,7 +213,7 @@ else
     fi
     git worktree remove "$abs"
   else
-    [ -n "$env_risk" ] && { echo "注意: 次の .env 系ファイルも消えます:"; printf '%s' "$env_risk"; }
+    [ -n "$env_risk" ] && { echo "注意: 次の git 管理外ファイルも消えます:"; printf '%s' "$env_risk"; }
     git worktree remove --force "$abs"
   fi
   echo "worktree を削除しました: ${abs}"
