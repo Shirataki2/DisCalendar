@@ -22,10 +22,11 @@ pub const RECENT_LIMIT: i64 = 10;
 
 /// 今日の通知予定数を数えるときに見る予定の範囲 (今日から何日先までの予定を対象にするか)。
 ///
-/// 通知は「開始の num unit 前」に飛ぶので、今日発火する通知を持つ予定は今日以降ならいくらでも先に
-/// あり得る (`num` に上限が無いため)。全件走査を避けるため、ここで打ち切る。
-/// これより先の予定に付いた「1 年以上前に通知」の設定は数に入らない
-pub const NOTIFICATION_LOOKAHEAD_DAYS: i64 = 366;
+/// 通知は「開始の num unit 前」に飛ぶので、今日発火する通知を持つ予定は今日以降のいくらでも先に
+/// あり得る。全件走査を避けるため、web のフォームが許す最大の事前通知
+/// (`web/src/lib/event-form.ts` の `NOTIFICATION_NUM_MAX` = 100 × 週 = 700 日前) までを対象にする。
+/// api 側は `num` の値域を検証していないので、これを超える設定 (API 直叩きや旧データ) だけは数に入らない
+pub const NOTIFICATION_LOOKAHEAD_DAYS: i64 = 700;
 
 /// 概要の件数
 #[derive(Debug, Serialize, ToSchema)]
@@ -169,6 +170,8 @@ pub async fn left_guilds<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<Vec<
 /// - 保存済みの設定に加えて**必ず開始時刻 (0 分前) の通知**を送り、同じ分数のものは 1 回にまとめる
 /// - 通知先チャンネル (`event_settings` の先頭の行) が無いギルドや、`channel_id` が
 ///   Snowflake として不正なギルド (旧データの `"0"` など) には送らないので数に入れない
+/// - Bot が退出したギルド (`guilds` に行が無い) は、通知先の設定と予定が残っていても
+///   送信が Missing Access になって届かないので数に入れない
 ///
 /// 対象の予定は `start_at` が今日以降 [`NOTIFICATION_LOOKAHEAD_DAYS`] 日先までのものに限る
 /// (終日予定の丸めで発火が最大 1 日手前にずれる分だけ広く取る)
@@ -188,6 +191,8 @@ pub async fn notifications_between<'e>(
         SELECT e.start_at, e.is_all_day, e.notifications, c.channel_id
         FROM events e
         JOIN channels c ON c.guild_id = e.guild_id
+        -- Bot が退出したギルド (guilds に行が無い) には送れない
+        JOIN guilds g ON g.guild_id = e.guild_id
         WHERE e.start_at >= $1 AND e.start_at < $2
         "#,
         day_start,

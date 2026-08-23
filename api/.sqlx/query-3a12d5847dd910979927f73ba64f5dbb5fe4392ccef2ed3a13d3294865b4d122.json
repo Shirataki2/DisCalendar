@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        WITH channels AS (\n            -- 旧スキーマには guild_id の一意制約が無いので、Bot (event_settings::get) と同じく先頭の 1 行を使う\n            SELECT DISTINCT ON (guild_id) guild_id, channel_id\n            FROM event_settings ORDER BY guild_id, id\n        )\n        SELECT e.start_at, e.is_all_day, e.notifications, c.channel_id\n        FROM events e\n        JOIN channels c ON c.guild_id = e.guild_id\n        WHERE e.start_at >= $1 AND e.start_at < $2\n        ",
+  "query": "\n        WITH channels AS (\n            -- 旧スキーマには guild_id の一意制約が無いので、Bot (event_settings::get) と同じく先頭の 1 行を使う\n            SELECT DISTINCT ON (guild_id) guild_id, channel_id\n            FROM event_settings ORDER BY guild_id, id\n        )\n        SELECT e.start_at, e.is_all_day, e.notifications, c.channel_id\n        FROM events e\n        JOIN channels c ON c.guild_id = e.guild_id\n        -- Bot が退出したギルド (guilds に行が無い) には送れない\n        JOIN guilds g ON g.guild_id = e.guild_id\n        WHERE e.start_at >= $1 AND e.start_at < $2\n        ",
   "describe": {
     "columns": [
       {
@@ -61,5 +61,5 @@
       false
     ]
   },
-  "hash": "4428e053c8837ef706473af2acee341771510fb1c4abbff84269207cee5c630d"
+  "hash": "3a12d5847dd910979927f73ba64f5dbb5fe4392ccef2ed3a13d3294865b4d122"
 }

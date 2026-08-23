@@ -165,6 +165,59 @@ async fn upcoming_events_keeps_all_day_events_until_the_next_midnight(pool: PgPo
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn does_not_count_notifications_for_left_guilds(pool: PgPool) {
+    // Bot の退出処理は guilds の行だけを消すので、通知先の設定と予定は残る。
+    // ただし送信は Missing Access になって届かないので数えない
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO event_settings (guild_id, channel_id) VALUES ('222222222222222222', '555555555555555555');
+        INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES
+            ('222222222222222222', '退出済みの予定', ARRAY[]::text[],
+             '2026-08-23T10:00:00', '2026-08-23T11:00:00');
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let count = admin_stats::notifications_between(
+        &pool,
+        dt("2026-08-23T00:00:00"),
+        dt("2026-08-24T00:00:00"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn counts_notifications_set_further_ahead_than_a_year(pool: PgPool) {
+    // web のフォームが許す最大の事前通知 (100 週間前 = 700 日前)
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO guilds (guild_id, name) VALUES ('111111111111111111', 'メインサーバー');
+        INSERT INTO event_settings (guild_id, channel_id) VALUES ('111111111111111111', '444444444444444444');
+        INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES
+            ('111111111111111111', '2 年近く先の予定', ARRAY['{"key":0,"num":100,"type":"週間前"}'],
+             '2028-07-23T10:00:00', '2028-07-23T11:00:00');
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // 2028-07-23 10:00 の 700 日前 = 2026-08-23 10:00
+    let count = admin_stats::notifications_between(
+        &pool,
+        dt("2026-08-23T00:00:00"),
+        dt("2026-08-24T00:00:00"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn does_not_count_notifications_for_invalid_channels(pool: PgPool) {
     // Bot は channel_id を NonZeroU64 として検証し、不正なら何も送らない
     sqlx::raw_sql(
