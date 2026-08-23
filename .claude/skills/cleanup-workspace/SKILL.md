@@ -17,7 +17,7 @@ Docker ビルドが ENOSPC で落ちたこともある。
   マージ済みかは `gh pr list --head <branch> --state all` の `MERGED` で判定する。マージ後リモートブランチは自動削除されるので、`git fetch --prune` 後に `[gone]` になるのも手がかり
 - **メインの checkout のセッションから実行する**。worktree セッション (EnterWorktree 中) は別パスへの `git -C` が拒否され、自分のいる worktree も消せない。
   worktree にいるなら先に `ExitWorktree` (`keep`) で戻る
-- `tmp/` (旧実装 `tmp/DisCalendarV2/`) は git 管理外で**復元できない**。掃除の対象にしない
+- `tmp/` (旧実装 `tmp/DisCalendarV2/`) は git 管理外で**復元できない**。掃除の対象にしない (worktree 内に `tmp/` があれば `remove-worktree.sh` は `--force` でも止まる。外へ移してから)
 - 他の Claude Code セッションやターミナル、dev サーバーが使っている worktree かもしれない (`lsof -a -d cwd -Fn | grep worktrees` で cwd にしているプロセスが分かる)。
   レポートと削除スクリプトはこれを検出して止まる。PR が OPEN のもの、最近更新されたものも消す前にユーザーに聞く
 - `.env` 系 (git 管理外) は `git status` の未コミットに数えられないが、worktree を消すと一緒に消える。

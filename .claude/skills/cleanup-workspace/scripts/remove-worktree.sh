@@ -2,11 +2,11 @@
 # worktree を安全に削除する。次のどれかに当てはまれば拒否する (exit 3):
 #   未コミットの変更 / PR が OPEN / PR なしで origin/main より先行 / PR なしで直近 3 時間以内に更新 /
 #   マージ済み PR の head より後にローカルコミットがある / 他プロセスが cwd にしている /
-#   メインの checkout に無い・内容が違う .env 系ファイルがある / detached HEAD
+#   メインの checkout に無い・内容が違う .env 系ファイルがある / git 管理外の tmp/ がある / detached HEAD
 #   (ディレクトリが既に無い prunable な worktree でも、ブランチ側の確認は同じように行う)
 #
 # 使い方: remove-worktree.sh <worktree のパス | .claude/worktrees/ 配下の名前> [--force] [--keep-branch]
-#   --force       安全チェックを無視して消す (ユーザーの明示的な了解を得てから使う。他プロセス使用中だけは --force でも拒否)
+#   --force       安全チェックを無視して消す (ユーザーの明示的な了解を得てから使う。他プロセス使用中と tmp/ は --force でも拒否)
 #   --keep-branch worktree だけ消してローカルブランチは残す
 # 消すのは worktree ディレクトリ (target/ や node_modules も一緒に消える) とローカルブランチだけ。
 # リモートブランチには触れない (残っていれば最後に案内する)。
@@ -162,6 +162,13 @@ else
   if [ -n "$users" ]; then
     echo "削除を中止しました: 他のプロセスがこの worktree を cwd にしています (${users})。" >&2
     echo "そのセッション / シェル / サーバーを閉じてもらってから再実行してください (--force でも消しません)" >&2
+    exit 3
+  fi
+
+  # git 管理外の tmp/ (旧実装 tmp/DisCalendarV2 の置き場。復元できない) があれば --force でも消さない
+  if [ -d "$abs/tmp" ] && [ -n "$(ls -A "$abs/tmp" 2>/dev/null)" ]; then
+    echo "削除を中止しました: ${abs}/tmp に git 管理外のファイルがあります ($(du -sh "$abs/tmp" 2>/dev/null | cut -f1))。" >&2
+    echo "旧実装など復元できないものかもしれません。worktree の外へ移してから (mv \"${abs}/tmp\" <退避先>) 再実行してください (--force でも消しません)" >&2
     exit 3
   fi
 

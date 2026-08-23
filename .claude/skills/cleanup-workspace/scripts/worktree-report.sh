@@ -101,6 +101,8 @@ env_risk_of() {
     elif ! cmp -s "$1/$f" "${main_wt}/${f}"; then out+="${f} (main と内容が違う) "
     fi
   done < <(git -C "$1" status --ignored --porcelain 2>/dev/null | awk '$1=="!!"{print $2}' | grep -E '(^|/)\.env(\.|$)' | grep -v '\.example$')
+  # git 管理外の tmp/ (旧実装の置き場。復元できない) があれば必ず知らせる
+  if [ -d "$1/tmp" ] && [ -n "$(ls -A "$1/tmp" 2>/dev/null)" ]; then out+="tmp/ ($(du -sh "$1/tmp" 2>/dev/null | cut -f1)、復元不能) "; fi
   [ -n "$out" ] && echo "${out% }" || echo "-"
 }
 
@@ -118,7 +120,7 @@ verdict_of() { # <dirty> <pr> <ahead> <recent> <users> <envrisk>
   local warn=""
   [ "$users" != "-" ] && warn+=" / 他プロセスが使用中"
   [ "$recent" != "-" ] && warn+=" / ${recent_hours}h 以内に更新"
-  [ "$envrisk" != "-" ] && warn+=" / .env を退避してから"
+  case "$envrisk" in *tmp/*) warn+=" / tmp/ を移してから (remove-worktree.sh は停止する)" ;; -) ;; *) warn+=" / .env を退避してから" ;; esac
   case "$base" in
     削除候補*) if [ -n "$warn" ]; then echo "要確認: ${base}${warn}"; else echo "$base"; fi ;;
     *) echo "要確認: ${base}${warn}" ;;
@@ -140,17 +142,23 @@ echo
 
 echo "## worktree (.claude/worktrees/ など)"
 echo
-echo "| worktree | ブランチ | PR | 未コミット | ${base_ref} に無いコミット | upstream | 合計 | target | node_modules | .next | ${recent_hours}h 以内の更新 | 使用中プロセス | main に無い .env | 判定 |"
+echo "| worktree | ブランチ | PR | 未コミット | ${base_ref} に無いコミット | upstream | 合計 | target | node_modules | .next | ${recent_hours}h 以内の更新 | 使用中プロセス | main に無い .env / tmp | 判定 |"
 echo "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
 
 wt_branches=$'\n'
 emit_row() {
-  local path=$1 branch=$2 name dirty pr ahead track recent users envrisk verdict
+  local path=$1 branch=$2 head=$3 name dirty pr ahead track recent users envrisk verdict
   [ "$path" = "$main_wt" ] && return
   name=${path#"${main_wt}/"}
   [ "$branch" != "(detached)" ] && wt_branches+="${branch}"$'\n'
   if [ ! -d "$path" ]; then
-    printf '| %s | %s | - | - | - | - | - | - | - | - | - | - | - | %s |\n' "$name" "$branch" "ディレクトリなし → git worktree prune"
+    # 消失済みの登録。detached HEAD が未参照コミットなら prune で失われるので要確認にする (remove-worktree.sh が検査する)
+    if [ "$branch" = "(detached)" ] && [ -n "$head" ] && [ -z "$(git for-each-ref --contains "$head" refs/heads refs/remotes 2>/dev/null)" ]; then
+      verdict="要確認: ディレクトリなし、detached HEAD ${head:0:7} はどのブランチにも無い (prune で失われる → 退避か remove-worktree.sh --force)"
+    else
+      verdict="削除候補 (ディレクトリなし → remove-worktree.sh で登録を消す)"
+    fi
+    printf '| %s | %s | - | - | - | - | - | - | - | - | - | - | - | %s |\n' "$name" "$branch" "$verdict"
     return
   fi
   dirty=$(git -C "$path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
@@ -169,17 +177,18 @@ emit_row() {
     "$recent" "$users" "$envrisk" "$verdict"
 }
 
-path=""; branch=""
+path=""; branch=""; head=""
 while IFS= read -r line; do
   case "$line" in
-    "worktree "*) path=${line#worktree }; branch="(detached)" ;;
+    "worktree "*) path=${line#worktree }; branch="(detached)"; head="" ;;
+    "HEAD "*)     head=${line#HEAD } ;;
     "branch "*)   branch=${line#branch refs/heads/} ;;
-    "")           [ -n "$path" ] && emit_row "$path" "$branch"; path="" ;;
+    "")           [ -n "$path" ] && emit_row "$path" "$branch" "$head"; path="" ;;
   esac
 done < <(git worktree list --porcelain; echo)
 echo
 echo "※ squash マージ後も「${base_ref} に無いコミット」は 0 にならない。マージ済みかは PR 列で判断する。"
-echo "※ 「main に無い .env」があると worktree 削除で失われる。残すなら先にメインの checkout へコピーする。"
+echo "※ 「main に無い .env / tmp」は worktree 削除で失われる。.env は残すなら先にメインの checkout へコピー、tmp/ (git 管理外の旧実装) は必ず外へ移す。"
 echo
 
 echo "## worktree を持たないローカルブランチ"
