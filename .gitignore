@@ -8,3 +8,6 @@ target/
 .env
 .env.*
 !.env.example
+
+# Claude Code の worktree (issue-driven-dev スキルの setup-worktree.sh が作る)
+.claude/worktrees/
