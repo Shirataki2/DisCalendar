@@ -174,7 +174,12 @@ pub async fn left_guilds<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<Vec<
 ///   送信が Missing Access になって届かないので数に入れない
 ///
 /// 対象の予定は `start_at` が今日以降 [`NOTIFICATION_LOOKAHEAD_DAYS`] 日先までのものに限る
-/// (終日予定の丸めで発火が最大 1 日手前にずれる分だけ広く取る)
+/// (終日予定の丸めで発火が最大 1 日手前にずれる分だけ広く取る)。
+///
+/// 参加中かどうかの判定は `guilds` テーブル (Bot 自身の記録) だけで行い、Discord API には問い合わせない。
+/// 概要は運用時に最初に開く画面なので、全ギルドを辿る重い呼び出しと Discord 障害への依存を持ち込まないため。
+/// そのため「再参加したが `guilds` への反映を取りこぼした」ギルドの通知は数に入らないが、
+/// そのずれ自体は `GET /admin/guilds/sync-check` (差分検出) で明示的に確認できる
 pub async fn notifications_between<'e>(
     executor: impl PgExecutor<'e>,
     day_start: NaiveDateTime,

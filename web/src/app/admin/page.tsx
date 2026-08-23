@@ -161,7 +161,7 @@ function StatsSection({ stats }: { stats: AdminStats }) {
           <Stat
             label="今日の通知予定"
             value={stats.notifications_today}
-            note={`${formatNaiveJst(stats.day_start)} からの 24 時間 (JST) に Bot が送る通知の数`}
+            note={`${formatNaiveJst(stats.day_start)} からの 24 時間 (JST) に Bot が送る通知の数 (参加中・通知先設定済みのギルドのみ。判定は guilds テーブル)`}
           />
         </li>
       </ul>
