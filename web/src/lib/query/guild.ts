@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { GuildConfig, MyPermissions } from "@/lib/api/types";
+import { syncAdminGuildConfig } from "./admin-cache";
 import { queryKeys } from "./keys";
 
 // 初回の値は dashboard/[id]/page.tsx (RSC) が取得して hydrate するので、
@@ -25,7 +26,10 @@ export function useMyPermissionsQuery(guildId: string) {
   });
 }
 
-/** ギルド設定の更新 (管理権限が必要。なければ API が 403 を返す)。成功したらキャッシュを置き換える */
+/**
+ * ギルド設定の更新 (管理権限が必要。なければ API が 403 を返す)。成功したらキャッシュを置き換える。
+ * 管理コンソール側のキャッシュ (同じブラウザで開いていれば) も追従させる
+ */
 export function useUpdateGuildConfig(guildId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -36,6 +40,7 @@ export function useUpdateGuildConfig(guildId: string) {
         queryKeys.guild.config(guildId),
         config,
       );
+      syncAdminGuildConfig(queryClient, guildId, config);
     },
   });
 }

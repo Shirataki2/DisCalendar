@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT (\n            EXISTS (SELECT 1 FROM guilds WHERE guild_id = $1)\n            OR EXISTS (SELECT 1 FROM guild_config WHERE guild_id = $1)\n            OR EXISTS (SELECT 1 FROM event_settings WHERE guild_id = $1)\n            OR EXISTS (SELECT 1 FROM events WHERE guild_id = $1)\n        ) AS \"exists!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "31b9520731476d0dd52461e63a85794c5110ad12847080a48f3b948b5648fb32"
+}

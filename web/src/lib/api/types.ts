@@ -56,6 +56,44 @@ export interface AdminMe {
   discord_user_id: string;
 }
 
+/**
+ * GET /admin/guilds の 1 行 (guilds + guild_config + event_settings + 予定数)。
+ * Bot が退出すると guilds の行は消えるが予定や設定は残るので、そういうギルドも含まれる
+ * (name などが null、registered が false)
+ */
+export interface AdminGuild {
+  guild_id: string;
+  /** guilds の名前。退出済みで行が消えていれば null */
+  name: string | null;
+  avatar_url: string | null;
+  locale: string | null;
+  /** guilds に行があるか (Bot が参加中として登録しているか) */
+  registered: boolean;
+  /** guild_config.restricted (行が無ければ false) */
+  restricted: boolean;
+  /** /init で設定した通知先チャンネル ID。未設定なら null */
+  channel_id: string | null;
+  /** 予定の総数 */
+  event_count: number;
+}
+
+/** GET /admin/guilds の page の上限 (api の `admin_guilds::MAX_PAGE` と同じ。超えると 400) */
+export const ADMIN_GUILDS_MAX_PAGE = 1_000_000;
+
+export interface AdminGuildPage {
+  items: AdminGuild[];
+  /** 検索条件に一致する総件数 */
+  total: number;
+  /** 1 始まり */
+  page: number;
+  page_size: number;
+}
+
+/** GET /admin/guilds/{guild_id}。Bot の参加状況は Discord API に聞けなかったとき null */
+export interface AdminGuildDetail extends AdminGuild {
+  bot_joined: boolean | null;
+}
+
 export interface MyPermissions {
   user_id: string;
   permissions: string;

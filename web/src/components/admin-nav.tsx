@@ -8,11 +8,17 @@ import { ROUTES } from "@/lib/site";
 // リンクにせず「準備中」と出す (存在しないパスへ飛ばして 404 にしない)
 const ITEMS: { label: string; href?: string }[] = [
   { label: "概要", href: ROUTES.admin },
-  { label: "ギルド・予定" },
+  { label: "ギルド・予定", href: ROUTES.adminGuilds },
   { label: "SQL" },
   { label: "ユーザー" },
   { label: "監査ログ" },
 ];
+
+/** 概要 (/admin) は完全一致、それ以外は配下のページ (/admin/guilds/123 など) も現在地扱い */
+function isCurrent(pathname: string, href: string): boolean {
+  if (href === ROUTES.admin) return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function AdminNav() {
   const pathname = usePathname();
@@ -23,7 +29,7 @@ export function AdminNav() {
           <Link
             key={item.label}
             href={item.href}
-            aria-current={pathname === item.href ? "page" : undefined}
+            aria-current={isCurrent(pathname, item.href) ? "page" : undefined}
             className="rounded-full px-3 py-1 text-neutral-300 transition-colors hover:bg-white/10 aria-[current=page]:bg-white/15 aria-[current=page]:text-white"
           >
             {item.label}

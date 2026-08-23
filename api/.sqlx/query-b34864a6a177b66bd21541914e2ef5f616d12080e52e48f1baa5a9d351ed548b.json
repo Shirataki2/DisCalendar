@@ -1,0 +1,137 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at\n        FROM events\n        WHERE id = $1 AND guild_id = $2\n        FOR UPDATE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "guild_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "guild_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "notifications",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "notifications"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "color",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "color"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "is_all_day",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "is_all_day"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "start_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "start_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "end_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "end_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b34864a6a177b66bd21541914e2ef5f616d12080e52e48f1baa5a9d351ed548b"
+}

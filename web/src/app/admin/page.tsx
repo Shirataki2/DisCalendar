@@ -1,17 +1,23 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { getAdminMe } from "@/lib/admin";
+import { ROUTES } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "管理コンソール",
 };
 
-// 今後の画面 (子 Issue)。トップはそれらへの案内を置いておき、#37 で稼働状況の概要に差し替える
-const UPCOMING = [
+// 使える画面。トップは案内を置いておき、#37 で稼働状況の概要に差し替える
+const AVAILABLE = [
   {
     title: "ギルド・予定",
     description: "全ギルドの一覧・検索と、ギルドごとの予定の閲覧・編集・削除",
-    issue: 35,
+    href: ROUTES.adminGuilds,
   },
+] as const;
+
+// 今後の画面 (子 Issue)
+const UPCOMING = [
   {
     title: "SQL コンソール",
     description: "読み取り専用 SQL の実行と、定型の書き込み操作",
@@ -36,6 +42,26 @@ export default async function AdminPage() {
         {admin?.name} (Discord ID: {admin?.discord_user_id})
         として管理者権限でログインしています。ここでの操作はすべて監査ログに記録されます。
       </p>
+      <section aria-labelledby="available-heading" className="mb-8">
+        <h2 id="available-heading" className="mb-3 text-sm font-semibold">
+          画面
+        </h2>
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {AVAILABLE.map((item) => (
+            <li key={item.href}>
+              <Link
+                href={item.href}
+                className="block rounded-lg border border-amber-400/30 bg-amber-500/10 p-4 transition-colors hover:bg-amber-500/20"
+              >
+                <p className="font-medium">{item.title}</p>
+                <p className="mt-1 text-sm text-neutral-300">
+                  {item.description}
+                </p>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
       <section aria-labelledby="upcoming-heading">
         <h2 id="upcoming-heading" className="mb-3 text-sm font-semibold">
           準備中の画面

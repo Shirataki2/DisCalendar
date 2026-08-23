@@ -46,7 +46,9 @@ import {
   newEventFormValues,
 } from "@/lib/event-form";
 import {
+  dashboardEventsSource,
   type EventRange,
+  type EventsSource,
   useCreateEvent,
   useDeleteEvent,
   useEventsQuery,
@@ -61,6 +63,8 @@ interface Props {
   guildId: string;
   /** false なら閲覧のみ (restricted モードで管理権限がない) */
   canEdit: boolean;
+  /** 予定の取得元。管理コンソール (#35) からは admin 用 API に差し替える */
+  eventsSource?: EventsSource;
 }
 
 interface PopoverState {
@@ -68,7 +72,11 @@ interface PopoverState {
   anchor: PopoverAnchor;
 }
 
-export function EventCalendar({ guildId, canEdit }: Props) {
+export function EventCalendar({
+  guildId,
+  canEdit,
+  eventsSource = dashboardEventsSource,
+}: Props) {
   const calendarRef = useRef<CalendarRef>(null);
   const [range, setRange] = useState<EventRange | null>(null);
   const [popover, setPopover] = useState<PopoverState | null>(null);
@@ -79,10 +87,10 @@ export function EventCalendar({ guildId, canEdit }: Props) {
     format(startOfHour(addHours(new Date(), -1)), "HH:mm"),
   );
 
-  const eventsQuery = useEventsQuery(guildId, range);
-  const createEvent = useCreateEvent(guildId);
-  const updateEvent = useUpdateEvent(guildId);
-  const deleteEvent = useDeleteEvent(guildId);
+  const eventsQuery = useEventsQuery(guildId, range, eventsSource);
+  const createEvent = useCreateEvent(guildId, eventsSource);
+  const updateEvent = useUpdateEvent(guildId, eventsSource);
+  const deleteEvent = useDeleteEvent(guildId, eventsSource);
 
   const events = useMemo(
     () => (eventsQuery.data ?? []).map(toCalendarEvent),
