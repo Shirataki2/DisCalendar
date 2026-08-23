@@ -61,14 +61,15 @@ export function AdminSyncCheck() {
           )}
           差分を調べる
         </Button>
-        {check.data && !check.isFetching && (
+        {/* このページに戻ってきたときは (同じ query key のキャッシュが残っていても) 押すまで前回の結果を出さない */}
+        {started && check.data && !check.isFetching && (
           <span className="text-xs text-neutral-400">
             Discord {check.data.discord_count.toLocaleString()} 件 / DB{" "}
             {check.data.db_count.toLocaleString()} 件
           </span>
         )}
       </div>
-      {check.isError && (
+      {started && check.isError && (
         <p
           role="alert"
           className="rounded-md bg-red-900/40 px-3 py-2 text-xs text-red-200"
@@ -76,7 +77,7 @@ export function AdminSyncCheck() {
           {describeApiError(check.error)}
         </p>
       )}
-      {check.data && <SyncResult result={check.data} />}
+      {started && check.data && <SyncResult result={check.data} />}
     </section>
   );
 }
@@ -100,6 +101,7 @@ function SyncResult({ result }: { result: AdminGuildSyncCheck }) {
         description="Bot は参加していないのに guilds に行が残っている (退出を取りこぼした)"
         guilds={result.only_in_db}
         total={result.only_in_db_count}
+        linkToDetail
       />
       <GuildDiffCard
         title="Discord にだけある"
@@ -149,12 +151,26 @@ function GuildDiffCard({
   description,
   guilds,
   total,
+  linkToDetail = false,
 }: {
   title: string;
   description: string;
   guilds: AdminSyncGuild[];
   total: number;
+  /**
+   * 詳細 (`/admin/guilds/[id]`) へリンクするか。
+   * Discord にだけあるギルドは DB のどのテーブルにも行が無く、詳細 API が 404 を返すのでリンクにしない
+   */
+  linkToDetail?: boolean;
 }) {
+  const row = (guild: AdminSyncGuild) => (
+    <>
+      <span className="truncate">{guild.name ?? "(名前不明)"}</span>
+      <span className="ml-auto font-mono text-xs text-neutral-500">
+        {guild.guild_id}
+      </span>
+    </>
+  );
   return (
     <div className="rounded-lg border border-white/10">
       <h3 className="border-b border-white/10 px-3 py-2 text-sm font-medium">
@@ -170,15 +186,18 @@ function GuildDiffCard({
         <ul className="divide-y divide-white/5">
           {guilds.map((guild) => (
             <li key={guild.guild_id}>
-              <Link
-                href={`${ROUTES.adminGuilds}/${guild.guild_id}`}
-                className="flex flex-wrap items-center gap-x-2 px-3 py-2 text-sm hover:bg-white/5"
-              >
-                <span className="truncate">{guild.name ?? "(名前不明)"}</span>
-                <span className="ml-auto font-mono text-xs text-neutral-500">
-                  {guild.guild_id}
-                </span>
-              </Link>
+              {linkToDetail ? (
+                <Link
+                  href={`${ROUTES.adminGuilds}/${guild.guild_id}`}
+                  className="flex flex-wrap items-center gap-x-2 px-3 py-2 text-sm hover:bg-white/5"
+                >
+                  {row(guild)}
+                </Link>
+              ) : (
+                <div className="flex flex-wrap items-center gap-x-2 px-3 py-2 text-sm">
+                  {row(guild)}
+                </div>
+              )}
             </li>
           ))}
         </ul>

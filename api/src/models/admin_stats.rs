@@ -154,21 +154,28 @@ pub async fn left_guilds<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<Vec<
     .await
 }
 
-/// `[day_start, day_end)` (JST) に発火する通知の数。
+/// `[day_start, day_end)` (JST) に Bot が送る通知の数。
 ///
-/// Bot の判定 (bot/src/tasks/notify.rs の `fire_at`) と同じく発火時刻は `start_at - num unit`。
+/// 判定は Bot (bot/src/tasks/notify.rs の `notify_for_event`) に合わせる:
+///
+/// - 発火時刻は `開始 - num unit`。終日予定の開始は 0:00 に丸める (`effective_range`)
+/// - 保存済みの設定に加えて**必ず開始時刻 (0 分前) の通知**を送り、同じ分数のものは 1 回にまとめる
+/// - 通知先チャンネル (`event_settings`) が無いギルドには送らないので数に入れない
+///
 /// 対象の予定は `start_at` が今日以降 [`NOTIFICATION_LOOKAHEAD_DAYS`] 日先までのものに限る
+/// (終日予定の丸めで発火が最大 1 日手前にずれる分だけ広く取る)
 pub async fn notifications_between<'e>(
     executor: impl PgExecutor<'e>,
     day_start: NaiveDateTime,
     day_end: NaiveDateTime,
 ) -> sqlx::Result<i64> {
-    let horizon = day_end + chrono::Duration::days(NOTIFICATION_LOOKAHEAD_DAYS);
+    let horizon = day_end + chrono::Duration::days(NOTIFICATION_LOOKAHEAD_DAYS + 1);
     let rows = sqlx::query!(
         r#"
-        SELECT start_at, notifications
+        SELECT start_at, is_all_day, notifications
         FROM events
-        WHERE start_at >= $1 AND start_at < $2 AND cardinality(notifications) > 0
+        WHERE start_at >= $1 AND start_at < $2
+          AND guild_id IN (SELECT guild_id FROM event_settings)
         "#,
         day_start,
         horizon
@@ -178,24 +185,52 @@ pub async fn notifications_between<'e>(
 
     Ok(rows
         .into_iter()
-        .map(|row| count_fired_between(row.start_at, &row.notifications, day_start, day_end) as i64)
+        .map(|row| {
+            count_fired_between(
+                row.start_at,
+                row.is_all_day,
+                &row.notifications,
+                day_start,
+                day_end,
+            ) as i64
+        })
         .sum())
 }
 
-/// 1 件の予定の通知のうち `[day_start, day_end)` に発火するものの数
+/// 1 件の予定について、Bot が `[day_start, day_end)` に送る通知の数
 fn count_fired_between(
     start_at: NaiveDateTime,
+    is_all_day: bool,
     raw_notifications: &[String],
     day_start: NaiveDateTime,
     day_end: NaiveDateTime,
 ) -> usize {
-    Notification::decode_all(raw_notifications)
+    // 終日予定は開始日の 0:00 を基準にする (web / api / Bot 共通の規約)
+    let start = if is_all_day {
+        start_at
+            .date()
+            .and_hms_opt(0, 0, 0)
+            .expect("valid midnight")
+    } else {
+        start_at
+    };
+    let mut minutes: Vec<i64> = Notification::decode_all(raw_notifications)
         .into_iter()
-        .filter(|n| {
+        .map(Notification::total_minutes)
+        .collect();
+    // Bot は保存済みの設定に関係なく開始時刻の通知を送る
+    minutes.push(0);
+    // 「60 分前」と「1 時間前」のように分数が同じものは Bot も 1 回にまとめる
+    minutes.sort_unstable();
+    minutes.dedup();
+
+    minutes
+        .into_iter()
+        .filter(|&m| {
             // num は u32 で上限を決めていないので、分に直した時点でも減算でも溢れうる。
             // 計算できない通知は Bot 側 (fire_at) でも送られないので数えない
-            chrono::Duration::try_minutes(n.total_minutes())
-                .and_then(|offset| start_at.checked_sub_signed(offset))
+            chrono::Duration::try_minutes(m)
+                .and_then(|offset| start.checked_sub_signed(offset))
                 .is_some_and(|fire| fire >= day_start && fire < day_end)
         })
         .count()
@@ -211,10 +246,19 @@ mod tests {
         s.parse().unwrap()
     }
 
+    /// 8/23 の 1 日ぶんを判定窓にする
+    fn count(start: &str, is_all_day: bool, notifications: &[String]) -> usize {
+        count_fired_between(
+            dt(start),
+            is_all_day,
+            notifications,
+            dt("2026-08-23T00:00:00"),
+            dt("2026-08-24T00:00:00"),
+        )
+    }
+
     #[test]
     fn counts_notifications_firing_within_the_day() {
-        let day_start = dt("2026-08-23T00:00:00");
-        let day_end = dt("2026-08-24T00:00:00");
         let notifications = vec![
             // 開始 (8/24 10:00) の 30 分前 = 8/24 09:30 → 今日ではない
             r#"{"key":0,"num":30,"type":"分前"}"#.to_owned(),
@@ -222,53 +266,39 @@ mod tests {
             r#"{"key":1,"num":1,"type":"日前"}"#.to_owned(),
             // 1 週間前 = 8/17 10:00 → 今日ではない
             r#"{"key":2,"num":1,"type":"週間前"}"#.to_owned(),
-            // 24 時間前 = 8/23 10:00 → 今日 (単位が違っても同じ時刻に発火する)
+            // 24 時間前 = 8/23 10:00 → 今日だが「1 日前」と同じ時刻なので Bot は 1 回しか送らない
             r#"{"key":3,"num":24,"type":"時間前"}"#.to_owned(),
         ];
-        assert_eq!(
-            count_fired_between(
-                dt("2026-08-24T10:00:00"),
-                &notifications,
-                day_start,
-                day_end
-            ),
-            2
-        );
+        assert_eq!(count("2026-08-24T10:00:00", false, &notifications), 1);
     }
 
     #[test]
     fn ignores_unparseable_and_overflowing_notifications() {
-        let day_start = dt("2026-08-23T00:00:00");
-        let day_end = dt("2026-08-24T00:00:00");
         let notifications = vec![
             "garbage".to_owned(),
             // 桁が大きすぎて日時の演算がオーバーフローする (Bot も送れない)
             r#"{"key":0,"num":4294967295,"type":"週間前"}"#.to_owned(),
         ];
-        assert_eq!(
-            count_fired_between(
-                dt("2026-08-23T10:00:00"),
-                &notifications,
-                day_start,
-                day_end
-            ),
-            0
-        );
+        // 残るのは Bot が必ず送る開始時刻の通知だけ
+        assert_eq!(count("2026-08-23T10:00:00", false, &notifications), 1);
+        assert_eq!(count("2026-08-24T10:00:00", false, &notifications), 0);
     }
 
     #[test]
-    fn counts_the_start_itself_as_a_notification() {
-        let day_start = dt("2026-08-23T00:00:00");
-        let day_end = dt("2026-08-24T00:00:00");
-        let notifications = vec![r#"{"key":0,"num":0,"type":"分前"}"#.to_owned()];
-        assert_eq!(
-            count_fired_between(
-                dt("2026-08-23T10:00:00"),
-                &notifications,
-                day_start,
-                day_end
-            ),
-            1
-        );
+    fn always_counts_the_start_notification_the_bot_adds() {
+        // 設定が無くても Bot は開始時刻に通知する
+        assert_eq!(count("2026-08-23T10:00:00", false, &[]), 1);
+        // 保存済みの 0 分前と重複しても 1 回 (Bot も dedup する)
+        let zero = vec![r#"{"key":0,"num":0,"type":"分前"}"#.to_owned()];
+        assert_eq!(count("2026-08-23T10:00:00", false, &zero), 1);
+    }
+
+    #[test]
+    fn all_day_events_fire_from_midnight() {
+        let notifications = vec![r#"{"key":0,"num":30,"type":"分前"}"#.to_owned()];
+        // 終日予定の開始は 0:00 に丸められるので、8/24 の予定の 30 分前は 8/23 23:30 = 今日
+        assert_eq!(count("2026-08-24T15:30:00", true, &notifications), 1);
+        // 終日でなければ 8/24 09:30 なので今日ではない (開始通知も 8/24)
+        assert_eq!(count("2026-08-24T15:30:00", false, &notifications), 0);
     }
 }

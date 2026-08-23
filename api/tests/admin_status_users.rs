@@ -56,11 +56,13 @@ async fn create_auth_tables(pool: &PgPool) {
     .unwrap();
 }
 
-/// ギルド・予定を入れる (退出済みギルド LEFT_GUILD には予定だけ残す)
+/// ギルド・予定を入れる (退出済みギルド LEFT_GUILD には予定だけ残す)。
+/// GUILD には通知先チャンネルを設定しておく (未設定のギルドには Bot が通知を送らないため)
 async fn seed_guilds(pool: &PgPool) {
     sqlx::raw_sql(
         r#"
         INSERT INTO guilds (guild_id, name) VALUES ('111111111111111111', 'メインサーバー');
+        INSERT INTO event_settings (guild_id, channel_id) VALUES ('111111111111111111', '444444444444444444');
         INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES
             ('111111111111111111', '定例', ARRAY['{"key":0,"num":1,"type":"日前"}'],
              '2026-08-24T10:00:00', '2026-08-24T11:00:00'),
@@ -123,7 +125,8 @@ async fn counts_notifications_firing_today(pool: PgPool) {
     .unwrap();
     assert_eq!(today, 1);
 
-    // 翌日には飛ばない
+    // 翌日は同じ予定の開始時刻通知 (Bot が必ず送る 0 分前) が飛ぶ。
+    // 9/1 の予定 (LEFT_GUILD) は通知先チャンネルが無いので数に入らない
     let tomorrow = admin_stats::notifications_between(
         &pool,
         dt("2026-08-24T00:00:00"),
@@ -131,7 +134,32 @@ async fn counts_notifications_firing_today(pool: PgPool) {
     )
     .await
     .unwrap();
-    assert_eq!(tomorrow, 0);
+    assert_eq!(tomorrow, 1);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn does_not_count_notifications_for_guilds_without_a_channel(pool: PgPool) {
+    // 通知先チャンネルを設定していないギルドの予定 (Bot は event_settings が無いと何も送らない)
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO guilds (guild_id, name) VALUES ('333333333333333333', '未設定サーバー');
+        INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES
+            ('333333333333333333', '通知先未設定', ARRAY['{"key":0,"num":30,"type":"分前"}'],
+             '2026-08-23T10:00:00', '2026-08-23T11:00:00');
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let count = admin_stats::notifications_between(
+        &pool,
+        dt("2026-08-23T00:00:00"),
+        dt("2026-08-24T00:00:00"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
 }
 
 #[sqlx::test(migrations = "./migrations")]

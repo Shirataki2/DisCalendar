@@ -28,7 +28,8 @@ use crate::{
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AdminStats {
     pub counts: AdminCounts,
-    /// 今日 (JST) 発火する通知の数。`day_start` から翌 0 時までが対象
+    /// 今日 (JST、`day_start` から翌 0 時まで) に Bot が送る通知の数。
+    /// Bot が必ず送る開始時刻の通知を含み、通知先チャンネルが未設定のギルドは含まない
     #[schema(example = 3)]
     pub notifications_today: i64,
     /// 集計の基準にした今日の 0 時 (JST)
