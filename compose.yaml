@@ -65,7 +65,9 @@ services:
       api:
         condition: service_started
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      # 既定では loopback にだけ公開する (Cloudflare Tunnel 経由で公開する staging でホストのポートを開けないため)。
+      # LAN の別端末から見たいときは .env で WEB_BIND=0.0.0.0
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:3000"
     environment:
       DATABASE_URL: postgres://discalendar:${POSTGRES_PASSWORD}@db:5432/discalendar
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}

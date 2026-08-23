@@ -107,7 +107,8 @@ cargo run              # マイグレーションは api が適用するので�
 ```sh
 cp .env.example .env          # POSTGRES_PASSWORD / BETTER_AUTH_SECRET / DISCORD_* を設定 (コメント参照)
 docker compose build          # web は pnpm install + next build、api / bot は cargo build --release (初回は時間がかかる)
-docker compose up -d          # db → api → web の順に起動。http://localhost:3000 (WEB_PORT で変更。BETTER_AUTH_URL は未設定ならこの URL に追従する)
+docker compose up -d          # db → api → web の順に起動。http://localhost:3000 (WEB_PORT で変更。BETTER_AUTH_URL は未設定ならこの URL に追従する。
+                              # 既定では 127.0.0.1 にだけ bind。LAN に見せるなら WEB_BIND=0.0.0.0)
 docker compose logs -f web api
 ```
 
@@ -126,7 +127,8 @@ docker compose logs -f web api
 (`ghcr.io/shirataki2/discalendar-{web,api,bot}`、タグ `sha-<short sha>` と `staging`) に push し、Tailnet 内の staging ホストに
 ssh して `docker compose pull && up -d` する (<https://staging.discalendar.app>)。設計の経緯と選択肢は #26。
 
-- **ロールバック**: Actions の "Deploy staging" → "Run workflow" で `image_tag` に過去の `sha-xxxxxxx` を指定する (ビルドは飛ばして deploy だけ行う)
+- **ロールバック**: Actions の "Deploy staging" → "Run workflow" で `image_tag` に過去の `sha-xxxxxxx` を指定する (ビルドは飛ばして deploy だけ行う)。
+  手動実行も `main` 以外の ref では動かない (ワークフローの `if`)。Environment `staging` の Deployment branches も `main` だけに制限しておく
 - **ホスト側の準備** (手作業。`/opt/discalendar-staging` を Repository variable `STAGING_COMPOSE_DIR` で変更可):
   `compose.yaml` (デプロイのたびに上書き配布される) と `.env` (`.env.example` を元に staging の値。`COMPOSE_PROFILES=bot,tunnel`、
   `IMAGE_TAG` はデプロイが書き換える) を置き、`docker login ghcr.io` しておく (パッケージを public にしていれば不要)。

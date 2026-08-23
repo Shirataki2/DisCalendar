@@ -2,6 +2,8 @@
 # 手順: build (GHCR へ sha-<short sha> と staging タグで push) → deploy (tailscale/github-action で Tailnet に参加 →
 # ssh で compose.yaml を配り、docker compose pull && up -d → healthy になるまで待つ)。
 # ロールバック: Actions の "Run workflow" で image_tag に過去の sha-xxxxxxx を指定する (ビルドは飛ばして deploy だけ行う)。
+# 手動実行も main 以外の ref では動かさない (別ブランチの deploy-staging.sh をホストに流し込めないようにする。
+# Environment "staging" の Deployment branches も main だけに制限しておくこと)。
 # 必要な設定 (Environment "staging"): secrets TS_OAUTH_CLIENT_ID / TS_OAUTH_SECRET (Tailscale の OAuth クライアント、tag:ci)、
 #   STAGING_SSH_HOST (Tailnet 上のホスト名か 100.x の IP) / STAGING_SSH_USER / STAGING_SSH_KEY (Tailscale SSH を使うなら不要)。
 #   vars STAGING_SSH_PORT (既定 22。deploy ジョブは Environment に属するので Environment / Repository どちらの variable でもよい)
@@ -32,8 +34,8 @@ permissions:
 jobs:
   build:
     name: build (${{ matrix.image }})
-    # image_tag が指定されたとき (ロールバック) はビルドしない。push イベントでは inputs は空
-    if: inputs.image_tag == ''
+    # image_tag が指定されたとき (ロールバック) はビルドしない。push イベントでは inputs は空。main 以外の ref では動かさない
+    if: github.ref == 'refs/heads/main' && inputs.image_tag == ''
     # arm64 のイメージを作るときは QEMU でも動くが Rust のビルドが極端に遅いので、ネイティブの arm ランナーを使う
     # (Repository variable STAGING_BUILD_RUNNER=ubuntu-24.04-arm)
     runs-on: ${{ vars.STAGING_BUILD_RUNNER || 'ubuntu-latest' }}
@@ -85,8 +87,10 @@ jobs:
   deploy:
     name: deploy
     needs: build
-    # build が skipped (image_tag 指定) でも進み、失敗したら止める
-    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    # build が skipped (image_tag 指定) でも進み、失敗したら止める。main 以外の ref では動かさない
+    if: >-
+      always() && github.ref == 'refs/heads/main'
+      && (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-latest
     environment:
       name: staging
@@ -106,6 +110,11 @@ jobs:
           tag="$INPUT_TAG"
           # metadata-action の type=sha,format=short と同じ 7 桁
           [ -n "$tag" ] || tag="sha-${GITHUB_SHA:0:7}"
+          # リモートのシェルに渡すので、想定する形式 (sha-<hex>) 以外は受け付けない
+          if ! [[ "$tag" =~ ^sha-[0-9a-f]{7,40}$ ]]; then
+            echo "::error::image_tag must look like sha-<hex> (got: $tag)"
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "image tag: $tag"
       - name: Tailnet に参加する
@@ -136,5 +145,7 @@ jobs:
           COMPOSE_DIR: ${{ vars.STAGING_COMPOSE_DIR || '/opt/discalendar-staging' }}
           IMAGE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          scp -q -P "$SSH_PORT" compose.yaml "$SSH_USER@$SSH_HOST:$COMPOSE_DIR/compose.yaml"
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash -s -- "$COMPOSE_DIR" "$IMAGE_TAG" < .github/scripts/deploy-staging.sh
+          # ssh はリモート側でもう一度シェルが解釈するので、引数は printf %q でクォートして渡す
+          scp -q -P "$SSH_PORT" compose.yaml "$SSH_USER@$SSH_HOST:$(printf '%q' "$COMPOSE_DIR")/compose.yaml"
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash -s -- "$(printf '%q' "$COMPOSE_DIR")" "$(printf '%q' "$IMAGE_TAG")" \
+            < .github/scripts/deploy-staging.sh
