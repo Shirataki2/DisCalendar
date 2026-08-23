@@ -3,9 +3,10 @@
 # .claude/settings.json の SessionStart hook から呼ばれる。ローカルのセッションでは何もしない
 # (クラウドの VM だけが CLAUDE_CODE_REMOTE=true を持つ)。
 #
-# やること (どれか失敗しても hook 自体は 0 で終わり、セッションは始まる):
-#   1. PostgreSQL (プリインストールだが未起動) を起動し、discalendar_dev を作る
+# やること (どれか失敗しても hook 自体は 0 で終わり、セッションは始まる。結果はログで伝える):
+#   1. PostgreSQL (プリインストールだが未起動) を起動し、discalendar_dev を作り、api/migrations を適用する
 #      → cargo test (#[sqlx::test]) / cargo sqlx prepare / web の pnpm db:migrate が動く
+#      (マイグレーション適用には sqlx-cli が要る。無ければその旨をログに出す)
 #   2. web/ の pnpm install (web/AGENTS.md が node_modules/next/dist/docs/ を読ませるので必須)
 #   3. .env.example からローカル開発用の .env を作る (値はダミー。Bot トークンなどの本物は入れない)
 #
@@ -36,11 +37,15 @@ as_postgres() {
 }
 
 # 1. PostgreSQL
-if command -v pg_isready >/dev/null 2>&1; then
+# 「準備完了」と言えるのは、実際に DATABASE_URL で接続でき、api/migrations が適用されている場合だけ。
+# 途中の失敗は握りつぶさず、原因を pg_note に溜めて最後にまとめて出す
+pg_ready=0
+pg_note=""
+if command -v pg_isready >/dev/null 2>&1 && command -v psql >/dev/null 2>&1; then
   if [ "$(id -u)" = 0 ]; then
-    service postgresql start >/dev/null 2>&1 || true
+    service postgresql start >/dev/null 2>&1 || pg_note="${pg_note} service postgresql start 失敗;"
   else
-    sudo -n service postgresql start >/dev/null 2>&1 || true
+    sudo -n service postgresql start >/dev/null 2>&1 || pg_note="${pg_note} sudo service postgresql start 失敗;"
   fi
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     pg_isready -q -h 127.0.0.1 && break
@@ -48,16 +53,36 @@ if command -v pg_isready >/dev/null 2>&1; then
   done
   if pg_isready -q -h 127.0.0.1; then
     # パスワードは毎回付け直す (冪等)。DB は無いときだけ作る
-    as_postgres psql -qc "ALTER USER postgres PASSWORD 'postgres'" >/dev/null 2>&1 || true
+    as_postgres psql -qc "ALTER USER postgres PASSWORD 'postgres'" >/dev/null 2>&1 || pg_note="${pg_note} ALTER USER postgres 失敗;"
     if ! as_postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'discalendar_dev'" 2>/dev/null | grep -q 1; then
-      as_postgres createdb discalendar_dev >/dev/null 2>&1 || true
+      as_postgres createdb discalendar_dev >/dev/null 2>&1 || pg_note="${pg_note} createdb 失敗;"
     fi
-    log "PostgreSQL: 起動済み。DATABASE_URL=${db_url}"
+    if psql "$db_url" -tAc "SELECT 1" >/dev/null 2>&1; then
+      pg_ready=1
+    else
+      pg_note="${pg_note} ${db_url} で接続できない;"
+    fi
   else
-    log "PostgreSQL: 起動できなかった (service postgresql start を試すこと)"
+    pg_note="${pg_note} サーバーが起動していない;"
   fi
 else
-  log "PostgreSQL: 見つからない (pg_isready が無い)"
+  pg_note="${pg_note} pg_isready / psql が無い;"
+fi
+
+if [ "$pg_ready" = 1 ]; then
+  # api/migrations を適用する (query! のコンパイル時検証と cargo sqlx prepare にはテーブルが要る)。
+  # api は起動時に自分で適用するが、ここでは sqlx-cli で先に当てておく。何度実行しても未適用分だけ当たる
+  if command -v sqlx >/dev/null 2>&1; then
+    if sqlx migrate run --source api/migrations --database-url "$db_url" >/dev/null 2>&1; then
+      log "PostgreSQL: 準備完了 (api/migrations 適用済み)。DATABASE_URL=${db_url}"
+    else
+      log "PostgreSQL: 接続はできるが sqlx migrate run に失敗。'sqlx migrate run --source api/migrations --database-url ${db_url}' を実行して原因を見ること"
+    fi
+  else
+    log "PostgreSQL: 接続はできるがマイグレーション未適用 (sqlx-cli が無い)。cargo sqlx prepare の前に 'cargo install sqlx-cli --no-default-features --features postgres,rustls' のあと 'sqlx migrate run --source api/migrations --database-url ${db_url}' を実行すること (README 参照)"
+  fi
+else
+  log "PostgreSQL: 未準備。原因:${pg_note:- 不明}。service postgresql start / ALTER USER postgres PASSWORD 'postgres' / createdb discalendar_dev を手で確認し、${db_url} で接続できるようにすること"
 fi
 
 # 2. web の依存
@@ -89,7 +114,7 @@ make_env bot/.env.example bot/.env
 
 # 4. 補足 (Claude に伝えたい前提)
 if [ "${SQLX_OFFLINE:-}" != "true" ]; then
-  log "注意: 環境変数 SQLX_OFFLINE=true が未設定。query! のコンパイルには DB にマイグレーション適用済みである必要がある (README 参照)"
+  log "注意: 環境変数 SQLX_OFFLINE=true が未設定。query! のコンパイルは DATABASE_URL の DB (マイグレーション適用済みであること) を見に行く (README 参照)"
 fi
 log "このセッションはクラウド。旧実装 tmp/DisCalendarV2/ は無い。ブラウザ / Discord ログインでの動作確認はできないので検証は CI 相当のコマンドまで (AGENTS.md 参照)"
 exit 0

@@ -23,8 +23,9 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 ## Claude Code のクラウドセッションでの注意
 
 claude.ai/code や `claude --cloud` のセッション (環境変数 `CLAUDE_CODE_REMOTE=true`) は Anthropic 管理の VM にこのリポジトリを clone して動く。
-セッション開始時に `.claude/settings.json` の SessionStart hook (`.claude/hooks/cloud-session-start.sh`) が Postgres の起動・`web/` の `pnpm install`・
-ダミー値の `.env` 生成を行う。環境 (Environment) 側の設定手順は [README.md](README.md) の「Claude Code のクラウド環境で使う」。
+セッション開始時に `.claude/settings.json` の SessionStart hook (`.claude/hooks/cloud-session-start.sh`) が Postgres の起動と `api/migrations` の適用・
+`web/` の `pnpm install`・ダミー値の `.env` 生成を行い、結果を `[cloud-session-start] ...` で報告する (Postgres が「未準備」なら、その指示に従って直してから
+`cargo test` / `cargo sqlx prepare` に進む)。環境 (Environment) 側の設定手順は [README.md](README.md) の「Claude Code のクラウド環境で使う」。
 
 - **旧実装 `tmp/DisCalendarV2/` は無い** (git 管理外)。挙動の根拠が要るときは `docs/`・Issue・PR の記述で代用し、確認できなければ PR 本文にその旨を書く
 - **ブラウザ (Browser pane / Playwright) と Discord ログインでの動作確認はできない**。検証は CI 相当のコマンド (`pnpm lint` / `tsc` / `pnpm build`、

@@ -187,7 +187,9 @@ rustc / cargo、PostgreSQL 16 がプリインストールだが Postgres は未�
 (公式: [Configure cloud environments](https://code.claude.com/docs/en/cloud-environments) / [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web))。
 
 - **リポジトリ側 (設定済み)**: `.claude/settings.json` の SessionStart hook が `.claude/hooks/cloud-session-start.sh` を呼び、クラウドのときだけ
-  (`CLAUDE_CODE_REMOTE=true`) Postgres の起動と `discalendar_dev` の作成、`web/` の `pnpm install`、`.env.example` からのダミー `.env` 生成を行う。ローカルでは何もしない
+  (`CLAUDE_CODE_REMOTE=true`) Postgres の起動と `discalendar_dev` の作成、`api/migrations` の適用 (sqlx-cli がある場合)、`web/` の `pnpm install`、
+  `.env.example` からのダミー `.env` 生成を行う。ローカルでは何もしない。結果は `[cloud-session-start] ...` のログで Claude に渡る
+  (Postgres は「`DATABASE_URL` で実際に接続でき、マイグレーション適用済み」のときだけ準備完了と報告する)
 - **一度だけ**: claude.ai/code で Claude GitHub App を入れるか、ローカルの Claude Code で `/web-setup` (`gh` のトークンを同期)。
   Auto-fix (PR の CI 失敗・レビューコメントへの自動対応) を使うならこのリポジトリにも App をインストールする
 - **環境 (Environment) の設定** (claude.ai/code の environment selector から編集):
@@ -201,8 +203,9 @@ rustc / cargo、PostgreSQL 16 がプリインストールだが Postgres は未�
     BETTER_AUTH_URL=http://localhost:3000
     ```
 
-  - Setup script (root で実行、5 分以内、結果はスナップショットとして約 7 日キャッシュ): toolchain と依存の取得まで。
-    ワークスペースのフルビルドは 5 分に収まらない可能性が高いので入れない
+  - Setup script (root で実行、5 分以内、結果はスナップショットとして約 7 日キャッシュ): toolchain・sqlx-cli・依存の取得まで。
+    ワークスペースのフルビルドは 5 分に収まらない可能性が高いので入れない。sqlx-cli は hook の `api/migrations` 適用と
+    `cargo sqlx prepare` に要る (api/README.md と同じ features)。5 分を超えるようなら sqlx-cli を外し、必要なセッションで `cargo install` する
 
     ```bash
     #!/bin/bash
@@ -214,17 +217,19 @@ rustc / cargo、PostgreSQL 16 がプリインストールだが Postgres は未�
       export PATH="$HOME/.cargo/bin:$PATH"
     fi
     rustup toolchain install || true
-    cargo fetch || true
-    corepack enable || true   # pnpm を web/package.json の packageManager の版に揃える
-    (cd web && pnpm install --frozen-lockfile) || true
+    # 以下は互いに独立なので並列に走らせて 5 分に収める
+    (cargo fetch || true) &
+    (cargo install sqlx-cli --no-default-features --features postgres,rustls || true) &
+    (corepack enable || true; cd web && pnpm install --frozen-lockfile || true) &   # pnpm を packageManager の版に揃えてから install
+    wait
     exit 0
     ```
 
 - **できないこと**: Discord ログイン、ブラウザでの動作確認、旧実装 (`tmp/DisCalendarV2/`) の参照。検証は CI 相当のコマンドまでなので、
   UI や Discord 連携の確認が要るタスクはローカル向き。`git push` はセッションのカレントブランチのみ (main 直 push 禁止のルールと整合)。
   ターミナルから `claude --cloud` で投げるときは GitHub 上のカレントブランチが clone される (ローカルの未 push コミットは見えない)
-- 最初のセッションでは `check-tools` / `rustup --version` / `pnpm -v` / `psql --version` を実行させ、hook のログ (`[cloud-session-start] ...`) で
-  Postgres と `pnpm install` が通ったことを確認してから Setup script を確定する
+- 最初のセッションでは `check-tools` / `rustup --version` / `sqlx --version` / `pnpm -v` / `psql --version` を実行させ、hook のログ (`[cloud-session-start] ...`) で
+  Postgres (マイグレーション適用まで) と `pnpm install` が通ったことを確認してから Setup script を確定する
 
 ## ルート構成 (web)
 
