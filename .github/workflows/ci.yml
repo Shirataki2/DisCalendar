@@ -66,6 +66,8 @@ jobs:
         run: pnpm exec next typegen
       - name: tsc
         run: pnpm exec tsc --noEmit
+      - name: vitest
+        run: pnpm test
       - name: Next.js のビルドキャッシュ
         uses: actions/cache@v6
         with:
@@ -120,11 +122,82 @@ jobs:
       - name: test
         run: cargo test --workspace
 
+  # E2E (web/e2e、Playwright)。api の実バイナリ + Postgres + Next.js を立てて、
+  # ログイン → サーバー選択 → 予定の作成・編集・削除・ドラッグ → サーバー設定 を通す (Discord API はモック)。
+  # web と api の両方に依存するので、どちらかが変わったら走らせる
+  e2e:
+    name: e2e
+    needs: changes
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: discalendar_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CARGO_TERM_COLOR: always
+      SQLX_OFFLINE: "true"
+      # playwright.config.ts が読む (web/e2e/env.ts)。api はビルド済みバイナリを使う
+      E2E_DATABASE_URL: postgres://postgres:postgres@localhost:5432/discalendar_e2e
+      E2E_API_COMMAND: ./target/debug/discalendar-api
+    steps:
+      - uses: actions/checkout@v7
+      - name: rust-toolchain.toml の toolchain をインストール
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: api をビルド
+        run: cargo build -p discalendar-api
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: web
+      - name: Playwright のブラウザ
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: web
+      - name: Next.js のビルドキャッシュ
+        uses: actions/cache@v6
+        with:
+          path: web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}-${{ hashFiles('web/src/**', 'web/next.config.ts') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}-
+      - name: playwright
+        # CI では next build + next start で動かす (playwright.config.ts)
+        run: pnpm e2e
+        working-directory: web
+      - name: レポートを保存 (失敗時)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7
+
   # ルールセットの必須ステータスチェックはこのジョブだけを見る。
-  # web / rust は変更がなければ skipped になるので、それは成功として扱う
+  # web / rust / e2e は変更がなければ skipped になるので、それは成功として扱う
   ci:
     name: ci
-    needs: [changes, web, rust]
+    needs: [changes, web, rust, e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -133,10 +206,11 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           WEB: ${{ needs.web.result }}
           RUST: ${{ needs.rust.result }}
+          E2E: ${{ needs.e2e.result }}
         run: |
-          echo "changes=$CHANGES web=$WEB rust=$RUST"
+          echo "changes=$CHANGES web=$WEB rust=$RUST e2e=$E2E"
           [ "$CHANGES" = "success" ] || exit 1
-          for r in "$WEB" "$RUST"; do
+          for r in "$WEB" "$RUST" "$E2E"; do
             case "$r" in
               success|skipped) ;;
               *) exit 1 ;;

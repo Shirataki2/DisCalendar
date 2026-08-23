@@ -49,7 +49,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         pool,
         sql_console_pool,
         sql_known_words: tokio::sync::Mutex::new(None),
-        discord: DiscordClient::new(&config.discord_bot_token)?,
+        discord: DiscordClient::new(&config.discord_bot_token, &config.discord_api_base_url)?,
         auth: AuthConfig {
             secret: config.better_auth_secret.clone(),
             cookie_names: config.session_cookie_names().to_vec(),

@@ -9,6 +9,9 @@ pub struct Config {
     pub max_db_connections: u32,
     /// Discord Bot トークン。メンバー確認・権限計算に使う
     pub discord_bot_token: String,
+    /// Discord API のベース URL (`DISCORD_API_BASE_URL`)。既定は本物の Discord で、
+    /// E2E テスト (web/e2e) だけモックサーバーに向ける
+    pub discord_api_base_url: String,
     /// web 側と同じ値。Better Auth のセッション cookie の署名検証に使う
     pub better_auth_secret: String,
     /// Better Auth の cookie プレフィックス (既定 `better-auth`)
@@ -34,6 +37,7 @@ impl Config {
                 .parse()
                 .context("DATABASE_MAX_CONNECTIONS must be a number")?,
             discord_bot_token: required("DISCORD_BOT_TOKEN")?,
+            discord_api_base_url: env_or("DISCORD_API_BASE_URL", crate::discord::DEFAULT_API_BASE),
             better_auth_secret: required("BETTER_AUTH_SECRET")?,
             auth_cookie_prefix: env_or("AUTH_COOKIE_PREFIX", "better-auth"),
             admin_discord_user_ids: parse_admin_discord_user_ids(&env_or(

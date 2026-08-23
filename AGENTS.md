@@ -13,7 +13,8 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 
 ## コマンド
 
-- web (`web/` で実行): `pnpm lint` (Biome) / `pnpm exec tsc --noEmit` / `pnpm build`
+- web (`web/` で実行): `pnpm lint` (Biome) / `pnpm exec tsc --noEmit` / `pnpm test` (Vitest) / `pnpm build`。
+  E2E は `pnpm e2e` (Playwright。api + Postgres + Next を自動で立てる。Discord はモック。手順は README の「テスト」)
 - api / bot (ルートで実行): `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` (Postgres が必要)。
   `query!` を追加・変更したら該当クレートのディレクトリで `cargo sqlx prepare -- --all-targets` を実行し、
   `api/.sqlx/` / `bot/.sqlx/` を更新する (CI は `SQLX_OFFLINE=true`)
