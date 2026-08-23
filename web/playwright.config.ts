@@ -63,7 +63,14 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        // Playwright が期待する版の Chromium を入れられない環境 (Claude Code のクラウドセッションなど)
+        // では、プリインストールの実行ファイルを E2E_CHROMIUM_PATH で指す
+        launchOptions: process.env.E2E_CHROMIUM_PATH
+          ? { executablePath: process.env.E2E_CHROMIUM_PATH }
+          : undefined,
+      },
     },
   ],
   webServer: [
@@ -99,6 +106,8 @@ export default defineConfig({
       stdout: "pipe",
       env: {
         ...sharedEnv,
+        // 本番コンテナ・CI と同じサーバー日付にする (today.spec.ts の「今日」のセルの再現条件)
+        TZ: "UTC",
         PORT: String(WEB_PORT),
         BETTER_AUTH_URL: WEB_URL,
         API_URL,
