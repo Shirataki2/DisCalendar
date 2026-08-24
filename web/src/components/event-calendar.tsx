@@ -7,6 +7,7 @@ import Calendar, {
   type DatesSetInfo,
   type EventChangeInfo,
   type EventClickInfo,
+  type FormatterInput,
 } from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/react/daygrid";
 import interactionPlugin from "@fullcalendar/react/interaction";
@@ -59,6 +60,42 @@ import {
 import "@fullcalendar/react/skeleton.css";
 import "@fullcalendar/react/themes/classic/theme.css";
 import "@fullcalendar/react/themes/classic/palette.css";
+
+/**
+ * 日時の表記。FullCalendar の既定は Intl.DateTimeFormat 任せなので、日本語ロケールでは
+ * ブラウザ (ICU) の実装差がそのまま出る。時刻は 24 時間制の "H:mm"、日付は数字だけに固定する
+ */
+
+/** "2:00" (分が 0 でも省略しない) */
+function timeText({ hour, minute }: { hour: number; minute: number }): string {
+  return `${hour}:${String(minute).padStart(2, "0")}`;
+}
+
+/**
+ * 予定の時刻。既定は分が 0 のとき「時」だけを出す (omitZeroMinute) ので Chrome は "2時"、
+ * Safari は "2:00" になる。終了時刻まで出す週 / 4日 / 日ビューでは範囲の書式
+ * (Intl の formatRange。ja は "2時00分〜3時00分") が使われる
+ */
+const eventTimeFormat: FormatterInput = (info) =>
+  info.end
+    ? `${timeText(info.start)} - ${timeText(info.end)}`
+    : timeText(info.start);
+
+/** 時刻軸のラベル ("2:00")。既定は予定の時刻と同じ理由で "2時" と "2:00" に割れる */
+const slotHeaderFormat: FormatterInput = (info) => timeText(info.date);
+
+/** 月ビューの日付セル ("26")。ja の Intl は "26日" を返す (既定の omitTrailing では「日」が落ちない) */
+const dayCellFormat: FormatterInput = (info) => String(info.date.day);
+
+/** 曜日の略称。FullCalendar が渡す marker はタイムゾーンを持たない UTC 基準の Date */
+const weekdayFormat = new Intl.DateTimeFormat("ja-JP", {
+  weekday: "short",
+  timeZone: "UTC",
+});
+
+/** 週 / 4日 / 日ビューの日付ヘッダ ("23(日)")。既定は ja だと "23日(日)" / "23日日曜日" */
+const dayHeaderFormat: FormatterInput = (info) =>
+  `${info.date.day}(${weekdayFormat.format(info.date.marker)})`;
 
 interface Props {
   guildId: string;
@@ -254,6 +291,9 @@ export function EventCalendar({
               classicThemePlugin,
             ]}
             locale={jaLocale}
+            eventTimeFormat={eventTimeFormat}
+            slotHeaderFormat={slotHeaderFormat}
+            dayCellFormat={dayCellFormat}
             initialView="dayGridMonth"
             headerToolbar={{
               start: "prev,next today",
@@ -261,6 +301,9 @@ export function EventCalendar({
               end: "dayGridMonth,timeGridWeek,timeGridFourDay,timeGridDay",
             }}
             views={{
+              // 日付ヘッダに日付を出すのは timeGrid 系だけ (月ビューは曜日だけでよい)。
+              // 親の "timeGrid" に指定すると週 / 4日 / 日ビューすべてに効く
+              timeGrid: { dayHeaderFormat },
               timeGridFourDay: {
                 type: "timeGrid",
                 duration: { days: 4 },
