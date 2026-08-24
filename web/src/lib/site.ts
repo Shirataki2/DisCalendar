@@ -36,6 +36,8 @@ export const ROUTES = {
   /** Bot の招待 URL へリダイレクトする (app/invite/route.ts) */
   invite: "/invite",
   docs: "/docs/gettingstarted",
+  /** 更新履歴 (web/src/content/changelog.mdx) */
+  changelog: "/changelog",
   /** 利用規約 (web/src/content/support/tos.mdx) */
   tos: "/support/tos",
   /** プライバシーポリシー (web/src/content/support/privacy.mdx) */

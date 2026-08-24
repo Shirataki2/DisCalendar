@@ -5,6 +5,7 @@ import { ROUTES } from "@/lib/site";
 
 const NAV_LINKS = [
   { href: ROUTES.docs, label: "使い方" },
+  { href: ROUTES.changelog, label: "更新履歴" },
   { href: ROUTES.tos, label: "利用規約" },
   { href: ROUTES.privacy, label: "プライバシーポリシー" },
 ] as const;
@@ -17,7 +18,8 @@ export function SiteHeader() {
         <Link href="/" className="shrink-0" aria-label="DisCalendar ホーム">
           <Logo className="text-xl" />
         </Link>
-        <nav aria-label="サイト内リンク" className="hidden sm:block">
+        {/* 640px 前後だとロゴ + 4 項目 + 右のボタンが h-14 に収まらず折り返すので、md から出す (それ未満はフッタに同じリンクがある) */}
+        <nav aria-label="サイト内リンク" className="hidden md:block">
           <ul className="flex items-center gap-5 text-sm text-neutral-300">
             {NAV_LINKS.map((link) => (
               <li key={link.href}>

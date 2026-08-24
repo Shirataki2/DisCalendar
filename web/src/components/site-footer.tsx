@@ -4,6 +4,7 @@ import { GITHUB_URL, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
 
 const INTERNAL_LINKS = [
   { href: ROUTES.docs, label: "使い方" },
+  { href: ROUTES.changelog, label: "更新履歴" },
   { href: ROUTES.tos, label: "利用規約" },
   { href: ROUTES.privacy, label: "プライバシーポリシー" },
 ] as const;

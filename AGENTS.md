@@ -19,6 +19,8 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
   `query!` を追加・変更したら該当クレートのディレクトリで `cargo sqlx prepare -- --all-targets` を実行し、
   `api/.sqlx/` / `bot/.sqlx/` を更新する (CI は `SQLX_OFFLINE=true`)
 - コメント・ドキュメント・PR の文章は日本語
+- **利用者に見える機能追加・変更・不具合修正をしたら、更新履歴 (`web/src/content/changelog.mdx`) に同じ PR で追記する**。
+  利用者に伝わる言葉で書く (技術的な変更はそれ自体を書かず、利用者から見える効果に言い換える)。書き方のルールはファイル冒頭のコメント
 - Issue 着手から PR・レビュー対応までの手順は `.claude/skills/issue-driven-dev/`、worktree や `target/` の後片付けは `.claude/skills/cleanup-workspace/` (Claude Code のプロジェクトスキル) にまとめてある
 
 ## Claude Code のクラウドセッションでの注意
