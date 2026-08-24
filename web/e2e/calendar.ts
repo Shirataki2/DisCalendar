@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 // FullCalendar (月表示) を操作するヘルパー。
 // v7 はクラス名がハッシュ化されているので、ARIA ロールと data-date 属性で要素を探す
-// (日付セル: role=gridcell + data-date="YYYY-MM-DD"、予定: その中の role=button "HH時 タイトル")
+// (日付セル: role=gridcell + data-date="YYYY-MM-DD"、予定: その中の role=button "H:mm タイトル")
 
 export function isoDate(date: Date): string {
   const y = date.getFullYear();
@@ -37,7 +37,7 @@ export async function calendarToday(page: Page): Promise<Date> {
 }
 
 /**
- * カレンダー上の予定 (タイトルで探す)。時刻付きの予定は名前が "HH時 タイトル" になるので、
+ * カレンダー上の予定 (タイトルで探す)。時刻付きの予定は名前が "H:mm タイトル" になるので、
  * 末尾一致で探す (部分一致だと "A" が "A (編集済み)" にも当たってしまう)
  */
 export function eventOn(scope: Page | Locator, title: string): Locator {
