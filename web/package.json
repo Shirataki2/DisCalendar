@@ -10,6 +10,7 @@
     "format": "biome format --write",
     "test": "vitest run",
     "e2e": "playwright test",
+    "shot": "E2E_SCREENSHOT=1 playwright test e2e/screenshots",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs"
   },
   "dependencies": {

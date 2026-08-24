@@ -21,6 +21,8 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - コメント・ドキュメント・PR の文章は日本語
 - **利用者に見える機能追加・変更・不具合修正をしたら、更新履歴 (`web/src/content/changelog.mdx`) に同じ PR で追記する**。
   利用者に伝わる言葉で書く (技術的な変更はそれ自体を書かず、利用者から見える効果に言い換える)。書き方のルールはファイル冒頭のコメント
+- LP と使い方に貼っているスクリーンショット (`web/src/assets/`) は `pnpm shot` で撮り直す。
+  手順と確認観点は `.claude/skills/update-screenshots/`
 - Issue 着手から PR・レビュー対応までの手順は `.claude/skills/issue-driven-dev/`、worktree や `target/` の後片付けは `.claude/skills/cleanup-workspace/` (Claude Code のプロジェクトスキル) にまとめてある
 
 ## Claude Code のクラウドセッションでの注意

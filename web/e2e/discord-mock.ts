@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import {
+  E2E_ALL_GUILDS,
   E2E_BOT_TOKEN,
-  E2E_GUILDS,
   E2E_USER,
   type E2EGuild,
   OTHER_OWNER_ID,
@@ -14,7 +14,7 @@ import {
 // - GET /guilds/{id}/members/{uid}   api (メンバー確認と所持ロール)
 // それ以外と未知のギルドは Discord と同じく 404 の JSON を返す
 
-const JOINED: E2EGuild[] = Object.values(E2E_GUILDS).filter((g) => g.botJoined);
+const JOINED: E2EGuild[] = E2E_ALL_GUILDS.filter((g) => g.botJoined);
 
 /** `GET /users/@me/guilds` の 1 件 (ユーザーから見たギルド) */
 function userGuild(guild: E2EGuild) {
@@ -56,7 +56,7 @@ export function startDiscordMock(port: number): Promise<Server> {
 
     if (url.pathname === "/users/@me/guilds") {
       if (auth === `Bearer ${E2E_USER.accessToken}`) {
-        return json(200, Object.values(E2E_GUILDS).map(userGuild));
+        return json(200, E2E_ALL_GUILDS.map(userGuild));
       }
       if (auth === `Bot ${E2E_BOT_TOKEN}`) {
         return json(
