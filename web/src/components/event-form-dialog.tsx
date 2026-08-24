@@ -174,6 +174,8 @@ function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
           </div>
         </Field>
 
+        {/* 開始行 (開始日・開始時刻・終日) と終了行 (終了日・終了時刻・色) で
+            列の位置が揃うよう、1 つのグリッドで 2 行に並べる */}
         <div className="grid gap-4 sm:grid-cols-[1fr_8rem_auto]">
           <Field data-invalid={errors.startDate ? true : undefined}>
             <FieldLabel htmlFor="event-form-start-date">開始日</FieldLabel>
@@ -218,9 +220,6 @@ function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
               終日
             </FieldLabel>
           </Field>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-[1fr_8rem_auto]">
           <Field data-invalid={errors.endDate ? true : undefined}>
             <FieldLabel htmlFor="event-form-end-date">終了日</FieldLabel>
             <Controller
