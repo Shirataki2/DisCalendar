@@ -2,6 +2,7 @@
 
 import Calendar, {
   type CalendarRef,
+  type DateClickInfo,
   type DateSelectInfo,
   type DatesSetInfo,
   type EventChangeInfo,
@@ -159,6 +160,18 @@ export function EventCalendar({
     openCreate(newEventFormValues(info.start, info.end, info.allDay));
   };
 
+  // タッチのタップで日付から作成する (#14)。タッチでは select が長押し必須なので、タップは dateClick で拾う。
+  // マウスのクリックは select が拾うので、ここで扱うと二重に開いてしまう (jsEvent の実体はタッチ由来なら
+  // TouchEvent)。dateClick は selectable と無関係に発火するため、編集可否も自前で確認する
+  const handleDateClick = (info: DateClickInfo) => {
+    if (!canEdit) return;
+    if (
+      !(typeof TouchEvent !== "undefined" && info.jsEvent instanceof TouchEvent)
+    )
+      return;
+    openCreate(newEventFormValues(info.date, null, info.allDay));
+  };
+
   const openEdit = (event: ApiEvent) => {
     setPopover(null);
     setDialog({ mode: "edit", event });
@@ -262,10 +275,13 @@ export function EventCalendar({
             snapDuration="00:15"
             slotDuration="00:30"
             scrollTime={scrollTime}
+            // タッチの長押し (既定 1000ms) を短くして、旧版の touchend 相当の操作感に寄せる (#14)。
+            // 選択 (selectLongPressDelay) とドラッグ (eventLongPressDelay) の両方の既定になる
             longPressDelay={400}
             height="100%"
             datesSet={handleDatesSet}
             select={handleSelect}
+            dateClick={handleDateClick}
             eventClick={handleEventClick}
             eventChange={handleEventChange}
           />
