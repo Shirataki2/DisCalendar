@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# staging ホスト上で動かすデプロイ手順 (deploy-staging.yml が ssh 経由で流し込む)。
-#   bash deploy-staging.sh <compose のディレクトリ> <イメージタグ>
-# 前提: ディレクトリに compose.yaml と .env (secrets、COMPOSE_PROFILES=bot,tunnel など) が置いてあること。
+# staging / 本番ホスト上で動かすデプロイ手順 (deploy-staging.yml / deploy-production.yml が ssh 経由で流し込む)。
+#   bash deploy.sh <compose のディレクトリ> <イメージタグ>
+# 前提: ディレクトリに compose.yaml と .env (secrets、COMPOSE_PROFILES など。本番は COMPOSE_PROJECT_NAME も) が置いてあること。
 # .env の IMAGE_TAG を書き換えるので、手動で docker compose up しても同じタグが使われる
 set -euo pipefail
 

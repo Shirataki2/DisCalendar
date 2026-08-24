@@ -1,0 +1,92 @@
+# staging で検証済みのイメージ (sha-* タグ) を本番ホスト (Tailnet 内) に反映する (#12)。
+# build ジョブは持たない: イメージは deploy-staging.yml が main マージ時に GHCR へ push したものを使い、
+# image_tag を必須入力にすることで「staging で動作確認したタグだけを本番に配る」ことを強制する。
+# デプロイもロールバックも同じ手順: Actions の "Deploy production" → Run workflow → image_tag に sha-xxxxxxx を指定する。
+# main 以外の ref では動かさない (別ブランチの deploy.sh をホストに流し込めないようにする。
+# Environment "production" の Deployment branches も main だけに制限し、required reviewers を付けておくこと)。
+# 必要な設定 (Environment "production"): secrets TS_OAUTH_CLIENT_ID / TS_OAUTH_SECRET (staging と同じ値でよい)、
+#   PRODUCTION_SSH_HOST / PRODUCTION_SSH_USER / PRODUCTION_SSH_KEY (Tailscale SSH を使うなら不要)。
+#   vars PRODUCTION_SSH_PORT (既定 22) / PRODUCTION_COMPOSE_DIR (既定 /opt/discalendar)。詳細は README
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "デプロイするイメージタグ (staging で検証済みの sha-xxxxxxx)"
+        required: true
+
+# デプロイは直列にする (後から来た実行は待つ。cancel すると pull と up の途中で止まりかねない)
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://discalendar.app
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            compose.yaml
+            .github/scripts/deploy.sh
+          sparse-checkout-cone-mode: false
+      - name: デプロイするタグを確認する
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.image_tag }}
+        run: |
+          tag="$INPUT_TAG"
+          # リモートのシェルに渡すので、想定する形式 (sha-<hex>) 以外は受け付けない
+          if ! [[ "$tag" =~ ^sha-[0-9a-f]{7,40}$ ]]; then
+            echo "::error::image_tag must look like sha-<hex> (got: $tag)"
+            exit 1
+          fi
+          # タイプミスで存在しないタグをホストに配らないよう、3 イメージとも GHCR にあるか先に確かめる
+          # (public パッケージなのでログイン不要)
+          for image in web api bot; do
+            docker manifest inspect "ghcr.io/shirataki2/discalendar-${image}:${tag}" > /dev/null \
+              || { echo "::error::ghcr.io/shirataki2/discalendar-${image}:${tag} not found"; exit 1; }
+          done
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image tag: $tag"
+      - name: Tailnet に参加する
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+      - name: SSH の準備
+        env:
+          SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          SSH_PORT: ${{ vars.PRODUCTION_SSH_PORT || '22' }}
+          SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # 鍵が設定されていればそれを使う。未設定なら Tailscale SSH (ACL の ssh ルールで tag:ci を許可) に任せる
+          if [ -n "$SSH_KEY" ]; then
+            printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+            chmod 600 ~/.ssh/id_ed25519
+          fi
+          # Tailnet 内 (WireGuard で相手が認証済み) なのでホスト鍵はその場で取得する
+          ssh-keyscan -T 20 -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+      - name: compose.yaml を配ってデプロイする
+        env:
+          SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          SSH_PORT: ${{ vars.PRODUCTION_SSH_PORT || '22' }}
+          SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+          COMPOSE_DIR: ${{ vars.PRODUCTION_COMPOSE_DIR || '/opt/discalendar' }}
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # ssh はリモート側でもう一度シェルが解釈するので、引数は printf %q でクォートして渡す
+          scp -q -P "$SSH_PORT" compose.yaml "$SSH_USER@$SSH_HOST:$(printf '%q' "$COMPOSE_DIR")/compose.yaml"
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash -s -- "$(printf '%q' "$COMPOSE_DIR")" "$(printf '%q' "$IMAGE_TAG")" \
+            < .github/scripts/deploy.sh
