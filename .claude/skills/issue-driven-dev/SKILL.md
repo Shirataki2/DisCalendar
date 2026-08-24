@@ -96,6 +96,7 @@ worktree 内で気をつけること:
   - api / bot (ルートで): `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace`
   - `query!` を触ったら該当クレートで `cargo sqlx prepare -- --all-targets` を実行して `.sqlx/` をコミットに含める (CI は `SQLX_OFFLINE=true`)
 - UI の変更は Browser pane (`preview_start`) で実際に動かして確認し、PR の「動作確認」に手順を書く
+- 利用者に見える機能追加・変更・不具合修正なら、更新履歴 (`web/src/content/changelog.mdx`) に同じ PR で追記する (書き方はファイル冒頭のコメント。利用者に見えない内部変更は書かない)
 - web と api の境界 (`web/src/lib/api/types.ts` / `endpoints.ts` と `api/src/routes` / `api/src/models`、上限値) を変えたら両側を揃える
 - 環境変数を追加・変更するときは [references/templates.md の「環境変数を足すときの確認先」](references/templates.md#環境変数を足すときの確認先) を見る (web の `NEXT_PUBLIC_*` はビルド時に焼き込まれるので Dockerfile / compose / デプロイワークフローにも手が要る)
 - ドキュメントの正はルート `README.md` (`web/README.md` は create-next-app の雛形のまま)。設定手順などはそちらに書く
