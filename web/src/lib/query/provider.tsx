@@ -44,7 +44,11 @@ export function QueryProvider({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       {children}
-      <ReactQueryDevtools initialIsOpen={false} />
+      {/* devtools は開発ビルドだけで描画されるが、E2E (next dev) ではフローティングボタンが
+          モバイル相当のビューポートでタップを遮るので出さない (#14) */}
+      {!process.env.NEXT_PUBLIC_E2E && (
+        <ReactQueryDevtools initialIsOpen={false} />
+      )}
     </QueryClientProvider>
   );
 }

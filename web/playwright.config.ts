@@ -115,6 +115,8 @@ export default defineConfig({
         DISCORD_CLIENT_ID: "e2e-discord-client-id",
         DISCORD_CLIENT_SECRET: "e2e-discord-client-secret",
         NEXT_TELEMETRY_DISABLED: "1",
+        // next dev で出る TanStack Query devtools のボタンがモバイル相当のテストでタップを遮るので消す
+        NEXT_PUBLIC_E2E: "1",
       },
     },
   ],

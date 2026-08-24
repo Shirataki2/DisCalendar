@@ -57,7 +57,8 @@ export function EventPopover({
         side="right"
         align="start"
         sideOffset={8}
-        className="w-80 gap-0 overflow-hidden p-0"
+        // 幅 320px 未満の端末でも画面からはみ出さないようにする (#14)
+        className="w-80 max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0"
       >
         <div
           className="px-4 py-2.5 font-semibold"
