@@ -258,7 +258,52 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
   Repository variables (Environment ではなくリポジトリの Variables。build ジョブは Environment に属さないため): `STAGING_PLATFORMS`
   (ホストが arm64 なら `linux/arm64`)、`STAGING_BUILD_RUNNER` (arm64 なら `ubuntu-24.04-arm`。QEMU でもビルドできるが Rust が極端に遅い)、
   `STAGING_COMPOSE_DIR` (任意)
-- ホストで動く手順は `.github/scripts/deploy-staging.sh` (healthy になるまで待ち、失敗したらログを出して exit 1)
+- ホストで動く手順は `.github/scripts/deploy.sh` (healthy になるまで待ち、失敗したらログを出して exit 1。本番と共通)
+
+### 本番 (discalendar.app) へのデプロイ
+
+本番は staging と同じ仕組みで、`.github/workflows/deploy-production.yml` を手動実行 (`workflow_dispatch`) して反映する。
+ビルドはせず、staging へのデプロイ時に GHCR へ push 済みの `sha-<short sha>` タグをそのまま使う (`image_tag` が必須入力。
+**staging で動作確認したタグだけを指定する**。実行前に 3 イメージとも GHCR にあるか検証する)。旧版からの切替手順は #12。
+
+- **デプロイ / ロールバック**: Actions の "Deploy production" → "Run workflow" で `image_tag` に `sha-xxxxxxx` を指定する。
+  ロールバックも同じ手順で過去のタグを指定するだけ
+- **staging と同居する**: 本番ホストは staging と同一マシンのため、compose のプロジェクト名とポートを `.env` で分ける。
+  `compose.yaml` の `name: discalendar` は staging が使っているので、本番の `.env` には **`COMPOSE_PROJECT_NAME=discalendar-prod`**
+  (compose ファイルの `name:` より優先される) と、staging (3000) と重ならない **`WEB_PORT`** (例: 3001) を入れる。
+  コンテナは `discalendar-prod-*`、DB ボリュームは `discalendar-prod_db-data` になる
+- **ホスト側の準備** (手作業。`/opt/discalendar` を variable `PRODUCTION_COMPOSE_DIR` で変更可): staging と同様に
+  `compose.yaml` (デプロイのたびに上書き配布される) と `.env` (`.env.example` を元に本番の値) を置く。`.env` は上記の
+  `COMPOSE_PROJECT_NAME` / `WEB_PORT` のほか、`BETTER_AUTH_URL=https://discalendar.app`、本番 Discord アプリの `DISCORD_*`
+  (Redirects に `https://discalendar.app/api/auth/callback/discord` を登録)。`COMPOSE_PROFILES` は**旧版と入れ替えが終わるまで
+  `tunnel` だけにして bot を外す** (旧 Bot と同時に動くと通知が二重に届く。入れ替え手順は #12)。
+  公開は staging と同じく Cloudflare Tunnel (本番用の Tunnel を作り、Public Hostname `discalendar.app` → `http://web:3000`、
+  トークンを `.env` の `TUNNEL_TOKEN` へ)。`www.discalendar.app` は Tunnel では受けず、Cloudflare の Redirect Rule で apex へ 301 させる
+- **GitHub 側の設定** (Environment `production`): secrets `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` (staging と同じ値でよい)、
+  `PRODUCTION_SSH_HOST` / `PRODUCTION_SSH_USER`、`PRODUCTION_SSH_KEY` (Tailscale SSH を使うなら不要)。variables
+  `PRODUCTION_SSH_PORT` (既定 22) / `PRODUCTION_COMPOSE_DIR` (任意)。Deployment branches を `main` だけに制限し、
+  required reviewers を付けて誤ったデプロイを防ぐ
+
+### DB のバックアップと復元 (compose)
+
+compose の db (postgres:18) はボリューム (`<プロジェクト名>_db-data`) に保存される。その環境の compose ディレクトリで実行する
+(本番は `.env` の `COMPOSE_PROJECT_NAME` が効くのでコマンドは共通):
+
+```sh
+# バックアップ (カスタム形式)。定期実行し、ホスト外にもコピーしておく
+# (-T は TTY 割り当てを止めるオプション。付けないとバイナリ出力が壊れることがある)
+docker compose exec -T db pg_dump -U discalendar -d discalendar -Fc > discalendar_$(date +%Y%m%d%H%M%S).dump
+
+# 復元は空の DB に対して行う。先に db だけ起動して復元する
+# (api を先に起動すると起動時マイグレーションが空 DB に走り、復元と衝突する)
+docker compose up -d db
+docker compose exec -T db pg_restore -U discalendar -d discalendar --no-owner --no-privileges < <ダンプファイル>
+docker compose up -d
+```
+
+- 旧版 (postgres 13、オーナー `postgres`) からの移行では `--no-owner --no-privileges` が必須。旧 DB 側では
+  `pg_dump -Fc --no-owner --no-privileges -U postgres <DB名>` で取得する (切替手順の全体は #12)
+- staging に本番データを入れて検証するときも同じ手順で復元する (その間は bot プロファイルを外す)
 
 ## 開発の進め方 (GitHub)
 
