@@ -25,6 +25,8 @@ export const ROUTES = {
   dashboard: "/dashboard",
   /** 管理コンソール (ADMIN_DISCORD_USER_IDS のユーザーのみ。それ以外は 404) */
   admin: "/admin",
+  /** 管理コンソールの分析情報 (アクティブユーザー・予定の作成数の推移) */
+  adminAnalytics: "/admin/analytics",
   /** 管理コンソールのギルド一覧 (`/admin/guilds/[id]` が詳細) */
   adminGuilds: "/admin/guilds",
   /** 管理コンソールの SQL コンソールと定型操作 */

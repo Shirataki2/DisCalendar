@@ -354,6 +354,113 @@ export interface MyPermissions {
   can_manage_server: boolean;
 }
 
+// 分析情報 (#79。api/src/routes/admin_analytics.rs, api/src/models/admin_analytics.rs)
+// 指標の定義と精度の限界は api 側のモジュールコメントに書いてある
+
+/** ある期間の件数と、その直前の同じ長さの期間との比較 */
+export interface AdminTrend {
+  current: number;
+  previous: number;
+  /** current - previous */
+  delta: number;
+  /** 増減率 (%)。previous が 0 なら計算できないので null */
+  change_percent: number | null;
+}
+
+/** アクティブユーザー (セッションの生存期間がその期間に重なる利用者の数) */
+export interface AdminActiveUsers {
+  /** 直近 1 日 (DAU) */
+  daily: AdminTrend;
+  /** 直近 7 日 (WAU) */
+  weekly: AdminTrend;
+  /** 直近 30 日 (MAU) */
+  monthly: AdminTrend;
+}
+
+/** 日別の 1 点。date は JST の日付 (`2026-08-25`) */
+export interface AdminDailyPoint {
+  date: string;
+  events: number;
+  new_users: number;
+  /** その日に作られたセッション (ログイン) の数 */
+  logins: number;
+}
+
+/** 月別の 1 点。month は JST の月初 (`2026-08-01`) */
+export interface AdminMonthlyPoint {
+  month: string;
+  /** その月にセッションの生存期間が重なった利用者 (その月の MAU) */
+  active_users: number;
+  new_users: number;
+  logins: number;
+  events: number;
+}
+
+/** 予定の作成数 */
+export interface AdminEventCreation {
+  last_day: AdminTrend;
+  last_week: AdminTrend;
+  last_month: AdminTrend;
+  /** 今 DB にある予定の総数 (削除されたものは含まれない) */
+  total: number;
+}
+
+/** 予定の内訳と設定の行き渡り具合 */
+export interface AdminAnalyticsBreakdown {
+  all_day_events: number;
+  /**
+   * 開始時刻の通知に追加で通知が飛ぶ予定の数。
+   * 解釈できない旧データの設定と、発火時刻が重なる設定 (Bot が 1 回にまとめる) は含めない
+   */
+  events_with_notifications: number;
+  /** 予定 1 件あたりの追加の通知数の平均 */
+  notifications_per_event: number;
+  /**
+   * 参加中のギルドのうち、通知先チャンネルに形式として正しい ID を設定しているものの数。
+   * チャンネルの存在や Bot の送信権限までは確認していない
+   */
+  guilds_with_channel: number;
+  restricted_guilds: number;
+}
+
+/** 予定の作成数が多いギルド */
+export interface AdminTopGuild {
+  guild_id: string;
+  /** guilds にある名前。退出済みで行が無ければ null */
+  name: string | null;
+  avatar_url: string | null;
+  event_count: number;
+}
+
+export interface AdminGuildActivity {
+  /** 直近 N 日に予定が作られた参加中のギルドの数 (割合の分子。退出済みは含まない) */
+  active_guilds: number;
+  /** 直近 N 日に予定が作られたが guilds に行が無いギルドの数 (退出済みの残骸) */
+  active_left_guilds: number;
+  /** guilds テーブルの行数 (割合の分母) */
+  joined_guilds: number;
+  /** 退出済みも含む */
+  top_guilds: AdminTopGuild[];
+}
+
+/** GET /admin/analytics */
+export interface AdminAnalytics {
+  /** 集計の基準にした日 (JST、`2026-08-25`)。推移の右端で、その日はまだ途中 */
+  today: string;
+  daily_days: number;
+  monthly_months: number;
+  /** 「アクティブ」「直近」の基準にした日数 */
+  recent_days: number;
+  active_users: AdminActiveUsers;
+  event_creation: AdminEventCreation;
+  breakdown: AdminAnalyticsBreakdown;
+  guilds: AdminGuildActivity;
+  /** 古い順 */
+  daily: AdminDailyPoint[];
+  /** 古い順 */
+  monthly: AdminMonthlyPoint[];
+}
+
 export type ApiErrorKind =
   | "unauthorized"
   | "forbidden"

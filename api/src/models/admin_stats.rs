@@ -223,8 +223,9 @@ pub async fn notifications_between<'e>(
 
 /// Bot が実際に送信先にできるチャンネル ID か。
 /// `event_settings.channel_id` は制約のない TEXT なので、旧データや手動修正で `"0"` や
-/// 数値でない値が入りうる。Bot (bot/src/tasks/notify.rs) と同じく `NonZeroU64` で判定する
-fn is_sendable_channel(channel_id: &str) -> bool {
+/// 数値でない値が入りうる。Bot (bot/src/tasks/notify.rs) と同じく `NonZeroU64` で判定する。
+/// 分析情報 (`admin_analytics`) の「通知先設定済みギルド」も同じ判定を使う
+pub fn is_sendable_channel(channel_id: &str) -> bool {
     channel_id.parse::<std::num::NonZeroU64>().is_ok()
 }
 
@@ -236,34 +237,11 @@ fn count_fired_between(
     day_start: NaiveDateTime,
     day_end: NaiveDateTime,
 ) -> usize {
-    // 終日予定は開始日の 0:00 を基準にする (web / api / Bot 共通の規約)
-    let start = if is_all_day {
-        start_at
-            .date()
-            .and_hms_opt(0, 0, 0)
-            .expect("valid midnight")
-    } else {
-        start_at
-    };
-    let mut minutes: Vec<i64> = Notification::decode_all(raw_notifications)
+    // 終日予定の丸め・開始時刻の通知の追加・同じ分数のものの統合・計算できない通知の除外は
+    // すべて Notification::fire_times に一本化してある (Bot と数え方を揃えるため)
+    Notification::fire_times(start_at, is_all_day, raw_notifications)
         .into_iter()
-        .map(Notification::total_minutes)
-        .collect();
-    // Bot は保存済みの設定に関係なく開始時刻の通知を送る
-    minutes.push(0);
-    // 「60 分前」と「1 時間前」のように分数が同じものは Bot も 1 回にまとめる
-    minutes.sort_unstable();
-    minutes.dedup();
-
-    minutes
-        .into_iter()
-        .filter(|&m| {
-            // num は u32 で上限を決めていないので、分に直した時点でも減算でも溢れうる。
-            // 計算できない通知は Bot 側 (fire_at) でも送られないので数えない
-            chrono::Duration::try_minutes(m)
-                .and_then(|offset| start.checked_sub_signed(offset))
-                .is_some_and(|fire| fire >= day_start && fire < day_end)
-        })
+        .filter(|&fire| fire >= day_start && fire < day_end)
         .count()
 }
 

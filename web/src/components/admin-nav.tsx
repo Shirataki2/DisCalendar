@@ -8,6 +8,7 @@ import { ROUTES } from "@/lib/site";
 // (存在しないパスへ飛ばして 404 にしない)
 const ITEMS: { label: string; href?: string }[] = [
   { label: "概要", href: ROUTES.admin },
+  { label: "分析情報", href: ROUTES.adminAnalytics },
   { label: "ギルド・予定", href: ROUTES.adminGuilds },
   { label: "SQL・定型操作", href: ROUTES.adminSql },
   { label: "ユーザー", href: ROUTES.adminUsers },

@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            count(*) AS \"total!\",\n            count(*) FILTER (WHERE created_at >= $1 AND created_at <= $7) AS \"day!\",\n            count(*) FILTER (WHERE created_at >= $2 AND created_at < $1) AS \"day_prev!\",\n            count(*) FILTER (WHERE created_at >= $3 AND created_at <= $7) AS \"week!\",\n            count(*) FILTER (WHERE created_at >= $4 AND created_at < $3) AS \"week_prev!\",\n            count(*) FILTER (WHERE created_at >= $5 AND created_at <= $7) AS \"month!\",\n            count(*) FILTER (WHERE created_at >= $6 AND created_at < $5) AS \"month_prev!\",\n            count(*) FILTER (WHERE is_all_day) AS \"all_day!\"\n        FROM events\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "day!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "day_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "week!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "week_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "month!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "month_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "all_day!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Timestamp",
+        "Timestamp",
+        "Timestamp",
+        "Timestamp",
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "7b9f9aa29b8f2e166b6e74c09cb6ecf0d7a33ae002413e16da131debc8f797cb"
+}

@@ -1,6 +1,7 @@
 //! ルーティング。`utoipa_actix_web` 経由で登録することで OpenAPI にも自動で載る。
 
 mod admin;
+mod admin_analytics;
 mod admin_audit;
 mod admin_guilds;
 mod admin_ops;
@@ -39,6 +40,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
             scope("/admin")
                 .service(admin::me)
                 .service(admin_status::stats)
+                .service(admin_analytics::analytics)
                 .service(admin_status::status)
                 // `/guilds/sync-check` は `/guilds/{guild_id}` より先に登録する
                 // (後だと sync-check が guild_id として解釈される)

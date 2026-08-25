@@ -1,5 +1,6 @@
 import type { ApiFetcher } from "./client";
 import type {
+  AdminAnalytics,
   AdminAuditLogPage,
   AdminGuildDetail,
   AdminGuildPage,
@@ -83,6 +84,8 @@ export function createApi(request: ApiFetcher) {
       stats: () => request<AdminStats>("/admin/stats"),
       /** DB 疎通・マイグレーション・ビルド情報 (#37) */
       status: () => request<AdminStatus>("/admin/status"),
+      /** アクティブユーザー・予定の作成数とその推移 (#79)。stats より重い */
+      analytics: () => request<AdminAnalytics>("/admin/analytics"),
       guilds: {
         /** 全ギルドの一覧・検索 (q: guild_id の完全一致 or 名前の部分一致、page: 1 始まり) */
         list: (q: string, page: number) => {
