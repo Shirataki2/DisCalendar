@@ -1,0 +1,123 @@
+# v3.x.y タグを push したらリリースを確定させる (#12 の本番切替を v3.0.0 とし、以降は semver で上げる)。
+# 手順: タグとリポジトリ内のバージョンの一致を確認 → そのコミットが main にあることを確認 →
+#   staging へのデプロイで GHCR に push 済みの sha-<short sha> イメージに v3.x.y (と latest) を付け直す (再ビルドしない) →
+#   更新履歴 (web/src/content/changelog.mdx) の前回リリース以降のエントリからリリースノートを作り、GitHub Release を公開する。
+# 本番への反映はこのワークフローでは行わない。Actions の "Deploy production" を image_tag: v3.x.y で実行する
+# (承認と「staging で確かめたものを配る」運用をそのまま残すため)。詳細は .claude/skills/release/
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # GitHub Release の作成
+  packages: write # GHCR のタグ付け直し
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 前回のタグを探し、そのときの更新履歴と比べるので全履歴が要る
+          fetch-depth: 0
+      - name: タグとバージョンを確認する
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          # プレリリース (v3.1.0-rc.1) も受け付ける。ビルドメタデータ (+...) は Docker のタグに使えないので不可
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::タグの形式が v<major>.<minor>.<patch>[-<prerelease>] ではない (got: $TAG)"
+            exit 1
+          fi
+          version="${TAG#v}"
+          # web/package.json / api/Cargo.toml / bot/Cargo.toml / Cargo.lock がタグと同じ版になっているか
+          .github/scripts/check-versions.sh "$version" > /dev/null
+          {
+            echo "tag=$TAG"
+            echo "version=$version"
+            echo "image_tag=sha-${GITHUB_SHA:0:7}"
+            # 3.1.0-rc.1 のようにハイフンが入っていたらプレリリース扱い (latest は付けない)
+            if [[ "$version" == *-* ]]; then echo "prerelease=true"; else echo "prerelease=false"; fi
+          } >> "$GITHUB_OUTPUT"
+      - name: main のコミットに付けたタグか確認する
+        run: |
+          # タグの checkout では origin/main の追跡ブランチが無いことがあるので FETCH_HEAD で見る
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::このタグのコミットは main に含まれていない。main にマージしてからタグを打ち直すこと"
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: GHCR のイメージに v タグを付ける
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          SRC_TAG: ${{ steps.version.outputs.image_tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          for image in web api bot; do
+            repo="ghcr.io/shirataki2/discalendar-${image}"
+            # main へのマージで "Deploy staging" がビルドしたイメージを使う (ここではビルドしない)
+            if ! docker buildx imagetools inspect "${repo}:${SRC_TAG}" > /dev/null 2>&1; then
+              echo "::error::${repo}:${SRC_TAG} が無い。main へのマージ後の \"Deploy staging\" の完了を待ってからタグを打つこと"
+              exit 1
+            fi
+            # マニフェストを同じ digest のままコピーする (再ビルドしないので staging で検証したものと必ず同一)
+            args=(-t "${repo}:${TAG}")
+            # プレリリースは latest にしない (latest = 最新の正式リリース)
+            if [ "$PRERELEASE" != "true" ]; then args+=(-t "${repo}:latest"); fi
+            docker buildx imagetools create "${args[@]}" "${repo}:${SRC_TAG}"
+            echo "tagged ${repo}:${TAG} (from ${SRC_TAG})"
+          done
+      - name: リリースノートを作る
+        id: notes
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          SRC_TAG: ${{ steps.version.outputs.image_tag }}
+        run: |
+          # このタグの 1 つ前のリリースタグ (このコミットから辿れるもの)
+          prev=$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)
+          echo "previous tag: ${prev:-(なし)}"
+          notes=$(.github/scripts/release-notes.sh "$prev")
+          {
+            if [ -n "$notes" ]; then
+              echo "$notes"
+            else
+              echo "利用者に見える変更はありません (内部の変更のみ)。"
+            fi
+            echo
+            echo "---"
+            echo
+            if [ -n "$prev" ]; then
+              echo "**変更点**: [\`${prev}...${TAG}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${prev}...${TAG})"
+            fi
+            echo "**イメージ**: \`ghcr.io/shirataki2/discalendar-{web,api,bot}:${TAG}\` (\`${SRC_TAG}\` と同じ digest)"
+            echo "**本番への反映**: Actions の \"Deploy production\" を \`image_tag: ${TAG}\` で実行する"
+          } > release-notes.md
+          cat release-notes.md
+      - name: GitHub Release を作る
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          # gh release create でタグごと作った場合など、既に Release があるなら本文を差し替える
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md "${flags[@]}"
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md "${flags[@]}"
+          fi

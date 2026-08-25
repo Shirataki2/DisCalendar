@@ -283,7 +283,8 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
 ビルドはせず、staging へのデプロイ時に GHCR へ push 済みの `sha-<short sha>` タグをそのまま使う (`image_tag` が必須入力。
 **staging で動作確認したタグだけを指定する**。実行前に 3 イメージとも GHCR にあるか検証する)。旧版からの切替手順は #12。
 
-- **デプロイ / ロールバック**: Actions の "Deploy production" → "Run workflow" で `image_tag` に `sha-xxxxxxx` を指定する。
+- **デプロイ / ロールバック**: Actions の "Deploy production" → "Run workflow" で `image_tag` に `v3.x.y`
+  (リリースタグ。下記「リリース」で `sha-*` と同じ digest に付け直したもの) か `sha-xxxxxxx` を指定する。
   ロールバックも同じ手順で過去のタグを指定するだけ
 - **staging と同居する**: 本番ホストは staging と同一マシンのため、compose のプロジェクト名とポートを `.env` で分ける。
   `compose.yaml` の `name: discalendar` は staging が使っているので、本番の `.env` には **`COMPOSE_PROJECT_NAME=discalendar-prod`**
@@ -300,6 +301,32 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
   `PRODUCTION_SSH_HOST` / `PRODUCTION_SSH_USER`、`PRODUCTION_SSH_KEY` (Tailscale SSH を使うなら不要)。variables
   `PRODUCTION_SSH_PORT` (既定 22) / `PRODUCTION_COMPOSE_DIR` (任意)。Deployment branches を `main` だけに制限し、
   required reviewers を付けて誤ったデプロイを防ぐ
+
+### リリース (バージョンと GitHub のタグ)
+
+web / api / bot は 1 つのバージョンを共有し (`web/package.json` / `api/Cargo.toml` / `bot/Cargo.toml` / `Cargo.lock` の 4 か所。
+CI の `version` ジョブが `.github/scripts/check-versions.sh` でずれを弾く)、リリースのたびに揃えて上げる。
+#12 の本番切替を **v3.0.0** とし、以降は semver (機能追加なら minor、不具合修正なら patch) で上げる。
+手順とその判断基準は `.claude/skills/release/` (Claude Code のプロジェクトスキル) にまとめてある。
+
+リリースの実体は git のタグ `v3.x.y` で、push すると `.github/workflows/release.yml` が動く:
+
+1. タグの形式・4 か所のバージョンとの一致・タグのコミットが `main` にあることを確認する
+2. staging へのデプロイで GHCR に push 済みの `sha-<short sha>` イメージ 3 つに、**同じ digest のまま**
+   `v3.x.y` (プレリリースでなければ `latest` も) を付け直す (`docker buildx imagetools create`。再ビルドしないので
+   staging で検証したものと必ず同一。イメージが未ビルドならエラーで止まるので "Deploy staging" の完了を待ってタグを打つ)
+3. 更新履歴 (`web/src/content/changelog.mdx`) の前回タグ以降のエントリからリリースノートを作り、GitHub Release を公開する
+
+```sh
+# main にマージ済みの状態から
+.claude/skills/release/scripts/bump-version.sh minor   # 4 か所を書き換える → PR にしてマージ
+git switch main && git pull --ff-only
+git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
+```
+
+**本番への反映は自動にしていない**。タグを打った後で Actions の "Deploy production" を `image_tag: v3.1.0` で実行する
+(Environment `production` の承認を通す運用をそのまま残すため)。ロールバックも同じ画面で前の版のタグを指定する。
+`/admin` の「api のバージョン」はこの版が出るが、「イメージタグ」は実行ファイルに焼き込まれた `sha-xxxxxxx` のまま (#37)。
 
 ### DB のバックアップと復元 (compose)
 

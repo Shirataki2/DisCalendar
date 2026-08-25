@@ -1,7 +1,8 @@
-# staging で検証済みのイメージ (sha-* タグ) を本番ホスト (Tailnet 内) に反映する (#12)。
+# staging で検証済みのイメージ (v3.x.y か sha-* タグ) を本番ホスト (Tailnet 内) に反映する (#12)。
 # build ジョブは持たない: イメージは deploy-staging.yml が main マージ時に GHCR へ push したものを使い、
 # image_tag を必須入力にすることで「staging で動作確認したタグだけを本番に配る」ことを強制する。
-# デプロイもロールバックも同じ手順: Actions の "Deploy production" → Run workflow → image_tag に sha-xxxxxxx を指定する。
+# デプロイもロールバックも同じ手順: Actions の "Deploy production" → Run workflow → image_tag に
+# v3.x.y (release.yml が sha-* と同じ digest に付け直したリリースタグ。通常はこちら) か sha-xxxxxxx を指定する。
 # main 以外の ref では動かさない (別ブランチの deploy.sh をホストに流し込めないようにする。
 # Environment "production" の Deployment branches も main だけに制限し、required reviewers を付けておくこと)。
 # 必要な設定 (Environment "production"): secrets TS_OAUTH_CLIENT_ID / TS_OAUTH_SECRET (staging と同じ値でよい)、
@@ -13,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "デプロイするイメージタグ (staging で検証済みの sha-xxxxxxx)"
+        description: "デプロイするイメージタグ (リリース版の v3.x.y、または staging で検証済みの sha-xxxxxxx)"
         required: true
 
 # デプロイは直列にする (後から来た実行は待つ。cancel すると pull と up の途中で止まりかねない)
@@ -45,9 +46,9 @@ jobs:
           INPUT_TAG: ${{ inputs.image_tag }}
         run: |
           tag="$INPUT_TAG"
-          # リモートのシェルに渡すので、想定する形式 (sha-<hex>) 以外は受け付けない
-          if ! [[ "$tag" =~ ^sha-[0-9a-f]{7,40}$ ]]; then
-            echo "::error::image_tag must look like sha-<hex> (got: $tag)"
+          # リモートのシェルに渡すので、想定する形式 (v<semver> か sha-<hex>) 以外は受け付けない
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ || "$tag" =~ ^sha-[0-9a-f]{7,40}$ ]]; then
+            echo "::error::image_tag must look like v<major>.<minor>.<patch> or sha-<hex> (got: $tag)"
             exit 1
           fi
           # タイプミスで存在しないタグをホストに配らないよう、3 イメージとも GHCR にあるか先に確かめる
