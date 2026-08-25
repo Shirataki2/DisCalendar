@@ -22,6 +22,11 @@ import { E2E_BOT_TOKEN } from "./e2e/fixtures";
 // web / api の Discord API の向き先 (DISCORD_API_BASE_URL) はそのモック。テストは Discord にもネットワークにも出ない
 
 const CI = !!process.env.CI;
+/**
+ * LP / 使い方のスクリーンショット撮影 (pnpm shot)。
+ * e2e/screenshots/ のテストはこのときだけ動かし、fixtures.ts の表示名も撮影用に差し替わる
+ */
+const SCREENSHOT = process.env.E2E_SCREENSHOT === "1";
 
 /** web / api に共通で渡す環境変数 (どちらの .env にある値も上書きする) */
 const sharedEnv = {
@@ -42,6 +47,8 @@ const webCommand =
 
 export default defineConfig({
   testDir: "./e2e",
+  // 撮影用のテストは重い (画像を書き出すだけでアプリの検証はしない) ので、pnpm e2e / CI では動かさない
+  testIgnore: SCREENSHOT ? [] : ["**/screenshots/**"],
   globalSetup: "./e2e/global-setup.ts",
   // DB を共有するので並列にしない (テストごとに予定名を変えているが、ドラッグなどで他の予定が邪魔にならないように)
   fullyParallel: false,
@@ -65,11 +72,15 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
-        // Playwright が期待する版の Chromium を入れられない環境 (Claude Code のクラウドセッションなど)
-        // では、プリインストールの実行ファイルを E2E_CHROMIUM_PATH で指す
-        launchOptions: process.env.E2E_CHROMIUM_PATH
-          ? { executablePath: process.env.E2E_CHROMIUM_PATH }
-          : undefined,
+        launchOptions: {
+          // Playwright が期待する版の Chromium を入れられない環境 (Claude Code のクラウドセッションなど)
+          // では、プリインストールの実行ファイルを E2E_CHROMIUM_PATH で指す
+          executablePath: process.env.E2E_CHROMIUM_PATH,
+          // 撮影ではブラウザ UI の言語も日本語にする。<input type="time"> のようなネイティブの
+          // フォーム部品の表記はこれで決まり (use.locale は Intl にしか効かない)、
+          // 日本語なら 24 時間制の "20:00"、既定の英語だと "08:00 PM" になる
+          args: SCREENSHOT ? ["--lang=ja-JP"] : [],
+        },
       },
     },
   ],
@@ -80,7 +91,8 @@ export default defineConfig({
       command: `node web/e2e/ensure-db.mjs && ${apiCommand}`,
       cwd: REPO_ROOT,
       url: `${API_URL}/healthz`,
-      reuseExistingServer: !CI,
+      // 撮影では api も立て直す (Discord モックのポートが通常のテストと違うため)
+      reuseExistingServer: !CI && !SCREENSHOT,
       // 初回は cargo build に時間がかかる
       timeout: 15 * 60 * 1000,
       stdout: "pipe",
@@ -101,7 +113,8 @@ export default defineConfig({
       command: webCommand,
       cwd: WEB_DIR,
       url: WEB_URL,
-      reuseExistingServer: !CI,
+      // 撮影では web も立て直す (同上。残っているサーバーは古い DISCORD_API_BASE_URL を向いている)
+      reuseExistingServer: !CI && !SCREENSHOT,
       timeout: 10 * 60 * 1000,
       stdout: "pipe",
       env: {

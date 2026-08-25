@@ -1,6 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { Pool } from "pg";
-import { E2E_GUILDS, E2E_USER } from "./fixtures";
+import { E2E_ALL_GUILDS, E2E_GUILDS, E2E_USER } from "./fixtures";
 
 // E2E 用 DB の初期データ。Discord OAuth を通さずにログイン済みの状態を作るため、
 // Better Auth のテーブル (user / account / session) に直接行を入れ、api が読む guilds / guild_config も用意する。
@@ -114,7 +114,7 @@ export async function seedDatabase(databaseUrl: string): Promise<string> {
       );
 
       // Bot が参加しているギルド (bot/ が guilds テーブルに書く内容の代わり)
-      for (const guild of Object.values(E2E_GUILDS)) {
+      for (const guild of E2E_ALL_GUILDS) {
         if (!guild.botJoined) continue;
         await client.query(
           "INSERT INTO guilds (guild_id, name, avatar_url, locale) VALUES ($1, $2, NULL, 'ja')",

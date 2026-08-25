@@ -12,7 +12,16 @@ export const STORAGE_STATE = path.join(WEB_DIR, "e2e/.auth/user.json");
 
 export const WEB_PORT = portFromEnv("E2E_WEB_PORT", 3100);
 export const API_PORT = portFromEnv("E2E_API_PORT", 8180);
-export const DISCORD_MOCK_PORT = portFromEnv("E2E_DISCORD_MOCK_PORT", 8190);
+/**
+ * スクリーンショット撮影 (pnpm shot) では別のポートで待ち受ける。
+ * web の Discord API 呼び出し (lib/discord.ts の /users/@me/guilds) は `next: { revalidate: 60 }` で
+ * キャッシュされ、キーに URL が入る。ポートを分けておけば、撮影用に差し替えたギルド名 (fixtures.ts) が
+ * 直後の pnpm e2e に出てきたり、その逆が起きたりしない
+ */
+export const DISCORD_MOCK_PORT = portFromEnv(
+  "E2E_DISCORD_MOCK_PORT",
+  process.env.E2E_SCREENSHOT === "1" ? 8191 : 8190,
+);
 
 export const WEB_URL = `http://localhost:${WEB_PORT}`;
 export const API_URL = `http://127.0.0.1:${API_PORT}`;

@@ -197,6 +197,7 @@ web のユニットテスト (Vitest) と E2E (Playwright) がある。api / bot
 cd web
 pnpm test     # Vitest: src/**/*.test.ts (純粋ロジック: 予定フォームのスキーマ・API との変換・終日予定の 1 日ずらし・エラー整形)
 pnpm e2e      # Playwright: e2e/*.spec.ts (初回は pnpm exec playwright install chromium でブラウザを入れる)
+pnpm shot     # 同じ環境で LP / 使い方のスクリーンショット (src/assets/) を撮り直す (後述)
 ```
 
 E2E は api (Rust) + Postgres + Next.js を自動で立ち上げ、ログイン → サーバー選択 → 予定の作成・編集・ドラッグ移動 (とロールバック)・削除 →
@@ -213,6 +214,22 @@ E2E は api (Rust) + Postgres + Next.js を自動で立ち上げ、ログイン 
 - 失敗時のスクリーンショットは `web/test-results/`、CI では `playwright-report` アーティファクト (`pnpm exec playwright show-report` で見られる)
 
 設定は [web/playwright.config.ts](web/playwright.config.ts) と [web/vitest.config.mts](web/vitest.config.mts)。
+
+#### スクリーンショットの撮り直し (`pnpm shot`)
+
+LP と使い方に貼っている画像 (`web/src/assets/lp/`, `web/src/assets/docs/`) は、上と同じ E2E 環境で撮り直す。
+
+```sh
+cd web
+pnpm shot     # 7 枚を src/assets/ に上書きする (e2e/screenshots/shots.spec.ts)
+```
+
+`E2E_SCREENSHOT=1` のときだけ、ユーザー名とサーバー名が画像に載せてよいもの (`ゲーム部` など) に差し替わり、
+Discord モックのポートが 8191 になり (`revalidate` のキャッシュを通常のテストと混ぜないため)、ブラウザの言語が日本語になる。
+撮影用のテストは通常の `pnpm e2e` と CI では動かない。web / api は使い回さず必ず起動し直すので、
+前のテストのサーバーが残っていたら止めてから実行する。
+
+対象画像の一覧・出来上がりの確認観点・詰まったときの対処は `.claude/skills/update-screenshots/SKILL.md` にまとめてある。
 
 ### Docker (compose) で動かす
 
