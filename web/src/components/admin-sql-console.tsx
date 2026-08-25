@@ -158,7 +158,7 @@ function ResultTable({ result }: { result: SqlResult }) {
           <tr>
             <th className="px-2 py-1.5 font-normal">#</th>
             {result.columns.map((column, i) => (
-              // 同名のカラムがありうるので index をキーに含める
+              // biome-ignore lint/suspicious/noArrayIndexKey: 同名のカラムがありうるので index をキーに含める
               <th key={`${i}-${column.name}`} className="px-2 py-1.5">
                 <span className="font-medium text-neutral-200">
                   {column.name}
