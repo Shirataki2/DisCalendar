@@ -145,6 +145,7 @@ export function BarChart({
   points,
   labelStride,
   summary,
+  partialLast,
 }: {
   title: string;
   unit: string;
@@ -152,12 +153,18 @@ export function BarChart({
   labelStride: number;
   /** 見出しの右に出す補足 (合計など) */
   summary?: ReactNode;
+  /**
+   * 右端が期間の途中までしか含まないとき (今日 / 当月) に、その旨を書く。
+   * 指定すると最後の棒を薄くして注記を出し、完成した期間と同列に読まれないようにする
+   */
+  partialLast?: string;
 }) {
   const max = points.reduce((acc, point) => Math.max(acc, point.value), 0);
   const total = points.reduce((acc, point) => acc + point.value, 0);
   const peak = points.find((point) => point.value === max);
   const first = points.at(0);
   const last = points.at(-1);
+  const partialIndex = partialLast ? points.length - 1 : -1;
 
   return (
     <Card className="flex flex-col gap-3">
@@ -172,7 +179,7 @@ export function BarChart({
       ) : (
         <div
           role="img"
-          aria-label={`${title}の推移。${first?.label} から ${last?.label} まで、合計 ${total.toLocaleString()}${unit}、最大は ${peak?.label} の ${max.toLocaleString()}${unit}`}
+          aria-label={`${title}の推移。${first?.label} から ${last?.label} まで、合計 ${total.toLocaleString()}${unit}、最大は ${peak?.label} の ${max.toLocaleString()}${unit}${partialLast ? `。${partialLast}` : ""}`}
         >
           {/* 最大値の目安線。目盛りは主役ではないので細く薄く */}
           <div className="relative flex h-32 items-end gap-[2px] border-t border-dashed border-white/10">
@@ -180,16 +187,18 @@ export function BarChart({
               {max.toLocaleString()}
               {unit}
             </span>
-            {points.map((point) => (
+            {points.map((point, index) => (
               <div
                 key={point.label}
-                title={`${point.label}: ${point.value.toLocaleString()}${unit}`}
+                title={`${point.label}: ${point.value.toLocaleString()}${unit}${index === partialIndex ? " (途中)" : ""}`}
                 className="flex h-full flex-1 items-end justify-center"
               >
                 <div
                   style={{
                     height: `${point.value === 0 ? 0 : Math.max(MIN_BAR_HEIGHT, (point.value / max) * 100)}%`,
                     backgroundColor: ACCENT,
+                    // 期間の途中までしか含まない棒は薄くして、完成した期間と見分けられるようにする
+                    opacity: index === partialIndex ? 0.4 : 1,
                   }}
                   // 点が少ないグラフ (月別など) で棒が太い板にならないよう上限を付ける
                   className="w-full max-w-10 rounded-t-[4px]"
@@ -210,6 +219,9 @@ export function BarChart({
               </span>
             ))}
           </div>
+          {partialLast && (
+            <p className="mt-1 text-[10px] text-neutral-500">※ {partialLast}</p>
+          )}
         </div>
       )}
       <details className="text-xs text-neutral-400">

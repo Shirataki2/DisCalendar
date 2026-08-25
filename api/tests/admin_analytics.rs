@@ -33,7 +33,7 @@ fn date(s: &str) -> NaiveDate {
     s.parse().unwrap()
 }
 
-/// 直近 30 日の起点 (`guild_activity` に渡す)
+/// 直近 30 日の起点 (`guild_counts` / `top_guilds` に渡す)
 fn recent_since() -> NaiveDateTime {
     now_jst() - chrono::Duration::days(admin_analytics::RECENT_DAYS)
 }
@@ -83,7 +83,7 @@ async fn seed_auth(pool: &PgPool) {
 /// ギルド・予定を入れる。予定の `created_at` は基準時刻 (08-25 12:00 JST) から見て
 /// 直近 1 日 / 7 日 / 30 日とその前の期間に 1 件ずつ入るように置く。
 ///
-/// - 通知先チャンネル: GUILD_A は正しい ID、GUILD_B は旧データの `"0"` (Bot が送れない)、GUILD_IDLE は未設定
+/// - 通知先チャンネル: GUILD_A は正しい形式の ID、GUILD_B は旧データの `"0"` (不正)、GUILD_IDLE は未設定
 /// - restricted: GUILD_A だけ true
 async fn seed_guilds(pool: &PgPool) {
     sqlx::raw_sql(
@@ -119,6 +119,42 @@ async fn seed_guilds(pool: &PgPool) {
             -- その前の 30 日 (日別 30 日の窓からは外れる)
             ('333333333333333333', 'F', ARRAY[]::text[],
              false, '2026-08-31T10:00:00', '2026-08-31T11:00:00', '2026-07-01T09:00:00');
+        "#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// 旧データや手動修正で入りうる「解釈できない通知設定」だけを持つ予定。
+/// `Notification::decode_all` が全部捨てるので、Bot は開始時刻の通知しか送らない
+async fn seed_broken_notifications(pool: &PgPool) {
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO events (guild_id, name, notifications, is_all_day, start_at, end_at, created_at) VALUES
+            -- JSON として壊れている
+            ('111111111111111111', 'X', ARRAY['garbage'],
+             false, '2026-09-01T10:00:00', '2026-09-01T11:00:00', '2026-08-25T09:00:00'),
+            -- 単位が未知
+            ('111111111111111111', 'Y', ARRAY['{"key":0,"num":2,"type":"年前"}'],
+             false, '2026-09-01T10:00:00', '2026-09-01T11:00:00', '2026-08-25T09:00:00'),
+            -- num が負で u32 にできない
+            ('111111111111111111', 'Z', ARRAY['{"key":0,"num":-1,"type":"分前"}'],
+             false, '2026-09-01T10:00:00', '2026-09-01T11:00:00', '2026-08-25T09:00:00');
+        "#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// 壊れた設定と有効な設定が混ざっている予定
+async fn seed_partially_broken_notification(pool: &PgPool) {
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO events (guild_id, name, notifications, is_all_day, start_at, end_at, created_at) VALUES
+            ('111111111111111111', 'W', ARRAY['garbage', '{"key":1,"num":5,"type":"分前"}'],
+             false, '2026-09-01T10:00:00', '2026-09-01T11:00:00', '2026-08-25T09:00:00');
         "#,
     )
     .execute(pool)
@@ -202,11 +238,12 @@ async fn active_users_keep_counting_a_session_that_is_still_in_use(pool: PgPool)
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn event_creation_counts_each_window_and_the_breakdown(pool: PgPool) {
+async fn event_creation_counts_each_window(pool: PgPool) {
     seed_guilds(&pool).await;
 
-    let (creation, all_day, with_notifications, per_event) =
-        admin_analytics::events(&pool, now_jst()).await.unwrap();
+    let (creation, all_day) = admin_analytics::event_creation(&pool, now_jst())
+        .await
+        .unwrap();
 
     assert_eq!(creation.total, 7);
     // 直近 24 時間は A、その前の 24 時間は B
@@ -220,23 +257,50 @@ async fn event_creation_counts_each_window_and_the_breakdown(pool: PgPool) {
     assert_eq!(creation.last_month.previous, 1);
 
     assert_eq!(all_day, 1);
-    // 通知を設定しているのは A (2 件) と C (1 件)
-    assert_eq!(with_notifications, 2);
-    assert!((per_event - 3.0 / 7.0).abs() < f64::EPSILON);
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn event_breakdown_is_zero_without_events(pool: PgPool) {
-    let (creation, all_day, with_notifications, per_event) =
-        admin_analytics::events(&pool, now_jst()).await.unwrap();
+async fn event_creation_is_zero_without_events(pool: PgPool) {
+    let (creation, all_day) = admin_analytics::event_creation(&pool, now_jst())
+        .await
+        .unwrap();
 
     assert_eq!(creation.total, 0);
     assert_eq!(creation.last_month.current, 0);
     // 分母が 0 のときに増減率を出さない (0 除算にしない)
     assert_eq!(creation.last_month.change_percent, None);
     assert_eq!(all_day, 0);
-    assert_eq!(with_notifications, 0);
-    assert_eq!(per_event, 0.0);
+    assert_eq!(
+        admin_analytics::notification_stats(&pool).await.unwrap(),
+        (0, 0)
+    );
+}
+
+/// 配列の長さではなく `Notification::decode_all` が解釈できた数を数えていること。
+/// 旧データや手動修正で壊れた設定が入っていても、api / Bot はそれを捨てて通知しない
+#[sqlx::test(migrations = "./migrations")]
+async fn notification_stats_count_only_settings_that_actually_notify(pool: PgPool) {
+    seed_guilds(&pool).await;
+
+    // 通知を設定しているのは A (2 件) と C (1 件)
+    assert_eq!(
+        admin_analytics::notification_stats(&pool).await.unwrap(),
+        (2, 3)
+    );
+
+    seed_broken_notifications(&pool).await;
+    // 壊れた JSON / 未知の単位 / 負の num しか持たない予定は数に入らない
+    assert_eq!(
+        admin_analytics::notification_stats(&pool).await.unwrap(),
+        (2, 3)
+    );
+
+    seed_partially_broken_notification(&pool).await;
+    // 壊れた設定と有効な設定が混ざっている予定は、有効な方だけ数える
+    assert_eq!(
+        admin_analytics::notification_stats(&pool).await.unwrap(),
+        (3, 4)
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -297,15 +361,17 @@ async fn monthly_series_buckets_by_jst_month(pool: PgPool) {
 async fn guild_activity_ranks_guilds_by_recent_events(pool: PgPool) {
     seed_guilds(&pool).await;
 
-    let activity = admin_analytics::guild_activity(&pool, recent_since())
+    let (active_guilds, joined_guilds) = admin_analytics::guild_counts(&pool, recent_since())
         .await
         .unwrap();
 
     // 直近 30 日に予定が作られたのは A (3 件) / B (2 件) / 退出済み (1 件)。予定なしサーバーは入らない
-    assert_eq!(activity.active_guilds, 3);
-    assert_eq!(activity.joined_guilds, 3);
+    assert_eq!(active_guilds, 3);
+    assert_eq!(joined_guilds, 3);
 
-    let top = &activity.top_guilds;
+    let top = admin_analytics::top_guilds(&pool, recent_since())
+        .await
+        .unwrap();
     assert_eq!(top.len(), 3);
     assert_eq!(top[0].guild_id, GUILD_A);
     assert_eq!(top[0].event_count, 3);
@@ -320,12 +386,12 @@ async fn guild_activity_ranks_guilds_by_recent_events(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn guild_settings_only_count_channels_the_bot_can_send_to(pool: PgPool) {
+async fn guild_settings_only_count_channel_ids_in_a_valid_format(pool: PgPool) {
     seed_guilds(&pool).await;
 
     let (with_channel, restricted) = admin_analytics::guild_settings(&pool).await.unwrap();
 
-    // GUILD_B の channel_id は旧データの "0" なので Bot は送れない。GUILD_IDLE は未設定
+    // GUILD_B の channel_id は旧データの "0" で Snowflake として不正。GUILD_IDLE は未設定
     assert_eq!(with_channel, 1);
     assert_eq!(restricted, 1);
 }

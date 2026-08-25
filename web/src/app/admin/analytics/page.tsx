@@ -55,6 +55,12 @@ export default async function AdminAnalyticsPage() {
   // 日別は週の区切り、月別は四半期の区切りでラベルを出す
   const DAILY_STRIDE = 7;
   const MONTHLY_STRIDE = 3;
+  // 推移の右端 (今日 / 当月) はまだ期間の途中なので、完成した期間と同列に読まれないよう注記する
+  const PARTIAL_DAY = `右端の ${formatMonthDay(analytics.today)} は今日 (集計時点まで)`;
+  const lastMonth = monthly.at(-1);
+  const PARTIAL_MONTH = lastMonth
+    ? `右端の ${monthlyLabel(lastMonth.month)} は当月の途中まで`
+    : undefined;
 
   const dailyEvents: ChartPoint[] = daily.map((point) => ({
     label: dailyLabel(point.date),
@@ -131,6 +137,7 @@ export default async function AdminAnalyticsPage() {
             points={monthlyActiveUsers}
             labelStride={MONTHLY_STRIDE}
             summary={`直近 ${analytics.monthly_months} ヶ月 (暦月)`}
+            partialLast={PARTIAL_MONTH}
           />
         </Section>
 
@@ -187,6 +194,7 @@ export default async function AdminAnalyticsPage() {
               points={dailyEvents}
               labelStride={DAILY_STRIDE}
               summary={`直近 ${analytics.daily_days} 日で ${sum(dailyEvents).toLocaleString()} 件`}
+              partialLast={PARTIAL_DAY}
             />
             <BarChart
               title="月別の予定の作成数"
@@ -194,6 +202,7 @@ export default async function AdminAnalyticsPage() {
               points={monthlyEvents}
               labelStride={MONTHLY_STRIDE}
               summary={`直近 ${analytics.monthly_months} ヶ月で ${sum(monthlyEvents).toLocaleString()} 件`}
+              partialLast={PARTIAL_MONTH}
             />
           </div>
         </Section>
@@ -209,6 +218,7 @@ export default async function AdminAnalyticsPage() {
               points={dailyNewUsers}
               labelStride={DAILY_STRIDE}
               summary={`直近 ${analytics.daily_days} 日で ${sum(dailyNewUsers).toLocaleString()} 人`}
+              partialLast={PARTIAL_DAY}
             />
             <BarChart
               title="日別のログイン"
@@ -216,6 +226,7 @@ export default async function AdminAnalyticsPage() {
               points={dailyLogins}
               labelStride={DAILY_STRIDE}
               summary={`直近 ${analytics.daily_days} 日で ${sum(dailyLogins).toLocaleString()} 回`}
+              partialLast={PARTIAL_DAY}
             />
           </div>
           <BarChart
@@ -224,6 +235,7 @@ export default async function AdminAnalyticsPage() {
             points={monthlyNewUsers}
             labelStride={MONTHLY_STRIDE}
             summary={`直近 ${analytics.monthly_months} ヶ月で ${sum(monthlyNewUsers).toLocaleString()} 人`}
+            partialLast={PARTIAL_MONTH}
           />
         </Section>
 
@@ -337,10 +349,10 @@ export default async function AdminAnalyticsPage() {
                 total={event_creation.total}
               />
               <ProportionBar
-                label="通知を設定している予定"
+                label="通知が届く設定を持つ予定"
                 value={breakdown.events_with_notifications}
                 total={event_creation.total}
-                note={`予定 1 件あたりの通知設定は平均 ${breakdown.notifications_per_event.toFixed(2)} 件 (Bot が必ず送る開始時刻の通知は数えていない)`}
+                note={`予定 1 件あたりの通知設定は平均 ${breakdown.notifications_per_event.toFixed(2)} 件。Bot が必ず送る開始時刻の通知と、旧データの解釈できない設定 (Bot も無視して送らない) は数えていない`}
               />
             </Card>
             <Card className="flex flex-col gap-4">
@@ -349,10 +361,10 @@ export default async function AdminAnalyticsPage() {
                 {guilds.joined_guilds.toLocaleString()} サーバー)
               </h3>
               <ProportionBar
-                label="通知先チャンネルを設定済み"
+                label="通知先チャンネルの ID が正しい形式"
                 value={breakdown.guilds_with_channel}
                 total={guilds.joined_guilds}
-                note="Bot が実際に送信できるチャンネル ID のものだけを数えている (旧データの不正な値は除く)"
+                note="旧データの 0 のような不正な値は除いてある。そのチャンネルが今も存在するか、Bot に送信権限があるかまでは確認していない (実際に届くかはギルド一覧の差分検出や Bot のログで見る)"
               />
               <ProportionBar
                 label="restricted モード"
@@ -387,8 +399,21 @@ export default async function AdminAnalyticsPage() {
               「使っている」と数えるため、実際よりやや多く出る
             </li>
             <li>
+              <strong className="font-medium text-neutral-300">
+                逆に、予定の作成やカレンダーの再取得だけを続けている利用者は漏れる。
+              </strong>
+              セッションの最終利用日時を更新するのは web のページ表示だけで、api
+              を呼ぶだけの操作では更新されないため、
+              画面を開いたまま翌日以降も使っている場合は DAU
+              から外れる。正確に数えるには利用の記録が要る (#81)
+            </li>
+            <li>
               セッションの更新間隔は最短で 1
               日なので、日より細かい粒度は出せない。DAU は同じ日の再訪を数えない
+            </li>
+            <li>
+              推移の右端 (今日・当月)
+              はまだ期間の途中なので、棒を薄くしてある。完成した期間と比べない
             </li>
             <li>
               ギルドの参加・退出の日時は DB

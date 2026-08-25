@@ -2,7 +2,7 @@
 //!
 //! 概要 (`admin_stats`) が「今この瞬間の件数」なのに対して、ここは**時間軸の指標**を出す。
 //! DisCalendar には行動ログのテーブルが無いので、集計は既存のテーブルから読み取れる痕跡だけで行う。
-//! スキーマは変更しない (AGENTS.md の P0)。
+//! スキーマは変更しない (AGENTS.md の P0)。正確な指標を取る仕組みは #81 で検討する。
 //!
 //! # 何を「利用」とみなすか
 //!
@@ -21,18 +21,32 @@
 //! - 削除されたデータは数えられない。予定は削除で行ごと消えるので、過去の作成数は実際より少なく出る
 //! - 期限切れセッションを消す (定型操作 `purge-expired-sessions` / #44) と、その分だけ過去の
 //!   アクティブユーザーが減る。掃除を実行した時期より前の値は信用できない
+//! - **セッションの `updatedAt` を更新するのは Better Auth (web のページ表示) だけ**で、
+//!   api の認証 (`crate::auth`) は `session` を読むだけで更新しない。そのためダッシュボードを開いたまま
+//!   予定の作成・カレンダーの再取得だけを続けている利用者は、最初の表示から 24 時間を過ぎると
+//!   アクティブから漏れる。ここを正確にするには行動の記録が要る (#81)
 //! - `guilds` に参加・退出の日時が無いため、ギルド数の推移は出せない (`admin_stats` と同じ制約)
 //! - `updatedAt` の更新間隔は最短 1 日なので、日単位より細かい粒度は出せない
+//! - 推移の右端 (今日 / 当月) は期間の途中までしか含まない。画面ではその旨を注記する
+//!
+//! # 走査の回数について
+//!
+//! 日別・月別は**日 (月) ごとの相関サブクエリにしない**。`events.created_at` に索引が無いので、
+//! そのまま書くと 1 回のリクエストで `events` を 30 + 12 回走査してしまう。
+//! 期間を絞って 1 回だけ集計し、生成した日付・月の列と突き合わせる形にしてある。
+//! 呼び出し側 (`routes::admin_analytics`) も接続を 1 本だけ取って順に実行し、
+//! 既定 5 本のプールを占有して通常の API を待たせないようにしている。
 //!
 //! 日付の区切りはすべて JST。`session` / `user` は `TIMESTAMPTZ` なので SQL 側で
 //! `AT TIME ZONE 'Asia/Tokyo'` を明示し、DB の `TimeZone` 設定に依存しないようにする。
 
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
+use futures_util::TryStreamExt;
 use serde::Serialize;
 use sqlx::PgExecutor;
 use utoipa::ToSchema;
 
-use super::admin_stats::is_sendable_channel;
+use super::{admin_stats::is_sendable_channel, notifications::Notification};
 
 /// 日別の推移で見る日数
 pub const DAILY_DAYS: i32 = 30;
@@ -133,12 +147,14 @@ pub struct EventCreation {
 pub struct Breakdown {
     /// 終日予定の数
     pub all_day_events: i64,
-    /// 通知を 1 件以上設定している予定の数 (Bot が必ず送る開始時刻の通知は含めない)
+    /// 実際に通知される設定を 1 件以上持つ予定の数
+    /// (Bot が必ず送る開始時刻の通知は含めない。解釈できない設定も含めない)
     pub events_with_notifications: i64,
     /// 予定 1 件あたりの通知設定数の平均。予定が 0 件なら 0
     #[schema(example = 1.4)]
     pub notifications_per_event: f64,
-    /// 参加中のギルドのうち、Bot が送信できる通知先チャンネルを設定しているものの数
+    /// 参加中のギルドのうち、通知先チャンネルに**形式として正しい** ID を設定しているものの数。
+    /// そのチャンネルが今も存在するか・Bot に送信権限があるかまでは確認していない
     pub guilds_with_channel: i64,
     /// 参加中のギルドのうち restricted モードのものの数
     pub restricted_guilds: i64,
@@ -217,7 +233,10 @@ pub async fn active_users<'e>(
     })
 }
 
-/// 日別の推移 ([`DAILY_DAYS`] 日ぶん、古い順)。`today` は JST の今日
+/// 日別の推移 ([`DAILY_DAYS`] 日ぶん、古い順)。`today` は JST の今日。
+///
+/// 各テーブルを期間で絞って 1 回だけ集計し、生成した日付の列に突き合わせる
+/// (日ごとの相関サブクエリにすると `events` を日数ぶん走査してしまう)
 pub async fn daily<'e>(
     executor: impl PgExecutor<'e>,
     today: NaiveDate,
@@ -228,19 +247,37 @@ pub async fn daily<'e>(
         WITH days AS (
             SELECT ($1::date - g)::date AS day
             FROM generate_series($2::int - 1, 0, -1) AS g
+        ),
+        ev AS (
+            SELECT created_at::date AS day, count(*) AS n
+            FROM events
+            WHERE created_at >= ($1::date - ($2::int - 1))::timestamp
+              AND created_at < ($1::date + 1)::timestamp
+            GROUP BY 1
+        ),
+        nu AS (
+            SELECT ("createdAt" AT TIME ZONE 'Asia/Tokyo')::date AS day, count(*) AS n
+            FROM "user"
+            WHERE "createdAt" >= ($1::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'
+              AND "createdAt" < ($1::date + 1)::timestamp AT TIME ZONE 'Asia/Tokyo'
+            GROUP BY 1
+        ),
+        lg AS (
+            SELECT ("createdAt" AT TIME ZONE 'Asia/Tokyo')::date AS day, count(*) AS n
+            FROM "session"
+            WHERE "createdAt" >= ($1::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'
+              AND "createdAt" < ($1::date + 1)::timestamp AT TIME ZONE 'Asia/Tokyo'
+            GROUP BY 1
         )
         SELECT
             d.day AS "date!",
-            (SELECT count(*) FROM events e
-               WHERE e.created_at >= d.day::timestamp
-                 AND e.created_at < (d.day + 1)::timestamp) AS "events!",
-            (SELECT count(*) FROM "user" u
-               WHERE u."createdAt" >= d.day::timestamp AT TIME ZONE 'Asia/Tokyo'
-                 AND u."createdAt" < (d.day + 1)::timestamp AT TIME ZONE 'Asia/Tokyo') AS "new_users!",
-            (SELECT count(*) FROM "session" s
-               WHERE s."createdAt" >= d.day::timestamp AT TIME ZONE 'Asia/Tokyo'
-                 AND s."createdAt" < (d.day + 1)::timestamp AT TIME ZONE 'Asia/Tokyo') AS "logins!"
+            COALESCE(ev.n, 0) AS "events!",
+            COALESCE(nu.n, 0) AS "new_users!",
+            COALESCE(lg.n, 0) AS "logins!"
         FROM days d
+        LEFT JOIN ev ON ev.day = d.day
+        LEFT JOIN nu ON nu.day = d.day
+        LEFT JOIN lg ON lg.day = d.day
         ORDER BY d.day
         "#,
         today,
@@ -253,7 +290,9 @@ pub async fn daily<'e>(
 /// 月別の推移 ([`MONTHLY_MONTHS`] ヶ月ぶん、古い順)。`now` は集計の基準時刻 (UTC)。
 ///
 /// 月の区切りは JST。`active_users` はその月にセッションの生存期間が重なった利用者の数で、
-/// 期限切れセッションを削除するとさかのぼって減る
+/// 期限切れセッションを削除するとさかのぼって減る。
+/// 生存期間の重なりは月ごとの集計にできないので `months` との結合で数えるが、
+/// `session` の走査は 1 回で済ませる
 pub async fn monthly<'e>(
     executor: impl PgExecutor<'e>,
     now: DateTime<Utc>,
@@ -265,22 +304,52 @@ pub async fn monthly<'e>(
             SELECT date_trunc('month', $1::timestamptz AT TIME ZONE 'Asia/Tokyo')
                      - make_interval(months => g) AS month_start
             FROM generate_series($2::int - 1, 0, -1) AS g
+        ),
+        span AS (
+            SELECT min(month_start) AS lo, max(month_start) + interval '1 month' AS hi
+            FROM months
+        ),
+        ev AS (
+            SELECT date_trunc('month', e.created_at) AS month_start, count(*) AS n
+            FROM events e, span
+            WHERE e.created_at >= span.lo AND e.created_at < span.hi
+            GROUP BY 1
+        ),
+        nu AS (
+            SELECT date_trunc('month', u."createdAt" AT TIME ZONE 'Asia/Tokyo') AS month_start,
+                   count(*) AS n
+            FROM "user" u, span
+            WHERE u."createdAt" >= span.lo AT TIME ZONE 'Asia/Tokyo'
+              AND u."createdAt" < span.hi AT TIME ZONE 'Asia/Tokyo'
+            GROUP BY 1
+        ),
+        lg AS (
+            SELECT date_trunc('month', s."createdAt" AT TIME ZONE 'Asia/Tokyo') AS month_start,
+                   count(*) AS n
+            FROM "session" s, span
+            WHERE s."createdAt" >= span.lo AT TIME ZONE 'Asia/Tokyo'
+              AND s."createdAt" < span.hi AT TIME ZONE 'Asia/Tokyo'
+            GROUP BY 1
+        ),
+        au AS (
+            SELECT m.month_start, count(DISTINCT s."userId") AS n
+            FROM months m
+            LEFT JOIN "session" s
+              ON s."createdAt" < (m.month_start + interval '1 month') AT TIME ZONE 'Asia/Tokyo'
+             AND s."updatedAt" >= m.month_start AT TIME ZONE 'Asia/Tokyo'
+            GROUP BY m.month_start
         )
         SELECT
             m.month_start::date AS "month!",
-            (SELECT count(DISTINCT s."userId") FROM "session" s
-               WHERE s."createdAt" < (m.month_start + interval '1 month') AT TIME ZONE 'Asia/Tokyo'
-                 AND s."updatedAt" >= m.month_start AT TIME ZONE 'Asia/Tokyo') AS "active_users!",
-            (SELECT count(*) FROM "user" u
-               WHERE u."createdAt" >= m.month_start AT TIME ZONE 'Asia/Tokyo'
-                 AND u."createdAt" < (m.month_start + interval '1 month') AT TIME ZONE 'Asia/Tokyo') AS "new_users!",
-            (SELECT count(*) FROM "session" s
-               WHERE s."createdAt" >= m.month_start AT TIME ZONE 'Asia/Tokyo'
-                 AND s."createdAt" < (m.month_start + interval '1 month') AT TIME ZONE 'Asia/Tokyo') AS "logins!",
-            (SELECT count(*) FROM events e
-               WHERE e.created_at >= m.month_start
-                 AND e.created_at < m.month_start + interval '1 month') AS "events!"
+            COALESCE(au.n, 0) AS "active_users!",
+            COALESCE(nu.n, 0) AS "new_users!",
+            COALESCE(lg.n, 0) AS "logins!",
+            COALESCE(ev.n, 0) AS "events!"
         FROM months m
+        LEFT JOIN au ON au.month_start = m.month_start
+        LEFT JOIN nu ON nu.month_start = m.month_start
+        LEFT JOIN lg ON lg.month_start = m.month_start
+        LEFT JOIN ev ON ev.month_start = m.month_start
         ORDER BY m.month_start
         "#,
         now,
@@ -290,11 +359,11 @@ pub async fn monthly<'e>(
     .await
 }
 
-/// 予定の作成数と内訳。`now` は JST の現在時刻
-pub async fn events<'e>(
+/// 予定の作成数と終日予定の数。`now` は JST の現在時刻
+pub async fn event_creation<'e>(
     executor: impl PgExecutor<'e>,
     now: NaiveDateTime,
-) -> sqlx::Result<(EventCreation, i64, i64, f64)> {
+) -> sqlx::Result<(EventCreation, i64)> {
     let day = now - Duration::days(1);
     let day_prev = now - Duration::days(2);
     let week = now - Duration::days(7);
@@ -312,9 +381,7 @@ pub async fn events<'e>(
             count(*) FILTER (WHERE created_at >= $4 AND created_at < $3) AS "week_prev!",
             count(*) FILTER (WHERE created_at >= $5) AS "month!",
             count(*) FILTER (WHERE created_at >= $6 AND created_at < $5) AS "month_prev!",
-            count(*) FILTER (WHERE is_all_day) AS "all_day!",
-            count(*) FILTER (WHERE array_length(notifications, 1) > 0) AS "with_notifications!",
-            COALESCE(sum(COALESCE(array_length(notifications, 1), 0)), 0) AS "notification_total!"
+            count(*) FILTER (WHERE is_all_day) AS "all_day!"
         FROM events
         "#,
         day,
@@ -327,26 +394,49 @@ pub async fn events<'e>(
     .fetch_one(executor)
     .await?;
 
-    let creation = EventCreation {
-        last_day: Trend::new(row.day, row.day_prev),
-        last_week: Trend::new(row.week, row.week_prev),
-        last_month: Trend::new(row.month, row.month_prev),
-        total: row.total,
-    };
-    let per_event = if row.total == 0 {
-        0.0
-    } else {
-        row.notification_total as f64 / row.total as f64
-    };
-    Ok((creation, row.all_day, row.with_notifications, per_event))
+    Ok((
+        EventCreation {
+            last_day: Trend::new(row.day, row.day_prev),
+            last_week: Trend::new(row.week, row.week_prev),
+            last_month: Trend::new(row.month, row.month_prev),
+            total: row.total,
+        },
+        row.all_day,
+    ))
 }
 
-/// ギルドの利用状況。`since` より後に作られた予定を「アクティブ」の根拠にする (JST)
-pub async fn guild_activity<'e, E>(executor: E, since: NaiveDateTime) -> sqlx::Result<GuildActivity>
-where
-    E: PgExecutor<'e> + Copy,
-{
-    let counts = sqlx::query!(
+/// 通知設定の集計 (実際に通知される設定を持つ予定の数, 通知設定の総数)。
+///
+/// `notifications` は制約のない `TEXT[]` で、旧データや手動修正で壊れた JSON・負の `num`・
+/// 未知の単位が入りうる。api も Bot も [`Notification::decode_all`] で**解釈できない要素を捨てる**ので、
+/// 配列の長さをそのまま数えると「実際には通知されない予定」を数に入れてしまう。
+/// 判定を SQL に書き写すと本体 (`models::notifications`) とずれるため、
+/// 設定が入っている予定だけを取り出して同じ関数で数える (行はストリームで受けて溜め込まない)
+pub async fn notification_stats<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<(i64, i64)> {
+    let mut rows = sqlx::query!(
+        r#"SELECT notifications FROM events WHERE array_length(notifications, 1) > 0"#
+    )
+    .fetch(executor);
+
+    let mut events_with_notifications = 0;
+    let mut total = 0;
+    while let Some(row) = rows.try_next().await? {
+        let valid = Notification::decode_all(&row.notifications).len() as i64;
+        if valid > 0 {
+            events_with_notifications += 1;
+            total += valid;
+        }
+    }
+    Ok((events_with_notifications, total))
+}
+
+/// 直近に予定が作られたギルドの数と、Bot が参加中のギルドの数。
+/// `since` より後に作られた予定を「アクティブ」の根拠にする (JST)
+pub async fn guild_counts<'e>(
+    executor: impl PgExecutor<'e>,
+    since: NaiveDateTime,
+) -> sqlx::Result<(i64, i64)> {
+    let row = sqlx::query!(
         r#"
         SELECT
             (SELECT count(*) FROM (
@@ -358,8 +448,15 @@ where
     )
     .fetch_one(executor)
     .await?;
+    Ok((row.active_guilds, row.joined_guilds))
+}
 
-    let top_guilds = sqlx::query_as!(
+/// `since` より後の予定の作成数が多いギルド ([`TOP_GUILD_LIMIT`] 件まで)
+pub async fn top_guilds<'e>(
+    executor: impl PgExecutor<'e>,
+    since: NaiveDateTime,
+) -> sqlx::Result<Vec<TopGuild>> {
+    sqlx::query_as!(
         TopGuild,
         r#"
         WITH recent AS (
@@ -380,19 +477,15 @@ where
         TOP_GUILD_LIMIT,
     )
     .fetch_all(executor)
-    .await?;
-
-    Ok(GuildActivity {
-        active_guilds: counts.active_guilds,
-        joined_guilds: counts.joined_guilds,
-        top_guilds,
-    })
+    .await
 }
 
-/// 参加中のギルドの設定状況 (通知先チャンネルを設定済みの数, restricted の数)。
+/// 参加中のギルドの設定状況 (通知先チャンネルの ID が正しい形式の数, restricted の数)。
 ///
-/// 通知先は「行があること」ではなく **Bot が実際に送れる `channel_id` か** で数える
-/// (旧データの `"0"` などが混ざっているため。判定は `admin_stats` と共通)
+/// 通知先は「行があること」ではなく `channel_id` が **Snowflake として正しい形式か** で数える
+/// (旧データの `"0"` などが混ざっているため。判定は `admin_stats` と共通)。
+/// そのチャンネルが今も存在するか・Bot に送信権限があるかは Discord に聞かないと分からないので、
+/// ここで分かるのは「設定として成立しているか」までにとどまる
 pub async fn guild_settings<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<(i64, i64)> {
     let rows = sqlx::query!(
         r#"

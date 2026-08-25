@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH days AS (\n            SELECT ($1::date - g)::date AS day\n            FROM generate_series($2::int - 1, 0, -1) AS g\n        ),\n        ev AS (\n            SELECT created_at::date AS day, count(*) AS n\n            FROM events\n            WHERE created_at >= ($1::date - ($2::int - 1))::timestamp\n              AND created_at < ($1::date + 1)::timestamp\n            GROUP BY 1\n        ),\n        nu AS (\n            SELECT (\"createdAt\" AT TIME ZONE 'Asia/Tokyo')::date AS day, count(*) AS n\n            FROM \"user\"\n            WHERE \"createdAt\" >= ($1::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'\n              AND \"createdAt\" < ($1::date + 1)::timestamp AT TIME ZONE 'Asia/Tokyo'\n            GROUP BY 1\n        ),\n        lg AS (\n            SELECT (\"createdAt\" AT TIME ZONE 'Asia/Tokyo')::date AS day, count(*) AS n\n            FROM \"session\"\n            WHERE \"createdAt\" >= ($1::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'\n              AND \"createdAt\" < ($1::date + 1)::timestamp AT TIME ZONE 'Asia/Tokyo'\n            GROUP BY 1\n        )\n        SELECT\n            d.day AS \"date!\",\n            COALESCE(ev.n, 0) AS \"events!\",\n            COALESCE(nu.n, 0) AS \"new_users!\",\n            COALESCE(lg.n, 0) AS \"logins!\"\n        FROM days d\n        LEFT JOIN ev ON ev.day = d.day\n        LEFT JOIN nu ON nu.day = d.day\n        LEFT JOIN lg ON lg.day = d.day\n        ORDER BY d.day\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "date!",
+        "type_info": "Date",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "events!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "new_users!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "logins!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "5dc8464ddbc686b474e36f49aaafcd546f0f01365646facb7b4a70f74e09827d"
+}

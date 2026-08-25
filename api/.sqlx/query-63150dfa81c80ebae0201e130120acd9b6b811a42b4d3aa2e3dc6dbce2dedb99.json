@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            count(*) AS \"total!\",\n            count(*) FILTER (WHERE created_at >= $1) AS \"day!\",\n            count(*) FILTER (WHERE created_at >= $2 AND created_at < $1) AS \"day_prev!\",\n            count(*) FILTER (WHERE created_at >= $3) AS \"week!\",\n            count(*) FILTER (WHERE created_at >= $4 AND created_at < $3) AS \"week_prev!\",\n            count(*) FILTER (WHERE created_at >= $5) AS \"month!\",\n            count(*) FILTER (WHERE created_at >= $6 AND created_at < $5) AS \"month_prev!\",\n            count(*) FILTER (WHERE is_all_day) AS \"all_day!\",\n            count(*) FILTER (WHERE array_length(notifications, 1) > 0) AS \"with_notifications!\",\n            COALESCE(sum(COALESCE(array_length(notifications, 1), 0)), 0) AS \"notification_total!\"\n        FROM events\n        ",
+  "query": "\n        SELECT\n            count(*) AS \"total!\",\n            count(*) FILTER (WHERE created_at >= $1) AS \"day!\",\n            count(*) FILTER (WHERE created_at >= $2 AND created_at < $1) AS \"day_prev!\",\n            count(*) FILTER (WHERE created_at >= $3) AS \"week!\",\n            count(*) FILTER (WHERE created_at >= $4 AND created_at < $3) AS \"week_prev!\",\n            count(*) FILTER (WHERE created_at >= $5) AS \"month!\",\n            count(*) FILTER (WHERE created_at >= $6 AND created_at < $5) AS \"month_prev!\",\n            count(*) FILTER (WHERE is_all_day) AS \"all_day!\"\n        FROM events\n        ",
   "describe": {
     "columns": [
       {
@@ -50,18 +50,6 @@
         "name": "all_day!",
         "type_info": "Int8",
         "origin": "Expression"
-      },
-      {
-        "ordinal": 8,
-        "name": "with_notifications!",
-        "type_info": "Int8",
-        "origin": "Expression"
-      },
-      {
-        "ordinal": 9,
-        "name": "notification_total!",
-        "type_info": "Int8",
-        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -82,10 +70,8 @@
       null,
       null,
       null,
-      null,
-      null,
       null
     ]
   },
-  "hash": "f79a5d0f13691a4e23b75c2afacd1fed4379f8c362ab05461ac0ed5fa92a864e"
+  "hash": "63150dfa81c80ebae0201e130120acd9b6b811a42b4d3aa2e3dc6dbce2dedb99"
 }

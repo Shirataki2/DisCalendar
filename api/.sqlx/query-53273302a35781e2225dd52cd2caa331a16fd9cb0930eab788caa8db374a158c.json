@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT notifications FROM events WHERE array_length(notifications, 1) > 0",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "notifications",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "notifications"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "53273302a35781e2225dd52cd2caa331a16fd9cb0930eab788caa8db374a158c"
+}

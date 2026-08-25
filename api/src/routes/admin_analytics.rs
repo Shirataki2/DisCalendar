@@ -26,7 +26,7 @@ use crate::{
 /// 分析情報 (`GET /admin/analytics`)
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AdminAnalytics {
-    /// 集計の基準にした日 (JST)。推移の右端の日付
+    /// 集計の基準にした日 (JST)。推移の右端の日付で、その日は**まだ途中**
     #[schema(example = "2026-08-25")]
     pub today: NaiveDate,
     /// 日別の推移が何日ぶんか
@@ -42,15 +42,17 @@ pub struct AdminAnalytics {
     pub event_creation: EventCreation,
     pub breakdown: Breakdown,
     pub guilds: GuildActivity,
-    /// 日別の推移 (古い順、[`AdminAnalytics::daily_days`] 件)
+    /// 日別の推移 (古い順、[`AdminAnalytics::daily_days`] 件)。末尾は今日 (集計時点まで)
     pub daily: Vec<DailyPoint>,
-    /// 月別の推移 (古い順、[`AdminAnalytics::monthly_months`] 件)
+    /// 月別の推移 (古い順、[`AdminAnalytics::monthly_months`] 件)。末尾は当月 (途中まで)
     pub monthly: Vec<MonthlyPoint>,
 }
 
 /// 分析情報。アクティブユーザー・予定の作成数・ギルドの利用状況とその推移をまとめて返す。
 ///
-/// `events` を数回走査するので `/admin/stats` より重い。管理者しか開かないため索引は足していない
+/// `/admin/stats` より重いので、**プールから接続を 1 本だけ取って順に実行する**。
+/// 並列に投げると既定 5 本のプールを埋めてしまい、通常の予定 API まで接続待ちになるため。
+/// 個々のクエリは期間で絞った 1 回の集計に収めてある (`models::admin_analytics` を参照)
 #[utoipa::path(
     tag = "admin",
     responses(
@@ -67,19 +69,26 @@ pub async fn analytics(
     let now_utc = Utc::now();
     let now = now_jst();
     let recent_since = now - Duration::days(RECENT_DAYS);
+    let mut conn = state.pool.acquire().await?;
 
-    let (active_users, daily, monthly, events, guilds, settings) = tokio::try_join!(
-        admin_analytics::active_users(&state.pool, now_utc),
-        admin_analytics::daily(&state.pool, now.date()),
-        admin_analytics::monthly(&state.pool, now_utc),
-        admin_analytics::events(&state.pool, now),
-        admin_analytics::guild_activity(&state.pool, recent_since),
-        admin_analytics::guild_settings(&state.pool),
-    )?;
+    let active_users = admin_analytics::active_users(&mut *conn, now_utc).await?;
+    let daily = admin_analytics::daily(&mut *conn, now.date()).await?;
+    let monthly = admin_analytics::monthly(&mut *conn, now_utc).await?;
+    let (event_creation, all_day_events) = admin_analytics::event_creation(&mut *conn, now).await?;
+    let (events_with_notifications, notification_total) =
+        admin_analytics::notification_stats(&mut *conn).await?;
+    let (active_guilds, joined_guilds) =
+        admin_analytics::guild_counts(&mut *conn, recent_since).await?;
+    let top_guilds = admin_analytics::top_guilds(&mut *conn, recent_since).await?;
+    let (guilds_with_channel, restricted_guilds) =
+        admin_analytics::guild_settings(&mut *conn).await?;
+    drop(conn);
 
-    let (event_creation, all_day_events, events_with_notifications, notifications_per_event) =
-        events;
-    let (guilds_with_channel, restricted_guilds) = settings;
+    let notifications_per_event = if event_creation.total == 0 {
+        0.0
+    } else {
+        notification_total as f64 / event_creation.total as f64
+    };
 
     Ok(web::Json(AdminAnalytics {
         today: now.date(),
@@ -95,7 +104,11 @@ pub async fn analytics(
             guilds_with_channel,
             restricted_guilds,
         },
-        guilds,
+        guilds: GuildActivity {
+            active_guilds,
+            joined_guilds,
+            top_guilds,
+        },
         daily,
         monthly,
     }))

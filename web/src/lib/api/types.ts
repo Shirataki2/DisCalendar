@@ -408,10 +408,13 @@ export interface AdminEventCreation {
 /** 予定の内訳と設定の行き渡り具合 */
 export interface AdminAnalyticsBreakdown {
   all_day_events: number;
-  /** 通知を 1 件以上設定している予定の数 */
+  /** 実際に通知される設定を 1 件以上持つ予定の数 (解釈できない旧データの設定は含めない) */
   events_with_notifications: number;
   notifications_per_event: number;
-  /** 参加中のギルドのうち Bot が送信できる通知先チャンネルを設定しているものの数 */
+  /**
+   * 参加中のギルドのうち、通知先チャンネルに形式として正しい ID を設定しているものの数。
+   * チャンネルの存在や Bot の送信権限までは確認していない
+   */
   guilds_with_channel: number;
   restricted_guilds: number;
 }
@@ -433,7 +436,7 @@ export interface AdminGuildActivity {
 
 /** GET /admin/analytics */
 export interface AdminAnalytics {
-  /** 集計の基準にした日 (JST、`2026-08-25`)。推移の右端 */
+  /** 集計の基準にした日 (JST、`2026-08-25`)。推移の右端で、その日はまだ途中 */
   today: string;
   daily_days: number;
   monthly_months: number;
