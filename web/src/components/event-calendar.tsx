@@ -253,27 +253,27 @@ export function EventCalendar({
           新規作成
         </Button>
         {eventsQuery.isFetching && (
-          <span className="text-xs text-neutral-400">読み込み中…</span>
+          <span className="text-xs text-muted-foreground">読み込み中…</span>
         )}
         {eventsQuery.isError && (
-          <span className="flex items-center gap-2 rounded-md bg-red-900/40 px-3 py-1.5 text-sm text-red-200">
+          <span className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive">
             予定を取得できませんでした: {describeApiError(eventsQuery.error)}
             <button
               type="button"
               onClick={() => eventsQuery.refetch()}
-              className="underline hover:text-white"
+              className="underline hover:text-foreground"
             >
               再試行
             </button>
           </span>
         )}
         {actionError && (
-          <span className="flex items-center gap-2 rounded-md bg-red-900/40 px-3 py-1.5 text-sm text-red-200">
+          <span className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive">
             {actionError}
             <button
               type="button"
               onClick={() => setActionError(null)}
-              className="underline hover:text-white"
+              className="underline hover:text-foreground"
             >
               閉じる
             </button>

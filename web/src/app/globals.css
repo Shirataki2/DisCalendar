@@ -5,17 +5,18 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * 現行アプリ (Vuetify dark) に合わせてダークテーマ固定。
- * shadcn/ui のトークンは .dark 側だけを使う (layout.tsx で <html class="dark">)。
- * :root の明るい配色は shadcn の生成物をそのまま残しているが、現状は使っていない
+ * 配色トークン。:root がライト、.dark がダークで、既定は旧実装 (Vuetify dark) に合わせたダーク。
+ * 切り替えは <html> の class と data-color-scheme を差し替えて行う (components/theme-provider.tsx)。
+ * ライトを出すのはダッシュボード (/dashboard) だけで、LP・使い方・管理コンソールはダーク固定
  */
 :root {
-  --surface: #1e1e1e;
-  --background: oklch(1 0 0);
+  /* 面 (カード・サイドバー・カレンダー) を白にし、ページの地をわずかに沈ませる (ダークとは逆の関係) */
+  --surface: oklch(1 0 0);
+  --background: oklch(0.985 0 0);
   --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
+  --card: var(--surface);
   --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
+  --popover: var(--surface);
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
@@ -47,6 +48,7 @@
 
 /* Vuetify dark の background (#121212) / surface (#1e1e1e) に寄せる */
 .dark {
+  --surface: #1e1e1e;
   --background: #121212;
   --foreground: #ededed;
   --card: var(--surface);
@@ -125,7 +127,11 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* FullCalendar classic テーマの微調整 (Vuetify dark 寄せ) */
+/* FullCalendar classic テーマの微調整 (カレンダーの面を surface に合わせる。ダークは Vuetify dark 寄せ) */
+[data-color-scheme="light"] {
+  --fc-classic-background: var(--surface);
+}
+
 [data-color-scheme="dark"] {
   --fc-classic-background: var(--surface);
   --fc-classic-border: #ffffff1f;
@@ -136,8 +142,7 @@
     @apply border-border outline-ring/50;
   }
   html {
-    /* ネイティブの日時入力やスクロールバーもダークにする */
-    color-scheme: dark;
+    /* ネイティブの日時入力やスクロールバーの配色は next-themes が color-scheme を書き込んで合わせる */
     @apply font-sans;
   }
   body {

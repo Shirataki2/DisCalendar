@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ThemeToggleContent, useThemeToggle } from "@/components/theme-toggle";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { GITHUB_URL, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,8 @@ interface NavItem {
 }
 
 // 旧実装 (components/header/NavDrawer.vue) と同じ並び (「更新履歴」は v3 で追加)。
-// 「テーマ変更」はダーク固定のため、「今日へ移動」は FullCalendar のツールバーに「今日」があるため入れていない。
+// 旧版と同じくテーマ切替は一覧の最後 (旧版の bottomItems 相当) に置く。
+// 「今日へ移動」は FullCalendar のツールバーに「今日」があるため入れていない。
 // 「ダッシュボード」は新 web の他の導線 (SessionLink / 管理コンソール) に合わせて「サーバー一覧」と呼ぶ
 const ITEMS: NavItem[] = [
   { label: "ホーム", icon: HouseIcon, href: ROUTES.home },
@@ -67,8 +69,9 @@ function isCurrent(pathname: string, href: string): boolean {
   return pathname === base || pathname.startsWith(`${base}/`);
 }
 
+// 現在地の indigo は、ライトでは薄すぎて読めないので濃い側に振る
 const itemClass =
-  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-white/10 hover:text-white aria-[current=page]:bg-indigo-500/15 aria-[current=page]:text-indigo-300";
+  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground aria-[current=page]:bg-indigo-500/15 aria-[current=page]:text-indigo-700 dark:aria-[current=page]:text-indigo-300";
 
 interface Props {
   /** 管理コンソールへのリンクを出すか */
@@ -85,6 +88,7 @@ interface Props {
 export function DashboardNav({ admin, onNavigate, className }: Props) {
   const pathname = usePathname();
   const signOut = useSignOut();
+  const toggleTheme = useThemeToggle();
 
   return (
     <nav
@@ -105,7 +109,7 @@ export function DashboardNav({ admin, onNavigate, className }: Props) {
                 <item.icon className="size-5 shrink-0" aria-hidden />
                 <span className="flex-1">{item.label}</span>
                 <ExternalLinkIcon
-                  className="size-3.5 text-neutral-500"
+                  className="size-3.5 text-muted-foreground"
                   aria-hidden
                 />
               </a>
@@ -135,6 +139,15 @@ export function DashboardNav({ admin, onNavigate, className }: Props) {
           >
             <LogOutIcon className="size-5 shrink-0" aria-hidden />
             <span className="flex-1 text-left">ログアウト</span>
+          </button>
+        </li>
+        <li>
+          {/* テーマの切替はドロワーを開いたまま結果を確かめられるよう onNavigate を呼ばない */}
+          <button type="button" className={itemClass} onClick={toggleTheme}>
+            <ThemeToggleContent
+              iconClassName="size-5 shrink-0"
+              labelClassName="flex-1 text-left"
+            />
           </button>
         </li>
       </ul>
