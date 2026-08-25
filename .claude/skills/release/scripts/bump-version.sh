@@ -36,8 +36,31 @@ if ! [[ "$next" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   echo "::error::バージョンの形式が <major>.<minor>.<patch>[-<prerelease>] ではない (got: $next)" >&2
   exit 1
 fi
-if [ "$next" = "$current" ]; then
-  echo "::error::今と同じバージョン ($current) が指定されている" >&2
+
+# semver の大小比較 ($1 > $2 なら 0)。3.1.0-rc.1 < 3.1.0 (プレリリースは同じ数字の正式版より前) を守る
+version_gt() {
+  local a_core="${1%%-*}" b_core="${2%%-*}" a_pre="" b_pre=""
+  [ "$1" != "$a_core" ] && a_pre="${1#*-}"
+  [ "$2" != "$b_core" ] && b_pre="${2#*-}"
+  if [ "$a_core" != "$b_core" ]; then
+    [ "$(printf '%s\n%s\n' "$a_core" "$b_core" | sort -V | tail -1)" = "$a_core" ]
+    return
+  fi
+  # 数字が同じとき: プレリリース無し > プレリリース有り
+  [ -z "$a_pre" ] && [ -n "$b_pre" ] && return 0
+  [ -n "$a_pre" ] && [ -z "$b_pre" ] && return 1
+  [ "$a_pre" = "$b_pre" ] && return 1
+  [ "$(printf '%s\n%s\n' "$a_pre" "$b_pre" | sort -V | tail -1)" = "$a_pre" ]
+}
+
+# 番号が戻ると、公開済みのタグと表示バージョンの順序が壊れる (直接指定のタイプミス対策)。
+# 本当に戻す必要があるときは 4 か所を手で直す
+if ! version_gt "$next" "$current"; then
+  if [ "$next" = "$current" ]; then
+    echo "::error::今と同じバージョン ($current) が指定されている" >&2
+  else
+    echo "::error::指定のバージョン ($next) が今の版 ($current) より小さい" >&2
+  fi
   exit 1
 fi
 

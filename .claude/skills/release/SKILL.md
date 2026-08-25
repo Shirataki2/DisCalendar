@@ -120,7 +120,7 @@ curl -fsS https://discalendar.app/ > /dev/null && echo ok
   リリース準備 PR をマージしたらその日のうちにタグまで進める
 - **タグは打ち直さない**のが原則。既に公開した `v3.1.0` を別のコミットに付け替えると、GHCR のタグと Release がずれる。
   間違えたら次の番号で出し直す (公開直後で誰も pull していないと確信できるときだけ、タグと Release を消してやり直す)
-- `latest` は**最新の正式リリース**を指す (プレリリースでは動かない)。`compose.yaml` の `IMAGE_TAG` 既定値がこれ
+- `latest` は**最新の正式リリース**を指す。プレリリースでは動かず、古いタグのワークフローを再実行しても動かない (巻き戻さない)。`compose.yaml` の `IMAGE_TAG` 既定値がこれ
 - 本番と staging は同じホストにいる。`.env` の `COMPOSE_PROJECT_NAME` / `WEB_PORT` を混同しない (README)
 
 ## 関連

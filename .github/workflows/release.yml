@@ -67,17 +67,35 @@ jobs:
           SRC_TAG: ${{ steps.version.outputs.image_tag }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
-          for image in web api bot; do
+          images=(web api bot)
+          # 先に 3 つとも揃っているか確かめる。1 つずつ確認しながらタグを付けると、
+          # 途中で失敗したときに web だけ v3.x.y / latest が付いた状態になり、compose で新旧が混ざる
+          for image in "${images[@]}"; do
             repo="ghcr.io/shirataki2/discalendar-${image}"
             # main へのマージで "Deploy staging" がビルドしたイメージを使う (ここではビルドしない)
             if ! docker buildx imagetools inspect "${repo}:${SRC_TAG}" > /dev/null 2>&1; then
               echo "::error::${repo}:${SRC_TAG} が無い。main へのマージ後の \"Deploy staging\" の完了を待ってからタグを打つこと"
               exit 1
             fi
+          done
+
+          # latest は「最新の正式リリース」を指す。プレリリースのときと、古いリリースの再実行や
+          # 並行実行で後から古い方が終わったときは latest を動かさない (既定タグの利用者に旧版が配られないように)
+          tag_latest=false
+          if [ "$PRERELEASE" != "true" ]; then
+            newest=$(git tag --list 'v*' | grep -v -- '-' | sort -V | tail -1 || true)
+            if [ "$newest" = "$TAG" ]; then
+              tag_latest=true
+            else
+              echo "::notice::${TAG} は最新の正式リリース (${newest}) ではないので latest は動かさない"
+            fi
+          fi
+
+          for image in "${images[@]}"; do
+            repo="ghcr.io/shirataki2/discalendar-${image}"
             # マニフェストを同じ digest のままコピーする (再ビルドしないので staging で検証したものと必ず同一)
             args=(-t "${repo}:${TAG}")
-            # プレリリースは latest にしない (latest = 最新の正式リリース)
-            if [ "$PRERELEASE" != "true" ]; then args+=(-t "${repo}:latest"); fi
+            if [ "$tag_latest" = "true" ]; then args+=(-t "${repo}:latest"); fi
             docker buildx imagetools create "${args[@]}" "${repo}:${SRC_TAG}"
             echo "tagged ${repo}:${TAG} (from ${SRC_TAG})"
           done
@@ -86,9 +104,16 @@ jobs:
         env:
           TAG: ${{ steps.version.outputs.tag }}
           SRC_TAG: ${{ steps.version.outputs.image_tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
-          # このタグの 1 つ前のリリースタグ (このコミットから辿れるもの)
-          prev=$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)
+          # このタグの 1 つ前のリリースタグ (このコミットから辿れるもの)。
+          # 正式版のノートは直前の「正式版」と比べる: v3.1.0-rc.1 を出した後の v3.1.0 で rc と比べてしまうと、
+          # 更新履歴の見出しが rc の時点で既にあるため「変更なし」になってしまう
+          if [ "$PRERELEASE" = "true" ]; then
+            prev=$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)
+          else
+            prev=$(git describe --tags --abbrev=0 --match 'v*' --exclude '*-*' "${TAG}^" 2>/dev/null || true)
+          fi
           echo "previous tag: ${prev:-(なし)}"
           notes=$(.github/scripts/release-notes.sh "$prev")
           {
