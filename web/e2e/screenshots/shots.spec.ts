@@ -142,7 +142,7 @@ test.describe("ログイン", () => {
 
   test("docs/login.png (ログインページ)", async ({ page }) => {
     await page.goto("/login");
-    const logo = page.getByRole("heading", { name: "DisCalendar" });
+    const heading = page.getByRole("heading", { name: "ログイン" });
     const button = page.getByRole("button", { name: "Discordでログイン" });
     // 末尾の但し書きまで入れて切る (途中で切れないように)
     const notice = page.locator("main p").last();
@@ -151,7 +151,10 @@ test.describe("ログイン", () => {
     await settle(page);
     await page.screenshot({
       path: assetPath("docs/login.png"),
-      clip: await clipAround(page, [logo, button, notice], { x: 400, y: 40 }),
+      clip: await clipAround(page, [heading, button, notice], {
+        x: 400,
+        y: 40,
+      }),
     });
   });
 });

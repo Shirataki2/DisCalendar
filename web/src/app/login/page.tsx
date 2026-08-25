@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { Logo } from "@/components/logo";
 import { authClient } from "@/lib/auth-client";
 import { ROUTES } from "@/lib/site";
 
@@ -17,13 +16,14 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-10 p-8">
-      <h1>
-        <Logo className="text-4xl" />
-      </h1>
-      <p className="text-sm text-neutral-300">
-        Discordアカウントでログインして、サーバーのカレンダーを管理できます。
-      </p>
+    <main className="flex flex-1 flex-col items-center justify-center gap-8 p-8">
+      {/* ロゴはヘッダに出ているので、見出しはこの画面が何かを示す「ログイン」にする */}
+      <div className="flex flex-col items-center gap-3 text-center">
+        <h1 className="text-2xl font-bold tracking-wide">ログイン</h1>
+        <p className="text-sm text-neutral-300">
+          Discordアカウントでログインして、サーバーのカレンダーを管理できます。
+        </p>
+      </div>
       <div className="flex flex-col items-center gap-5">
         <button
           type="button"
