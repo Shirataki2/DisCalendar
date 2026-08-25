@@ -328,6 +328,15 @@ git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
 (Environment `production` の承認を通す運用をそのまま残すため)。ロールバックも同じ画面で前の版のタグを指定する。
 `/admin` の「api のバージョン」はこの版が出るが、「イメージタグ」は実行ファイルに焼き込まれた `sha-xxxxxxx` のまま (#37)。
 
+- `latest` は**最新の正式リリース**を指す (`compose.yaml` の `IMAGE_TAG` 既定値)。プレリリースでは動かさず、
+  公開済みの GitHub Release を見て「そのタグが最新か」を判定してから向け直すので、古いタグの再実行や
+  打ち間違えたタグが残っていても巻き戻ったり止まったりしない
+- ⚠️ **`v*` タグの作成を制限するルールセットを入れておくこと** (Settings → Rules → Rulesets → Tag ruleset で
+  `v*` を対象に "Restrict creations" + Bypass list にリリース担当者)。タグから起動するワークフローは
+  **そのタグのコミットにある `release.yml` がそのまま動く**ため、main に入っていない改変版のワークフローを
+  タグ付きで push されると、`contents: write` / `packages: write` のトークンで Release や GHCR タグを操作できてしまう
+  (ワークフロー内の「main のコミットか」の確認も、その改変版では消せる)。ブランチ保護だけでは塞げない
+
 ### DB のバックアップと復元 (compose)
 
 compose の db (postgres:18) はボリューム (`<プロジェクト名>_db-data`) に保存される。その環境の compose ディレクトリで実行する

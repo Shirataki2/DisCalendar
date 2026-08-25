@@ -1,7 +1,8 @@
 # v3.x.y タグを push したらリリースを確定させる (#12 の本番切替を v3.0.0 とし、以降は semver で上げる)。
 # 手順: タグとリポジトリ内のバージョンの一致を確認 → そのコミットが main にあることを確認 →
-#   staging へのデプロイで GHCR に push 済みの sha-<short sha> イメージに v3.x.y (と latest) を付け直す (再ビルドしない) →
-#   更新履歴 (web/src/content/changelog.mdx) の前回リリース以降のエントリからリリースノートを作り、GitHub Release を公開する。
+#   staging へのデプロイで GHCR に push 済みの sha-<short sha> イメージに v3.x.y を付け直す (再ビルドしない) →
+#   更新履歴 (web/src/content/changelog.mdx) の前回リリース以降のエントリからリリースノートを作り、GitHub Release を公開する →
+#   これが最新の正式リリースなら latest も向け直す。
 # 本番への反映はこのワークフローでは行わない。Actions の "Deploy production" を image_tag: v3.x.y で実行する
 # (承認と「staging で確かめたものを配る」運用をそのまま残すため)。詳細は .claude/skills/release/
 name: Release
@@ -10,10 +11,12 @@ on:
   push:
     tags: ["v*"]
 
-# リリースはタグごとではなくまとめて直列にする。並行して走ると、latest をどのタグに向けるかの判定が
-# それぞれの checkout 時点のタグ一覧に基づくため、古い方が後に終わって latest を巻き戻しうる
+# タグごとに分ける。全リリース共通の group にすると、短い間に 3 つ以上タグを push したときに
+# GitHub Actions が待機中の 1 件しか保持せず、間のリリースが走らないまま取り消される
+# (cancel-in-progress: false でも待機中の実行は後から来た実行に消される)。
+# リリース同士が並走したときの latest の扱いは、最後の「latest を向け直す」ステップで担保する
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -67,11 +70,10 @@ jobs:
         env:
           TAG: ${{ steps.version.outputs.tag }}
           SRC_TAG: ${{ steps.version.outputs.image_tag }}
-          PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
           images=(web api bot)
           # 先に 3 つとも揃っているか確かめる。1 つずつ確認しながらタグを付けると、
-          # 途中で失敗したときに web だけ v3.x.y / latest が付いた状態になり、compose で新旧が混ざる
+          # 途中で失敗したときに web だけ v3.x.y が付いた状態になり、compose で新旧が混ざる
           for image in "${images[@]}"; do
             repo="ghcr.io/shirataki2/discalendar-${image}"
             # main へのマージで "Deploy staging" がビルドしたイメージを使う (ここではビルドしない)
@@ -81,26 +83,11 @@ jobs:
             fi
           done
 
-          # latest は「最新の正式リリース」を指す。プレリリースのときと、古いリリースの再実行や
-          # 並行実行で後から古い方が終わったときは latest を動かさない (既定タグの利用者に旧版が配られないように)
-          tag_latest=false
-          if [ "$PRERELEASE" != "true" ]; then
-            # 直前に別のリリースが終わっているかもしれないので、判定の直前にタグを取り直す
-            git fetch --tags --force --quiet origin
-            newest=$(git tag --list 'v*' | grep -v -- '-' | sort -V | tail -1 || true)
-            if [ "$newest" = "$TAG" ]; then
-              tag_latest=true
-            else
-              echo "::notice::${TAG} は最新の正式リリース (${newest}) ではないので latest は動かさない"
-            fi
-          fi
-
+          # latest はここでは触らない (Release を公開してから最後のステップで向け直す)
           for image in "${images[@]}"; do
             repo="ghcr.io/shirataki2/discalendar-${image}"
             # マニフェストを同じ digest のままコピーする (再ビルドしないので staging で検証したものと必ず同一)
-            args=(-t "${repo}:${TAG}")
-            if [ "$tag_latest" = "true" ]; then args+=(-t "${repo}:latest"); fi
-            docker buildx imagetools create "${args[@]}" "${repo}:${SRC_TAG}"
+            docker buildx imagetools create -t "${repo}:${TAG}" "${repo}:${SRC_TAG}"
             echo "tagged ${repo}:${TAG} (from ${SRC_TAG})"
           done
       - name: リリースノートを作る
@@ -150,3 +137,26 @@ jobs:
           else
             gh release create "$TAG" --title "$TAG" --notes-file release-notes.md "${flags[@]}"
           fi
+      - name: latest を最新の正式リリースに向ける
+        # プレリリースは latest にしない (latest = 最新の正式リリース)
+        if: steps.version.outputs.prerelease == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SRC_TAG: ${{ steps.version.outputs.image_tag }}
+        run: |
+          # 判定材料は git のタグ一覧ではなく「公開済みの GitHub Release」。打ち間違えたタグや
+          # 途中で失敗した run のタグが残っていても latest が止まらないようにする。
+          # 直前のステップでこのタグの Release は公開済みなので、この一覧には自分も入る
+          newest=$(gh release list --limit 100 --json tagName,isPrerelease,isDraft \
+            --jq '.[] | select(.isPrerelease == false and .isDraft == false) | .tagName' | sort -V | tail -1)
+          if [ "$newest" != "$TAG" ]; then
+            # 別のリリースが並走して先に公開したときはここで降りる (latest を巻き戻さない)
+            echo "::notice::${TAG} は最新の正式リリース (${newest}) ではないので latest は動かさない"
+            exit 0
+          fi
+          for image in web api bot; do
+            repo="ghcr.io/shirataki2/discalendar-${image}"
+            docker buildx imagetools create -t "${repo}:latest" "${repo}:${SRC_TAG}"
+            echo "tagged ${repo}:latest (from ${SRC_TAG})"
+          done

@@ -120,7 +120,12 @@ curl -fsS https://discalendar.app/ > /dev/null && echo ok
   リリース準備 PR をマージしたらその日のうちにタグまで進める
 - **タグは打ち直さない**のが原則。既に公開した `v3.1.0` を別のコミットに付け替えると、GHCR のタグと Release がずれる。
   間違えたら次の番号で出し直す (公開直後で誰も pull していないと確信できるときだけ、タグと Release を消してやり直す)
-- `latest` は**最新の正式リリース**を指す。プレリリースでは動かず、古いタグのワークフローを再実行しても動かない (巻き戻さない)。`compose.yaml` の `IMAGE_TAG` 既定値がこれ
+- `latest` は**最新の正式リリース**を指す (`compose.yaml` の `IMAGE_TAG` 既定値)。判定は「公開済みの GitHub Release のうち最新か」で、
+  Release を公開した後の最後のステップで向け直す。プレリリースでは動かず、古いタグの再実行では巻き戻らず、
+  失敗した run や打ち間違えたタグが残っていても止まらない
+- **`v*` タグの作成はルールセットで制限しておく** (Settings → Rules → Rulesets → Tag ruleset で `v*` に "Restrict creations")。
+  タグから起動するワークフローは**そのタグのコミットにある `release.yml`** が動くので、main に入っていない改変版を
+  タグ付きで push されると write 権限のトークンで Release / GHCR を操作できてしまう。main のブランチ保護では塞げない
 - 本番と staging は同じホストにいる。`.env` の `COMPOSE_PROJECT_NAME` / `WEB_PORT` を混同しない (README)
 
 ## 関連
