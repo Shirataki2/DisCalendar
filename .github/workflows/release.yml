@@ -2,7 +2,7 @@
 # 手順: タグとリポジトリ内のバージョンの一致を確認 → そのコミットが main にあることを確認 →
 #   staging へのデプロイで GHCR に push 済みの sha-<short sha> イメージに v3.x.y を付け直す (再ビルドしない) →
 #   更新履歴 (web/src/content/changelog.mdx) の前回リリース以降のエントリからリリースノートを作り、GitHub Release を公開する →
-#   これが最新の正式リリースなら latest も向け直す。
+#   最後に latest ジョブが「今いちばん新しい公開済みリリース」にイメージの latest を向ける。
 # 本番への反映はこのワークフローでは行わない。Actions の "Deploy production" を image_tag: v3.x.y で実行する
 # (承認と「staging で確かめたものを配る」運用をそのまま残すため)。詳細は .claude/skills/release/
 name: Release
@@ -93,18 +93,31 @@ jobs:
       - name: リリースノートを作る
         id: notes
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           SRC_TAG: ${{ steps.version.outputs.image_tag }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
-          # このタグの 1 つ前のリリースタグ (このコミットから辿れるもの)。
+          # 前回リリースは「GitHub Release が公開されていて、このタグから辿れるタグ」のうち一番新しいもの。
+          # git のタグ一覧 (git describe) だと、打ち間違えたタグや途中で失敗した run のタグまで前回リリース扱いになり、
+          # 今回のノートからエントリが丸ごと消える。
           # 正式版のノートは直前の「正式版」と比べる: v3.1.0-rc.1 を出した後の v3.1.0 で rc と比べてしまうと、
           # 更新履歴の見出しが rc の時点で既にあるため「変更なし」になってしまう
           if [ "$PRERELEASE" = "true" ]; then
-            prev=$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)
+            filter='select(.isDraft == false)'
           else
-            prev=$(git describe --tags --abbrev=0 --match 'v*' --exclude '*-*' "${TAG}^" 2>/dev/null || true)
+            filter='select(.isDraft == false and .isPrerelease == false)'
           fi
+          published=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json tagName,isPrerelease,isDraft --jq ".[] | ${filter} | .tagName")
+          # --sort=-creatordate なので、辿れるタグを新しい順に見て最初に見つかった公開済みのものが前回リリース
+          prev=""
+          while read -r t; do
+            if [ -z "$t" ] || [ "$t" = "$TAG" ]; then continue; fi
+            if ! printf '%s\n' "$published" | grep -qxF "$t"; then continue; fi
+            prev="$t"
+            break
+          done < <(git tag --merged "${TAG}^" --sort=-creatordate)
           echo "previous tag: ${prev:-(なし)}"
           notes=$(.github/scripts/release-notes.sh "$prev")
           {
@@ -129,34 +142,58 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
-          flags=()
-          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
-          # gh release create でタグごと作った場合など、既に Release があるなら本文を差し替える
+          # gh release create でタグごと作った場合など、既に Release があるなら本文を差し替える。
+          # 下書き / prerelease で先に作られていることがあるので、公開状態も明示して揃える
+          # (--draft=false を付けないと下書きのままになり、latest ジョブの候補から外れる)
           if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md "${flags[@]}"
+            gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md \
+              --draft=false --prerelease="$PRERELEASE"
           else
-            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md "${flags[@]}"
+            flags=()
+            if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+            # --verify-tag: 実行中にリモートのタグが消されていたら中止する
+            # (付けないと gh が default branch の先頭にタグを作り直し、Release とイメージの中身がずれる)
+            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --verify-tag "${flags[@]}"
           fi
-      - name: latest を最新の正式リリースに向ける
-        # プレリリースは latest にしない (latest = 最新の正式リリース)
-        if: steps.version.outputs.prerelease == 'false'
+
+  # latest (compose の IMAGE_TAG 既定値) を最新の正式リリースに向ける。
+  # 「自分が最新か」ではなく「今いちばん新しい公開済みリリースはどれか」を見て**そのリリースのイメージ**に
+  # 向けるので、実行順が入れ替わっても最後に走った実行が正しい版に収束する (巻き戻らない)。
+  # このジョブだけ全リリース共通の concurrency に入れて書き込みを直列化する。待機中が後続に取り消されても、
+  # 取り消した側が同じ処理をして収束するので取りこぼしにならない
+  # (release ジョブはタグごとの group なので、こちらは取り消されない)
+  latest:
+    name: latest
+    needs: release
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-latest
+      cancel-in-progress: false
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 最新の正式リリースに latest を向ける
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          SRC_TAG: ${{ steps.version.outputs.image_tag }}
         run: |
           # 判定材料は git のタグ一覧ではなく「公開済みの GitHub Release」。打ち間違えたタグや
-          # 途中で失敗した run のタグが残っていても latest が止まらないようにする。
-          # 直前のステップでこのタグの Release は公開済みなので、この一覧には自分も入る
-          newest=$(gh release list --limit 100 --json tagName,isPrerelease,isDraft \
+          # 途中で失敗した run のタグが残っていても latest が止まらない
+          newest=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease,isDraft \
             --jq '.[] | select(.isPrerelease == false and .isDraft == false) | .tagName' | sort -V | tail -1)
-          if [ "$newest" != "$TAG" ]; then
-            # 別のリリースが並走して先に公開したときはここで降りる (latest を巻き戻さない)
-            echo "::notice::${TAG} は最新の正式リリース (${newest}) ではないので latest は動かさない"
+          if [ -z "$newest" ]; then
+            echo "::notice::公開済みの正式リリースがまだ無いので latest は動かさない"
             exit 0
           fi
+          # そのリリースのタグが指すコミットから、ビルド済みイメージのタグ (sha-<short sha>) を求める
+          sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${newest}" --jq '.sha')
+          src="sha-${sha:0:7}"
+          echo "latest -> ${newest} (${src})"
           for image in web api bot; do
             repo="ghcr.io/shirataki2/discalendar-${image}"
-            docker buildx imagetools create -t "${repo}:latest" "${repo}:${SRC_TAG}"
-            echo "tagged ${repo}:latest (from ${SRC_TAG})"
+            docker buildx imagetools create -t "${repo}:latest" "${repo}:${src}"
+            echo "tagged ${repo}:latest (from ${src})"
           done
