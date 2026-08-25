@@ -61,7 +61,8 @@ case "$orig_pwd/" in "$abs"/*) echo "このセッションは対象 worktree の
 default_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 base_ref="origin/${default_branch:-main}"
 # 再生成できる ignored 成果物 (消えても困らないもの)。これ以外の ignored は退避の要否を確認する
-REGEN_RE='(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo)/$|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$'
+# test-results/ playwright-report/ e2e/.auth/ は Playwright (pnpm e2e) が作る (.auth/user.json はテスト用ダミーの storageState)
+REGEN_RE='(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo|test-results|playwright-report)/$|(^|/)e2e/\.auth/|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$'
 
 # <wt> <相対パス> → メインの checkout と比べて「main に無い」「内容が違う」「リンク先が違う」なら理由を出力 (同じなら何も出さない)。
 # シンボリックリンクは中身ではなくリンク自体の有無と readlink の結果で比べる (リンク先の内容が偶然同じでも設定は別物)
@@ -187,11 +188,16 @@ else
   fi
 
   dirty=$(git -C "$abs" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
-  recent=$(find "$abs" \( -name target -o -name node_modules -o -name .next -o -name .git \) -prune -o -type f -mmin "-$((recent_hours * 60))" -print -quit 2>/dev/null)
+  # 更新時刻の判定でも、再生成できる成果物 (REGEN_RE と同じもの) は「作業中」の根拠にしない
+  recent=$(find "$abs" \( -name target -o -name node_modules -o -name .next -o -name .git \
+        -o -name test-results -o -name playwright-report -o -path '*/e2e/.auth' \) -prune -o \
+        -type f -mmin "-$((recent_hours * 60))" -print -quit 2>/dev/null)
   # git 管理外 (ignored) のうち再生成できる成果物 (target/ node_modules/ .next/ など) 以外は worktree ごと消えるので、
   # メインの checkout に無い / 内容が違うもの (.env 系、*.pem などの鍵、見知らぬディレクトリ) を洗い出す
   env_risk=""
-  # --porcelain -z で NUL 区切りにし、空白や引用を含むパスもそのまま扱う ("!! <path>" のレコードだけ見る)
+  # --porcelain -z で NUL 区切りにし、空白や引用を含むパスもそのまま扱う ("!! <path>" のレコードだけ見る)。
+  # --untracked-files=normal は利用者の status.showUntrackedFiles=all を打ち消す (all だと ignored ディレクトリが
+  # 1 行に集約されず配下のファイルが個別に出るので、REGEN_RE のディレクトリ指定に当たらなくなる)
   while IFS= read -r -d '' rec; do
     [ "${rec:0:2}" = "!!" ] || continue
     f=${rec:3}
@@ -221,7 +227,7 @@ else
               *) env_risk+="  - ${f}: ${why}"$'\n' ;;
             esac ;;
     esac
-  done < <(git -C "$abs" status --ignored --porcelain -z 2>/dev/null)
+  done < <(git -C "$abs" status --ignored --untracked-files=normal --porcelain -z 2>/dev/null)
 
   echo "対象: ${abs}"
   echo "ブランチ: ${branch} / PR: ${pr} / 未コミット: ${dirty} / ${base_ref} に無いコミット: ${ahead}"
