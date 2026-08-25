@@ -34,7 +34,7 @@ export default async function DashboardPage() {
     return (
       <main className="flex-1 overflow-y-auto p-8">
         <h1 className="mb-6 text-xl font-bold">サーバーを選択</h1>
-        <div className="text-neutral-300">
+        <div className="text-muted-foreground">
           <p className="mb-2 font-semibold">
             Discordからサーバー一覧を取得できませんでした
           </p>
@@ -65,13 +65,13 @@ export default async function DashboardPage() {
     <main className="flex-1 overflow-y-auto p-8">
       <h1 className="mb-6 text-xl font-bold">サーバーを選択</h1>
       {!joined.ok && (
-        <p className="mb-6 rounded-md bg-red-900/40 px-4 py-2 text-sm text-red-200">
+        <p className="mb-6 rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">
           Bot の参加状況を取得できませんでした。API
           サーバーが起動しているか確認してください。
         </p>
       )}
       {available.length === 0 && joined.ok && (
-        <p className="mb-6 text-sm text-neutral-300">
+        <p className="mb-6 text-sm text-muted-foreground">
           Bot が参加しているサーバーがありません。下の一覧から Bot
           を招待してください。
         </p>
@@ -79,7 +79,7 @@ export default async function DashboardPage() {
       <GuildGrid guilds={available} />
       {invitable.length > 0 && (
         <>
-          <h2 className="mt-10 mb-4 text-lg font-semibold text-neutral-300">
+          <h2 className="mt-10 mb-4 text-lg font-semibold text-muted-foreground">
             Bot を招待できるサーバー
           </h2>
           <GuildGrid guilds={invitable} invite />
@@ -116,7 +116,8 @@ function GuildCard({
   invite: boolean;
 }) {
   const icon = guildIconUrl(guild);
-  const className = `flex items-center gap-4 rounded-lg bg-surface p-4 transition-colors hover:bg-white/10 ${
+  // ライトでは surface (白) と地の色がほとんど変わらないので、枠でカードの範囲を見せる
+  const className = `flex items-center gap-4 rounded-lg border border-border bg-surface p-4 transition-colors hover:bg-foreground/10 ${
     invite ? "grayscale hover:grayscale-0" : ""
   }`;
   const body = (
@@ -125,12 +126,12 @@ function GuildCard({
         // biome-ignore lint/performance/noImgElement: Discord CDN のアイコンは最適化不要
         <img src={icon} alt="" className="h-12 w-12 rounded-full" />
       ) : (
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-lg font-bold">
+        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-foreground/10 text-lg font-bold">
           {guild.name.slice(0, 1)}
         </span>
       )}
       <span className="flex-1 font-medium">{guild.name}</span>
-      {invite && <span className="text-xs text-neutral-400">招待 ↗</span>}
+      {invite && <span className="text-xs text-muted-foreground">招待 ↗</span>}
     </>
   );
   if (invite) {

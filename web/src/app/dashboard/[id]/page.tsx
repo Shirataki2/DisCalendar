@@ -77,11 +77,11 @@ function GuildUnavailable({ error }: { error: unknown }) {
     <main className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
       <h1 className="text-xl font-bold">サーバーデータの取得に失敗しました</h1>
       {discordTrouble ? (
-        <p className="text-sm text-neutral-300">
+        <p className="text-sm text-muted-foreground">
           Discord との通信に失敗しました。時間をおいて再度お試しください。
         </p>
       ) : (
-        <div className="text-sm text-neutral-300">
+        <div className="text-sm text-muted-foreground">
           <p className="mb-2">以下の事項をご確認ください</p>
           <p>･ BOTがサーバーに導入されているか</p>
           <p>･ あなた自身がBOTを導入したサーバーに参加しているか</p>
@@ -89,7 +89,7 @@ function GuildUnavailable({ error }: { error: unknown }) {
       )}
       <Link
         href="/dashboard"
-        className="rounded-full border border-white/20 px-5 py-2 text-sm hover:bg-white/10"
+        className="rounded-full border border-foreground/20 px-5 py-2 text-sm hover:bg-foreground/10"
       >
         サーバー選択に戻る
       </Link>

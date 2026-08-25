@@ -63,7 +63,7 @@ export function DashboardShell({
 
   return (
     <>
-      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-white/10 px-2 sm:px-3">
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-2 sm:px-3">
         {/* 2 つのボタンは CSS で出し分ける (PC はサイドバーの開閉、スマホはドロワーを開く) */}
         <Button
           type="button"
@@ -101,7 +101,7 @@ export function DashboardShell({
           id="dashboard-sidebar"
           className={sidebarOpen ? "hidden lg:block" : "hidden"}
         >
-          <div className="h-full w-64 overflow-y-auto border-r border-white/10 bg-surface">
+          <div className="h-full w-64 overflow-y-auto border-r border-border bg-surface">
             <DashboardNav admin={admin} />
           </div>
         </aside>
@@ -109,7 +109,7 @@ export function DashboardShell({
       </div>
       <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
         <SheetContent side="left" className="gap-0 data-[side=left]:w-64">
-          <SheetHeader className="h-14 flex-row items-center border-b border-white/10 px-4 py-0">
+          <SheetHeader className="h-14 flex-row items-center border-b border-border px-4 py-0">
             <SheetTitle>
               <Logo className="text-xl" />
             </SheetTitle>

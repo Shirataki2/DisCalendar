@@ -43,7 +43,7 @@ export function ColorPicker({
       >
         <span
           aria-hidden
-          className="size-4 shrink-0 rounded-full border border-white/20"
+          className="size-4 shrink-0 rounded-full border border-foreground/20"
           style={{ backgroundColor: value }}
         />
         <span className="font-mono text-xs">{normalized}</span>
@@ -60,7 +60,7 @@ export function ColorPicker({
                 onChange(color);
                 setOpen(false);
               }}
-              className="size-7 rounded-full border border-white/20 transition-transform hover:scale-110 focus-visible:outline-2 focus-visible:outline-ring aria-pressed:ring-2 aria-pressed:ring-foreground aria-pressed:ring-offset-2 aria-pressed:ring-offset-popover"
+              className="size-7 rounded-full border border-foreground/20 transition-transform hover:scale-110 focus-visible:outline-2 focus-visible:outline-ring aria-pressed:ring-2 aria-pressed:ring-foreground aria-pressed:ring-offset-2 aria-pressed:ring-offset-popover"
               style={{ backgroundColor: color }}
             />
           ))}

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ServiceWorkerProvider } from "@/components/service-worker-provider";
+import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/lib/query/provider";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL, THEME_COLOR } from "@/lib/site";
 import "./globals.css";
@@ -44,16 +45,21 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
+  // class と data-color-scheme は ThemeProvider (next-themes) が選択に合わせて差し替える。
+  // ここに書く dark は、差し替えるスクリプトが動く前と JavaScript が無効なときに使われる既定値
   return (
     <html
       lang="ja"
       data-color-scheme="dark"
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
-        <ServiceWorkerProvider>
-          <QueryProvider>{children}</QueryProvider>
-        </ServiceWorkerProvider>
+        <ThemeProvider>
+          <ServiceWorkerProvider>
+            <QueryProvider>{children}</QueryProvider>
+          </ServiceWorkerProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
