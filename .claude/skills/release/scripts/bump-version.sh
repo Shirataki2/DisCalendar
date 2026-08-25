@@ -37,20 +37,63 @@ if ! [[ "$next" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   exit 1
 fi
 
+# プレリリース識別子の比較 ($1 > $2 なら 0)。semver 11.4 のとおり `.` で区切って先頭から比べ、
+# 数値同士は数値として、数値と非数値なら数値が小さい、非数値同士は ASCII 順。
+# 先に識別子が尽きた方が小さい (rc.1 < rc.1.1)。sort -V はこの規則と合わない (alpha.1 < alpha.beta を逆にする)
+pre_gt() {
+  local LC_ALL=C IFS=.
+  local -a a b
+  # shellcheck disable=SC2206 (IFS で分割させたい)
+  a=($1)
+  b=($2)
+  local n=${#a[@]} i x y
+  [ "${#b[@]}" -gt "$n" ] && n=${#b[@]}
+  for ((i = 0; i < n; i++)); do
+    x="${a[i]-}"
+    y="${b[i]-}"
+    [ -z "$x" ] && return 1 # a の識別子が尽きた = a が小さい
+    [ -z "$y" ] && return 0
+    [ "$x" = "$y" ] && continue
+    if [[ "$x" =~ ^[0-9]+$ ]] && [[ "$y" =~ ^[0-9]+$ ]]; then
+      [ "$x" -gt "$y" ]
+      return
+    fi
+    [[ "$x" =~ ^[0-9]+$ ]] && return 1 # 数値 < 非数値
+    [[ "$y" =~ ^[0-9]+$ ]] && return 0
+    [[ "$x" > "$y" ]]
+    return
+  done
+  return 1 # 全部同じ
+}
+
 # semver の大小比較 ($1 > $2 なら 0)。3.1.0-rc.1 < 3.1.0 (プレリリースは同じ数字の正式版より前) を守る
 version_gt() {
   local a_core="${1%%-*}" b_core="${2%%-*}" a_pre="" b_pre=""
   [ "$1" != "$a_core" ] && a_pre="${1#*-}"
   [ "$2" != "$b_core" ] && b_pre="${2#*-}"
-  if [ "$a_core" != "$b_core" ]; then
-    [ "$(printf '%s\n%s\n' "$a_core" "$b_core" | sort -V | tail -1)" = "$a_core" ]
+
+  # major / minor / patch は数値として比べる (文字列の並び替えに任せない)
+  local a1 a2 a3 b1 b2 b3
+  IFS=. read -r a1 a2 a3 <<< "$a_core"
+  IFS=. read -r b1 b2 b3 <<< "$b_core"
+  if [ "$a1" -ne "$b1" ]; then
+    [ "$a1" -gt "$b1" ]
     return
   fi
+  if [ "$a2" -ne "$b2" ]; then
+    [ "$a2" -gt "$b2" ]
+    return
+  fi
+  if [ "$a3" -ne "$b3" ]; then
+    [ "$a3" -gt "$b3" ]
+    return
+  fi
+
   # 数字が同じとき: プレリリース無し > プレリリース有り
   [ -z "$a_pre" ] && [ -n "$b_pre" ] && return 0
   [ -n "$a_pre" ] && [ -z "$b_pre" ] && return 1
   [ "$a_pre" = "$b_pre" ] && return 1
-  [ "$(printf '%s\n%s\n' "$a_pre" "$b_pre" | sort -V | tail -1)" = "$a_pre" ]
+  pre_gt "$a_pre" "$b_pre"
 }
 
 # 番号が戻ると、公開済みのタグと表示バージョンの順序が壊れる (直接指定のタイプミス対策)。

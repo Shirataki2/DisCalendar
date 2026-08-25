@@ -10,8 +10,10 @@ on:
   push:
     tags: ["v*"]
 
+# リリースはタグごとではなくまとめて直列にする。並行して走ると、latest をどのタグに向けるかの判定が
+# それぞれの checkout 時点のタグ一覧に基づくため、古い方が後に終わって latest を巻き戻しうる
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 permissions:
@@ -83,6 +85,8 @@ jobs:
           # 並行実行で後から古い方が終わったときは latest を動かさない (既定タグの利用者に旧版が配られないように)
           tag_latest=false
           if [ "$PRERELEASE" != "true" ]; then
+            # 直前に別のリリースが終わっているかもしれないので、判定の直前にタグを取り直す
+            git fetch --tags --force --quiet origin
             newest=$(git tag --list 'v*' | grep -v -- '-' | sort -V | tail -1 || true)
             if [ "$newest" = "$TAG" ]; then
               tag_latest=true
