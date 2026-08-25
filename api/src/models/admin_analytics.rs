@@ -34,8 +34,9 @@
 //! 日別・月別は**日 (月) ごとの相関サブクエリにしない**。`events.created_at` に索引が無いので、
 //! そのまま書くと 1 回のリクエストで `events` を 30 + 12 回走査してしまう。
 //! 期間を絞って 1 回だけ集計し、生成した日付・月の列と突き合わせる形にしてある。
-//! 呼び出し側 (`routes::admin_analytics`) も接続を 1 本だけ取って順に実行し、
-//! 既定 5 本のプールを占有して通常の API を待たせないようにしている。
+//! 呼び出し側 (`routes::admin_analytics`) は読み取り専用の REPEATABLE READ トランザクション 1 本で
+//! 順に実行する。既定 5 本のプールを占有して通常の API を待たせないためと、
+//! 集計の途中で予定が作られても数字どうしが食い違わない (割合が 100% を超えるなど) ようにするため。
 //!
 //! 日付の区切りはすべて JST。`session` / `user` は `TIMESTAMPTZ` なので SQL 側で
 //! `AT TIME ZONE 'Asia/Tokyo'` を明示し、DB の `TimeZone` 設定に依存しないようにする。
@@ -175,11 +176,15 @@ pub struct TopGuild {
 /// ギルドの利用状況
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GuildActivity {
-    /// 直近 [`RECENT_DAYS`] 日に予定が作られたギルドの数 (退出済みを含む)
+    /// 直近 [`RECENT_DAYS`] 日に予定が作られた**参加中**のギルドの数。
+    /// [`GuildActivity::joined_guilds`] との割合を出せるよう、退出済みは含めない
     pub active_guilds: i64,
+    /// 直近 [`RECENT_DAYS`] 日に予定が作られたが `guilds` に行が無いギルドの数
+    /// (退出済みのギルドに残っている予定。割合の分子には入れない)
+    pub active_left_guilds: i64,
     /// `guilds` テーブルの行数 (Bot が参加中のギルド。割合の分母)
     pub joined_guilds: i64,
-    /// 直近 [`RECENT_DAYS`] 日の予定作成数が多いギルド
+    /// 直近 [`RECENT_DAYS`] 日の予定作成数が多いギルド (退出済みも含む)
     pub top_guilds: Vec<TopGuild>,
 }
 
@@ -430,25 +435,34 @@ pub async fn notification_stats<'e>(executor: impl PgExecutor<'e>) -> sqlx::Resu
     Ok((events_with_notifications, total))
 }
 
-/// 直近に予定が作られたギルドの数と、Bot が参加中のギルドの数。
-/// `since` より後に作られた予定を「アクティブ」の根拠にする (JST)
+/// 直近に予定が作られたギルドの数を (参加中, 退出済み, 参加中の総数) で返す。
+/// `since` より後に作られた予定を「アクティブ」の根拠にする (JST)。
+///
+/// 退出済み (`guilds` に行が無いのに予定が残っている) を分けるのは、
+/// 混ぜると「参加中のギルドのうちどれだけ使われているか」の割合が出せないため
+/// (分子に退出済みが入り、分母より大きくなることすらある)
 pub async fn guild_counts<'e>(
     executor: impl PgExecutor<'e>,
     since: NaiveDateTime,
-) -> sqlx::Result<(i64, i64)> {
+) -> sqlx::Result<(i64, i64, i64)> {
     let row = sqlx::query!(
         r#"
+        WITH recent AS (
+            SELECT DISTINCT guild_id FROM events WHERE created_at >= $1
+        )
         SELECT
-            (SELECT count(*) FROM (
-                SELECT DISTINCT guild_id FROM events WHERE created_at >= $1
-            ) a) AS "active_guilds!",
+            -- 参加中と退出済みを分けて数える。混ぜると「参加中のうち使われている割合」が出せない
+            count(*) FILTER (WHERE g.guild_id IS NOT NULL) AS "active_guilds!",
+            count(*) FILTER (WHERE g.guild_id IS NULL) AS "active_left_guilds!",
             (SELECT count(*) FROM guilds) AS "joined_guilds!"
+        FROM recent r
+        LEFT JOIN guilds g ON g.guild_id = r.guild_id
         "#,
         since,
     )
     .fetch_one(executor)
     .await?;
-    Ok((row.active_guilds, row.joined_guilds))
+    Ok((row.active_guilds, row.active_left_guilds, row.joined_guilds))
 }
 
 /// `since` より後の予定の作成数が多いギルド ([`TOP_GUILD_LIMIT`] 件まで)

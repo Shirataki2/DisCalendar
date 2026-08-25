@@ -50,8 +50,13 @@ pub struct AdminAnalytics {
 
 /// 分析情報。アクティブユーザー・予定の作成数・ギルドの利用状況とその推移をまとめて返す。
 ///
-/// `/admin/stats` より重いので、**プールから接続を 1 本だけ取って順に実行する**。
-/// 並列に投げると既定 5 本のプールを埋めてしまい、通常の予定 API まで接続待ちになるため。
+/// 集計は**読み取り専用の REPEATABLE READ トランザクション 1 本**で行う。
+///
+/// - 接続を 1 本しか使わないので、並列に投げて既定 5 本のプールを埋め、
+///   通常の予定 API を接続待ちにすることがない
+/// - すべてのクエリが同じスナップショットを読むので、集計の途中で予定が作成・削除されても
+///   数字どうしが食い違わない (総数を分母にした割合が 100% を超える、など)
+///
 /// 個々のクエリは期間で絞った 1 回の集計に収めてある (`models::admin_analytics` を参照)
 #[utoipa::path(
     tag = "admin",
@@ -69,20 +74,26 @@ pub async fn analytics(
     let now_utc = Utc::now();
     let now = now_jst();
     let recent_since = now - Duration::days(RECENT_DAYS);
-    let mut conn = state.pool.acquire().await?;
+    // 集計中に予定が作られても数字が食い違わないよう、全部を同じスナップショットで読む。
+    // 書き込みはしないので READ ONLY にしておく (SQL コンソールの `BEGIN READ ONLY` と同じ考え方)
+    let mut tx = state
+        .pool
+        .begin_with("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .await?;
 
-    let active_users = admin_analytics::active_users(&mut *conn, now_utc).await?;
-    let daily = admin_analytics::daily(&mut *conn, now.date()).await?;
-    let monthly = admin_analytics::monthly(&mut *conn, now_utc).await?;
-    let (event_creation, all_day_events) = admin_analytics::event_creation(&mut *conn, now).await?;
+    let active_users = admin_analytics::active_users(&mut *tx, now_utc).await?;
+    let daily = admin_analytics::daily(&mut *tx, now.date()).await?;
+    let monthly = admin_analytics::monthly(&mut *tx, now_utc).await?;
+    let (event_creation, all_day_events) = admin_analytics::event_creation(&mut *tx, now).await?;
     let (events_with_notifications, notification_total) =
-        admin_analytics::notification_stats(&mut *conn).await?;
-    let (active_guilds, joined_guilds) =
-        admin_analytics::guild_counts(&mut *conn, recent_since).await?;
-    let top_guilds = admin_analytics::top_guilds(&mut *conn, recent_since).await?;
+        admin_analytics::notification_stats(&mut *tx).await?;
+    let (active_guilds, active_left_guilds, joined_guilds) =
+        admin_analytics::guild_counts(&mut *tx, recent_since).await?;
+    let top_guilds = admin_analytics::top_guilds(&mut *tx, recent_since).await?;
     let (guilds_with_channel, restricted_guilds) =
-        admin_analytics::guild_settings(&mut *conn).await?;
-    drop(conn);
+        admin_analytics::guild_settings(&mut *tx).await?;
+    // 読むだけなので commit / rollback のどちらでもよいが、スナップショットは早く手放す
+    tx.rollback().await?;
 
     let notifications_per_event = if event_creation.total == 0 {
         0.0
@@ -106,6 +117,7 @@ pub async fn analytics(
         },
         guilds: GuildActivity {
             active_guilds,
+            active_left_guilds,
             joined_guilds,
             top_guilds,
         },

@@ -361,13 +361,18 @@ async fn monthly_series_buckets_by_jst_month(pool: PgPool) {
 async fn guild_activity_ranks_guilds_by_recent_events(pool: PgPool) {
     seed_guilds(&pool).await;
 
-    let (active_guilds, joined_guilds) = admin_analytics::guild_counts(&pool, recent_since())
-        .await
-        .unwrap();
+    let (active_guilds, active_left_guilds, joined_guilds) =
+        admin_analytics::guild_counts(&pool, recent_since())
+            .await
+            .unwrap();
 
-    // 直近 30 日に予定が作られたのは A (3 件) / B (2 件) / 退出済み (1 件)。予定なしサーバーは入らない
-    assert_eq!(active_guilds, 3);
+    // 直近 30 日に予定が作られたのは A (3 件) / B (2 件) / 退出済み (1 件)。予定なしサーバーは入らない。
+    // 割合 (参加中のうちどれだけ使われているか) を出せるよう、退出済みは分子に混ぜない
+    assert_eq!(active_guilds, 2);
+    assert_eq!(active_left_guilds, 1);
     assert_eq!(joined_guilds, 3);
+    // 分子が分母を超えない (退出済みを混ぜると 3 / 3 = 100% と読めてしまう)
+    assert!(active_guilds <= joined_guilds);
 
     let top = admin_analytics::top_guilds(&pool, recent_since())
         .await

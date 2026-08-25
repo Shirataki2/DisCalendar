@@ -429,8 +429,13 @@ export interface AdminTopGuild {
 }
 
 export interface AdminGuildActivity {
+  /** 直近 N 日に予定が作られた参加中のギルドの数 (割合の分子。退出済みは含まない) */
   active_guilds: number;
+  /** 直近 N 日に予定が作られたが guilds に行が無いギルドの数 (退出済みの残骸) */
+  active_left_guilds: number;
+  /** guilds テーブルの行数 (割合の分母) */
   joined_guilds: number;
+  /** 退出済みも含む */
   top_guilds: AdminTopGuild[];
 }
 

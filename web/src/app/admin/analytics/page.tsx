@@ -86,6 +86,10 @@ export default async function AdminAnalyticsPage() {
     label: monthlyLabel(point.month),
     value: point.new_users,
   }));
+  const monthlyLogins: ChartPoint[] = monthly.map((point) => ({
+    label: monthlyLabel(point.month),
+    value: point.logins,
+  }));
 
   const sum = (points: ChartPoint[]) =>
     points.reduce((acc, point) => acc + point.value, 0);
@@ -229,14 +233,24 @@ export default async function AdminAnalyticsPage() {
               partialLast={PARTIAL_DAY}
             />
           </div>
-          <BarChart
-            title="月別の新規ユーザー"
-            unit="人"
-            points={monthlyNewUsers}
-            labelStride={MONTHLY_STRIDE}
-            summary={`直近 ${analytics.monthly_months} ヶ月で ${sum(monthlyNewUsers).toLocaleString()} 人`}
-            partialLast={PARTIAL_MONTH}
-          />
+          <div className="grid gap-3 lg:grid-cols-2">
+            <BarChart
+              title="月別の新規ユーザー"
+              unit="人"
+              points={monthlyNewUsers}
+              labelStride={MONTHLY_STRIDE}
+              summary={`直近 ${analytics.monthly_months} ヶ月で ${sum(monthlyNewUsers).toLocaleString()} 人`}
+              partialLast={PARTIAL_MONTH}
+            />
+            <BarChart
+              title="月別のログイン"
+              unit="回"
+              points={monthlyLogins}
+              labelStride={MONTHLY_STRIDE}
+              summary={`直近 ${analytics.monthly_months} ヶ月で ${sum(monthlyLogins).toLocaleString()} 回`}
+              partialLast={PARTIAL_MONTH}
+            />
+          </div>
         </Section>
 
         <Section
@@ -256,7 +270,7 @@ export default async function AdminAnalyticsPage() {
             <li>
               <Card>
                 <p className="text-xs text-neutral-400">
-                  予定が作られたギルド (直近 {analytics.recent_days} 日)
+                  予定が作られた参加中のギルド (直近 {analytics.recent_days} 日)
                 </p>
                 <p className="mt-1 text-2xl font-bold tabular-nums">
                   {guilds.active_guilds.toLocaleString()}
@@ -264,12 +278,12 @@ export default async function AdminAnalyticsPage() {
                     サーバー
                   </span>
                 </p>
-                {/* 退出済みのギルドに残った予定も分子に入るので、参加中より多いことがある。
-                    そのときは割合が 100% を超えて誤解を招くので出さない */}
+                {/* 分子は参加中のギルドだけ (api 側で分けてある)。退出済みに残った予定を混ぜると
+                    「参加中のうちどれだけ使われているか」にならず、100% を超えることすらある */}
                 <p className="mt-1 text-xs text-neutral-500">
-                  {guilds.active_guilds <= guilds.joined_guilds
-                    ? `Bot 参加中の ${guilds.joined_guilds.toLocaleString()} サーバーの ${formatPercent(guilds.active_guilds, guilds.joined_guilds)}。退出済みのギルドに残っている予定も数に入る`
-                    : `Bot 参加中は ${guilds.joined_guilds.toLocaleString()} サーバー。退出済みのギルドに残っている予定も数に入るため、参加中より多くなっている`}
+                  {`Bot 参加中の ${guilds.joined_guilds.toLocaleString()} サーバーの ${formatPercent(guilds.active_guilds, guilds.joined_guilds)}`}
+                  {guilds.active_left_guilds > 0 &&
+                    `。ほかに退出済みのギルド ${guilds.active_left_guilds.toLocaleString()} 件にも、この期間に作られた予定が残っている`}
                 </p>
               </Card>
             </li>
