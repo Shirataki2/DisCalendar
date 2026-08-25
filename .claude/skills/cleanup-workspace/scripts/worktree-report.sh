@@ -81,9 +81,11 @@ track_of() {
 }
 
 # <path> → 直近 recent_hours 時間に更新されたファイルがあれば "あり"
+# 再生成できる成果物 (REGEN_RE と同じもの) は「作業中」の根拠にしないので、探索から外す
 recent_of() {
   local hit
-  hit=$(find "$1" \( -name target -o -name node_modules -o -name .next -o -name .git \) -prune -o \
+  hit=$(find "$1" \( -name target -o -name node_modules -o -name .next -o -name .git \
+        -o -name test-results -o -name playwright-report -o -path '*/e2e/.auth' \) -prune -o \
         -type f -mmin "-$((recent_hours * 60))" -print -quit 2>/dev/null)
   [ -n "$hit" ] && echo "あり" || echo "-"
 }
@@ -112,7 +114,9 @@ entry_diff() {
 
 env_risk_of() {
   local rec f g n why out=""
-  # --porcelain -z で NUL 区切りにし、空白や引用を含むパスもそのまま扱う ("!! <path>" のレコードだけ見る)
+  # --porcelain -z で NUL 区切りにし、空白や引用を含むパスもそのまま扱う ("!! <path>" のレコードだけ見る)。
+  # --untracked-files=normal は利用者の status.showUntrackedFiles=all を打ち消す (all だと ignored ディレクトリが
+  # 1 行に集約されず配下のファイルが個別に出るので、REGEN_RE のディレクトリ指定に当たらなくなる)
   while IFS= read -r -d '' rec; do
     [ "${rec:0:2}" = "!!" ] || continue
     f=${rec:3}
@@ -132,7 +136,7 @@ env_risk_of() {
             fi ;;
       *)    why=$(entry_diff "$1" "$f"); [ -n "$why" ] && out+="${f} (${why}) " ;;
     esac
-  done < <(git -C "$1" status --ignored --porcelain -z 2>/dev/null)
+  done < <(git -C "$1" status --ignored --untracked-files=normal --porcelain -z 2>/dev/null)
   [ -n "$out" ] && echo "${out% }" || echo "-"
 }
 
