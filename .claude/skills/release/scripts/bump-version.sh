@@ -9,6 +9,9 @@ set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 
+# shellcheck source=../../../../.agents/scripts/lib/agent-context.sh
+source "$root/.agents/scripts/lib/agent-context.sh"
+
 arg="${1:-}"
 if [ -z "$arg" ]; then
   echo "usage: $0 <3.1.0 | major | minor | patch>" >&2
@@ -133,6 +136,7 @@ fi
 echo "${current} -> ${next}"
 echo
 echo "次の手順 (.claude/skills/release/SKILL.md):"
-echo "  1. git switch -c claude/release-v${next} && git add -A && git commit -m \"リリース準備: v${next}\""
+branch_prefix=$(agent_branch_prefix)
+echo "  1. git switch -c ${branch_prefix}/release-v${next} && git add -A && git commit -m \"リリース準備: v${next}\""
 echo "  2. PR を作ってマージする (CI の version ジョブで 4 か所の整合を確認する)"
 echo "  3. main を最新にして git tag -a \"v${next}\" -m \"v${next}\" && git push origin \"v${next}\""

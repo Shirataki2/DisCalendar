@@ -5,7 +5,7 @@
 #   メインの checkout に無い・内容が違う ignored ファイル (.env 系、*.pem などの鍵) がある / git 管理外の tmp/ がある / detached HEAD
 #   (ディレクトリが既に無い prunable な worktree でも、ブランチ側の確認は同じように行う)
 #
-# 使い方: remove-worktree.sh <worktree のパス | .claude/worktrees/ 配下の名前> [--force] [--keep-branch]
+# 使い方: remove-worktree.sh <worktree のパス | worktree 名> [--force] [--keep-branch]
 #   --force       安全チェックを無視して消す (ユーザーの明示的な了解を得てから使う。他プロセス使用中と tmp/ は --force でも拒否)
 #   --keep-branch worktree だけ消してローカルブランチは残す
 # 消すのは worktree ディレクトリ (target/ や node_modules も一緒に消える) とローカルブランチだけ。
@@ -32,10 +32,30 @@ main_wt=$(git worktree list --porcelain | awk 'NR==1 && /^worktree / {sub(/^work
 [ -n "$main_wt" ] || { echo "git リポジトリ内で実行してください" >&2; exit 1; }
 cd "$main_wt"
 
-# 名前だけなら .claude/worktrees/<name> (ディレクトリが既に消えている prunable なものも名前で指せるようにする)
+# 名前だけなら git worktree list から basename が一致するものを探す。無ければ従来の
+# .claude/worktrees/<name> と解釈する (ディレクトリが既に消えた prunable なものも扱うため)。
 case "$target" in
   */*) ;;
-  *) [ -e "$target" ] || target=".claude/worktrees/${target}" ;;
+  *)
+    if [ ! -e "$target" ]; then
+      matched=""
+      match_count=0
+      while IFS= read -r candidate; do
+        if [ "$(basename "$candidate")" = "$target" ]; then
+          matched=$candidate
+          match_count=$((match_count + 1))
+        fi
+      done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+      if [ "$match_count" -gt 1 ]; then
+        echo "同名の worktree が複数あります。パスで指定してください: $target" >&2
+        exit 2
+      elif [ "$match_count" = 1 ]; then
+        target=$matched
+      else
+        target=".claude/worktrees/${target}"
+      fi
+    fi
+    ;;
 esac
 if [ -d "$target" ]; then
   abs=$(cd "$target" && pwd -P)
@@ -56,7 +76,7 @@ done < <(git worktree list --porcelain; echo)
 
 [ "$found" = 1 ] || { echo "git worktree list に ${abs} がありません" >&2; exit 1; }
 [ "$abs" = "$main_wt" ] && { echo "メインの checkout は削除できません" >&2; exit 1; }
-case "$orig_pwd/" in "$abs"/*) echo "このセッションは対象 worktree の中にいます。ExitWorktree (keep) でメインの checkout に戻ってから実行してください" >&2; exit 1 ;; esac
+case "$orig_pwd/" in "$abs"/*) echo "このセッションは対象 worktree の中にいます。メインの checkout に戻ってから実行してください" >&2; exit 1 ;; esac
 
 default_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 base_ref="origin/${default_branch:-main}"
@@ -167,7 +187,7 @@ if [ ! -d "$abs" ]; then
   git worktree remove --force "$abs"
   echo "worktree の登録を消しました: ${abs}"
 else
-  # 他プロセスの cwd になっていないか (別の Claude Code セッション、シェル、dev サーバーなど)
+  # 他プロセスの cwd になっていないか (別の AI エージェント、シェル、dev サーバーなど)
   users=""
   if command -v lsof >/dev/null 2>&1; then
     users=$(lsof -a -d cwd -Fpcn 2>/dev/null | awk -v p="$abs" '/^p/{pid=substr($0,2)} /^c/{c=substr($0,2)} /^n/{n=substr($0,2); if (index(n,p)==1 && (length(n)==length(p) || substr(n,length(p)+1,1)=="/")) printf "%s%s %s", (k++ ? ", " : ""), pid, c}') || users=""

@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # Issue 用の worktree を作り、git 管理外の設定ファイル (.env 系) をメイン checkout からコピーする。
 #
-# 使い方: setup-worktree.sh <Issue番号> <slug> [--install] [--branch <既存ブランチ>]
-#   - .claude/worktrees/issue-<N>-<slug> に、origin/main 起点のブランチ claude/issue-<N>-<slug> を作る
+# 使い方: setup-worktree.sh <Issue番号> <slug> [--install] [--branch <既存ブランチ>] [--prefix <prefix>]
+#   - .claude/worktrees/issue-<N>-<slug> に、origin/main 起点のブランチ <prefix>/issue-<N>-<slug> を作る
 #   - --branch を指定すると、新規作成せずその既存ブランチ (ローカル or origin) を checkout する
 #   - --install を付けると web/ で pnpm install --frozen-lockfile も実行する
 #   - 既に同じ worktree があればそのまま使う (冪等)
-# 終わったら表示されるパスを EnterWorktree の path に渡してセッションを移す。
+#   - prefix の既定は Codex なら codex、それ以外は claude
+# 終わったら表示されるパスを workdir / cwd にする。Claude Code では EnterWorktree も使える。
 set -euo pipefail
 
 usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; }
+script_dir=$(cd "$(dirname "$0")" && pwd)
 
-issue="" slug="" install=0 branch=""
+issue="" slug="" install=0 branch="" prefix=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --install) install=1 ;;
     --branch) shift; branch=${1:-} ;;
+    --prefix) shift; prefix=${1:-} ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "不明なオプション: $1" >&2; usage >&2; exit 2 ;;
     *) if [ -z "$issue" ]; then issue=$1; elif [ -z "$slug" ]; then slug=$1; else echo "引数が多すぎます" >&2; exit 2; fi ;;
@@ -25,16 +28,22 @@ done
 
 if ! [[ "$issue" =~ ^[0-9]+$ ]]; then echo "Issue 番号 (数字) を指定してください" >&2; usage >&2; exit 2; fi
 if ! [[ "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then echo "slug は英小文字・数字・ハイフンで指定してください (例: bot-tasks)" >&2; exit 2; fi
-
 # メインの checkout (git worktree list の先頭) を基準にする
 main_wt=$(git worktree list --porcelain | awk 'NR==1 && /^worktree / {sub(/^worktree /, ""); print}')
 [ -n "$main_wt" ] || { echo "git リポジトリ内で実行してください" >&2; exit 1; }
 cd "$main_wt"
 
+# shellcheck source=../../../../.agents/scripts/lib/agent-context.sh
+source "$script_dir/../../../../.agents/scripts/lib/agent-context.sh"
+if [ -z "$prefix" ]; then
+  prefix=$(agent_branch_prefix)
+fi
+if ! [[ "$prefix" =~ ^[a-z0-9][a-z0-9/-]*$ ]]; then echo "prefix は英小文字・数字・スラッシュ・ハイフンで指定してください" >&2; exit 2; fi
+
 name="issue-${issue}-${slug}"
 path=".claude/worktrees/${name}"
 abs_path="${main_wt}/${path}"
-[ -n "$branch" ] || branch="claude/${name}"
+[ -n "$branch" ] || branch="${prefix}/${name}"
 
 git fetch --quiet origin || echo "警告: git fetch に失敗しました (オフライン?)。ローカルの origin/main を起点にします" >&2
 
@@ -81,6 +90,6 @@ cat <<MSG
 
 worktree: ${abs_path}
 ブランチ: $(git -C "$abs_path" rev-parse --abbrev-ref HEAD) (HEAD $(git -C "$abs_path" rev-parse --short HEAD))
-次: EnterWorktree の path に上のパスを渡してセッションを移す。
+次: 上のパスを workdir / cwd にして作業する。Claude Code では EnterWorktree の path に渡してもよい。
     旧実装の参照は絶対パス ${main_wt}/tmp/DisCalendarV2/ を使う (worktree にはコピーされない)。
 MSG

@@ -22,23 +22,31 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - **利用者に見える機能追加・変更・不具合修正をしたら、更新履歴 (`web/src/content/changelog.mdx`) に同じ PR で追記する**。
   利用者に伝わる言葉で書く (技術的な変更はそれ自体を書かず、利用者から見える効果に言い換える)。書き方のルールはファイル冒頭のコメント
 - LP と使い方に貼っているスクリーンショット (`web/src/assets/`) は `pnpm shot` で撮り直す。
-  手順と確認観点は `.claude/skills/update-screenshots/`
+  手順と確認観点は `.agents/skills/update-screenshots/` (正本は `.claude/skills/`)
 - **バージョン (v3.x.y) は web / api / bot で共通**。`web/package.json` / `api/Cargo.toml` / `bot/Cargo.toml` / `Cargo.lock` の 4 か所を揃えて
   リリースのたびに上げる (機能 PR では上げない)。CI の `version` ジョブが `.github/scripts/check-versions.sh` でずれを弾く。
-  上げ幅の決め方・タグ (`v3.x.y`) の打ち方・本番デプロイは `.claude/skills/release/`
-- Issue 着手から PR・レビュー対応までの手順は `.claude/skills/issue-driven-dev/`、worktree や `target/` の後片付けは `.claude/skills/cleanup-workspace/` (Claude Code のプロジェクトスキル) にまとめてある
+  上げ幅の決め方・タグ (`v3.x.y`) の打ち方・本番デプロイは `.agents/skills/release/`
+- Issue 着手から PR・レビュー対応までの手順は `.agents/skills/issue-driven-dev/`、worktree や `target/` の後片付けは `.agents/skills/cleanup-workspace/` にまとめてある。
+  `.agents/skills/` は Codex のエントリポイントで、Claude Code と共有する詳細手順の正本は `.claude/skills/`
 
-## Claude Code のクラウドセッションでの注意
+## AI エージェントのローカル / クラウド環境
+
+- Codex デスクトップアプリの managed worktree は `.worktreeinclude` に従って ignored な `.env` をコピーし、Local environment の
+  `bash .agents/scripts/setup-worktree-environment.sh` で依存を準備する。Claude Code から手動で worktree を作る場合は `issue-driven-dev` スキルのスクリプトを使う
+- Codex cloud の Setup script は `bash .agents/scripts/setup-cloud-environment.sh --install-tools`、Maintenance script は
+  `bash .agents/scripts/setup-cloud-environment.sh`。同じスクリプトを Claude Code の SessionStart hook からも呼ぶ
+
+### クラウドセッションでの注意
 
 claude.ai/code や `claude --cloud` のセッション (環境変数 `CLAUDE_CODE_REMOTE=true`) は Anthropic 管理の VM にこのリポジトリを clone して動く。
-セッション開始時に `.claude/settings.json` の SessionStart hook (`.claude/hooks/cloud-session-start.sh`) が Postgres の起動と `api/migrations` の適用・
-`web/` の `pnpm install`・ダミー値の `.env` 生成を行い、結果を `[cloud-session-start] ...` で報告する (Postgres が「未準備」なら、その指示に従って直してから
-`cargo test` / `cargo sqlx prepare` に進む)。環境 (Environment) 側の設定手順は [README.md](README.md) の「Claude Code のクラウド環境で使う」。
+Codex cloud もタスクごとの隔離環境に clone して動く。セッション開始時に共通スクリプトが Postgres の起動と `api/migrations` の適用・
+`web/` の `pnpm install`・ダミー値の `.env` 生成を行い、結果を `[agent-setup] ...` で報告する (Postgres が「未準備」なら、その指示に従って直してから
+`cargo test` / `cargo sqlx prepare` に進む)。環境 (Environment) 側の設定手順は [README.md](README.md) の「AI エージェントの環境を整える」。
 
 - **旧実装 `tmp/DisCalendarV2/` は無い** (git 管理外)。挙動の根拠が要るときは `docs/`・Issue・PR の記述で代用し、確認できなければ PR 本文にその旨を書く
-- **ブラウザ (Browser pane / Playwright) と Discord ログインでの動作確認はできない**。検証は CI 相当のコマンド (`pnpm lint` / `tsc` / `pnpm build`、
+- **対話ブラウザと Discord ログインでの動作確認はできない**。検証は CI 相当のコマンド (`pnpm lint` / `tsc` / `pnpm build`、
   `cargo fmt` / `clippy` / `test`) まで。UI の見た目や Discord 連携の確認は PR の「動作確認」に未実施として残し、ユーザーに引き継ぐ
-- worktree は作らない (セッションごとに VM とブランチが分かれている)。`git push` はセッションのカレントブランチにしかできない
+- clone 内に追加の worktree は作らない (セッション自体が隔離されている)。Claude Code cloud では `git push` はセッションのカレントブランチにしかできない
 - 秘密情報 (Bot トークン・Client Secret・本番の `BETTER_AUTH_SECRET`) は環境に入っていない前提で進める。`.env` の値はダミー
 
 ## Code Review Rules

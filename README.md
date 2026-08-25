@@ -229,7 +229,7 @@ Discord モックのポートが 8191 になり (`revalidate` のキャッシュ
 撮影用のテストは通常の `pnpm e2e` と CI では動かない。web / api は使い回さず必ず起動し直すので、
 前のテストのサーバーが残っていたら止めてから実行する。
 
-対象画像の一覧・出来上がりの確認観点・詰まったときの対処は `.claude/skills/update-screenshots/SKILL.md` にまとめてある。
+対象画像の一覧・出来上がりの確認観点・詰まったときの対処は `.agents/skills/update-screenshots/` にまとめてある。
 
 ### Docker (compose) で動かす
 
@@ -307,7 +307,7 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
 web / api / bot は 1 つのバージョンを共有し (`web/package.json` / `api/Cargo.toml` / `bot/Cargo.toml` / `Cargo.lock` の 4 か所。
 CI の `version` ジョブが `.github/scripts/check-versions.sh` でずれを弾く)、リリースのたびに揃えて上げる。
 #12 の本番切替を **v3.0.0** とし、以降は semver (機能追加なら minor、不具合修正なら patch) で上げる。
-手順とその判断基準は `.claude/skills/release/` (Claude Code のプロジェクトスキル) にまとめてある。
+手順とその判断基準は `.agents/skills/release/` (Claude Code / Codex 共通スキル) にまとめてある。
 
 リリースの実体は git のタグ `v3.x.y` で、push すると `.github/workflows/release.yml` が動く:
 
@@ -372,57 +372,75 @@ docker compose up -d
   レビューの観点は [AGENTS.md](AGENTS.md) の「Code Review Rules」
 - 依存の更新は Dependabot (`.github/dependabot.yml`) が毎週まとめて PR を出す
 
-### Claude Code のクラウド環境で使う
+### AI エージェントの環境を整える
 
-[claude.ai/code](https://claude.ai/code) のクラウドセッションや `claude --cloud "..."` は、Anthropic 管理の VM (Ubuntu 24.04。Node 22 + pnpm、
-rustc / cargo、PostgreSQL 16 がプリインストールだが Postgres は未起動) にこのリポジトリを clone して動く。持ち込まれるのはリポジトリにコミットしたもの
-(`CLAUDE.md` / `.claude/settings.json` / `.claude/skills/`) だけで、`~/.claude/` やローカルの MCP、Browser pane は使えない
-(公式: [Configure cloud environments](https://code.claude.com/docs/en/cloud-environments) / [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web))。
+#### Claude Code のスキルを Codex でも使う
 
-- **リポジトリ側 (設定済み)**: `.claude/settings.json` の SessionStart hook が `.claude/hooks/cloud-session-start.sh` を呼び、クラウドのときだけ
-  (`CLAUDE_CODE_REMOTE=true`) Postgres の起動と `discalendar_dev` の作成、`api/migrations` の適用 (sqlx-cli がある場合)、`web/` の `pnpm install`、
-  `.env.example` からのダミー `.env` 生成を行う。ローカルでは何もしない。結果は `[cloud-session-start] ...` のログで Claude に渡る
-  (Postgres は「`DATABASE_URL` で実際に接続でき、マイグレーション適用済み」のときだけ準備完了と報告する)
-- **一度だけ**: claude.ai/code で Claude GitHub App を入れるか、ローカルの Claude Code で `/web-setup` (`gh` のトークンを同期)。
-  Auto-fix (PR の CI 失敗・レビューコメントへの自動対応) を使うならこのリポジトリにも App をインストールする
-- **環境 (Environment) の設定** (claude.ai/code の environment selector から編集):
-  - Network access: 既定の **Trusted** のまま (npm / crates.io / static.rust-lang.org / GitHub が許可リストに入っている)
-  - Environment variables: **秘密情報は入れない** (環境を使う人全員が読める)。CI (`ci.yml`) と同じダミーで足りる
+スキルの詳細手順とスクリプトの正本は `.claude/skills/` に置き、Codex がリポジトリスキルとして検出する
+`.agents/skills/` から正本を読む。片方だけを直して手順が分岐しない構成にしている。
 
-    ```dotenv
-    SQLX_OFFLINE=true
-    DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/discalendar_dev
-    BETTER_AUTH_SECRET=cloud-dummy-secret-not-used-at-runtime
-    BETTER_AUTH_URL=http://localhost:3000
-    ```
+- Codex CLI / IDE では `/skills` または `$issue-driven-dev` のように指定する。依頼が description に合えば自動選択もされる
+- Claude Code では従来どおり `.claude/skills/` が使われる
+- 対応するスキルは `issue-driven-dev` / `cleanup-workspace` / `release` / `update-screenshots`
 
-  - Setup script (root で実行、5 分以内、結果はスナップショットとして約 7 日キャッシュ): toolchain・sqlx-cli・依存の取得まで。
-    ワークスペースのフルビルドは 5 分に収まらない可能性が高いので入れない。sqlx-cli は hook の `api/migrations` 適用と
-    `cargo sqlx prepare` に要る (api/README.md と同じ features)。5 分を超えるようなら sqlx-cli を外し、必要なセッションで `cargo install` する
+Codex のスキル探索場所と形式は [Build skills](https://developers.openai.com/codex/skills) を参照。
 
-    ```bash
-    #!/bin/bash
-    set -x
-    cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-    # rust-toolchain.toml (1.98.0 + rustfmt / clippy)。rustup が無ければ導入する (その場合は PATH に ~/.cargo/bin が要る)
-    if ! command -v rustup >/dev/null 2>&1; then
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || true
-      export PATH="$HOME/.cargo/bin:$PATH"
-    fi
-    rustup toolchain install || true
-    # 以下は互いに独立なので並列に走らせて 5 分に収める
-    (cargo fetch || true) &
-    (cargo install sqlx-cli --no-default-features --features postgres,rustls || true) &
-    (corepack enable || true; cd web && pnpm install --frozen-lockfile || true) &   # pnpm を packageManager の版に揃えてから install
-    wait
-    exit 0
-    ```
+#### Codex のローカル worktree
 
-- **できないこと**: Discord ログイン、ブラウザでの動作確認、旧実装 (`tmp/DisCalendarV2/`) の参照。検証は CI 相当のコマンドまでなので、
-  UI や Discord 連携の確認が要るタスクはローカル向き。`git push` はセッションのカレントブランチのみ (main 直 push 禁止のルールと整合)。
-  ターミナルから `claude --cloud` で投げるときは GitHub 上のカレントブランチが clone される (ローカルの未 push コミットは見えない)
-- 最初のセッションでは `check-tools` / `rustup --version` / `sqlx --version` / `pnpm -v` / `psql --version` を実行させ、hook のログ (`[cloud-session-start] ...`) で
-  Postgres (マイグレーション適用まで) と `pnpm install` が通ったことを確認してから Setup script を確定する
+Codex デスクトップアプリで新しいタスクを作るときに **Worktree** を選ぶと、アプリ管理の隔離された checkout で並行作業できる。
+
+- `.worktreeinclude` が、Git 管理外の `.env` / `web/.env.local` / `api/.env` / `bot/.env` を存在するときだけ managed worktree へコピーする。
+  中身が Git に追加されるわけではない。実トークンを含むため、コピー先も削除時まで秘密情報として扱う
+- Codex の Settings → Local environments で、このリポジトリ用の Setup script に次を設定する
+
+  ```bash
+  bash .agents/scripts/setup-worktree-environment.sh
+  ```
+
+- 作業を残すときは **Create branch here** で `codex/issue-<N>-<slug>` を作るか、**Handoff** で Local に移す
+- Claude Code や CLI から手動で worktree を作る場合は `issue-driven-dev` スキルの `setup-worktree.sh` を使う
+
+managed worktree と `.worktreeinclude` の仕様は [Git worktrees](https://developers.openai.com/codex/app/worktrees) を参照。
+
+#### Codex / Claude Code のクラウド環境
+
+両環境ともリポジトリを隔離環境へ clone するため、Git 管理外の旧実装 `tmp/DisCalendarV2/` とローカルの `.env` は持ち込まれない。
+CI 相当の検証に必要な PostgreSQL、マイグレーション、Node / Rust 依存、ダミー `.env` は
+`.agents/scripts/setup-cloud-environment.sh` で共通に準備する。
+
+Environment variables には秘密情報ではなく、次のダミー値を設定する:
+
+```dotenv
+SQLX_OFFLINE=true
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/discalendar_dev
+BETTER_AUTH_SECRET=cloud-dummy-secret-not-used-at-runtime
+BETTER_AUTH_URL=http://localhost:3000
+```
+
+Codex cloud は GitHub を接続して Environment を作り、次を設定する。Setup script の環境はキャッシュされ、Maintenance script は
+キャッシュ再開後に選択ブランチへ checkout してから依存と DB の状態を更新する。Environment の登録自体はアカウント側の設定なので、
+リポジトリを clone しただけでは作成されない。
+
+```bash
+# Setup script
+bash .agents/scripts/setup-cloud-environment.sh --install-tools
+
+# Maintenance script
+bash .agents/scripts/setup-cloud-environment.sh
+```
+
+Agent internet access は通常の実装に不要なら既定の無効のままにする (Setup script 中の依存取得にはネットワークを使える)。
+設定方法は [Codex cloud](https://developers.openai.com/codex/cloud) と
+[Cloud environments](https://developers.openai.com/codex/cloud/environments) を参照。
+
+Claude Code では `.claude/settings.json` の SessionStart hook が、`CLAUDE_CODE_REMOTE=true` のときだけ同じ共通スクリプトを呼ぶ。
+初回の toolchain / sqlx-cli 取得には Environment の Setup script として `bash .agents/scripts/setup-cloud-environment.sh --install-tools` を設定する。
+GitHub App の接続など Claude 固有の設定は [Configure cloud environments](https://code.claude.com/docs/en/cloud-environments) /
+[Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web) を参照。
+
+最初のセッションでは `rustup --version` / `sqlx --version` / `pnpm -v` / `psql --version` を確認し、`[agent-setup]` ログで
+PostgreSQL のマイグレーションと `pnpm install` が完了したことを確かめる。クラウドには実トークンを入れないため、Discord ログイン、
+Bot の実機確認、対話ブラウザでの見た目確認はローカルへ引き継ぐ。clone 内に追加の worktree は作らない。
 
 ## ルート構成 (web)
 
