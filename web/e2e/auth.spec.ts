@@ -21,6 +21,19 @@ test.describe("未ログイン", () => {
     await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
     await expect(page).toHaveURL(/\/login$/);
   });
+
+  test("ログイン画面からトップページや使い方へ移動できる", async ({ page }) => {
+    await page.goto("/login");
+    const header = page.getByRole("banner");
+    // 自分自身を指すことになるので、ヘッダ右端の「ログイン」は出さない
+    await expect(header.getByRole("link", { name: "ログイン" })).toHaveCount(0);
+    await expect(
+      page.getByRole("contentinfo").getByRole("link", { name: "使い方" }),
+    ).toBeVisible();
+
+    await header.getByRole("link", { name: "DisCalendar ホーム" }).click();
+    await expect(page).toHaveURL("/");
+  });
 });
 
 test.describe("ログイン済み", () => {
@@ -74,7 +87,7 @@ test.describe("ログイン済み", () => {
     await expect(page.getByRole("button", { name: "新規作成" })).toBeEnabled();
   });
 
-  test("ログアウトするとログイン画面に戻り、セッションが無効になる", async ({
+  test("ログアウトするとトップページに戻り、セッションが無効になる", async ({
     browser,
   }) => {
     // 共有のセッション (storageState) を消さないよう、このテスト専用のセッションでログインする
@@ -92,7 +105,11 @@ test.describe("ログイン済み", () => {
     // ログアウトはヘッダ右端のアカウントメニュー (アバター) のドロップダウンから
     await page.getByRole("button", { name: "アカウントメニュー" }).click();
     await page.getByRole("menuitem", { name: "ログアウト" }).click();
-    await expect(page).toHaveURL(/\/login$/);
+    // ログアウト後はトップページ (LP) に戻り、ヘッダの導線もログイン前のものになる
+    await expect(page).toHaveURL("/");
+    await expect(
+      page.getByRole("banner").getByRole("link", { name: "ログイン" }),
+    ).toBeVisible();
     // cookie が消えた / セッションが無効になったので開き直しても入れない
     await page.goto("/dashboard");
     await expect(page).toHaveURL(/\/login$/);
