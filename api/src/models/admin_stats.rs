@@ -223,8 +223,9 @@ pub async fn notifications_between<'e>(
 
 /// Bot が実際に送信先にできるチャンネル ID か。
 /// `event_settings.channel_id` は制約のない TEXT なので、旧データや手動修正で `"0"` や
-/// 数値でない値が入りうる。Bot (bot/src/tasks/notify.rs) と同じく `NonZeroU64` で判定する
-fn is_sendable_channel(channel_id: &str) -> bool {
+/// 数値でない値が入りうる。Bot (bot/src/tasks/notify.rs) と同じく `NonZeroU64` で判定する。
+/// 分析情報 (`admin_analytics`) の「通知先設定済みギルド」も同じ判定を使う
+pub fn is_sendable_channel(channel_id: &str) -> bool {
     channel_id.parse::<std::num::NonZeroU64>().is_ok()
 }
 

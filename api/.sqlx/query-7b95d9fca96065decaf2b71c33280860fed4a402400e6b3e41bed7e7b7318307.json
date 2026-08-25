@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            (SELECT count(*) FROM (\n                SELECT DISTINCT guild_id FROM events WHERE created_at >= $1\n            ) a) AS \"active_guilds!\",\n            (SELECT count(*) FROM guilds) AS \"joined_guilds!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "active_guilds!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "joined_guilds!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "7b95d9fca96065decaf2b71c33280860fed4a402400e6b3e41bed7e7b7318307"
+}

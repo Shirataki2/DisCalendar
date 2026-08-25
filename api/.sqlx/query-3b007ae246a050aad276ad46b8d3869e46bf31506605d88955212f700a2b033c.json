@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            count(DISTINCT \"userId\") FILTER (\n                WHERE \"createdAt\" < $1 AND \"updatedAt\" >= $2) AS \"day!\",\n            count(DISTINCT \"userId\") FILTER (\n                WHERE \"createdAt\" < $2 AND \"updatedAt\" >= $3) AS \"day_prev!\",\n            count(DISTINCT \"userId\") FILTER (\n                WHERE \"createdAt\" < $1 AND \"updatedAt\" >= $4) AS \"week!\",\n            count(DISTINCT \"userId\") FILTER (\n                WHERE \"createdAt\" < $4 AND \"updatedAt\" >= $5) AS \"week_prev!\",\n            count(DISTINCT \"userId\") FILTER (\n                WHERE \"createdAt\" < $1 AND \"updatedAt\" >= $6) AS \"month!\",\n            count(DISTINCT \"userId\") FILTER (\n                WHERE \"createdAt\" < $6 AND \"updatedAt\" >= $7) AS \"month_prev!\"\n        FROM \"session\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "day!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "day_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "week!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "week_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "month!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "month_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "3b007ae246a050aad276ad46b8d3869e46bf31506605d88955212f700a2b033c"
+}

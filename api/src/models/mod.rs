@@ -3,6 +3,7 @@
 //! 日時はすべてタイムゾーンなしの JST (`TIMESTAMP`) で保存されている (旧 Web/Bot の慣習)。
 //! Bot の移行が終わったら TIMESTAMPTZ への移行を検討する。
 
+pub mod admin_analytics;
 pub mod admin_audit;
 pub mod admin_guilds;
 pub mod admin_ops;

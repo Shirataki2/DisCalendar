@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH recent AS (\n            SELECT guild_id, count(*) AS n\n            FROM events WHERE created_at >= $1 GROUP BY guild_id\n        )\n        SELECT\n            r.guild_id AS \"guild_id!\",\n            g.name AS \"name?\",\n            g.avatar_url AS \"avatar_url?\",\n            r.n AS \"event_count!\"\n        FROM recent r\n        LEFT JOIN guilds g ON g.guild_id = r.guild_id\n        ORDER BY r.n DESC, r.guild_id\n        LIMIT $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guild_id!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "guild_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "guilds",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "avatar_url?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "guilds",
+            "name": "avatar_url"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "event_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "57a53e77cddfae8c2ffbf2011685d53d4e0918fcdbd1901ff8f767b1c380e77a"
+}

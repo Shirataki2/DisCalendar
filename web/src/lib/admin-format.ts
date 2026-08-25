@@ -52,3 +52,38 @@ export function formatDuration(seconds: number): string {
   if (minutes > 0) return `${minutes}分`;
   return `${Math.floor(seconds)}秒`;
 }
+
+/**
+ * 分析情報 (#79) の推移で使う日付ラベル。`2026-08-25` を `8/25` にする。
+ * `new Date()` を通すとブラウザのタイムゾーンで 1 日ずれるので文字列のまま扱う
+ */
+export function formatMonthDay(date: string): string {
+  const match = date.match(/^\d{4}-(\d{2})-(\d{2})$/);
+  if (!match) return date;
+  const [, month, day] = match;
+  return `${Number(month)}/${Number(day)}`;
+}
+
+/** 月別の推移で使うラベル。`2026-08-01` を `2026/08` にする */
+export function formatYearMonth(date: string): string {
+  const match = date.match(/^(\d{4})-(\d{2})-\d{2}$/);
+  if (!match) return date;
+  const [, year, month] = match;
+  return `${year}/${month}`;
+}
+
+/**
+ * 割合 (%) の表示。分母が 0 なら「-」。
+ * 小数第 1 位まで出すが、割り切れるときは整数で見せる (12.0% ではなく 12%)
+ */
+export function formatPercent(value: number, total: number): string {
+  if (total === 0) return "-";
+  return `${Number(((value / total) * 100).toFixed(1))}%`;
+}
+
+/** 増減率 (%) を符号付きで出す。api が null (前の期間が 0 で計算できない) を返したときは「-」 */
+export function formatChange(changePercent: number | null): string {
+  if (changePercent === null) return "-";
+  const rounded = Number(changePercent.toFixed(1));
+  return `${rounded > 0 ? "+" : ""}${rounded}%`;
+}

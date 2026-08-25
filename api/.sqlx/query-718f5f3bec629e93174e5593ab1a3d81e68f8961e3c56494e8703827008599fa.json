@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            g.guild_id,\n            -- 旧スキーマには guild_id の一意制約が無いので Bot と同じく先頭の 1 行を使う\n            (SELECT es.channel_id FROM event_settings es\n               WHERE es.guild_id = g.guild_id ORDER BY es.id LIMIT 1) AS channel_id,\n            COALESCE(gc.restricted, false) AS \"restricted!\"\n        FROM guilds g\n        LEFT JOIN guild_config gc ON gc.guild_id = g.guild_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guild_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "guilds",
+            "name": "guild_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "channel_id",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "restricted!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "718f5f3bec629e93174e5593ab1a3d81e68f8961e3c56494e8703827008599fa"
+}
