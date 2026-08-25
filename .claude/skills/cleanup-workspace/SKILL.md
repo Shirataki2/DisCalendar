@@ -21,8 +21,15 @@ Docker ビルドが ENOSPC で落ちたこともある。
 - 他の Claude Code セッションやターミナル、dev サーバーが使っている worktree かもしれない (`lsof -a -d cwd -Fn | grep worktrees` で cwd にしているプロセスが分かる)。
   レポートと削除スクリプトはこれを検出して止まる。PR が OPEN のもの、最近更新されたものも消す前にユーザーに聞く
 - `.env` 系や `*.pem` などの鍵 (git 管理外 = ignored) は `git status` の未コミットに数えられないが、worktree を消すと一緒に消える。
-  レポートと削除スクリプトは、再生成できる成果物 (`target/`, `node_modules/`, `.next/` など) 以外の ignored ファイルでメインの checkout に無い / 内容が違うものを列挙する。
+  レポートと削除スクリプトは、**再生成できる成果物以外**の ignored ファイルでメインの checkout に無い / 内容が違うものを列挙する。
   残すものは先にコピーして退避する (過去に `bot/.env` や compose 用のルート `.env` が worktree にしか無かった)
+- 「再生成できる成果物」として除外しているもの (両スクリプトの `REGEN_RE`。増えたらここも直す):
+
+  | 種類 | 対象 |
+  |---|---|
+  | ビルド・依存 | `target/` `node_modules/` `.next/` `out/` `build/` `dist/` `coverage/` `.vercel/` `.yarn/` `.turbo/` |
+  | Playwright (`pnpm e2e` が作る) | `web/test-results/` (失敗時のスクリーンショット / trace) `web/playwright-report/` (HTML レポート) `web/e2e/.auth/` (ログイン済み storageState。中身は `user.json` だけで、テスト用のダミーセッション cookie) |
+  | その他 | `.DS_Store` `next-env.d.ts` `.pnp*` `*.log` `*.tsbuildinfo` |
 
 ## 手順
 

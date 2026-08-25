@@ -48,7 +48,8 @@ else
 fi
 
 # 再生成できる ignored 成果物 (削除しても困らないもの)。これ以外の ignored は「消えると困るかもしれない」として扱う
-REGEN_RE='(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo)/$|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$'
+# test-results/ playwright-report/ e2e/.auth/ は Playwright (pnpm e2e) が作る (.auth/user.json はテスト用ダミーの storageState)
+REGEN_RE='(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo|test-results|playwright-report)/$|(^|/)e2e/\.auth/|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$'
 
 size_of() { if [ -d "$1" ]; then du -sh "$1" 2>/dev/null | cut -f1; else echo "-"; fi; }
 

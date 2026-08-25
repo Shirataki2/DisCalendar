@@ -61,7 +61,8 @@ case "$orig_pwd/" in "$abs"/*) echo "このセッションは対象 worktree の
 default_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 base_ref="origin/${default_branch:-main}"
 # 再生成できる ignored 成果物 (消えても困らないもの)。これ以外の ignored は退避の要否を確認する
-REGEN_RE='(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo)/$|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$'
+# test-results/ playwright-report/ e2e/.auth/ は Playwright (pnpm e2e) が作る (.auth/user.json はテスト用ダミーの storageState)
+REGEN_RE='(^|/)(target|node_modules|\.next|out|build|dist|coverage|\.vercel|\.yarn|\.turbo|test-results|playwright-report)/$|(^|/)e2e/\.auth/|(^|/)(\.DS_Store|next-env\.d\.ts|\.pnp(\..*)?)$|\.(log|tsbuildinfo)$'
 
 # <wt> <相対パス> → メインの checkout と比べて「main に無い」「内容が違う」「リンク先が違う」なら理由を出力 (同じなら何も出さない)。
 # シンボリックリンクは中身ではなくリンク自体の有無と readlink の結果で比べる (リンク先の内容が偶然同じでも設定は別物)
