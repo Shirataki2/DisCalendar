@@ -133,6 +133,7 @@ fi
 echo "${current} -> ${next}"
 echo
 echo "次の手順 (.claude/skills/release/SKILL.md):"
-echo "  1. git switch -c claude/release-v${next} && git add -A && git commit -m \"リリース準備: v${next}\""
+if [ -n "${CODEX_HOME:-}" ]; then branch_prefix="codex"; else branch_prefix="claude"; fi
+echo "  1. git switch -c ${branch_prefix}/release-v${next} && git add -A && git commit -m \"リリース準備: v${next}\""
 echo "  2. PR を作ってマージする (CI の version ジョブで 4 か所の整合を確認する)"
 echo "  3. main を最新にして git tag -a \"v${next}\" -m \"v${next}\" && git push origin \"v${next}\""

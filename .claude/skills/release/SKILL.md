@@ -53,10 +53,10 @@ git describe --tags --abbrev=0 --match 'v*'   # 前回のリリース (最初は
 ### 2. リリース準備 PR
 
 ```bash
-git switch -c claude/release-v3.1.0
+git switch -c codex/release-v3.1.0     # Claude Code では claude/release-v3.1.0
 .claude/skills/release/scripts/bump-version.sh minor    # または 3.1.0 のように直接指定
 git add -A && git commit -m "リリース準備: v3.1.0"
-git push -u origin claude/release-v3.1.0
+git push -u origin "$(git branch --show-current)"
 gh pr create --title "リリース準備: v3.1.0" --milestone "v3 リリース" --body-file pr-body.md
 ```
 
@@ -76,8 +76,8 @@ git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
 - **タグは必ず main のコミットに打つ** (release.yml が main に含まれるか確認して弾く)
 - **"Deploy staging" の完了を待つ**。タグのコミットの `sha-xxxxxxx` イメージが GHCR に無いと release.yml は失敗する
   (待ってからタグを打ち直せばよい。打ち直すときは `git tag -d v3.1.0 && git push origin :refs/tags/v3.1.0` で消してから)
-- Claude Code のクラウドセッションではカレントブランチ以外に push できない。タグ付けはユーザーに依頼するか、
-  API で作る: `gh api repos/Shirataki2/DisCalendarV3-new/git/refs -f ref=refs/tags/v3.1.0 -f sha=$(git rev-parse main)`
+- クラウド環境の権限でタグを push できない場合はユーザーに依頼するか、明示的な許可を得て API で作る:
+  `gh api repos/Shirataki2/DisCalendarV3-new/git/refs -f ref=refs/tags/v3.1.0 -f sha=$(git rev-parse main)`
 
 release.yml がやること (数十秒):
 

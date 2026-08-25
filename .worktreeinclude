@@ -1,0 +1,7 @@
+# Codex デスクトップアプリが管理するローカル worktree にだけコピーする ignored ファイル。
+# ファイルの中身は追跡されない。存在するものだけがコピーされる。
+.env
+web/.env.local
+api/.env
+bot/.env
+

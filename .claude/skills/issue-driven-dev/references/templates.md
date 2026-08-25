@@ -102,7 +102,7 @@ Closes #4
 - [x] `.env*` や秘密情報を含めていない
 - [ ] Claude / Codex のレビュー指摘を確認し、対応したか理由をコメントした
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+<!-- エージェント固有の生成フッタは不要 -->
 ```
 
 ```bash

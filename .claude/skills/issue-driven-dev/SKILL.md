@@ -1,6 +1,6 @@
 ---
 name: issue-driven-dev
-description: DisCalendar の GitHub Issue を起点にした開発フロー (Issue の確認・作成 → worktree とブランチの用意 → 実装・検証 → PR 作成 → CI と Claude / Codex レビューへの対応 → マージ後の後始末) を、このリポジトリのルールどおりに進めるためのスキル。「Issue #N をやって」「#N の実装を始めて」「Issue を切って」「これを Issue にして進めて」「PR を作って」「レビュー指摘に対応して」など Issue 番号・Issue / PR 作成・レビュー対応に触れる依頼や、機能追加・移行・修正などの作業単位を始めるときは、ユーザーが「イシュードリブン」と言わなくても必ずこのスキルを読む。main 直接 push 禁止、ラベル・マイルストーン、PR テンプレート、worktree の作り方といったリポジトリ固有の決まりをここに集約している。
+description: DisCalendar の GitHub Issue を起点にした開発フロー (Issue の確認・作成 → worktree とブランチの用意 → 実装・検証 → PR 作成 → CI と Claude / Codex レビューへの対応 → マージ後の後始末) を、このリポジトリのルールどおりに進めるためのスキル。「Issue #N をやって」「#N の実装を始めて」「Issue を切って」「これを Issue にして進めて」「PR を作って」「レビュー指摘に対応して」など Issue 番号・Issue / PR 作成・レビュー対応に触れる依頼や、機能追加・移行・修正などの作業単位を始めるときに使う。main 直接 push 禁止、ラベル・マイルストーン、PR テンプレート、worktree の作り方といったリポジトリ固有の決まりをここに集約している。
 ---
 
 # Issue 駆動開発 (DisCalendar)
@@ -26,8 +26,8 @@ description: DisCalendar の GitHub Issue を起点にした開発フロー (Iss
 | 段階 | やること | 主な道具 |
 |---|---|---|
 | 0 | Issue を読む / 無ければ作る | `gh issue view` / `gh issue create` |
-| 1 | worktree とブランチを用意する | `scripts/setup-worktree.sh` → `EnterWorktree` |
-| 2 | 実装と検証 | AGENTS.md のコマンド、Browser pane |
+| 1 | worktree とブランチを用意する | Codex の Worktree モード、または `scripts/setup-worktree.sh` |
+| 2 | 実装と検証 | AGENTS.md のコマンド、ブラウザ / Playwright |
 | 3 | コミット → push → PR | `gh pr create` |
 | 4 | CI とレビュー対応 | `gh pr checks` / `gh api .../comments` |
 | 5 | マージ後の後始末 | `cleanup-workspace` スキル |
@@ -41,7 +41,7 @@ description: DisCalendar の GitHub Issue を起点にした開発フロー (Iss
     --jq '.title, (.labels|map(.name)|join(",")), .milestone.title, .body, (.comments[] | "--- \(.author.login):\n\(.body)")'
   ```
 
-  「作業内容 / 完了条件 / 対象 / メモ」とコメントを押さえ、完了条件が複数あればそのまま TodoList にする (TodoWrite があれば)。分からない点は、まず旧実装 (`tmp/DisCalendarV2/`)・`docs/`・関連 Issue / PR を見てから質問する
+  「作業内容 / 完了条件 / 対象 / メモ」とコメントを押さえ、完了条件が複数あれば利用できる計画・Todo 機能に反映する。分からない点は、まず旧実装 (`tmp/DisCalendarV2/`)・`docs/`・関連 Issue / PR を見てから質問する
 - Issue が無い作業を頼まれたら、先に Issue を作ってから着手する (進捗が Issue 一覧に残るようにする意図)。
   本文の形は [references/templates.md](references/templates.md) を見る。例:
 
@@ -51,16 +51,20 @@ description: DisCalendar の GitHub Issue を起点にした開発フロー (Iss
   ```
 
   Issue 作成は外向きの操作なので、タイトル・本文をユーザーに見せてから実行する (ユーザーが「Issue にして」と言っている場合はそのまま作ってよい)
-- 作業中に Issue の範囲外の問題に気づいたら、その PR に混ぜずに別 Issue を切る (`mcp__ccd_session__spawn_task` か `gh issue create`)。1 PR = 1 Issue を保つとレビューも squash 後の履歴も読みやすい
+- 作業中に Issue の範囲外の問題に気づいたら、その PR に混ぜずに別 Issue を切る。1 PR = 1 Issue を保つとレビューも squash 後の履歴も読みやすい
 
 ### 1. worktree とブランチ
 
 既定は worktree で作業する (メインの checkout を `main` のまま汚さず、複数の Issue を並行でき、dev サーバーも別々に立てられる)。
 
-**クラウドセッション (claude.ai/code / `claude --cloud`、環境変数 `CLAUDE_CODE_REMOTE=true`) では worktree を作らない。**
-セッションごとに VM とブランチが分かれていて、`git push` もそのカレントブランチにしかできないので、この節は飛ばして
-カレントブランチのまま 2 以降へ進む (ブランチ名が `claude/issue-<N>-<slug>` でなくてもよい)。旧実装 `tmp/DisCalendarV2/` は無く、
-Browser pane での動作確認もできない (検証は CI 相当まで。AGENTS.md「Claude Code のクラウドセッションでの注意」)。
+Codex デスクトップアプリでは、新しいタスクを作るときに **Worktree** を選ぶ。アプリが `$CODEX_HOME/worktrees` に detached HEAD の
+worktree を作り、`.worktreeinclude` に列挙したローカル設定をコピーする。セットアップにはリポジトリの Local environment
+(`bash .agents/scripts/setup-worktree-environment.sh`) を選ぶ。作業を残すときはアプリの **Create branch here** で `codex/issue-<N>-<slug>` を作るか、
+**Handoff** で Local に移す。
+
+**クラウドセッション (Codex cloud / claude.ai/code / `claude --cloud`) では、clone 済みのカレント checkout 内に追加の worktree を作らない。**
+セッション自体が隔離されているので、この節は飛ばしてカレントブランチのまま 2 以降へ進む。旧実装 `tmp/DisCalendarV2/` と
+実トークンは無く、Discord ログインや実機確認はできない (検証は CI 相当まで。AGENTS.md「クラウドセッションでの注意」)。
 
 ```bash
 # <N>: Issue 番号、<slug>: 英小文字とハイフン 2〜4 語 (例: bot-tasks, staging-deploy, ga4)
@@ -68,16 +72,17 @@ Browser pane での動作確認もできない (検証は CI 相当まで。AGEN
 .claude/skills/issue-driven-dev/scripts/setup-worktree.sh <N> <slug> --install  # web を触るなら pnpm install も
 ```
 
-スクリプトは `.claude/worktrees/issue-<N>-<slug>` に `origin/main` 起点のブランチ `claude/issue-<N>-<slug>` を作り、
+スクリプトは `.claude/worktrees/issue-<N>-<slug>` に `origin/main` 起点のブランチを作る。既定の prefix は Codex なら `codex/`、
+Claude Code なら `claude/` で、`--prefix` でも指定できる。
 git 管理外の `.env` 系 (`api/.env`, `web/.env.local` など) をメインの checkout からコピーする。
-終わったら **`EnterWorktree` に `path` としてそのパスを渡してセッションを移す** (`name` で新規作成すると `worktree-<name>` という別名のブランチになるので使わない)。
+Claude Code で `EnterWorktree` が使える場合は、終わったら `path` に表示されたパスを渡してセッションを移す。Codex やサブエージェントなど
+セッションを移せない環境では、表示された絶対パスを workdir / cwd にして作業する。
 
-- サブエージェント (Agent ツールで cwd が固定されたもの) からは `EnterWorktree` / `ExitWorktree` が使えない。その場合はセッションを移さず、worktree の絶対パスで作業する (`git -C <path>`, `pnpm -C <path>/web`, `cargo ... --manifest-path <path>/Cargo.toml` か `cd <path> && ...`)。
-  並列で複数の Issue を委譲するなら Agent の `isolation: "worktree"` も選択肢
+- サブエージェントなど cwd が固定された環境では、セッションを移さず worktree の絶対パスで作業する (`git -C <path>`, `pnpm -C <path>/web`, `cargo ... --manifest-path <path>/Cargo.toml` か `cd <path> && ...`)
 - `--install` を付けずに作った後で web を触ることになったら `pnpm -C <path>/web install --frozen-lockfile`
 
 - 既にブランチがある場合 (GitHub Actions の `@claude` が `claude/issue-N-...` を作った、前回の続きなど): `--branch <ブランチ名>` を付けると、そのブランチ (ローカル or `origin/`) を checkout する
-- worktree セッションの中では、別パスへの `git -C` は拒否される。メインの checkout を触りたいときや別の Issue の worktree を作るときは、先に `ExitWorktree` (`keep`) で戻ってからスクリプトを実行する
+- Claude Code の worktree セッションで別パスへの `git -C` が拒否される場合は、先に `ExitWorktree` (`keep`) で戻ってからスクリプトを実行する。Codex では Handoff か別の Local タスクを使う
 - 小さな変更 (ドキュメント 1 ファイルなど) でユーザーが望めばメインの checkout で `git switch -c` でもよいが、
   終わったら必ず `main` に戻す
 
@@ -95,7 +100,7 @@ worktree 内で気をつけること:
   - web (`web/` で): `pnpm lint` / `pnpm exec tsc --noEmit` / `pnpm test` / `pnpm build`。カレンダー周りを触ったら `pnpm e2e` (Playwright、README「テスト」)
   - api / bot (ルートで): `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace`
   - `query!` を触ったら該当クレートで `cargo sqlx prepare -- --all-targets` を実行して `.sqlx/` をコミットに含める (CI は `SQLX_OFFLINE=true`)
-- UI の変更は Browser pane (`preview_start`) で実際に動かして確認し、PR の「動作確認」に手順を書く
+- UI の変更は利用できるブラウザまたは Playwright で実際に動かして確認し、PR の「動作確認」に手順を書く
 - 利用者に見える機能追加・変更・不具合修正なら、更新履歴 (`web/src/content/changelog.mdx`) に同じ PR で追記する (書き方はファイル冒頭のコメント。利用者に見えない内部変更は書かない)
 - web と api の境界 (`web/src/lib/api/types.ts` / `endpoints.ts` と `api/src/routes` / `api/src/models`、上限値) を変えたら両側を揃える
 - 環境変数を追加・変更するときは [references/templates.md の「環境変数を足すときの確認先」](references/templates.md#環境変数を足すときの確認先) を見る (web の `NEXT_PUBLIC_*` はビルド時に焼き込まれるので Dockerfile / compose / デプロイワークフローにも手が要る)
@@ -104,7 +109,7 @@ worktree 内で気をつけること:
 ### 3. コミット → push → PR
 
 ```bash
-git add -A && git commit -m "<日本語の要約>"      # 末尾に Co-Authored-By: Claude ... を付ける
+git add -A && git commit -m "<日本語の要約>"
 git push -u origin "$(git rev-parse --abbrev-ref HEAD)"
 gh pr create --title "<squash 後のコミットメッセージになる一文>" \
   --milestone "v3 リリース" --label area:<対象> --body-file pr-body.md
@@ -131,6 +136,6 @@ gh pr create --title "<squash 後のコミットメッセージになる一文>"
 ### 5. マージ後
 
 - `Closes #N` で Issue は自動で閉じる。残作業があれば Issue を開け直さず、別 Issue かコメントに書く
-- メインの checkout を最新にする: (`ExitWorktree` で戻ってから) `git switch main && git pull --ff-only`
+- メインの checkout を最新にする: (Claude Code は `ExitWorktree`、Codex は Handoff か Local タスクで戻ってから) `git switch main && git pull --ff-only`
 - worktree・ローカルブランチ・`target/` の掃除は **`cleanup-workspace` スキル** で行う (PR の状態を見て安全に消す)
-- 移行で分かった非自明な挙動 (旧実装との差、ライブラリの罠) はメモリに残す
+- 移行で分かった非自明な挙動 (旧実装との差、ライブラリの罠) は、後続の作業でも参照できるドキュメントや Issue に残す
