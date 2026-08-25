@@ -19,8 +19,10 @@
 //! # 精度の限界 (画面にも注記する)
 //!
 //! - 削除されたデータは数えられない。予定は削除で行ごと消えるので、過去の作成数は実際より少なく出る
-//! - 期限切れセッションを消す (定型操作 `purge-expired-sessions` / #44) と、その分だけ過去の
-//!   アクティブユーザーが減る。掃除を実行した時期より前の値は信用できない
+//! - **`session` の行を消すと、過去のアクティブユーザーとログイン回数がさかのぼって減る**。
+//!   定型操作の `purge-expired-sessions` (#44) だけでなく、ユーザー管理の強制ログアウト
+//!   (`admin_users::delete_sessions`、期限内のものも消える) も同じ。
+//!   ログインの推移は保存された履歴ではなく、**今残っている `session` から計算し直す推定値**
 //! - **セッションの `updatedAt` を更新するのは Better Auth (web のページ表示) だけ**で、
 //!   api の認証 (`crate::auth`) は `session` を読むだけで更新しない。そのためダッシュボードを開いたまま
 //!   予定の作成・カレンダーの再取得だけを続けている利用者は、最初の表示から 24 時間を過ぎると
@@ -148,10 +150,11 @@ pub struct EventCreation {
 pub struct Breakdown {
     /// 終日予定の数
     pub all_day_events: i64,
-    /// 実際に通知される設定を 1 件以上持つ予定の数
-    /// (Bot が必ず送る開始時刻の通知は含めない。解釈できない設定も含めない)
+    /// 開始時刻の通知に**追加で**通知が飛ぶ予定の数。
+    /// 解釈できない設定と、発火時刻が重なる設定 (「60 分前」と「1 時間前」、保存済みの「0 分前」) は
+    /// Bot がまとめて 1 回にするので数に入れない
     pub events_with_notifications: i64,
-    /// 予定 1 件あたりの通知設定数の平均。予定が 0 件なら 0
+    /// 予定 1 件あたりの追加の通知数の平均。予定が 0 件なら 0
     #[schema(example = 1.4)]
     pub notifications_per_event: f64,
     /// 参加中のギルドのうち、通知先チャンネルに**形式として正しい** ID を設定しているものの数。
@@ -376,15 +379,19 @@ pub async fn event_creation<'e>(
     let month = now - Duration::days(30);
     let month_prev = now - Duration::days(60);
 
+    // 直近の期間にも上限 ($7 = now) を付ける。`now` はトランザクションを開く前に取るので、
+    // その後スナップショットが確定するまでに作られた予定は created_at > now で見える。
+    // 時計のずれや手動投入で未来の created_at が入っている場合も同じで、
+    // 上限が無いと日別の推移 (翌 0 時で切っている) と数が合わなくなる
     let row = sqlx::query!(
         r#"
         SELECT
             count(*) AS "total!",
-            count(*) FILTER (WHERE created_at >= $1) AS "day!",
+            count(*) FILTER (WHERE created_at >= $1 AND created_at <= $7) AS "day!",
             count(*) FILTER (WHERE created_at >= $2 AND created_at < $1) AS "day_prev!",
-            count(*) FILTER (WHERE created_at >= $3) AS "week!",
+            count(*) FILTER (WHERE created_at >= $3 AND created_at <= $7) AS "week!",
             count(*) FILTER (WHERE created_at >= $4 AND created_at < $3) AS "week_prev!",
-            count(*) FILTER (WHERE created_at >= $5) AS "month!",
+            count(*) FILTER (WHERE created_at >= $5 AND created_at <= $7) AS "month!",
             count(*) FILTER (WHERE created_at >= $6 AND created_at < $5) AS "month_prev!",
             count(*) FILTER (WHERE is_all_day) AS "all_day!"
         FROM events
@@ -395,6 +402,7 @@ pub async fn event_creation<'e>(
         week_prev,
         month,
         month_prev,
+        now,
     )
     .fetch_one(executor)
     .await?;
@@ -410,13 +418,19 @@ pub async fn event_creation<'e>(
     ))
 }
 
-/// 通知設定の集計 (実際に通知される設定を持つ予定の数, 通知設定の総数)。
+/// 通知設定の集計 (実際に通知が増える予定の数, 通知の総数)。
 ///
-/// `notifications` は制約のない `TEXT[]` で、旧データや手動修正で壊れた JSON・負の `num`・
-/// 未知の単位が入りうる。api も Bot も [`Notification::decode_all`] で**解釈できない要素を捨てる**ので、
-/// 配列の長さをそのまま数えると「実際には通知されない予定」を数に入れてしまう。
-/// 判定を SQL に書き写すと本体 (`models::notifications`) とずれるため、
-/// 設定が入っている予定だけを取り出して同じ関数で数える (行はストリームで受けて溜め込まない)
+/// 数えるのは **Bot が実際に発火させる通知のうち、必ず送られる開始時刻の通知を除いたもの**。
+/// [`Notification::fire_minutes`] が Bot と同じ規則で並べてくれるので、そこから 0 分前
+/// (= 開始時刻の通知) を除いた数を使う。つまり
+///
+/// - 解釈できない設定 (壊れた JSON・負の `num`・未知の単位) は数えない
+/// - 「60 分前」と「1 時間前」のように発火時刻が同じものは 1 件として数える
+/// - 保存済みの「0 分前」は開始時刻の通知と同じなので数えない
+///
+/// `notifications` は制約のない `TEXT[]` なので、判定を SQL に書き写すと本体
+/// (`models::notifications`) とずれる。設定が入っている予定だけを取り出して同じ関数に通す
+/// (行はストリームで受けて溜め込まない)
 pub async fn notification_stats<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<(i64, i64)> {
     let mut rows = sqlx::query!(
         r#"SELECT notifications FROM events WHERE array_length(notifications, 1) > 0"#
@@ -426,10 +440,14 @@ pub async fn notification_stats<'e>(executor: impl PgExecutor<'e>) -> sqlx::Resu
     let mut events_with_notifications = 0;
     let mut total = 0;
     while let Some(row) = rows.try_next().await? {
-        let valid = Notification::decode_all(&row.notifications).len() as i64;
-        if valid > 0 {
+        // fire_minutes には必ず 0 分前が入るので、それを除いた数が「設定によって増えた通知」
+        let extra = Notification::fire_minutes(&row.notifications)
+            .into_iter()
+            .filter(|&m| m != 0)
+            .count() as i64;
+        if extra > 0 {
             events_with_notifications += 1;
-            total += valid;
+            total += extra;
         }
     }
     Ok((events_with_notifications, total))
@@ -444,11 +462,13 @@ pub async fn notification_stats<'e>(executor: impl PgExecutor<'e>) -> sqlx::Resu
 pub async fn guild_counts<'e>(
     executor: impl PgExecutor<'e>,
     since: NaiveDateTime,
+    now: NaiveDateTime,
 ) -> sqlx::Result<(i64, i64, i64)> {
     let row = sqlx::query!(
         r#"
         WITH recent AS (
-            SELECT DISTINCT guild_id FROM events WHERE created_at >= $1
+            -- 上限を付けないと、未来の created_at を持つ予定でギルドがアクティブ扱いになる
+            SELECT DISTINCT guild_id FROM events WHERE created_at >= $1 AND created_at <= $2
         )
         SELECT
             -- 参加中と退出済みを分けて数える。混ぜると「参加中のうち使われている割合」が出せない
@@ -459,6 +479,7 @@ pub async fn guild_counts<'e>(
         LEFT JOIN guilds g ON g.guild_id = r.guild_id
         "#,
         since,
+        now,
     )
     .fetch_one(executor)
     .await?;
@@ -469,13 +490,14 @@ pub async fn guild_counts<'e>(
 pub async fn top_guilds<'e>(
     executor: impl PgExecutor<'e>,
     since: NaiveDateTime,
+    now: NaiveDateTime,
 ) -> sqlx::Result<Vec<TopGuild>> {
     sqlx::query_as!(
         TopGuild,
         r#"
         WITH recent AS (
             SELECT guild_id, count(*) AS n
-            FROM events WHERE created_at >= $1 GROUP BY guild_id
+            FROM events WHERE created_at >= $1 AND created_at <= $2 GROUP BY guild_id
         )
         SELECT
             r.guild_id AS "guild_id!",
@@ -485,9 +507,10 @@ pub async fn top_guilds<'e>(
         FROM recent r
         LEFT JOIN guilds g ON g.guild_id = r.guild_id
         ORDER BY r.n DESC, r.guild_id
-        LIMIT $2
+        LIMIT $3
         "#,
         since,
+        now,
         TOP_GUILD_LIMIT,
     )
     .fetch_all(executor)

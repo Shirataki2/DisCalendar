@@ -213,7 +213,7 @@ export default async function AdminAnalyticsPage() {
 
         <Section
           title="新規ユーザーとログイン"
-          description="新規ユーザーは Better Auth に利用者が登録された数 (初回ログイン)。ログインはセッションが新しく作られた回数で、同じ人が別の端末やブラウザから入るたびに増える"
+          description="新規ユーザーは Better Auth に利用者が登録された数 (初回ログイン)。ログインはセッションが新しく作られた回数で、同じ人が別の端末やブラウザから入るたびに増える。ログインは保存された履歴ではなく今残っているセッションから数え直しているため、セッションを消すとさかのぼって減る"
         >
           <div className="grid gap-3 lg:grid-cols-2">
             <BarChart
@@ -363,10 +363,10 @@ export default async function AdminAnalyticsPage() {
                 total={event_creation.total}
               />
               <ProportionBar
-                label="通知が届く設定を持つ予定"
+                label="開始時刻より前にも通知が届く予定"
                 value={breakdown.events_with_notifications}
                 total={event_creation.total}
-                note={`予定 1 件あたりの通知設定は平均 ${breakdown.notifications_per_event.toFixed(2)} 件。Bot が必ず送る開始時刻の通知と、旧データの解釈できない設定 (Bot も無視して送らない) は数えていない`}
+                note={`予定 1 件あたり平均 ${breakdown.notifications_per_event.toFixed(2)} 件。Bot が必ず送る開始時刻の通知、解釈できない旧データの設定、発火時刻が重なる設定 (「60 分前」と「1 時間前」など。Bot は 1 回にまとめる) は数えていない`}
               />
             </Card>
             <Card className="flex flex-col gap-4">
@@ -401,12 +401,19 @@ export default async function AdminAnalyticsPage() {
             </li>
             <li>
               <strong className="font-medium text-neutral-300">
-                期限切れセッションを消すと過去のアクティブユーザーが減る。
+                セッションを消すと、過去のアクティブユーザーとログイン回数がさかのぼって減る。
               </strong>
+              アクティブユーザーもログインも、保存された履歴ではなく今残っているセッションから
+              計算し直している。
               <Link href={ROUTES.adminSql} className="mx-1 underline">
                 定型操作
               </Link>
-              の「期限切れセッションの削除」を実行した時期より前の値は信用できない
+              の「期限切れセッションの削除」だけでなく、
+              <Link href={ROUTES.adminUsers} className="mx-1 underline">
+                ユーザー管理
+              </Link>
+              の「強制ログアウト」(期限内のセッションも消える)
+              でも減るので、実行した時期より前の値は信用できない
             </li>
             <li>
               アクティブユーザーはセッションの生存期間で判定している。ログインしたまま使っていない場合も

@@ -408,8 +408,12 @@ export interface AdminEventCreation {
 /** 予定の内訳と設定の行き渡り具合 */
 export interface AdminAnalyticsBreakdown {
   all_day_events: number;
-  /** 実際に通知される設定を 1 件以上持つ予定の数 (解釈できない旧データの設定は含めない) */
+  /**
+   * 開始時刻の通知に追加で通知が飛ぶ予定の数。
+   * 解釈できない旧データの設定と、発火時刻が重なる設定 (Bot が 1 回にまとめる) は含めない
+   */
   events_with_notifications: number;
+  /** 予定 1 件あたりの追加の通知数の平均 */
   notifications_per_event: number;
   /**
    * 参加中のギルドのうち、通知先チャンネルに形式として正しい ID を設定しているものの数。

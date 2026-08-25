@@ -88,8 +88,8 @@ pub async fn analytics(
     let (events_with_notifications, notification_total) =
         admin_analytics::notification_stats(&mut *tx).await?;
     let (active_guilds, active_left_guilds, joined_guilds) =
-        admin_analytics::guild_counts(&mut *tx, recent_since).await?;
-    let top_guilds = admin_analytics::top_guilds(&mut *tx, recent_since).await?;
+        admin_analytics::guild_counts(&mut *tx, recent_since, now).await?;
+    let top_guilds = admin_analytics::top_guilds(&mut *tx, recent_since, now).await?;
     let (guilds_with_channel, restricted_guilds) =
         admin_analytics::guild_settings(&mut *tx).await?;
     // 読むだけなので commit / rollback のどちらでもよいが、スナップショットは早く手放す

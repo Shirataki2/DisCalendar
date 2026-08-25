@@ -162,6 +162,25 @@ async fn seed_partially_broken_notification(pool: &PgPool) {
     .unwrap();
 }
 
+/// 発火時刻が重なる設定を持つ予定 (Bot は 1 回にまとめて送る)
+async fn seed_duplicate_notifications(pool: &PgPool) {
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO events (guild_id, name, notifications, is_all_day, start_at, end_at, created_at) VALUES
+            -- 「60 分前」と「1 時間前」は同じ発火時刻。保存済みの「0 分前」は開始時刻の通知と同じ
+            ('111111111111111111', 'D2',
+             ARRAY['{"key":0,"num":60,"type":"分前"}', '{"key":1,"num":1,"type":"時間前"}', '{"key":2,"num":0,"type":"分前"}'],
+             false, '2026-09-01T10:00:00', '2026-09-01T11:00:00', '2026-08-25T09:00:00'),
+            -- 保存済みの「0 分前」だけ = 追加の通知は無い
+            ('111111111111111111', 'D3', ARRAY['{"key":0,"num":0,"type":"分前"}'],
+             false, '2026-09-01T10:00:00', '2026-09-01T11:00:00', '2026-08-25T09:00:00');
+        "#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 #[sqlx::test(migrations = "./migrations")]
 async fn active_users_count_sessions_overlapping_each_window(pool: PgPool) {
     seed_auth(&pool).await;
@@ -276,13 +295,13 @@ async fn event_creation_is_zero_without_events(pool: PgPool) {
     );
 }
 
-/// 配列の長さではなく `Notification::decode_all` が解釈できた数を数えていること。
-/// 旧データや手動修正で壊れた設定が入っていても、api / Bot はそれを捨てて通知しない
+/// 配列の長さではなく、Bot が実際に発火させる通知 (`Notification::fire_minutes`) から
+/// 必ず送られる開始時刻の通知を除いた数を数えていること
 #[sqlx::test(migrations = "./migrations")]
 async fn notification_stats_count_only_settings_that_actually_notify(pool: PgPool) {
     seed_guilds(&pool).await;
 
-    // 通知を設定しているのは A (2 件) と C (1 件)
+    // 通知を設定しているのは A (1 日前 + 30 分前 = 2 件) と C (1 時間前 = 1 件)
     assert_eq!(
         admin_analytics::notification_stats(&pool).await.unwrap(),
         (2, 3)
@@ -300,6 +319,14 @@ async fn notification_stats_count_only_settings_that_actually_notify(pool: PgPoo
     assert_eq!(
         admin_analytics::notification_stats(&pool).await.unwrap(),
         (3, 4)
+    );
+
+    seed_duplicate_notifications(&pool).await;
+    // 「60 分前」と「1 時間前」は Bot が 1 回にまとめるので 1 件。
+    // 保存済みの「0 分前」は必ず送られる開始時刻の通知と同じなので数に入らない
+    assert_eq!(
+        admin_analytics::notification_stats(&pool).await.unwrap(),
+        (4, 5)
     );
 }
 
@@ -362,7 +389,7 @@ async fn guild_activity_ranks_guilds_by_recent_events(pool: PgPool) {
     seed_guilds(&pool).await;
 
     let (active_guilds, active_left_guilds, joined_guilds) =
-        admin_analytics::guild_counts(&pool, recent_since())
+        admin_analytics::guild_counts(&pool, recent_since(), now_jst())
             .await
             .unwrap();
 
@@ -374,7 +401,7 @@ async fn guild_activity_ranks_guilds_by_recent_events(pool: PgPool) {
     // 分子が分母を超えない (退出済みを混ぜると 3 / 3 = 100% と読めてしまう)
     assert!(active_guilds <= joined_guilds);
 
-    let top = admin_analytics::top_guilds(&pool, recent_since())
+    let top = admin_analytics::top_guilds(&pool, recent_since(), now_jst())
         .await
         .unwrap();
     assert_eq!(top.len(), 3);

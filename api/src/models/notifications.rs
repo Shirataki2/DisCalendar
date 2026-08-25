@@ -97,6 +97,29 @@ impl Notification {
         raw.iter().filter_map(|s| Self::from_legacy(s)).collect()
     }
 
+    /// DB の配列 → Bot が実際に発火させる「開始の何分前か」の一覧 (昇順・重複なし)。
+    ///
+    /// Bot (bot/src/tasks/notify.rs の `notify_for_event`) の扱いに合わせる:
+    ///
+    /// - 解釈できない要素は捨てる ([`Notification::decode_all`])
+    /// - 保存済みの設定に関係なく**必ず開始時刻 (0 分前) の通知を送る**
+    /// - `total_minutes()` が同じもの (「60 分前」と「1 時間前」、保存済みの「0 分前」と
+    ///   開始時刻通知など) は 1 回にまとめる (`dedup_notifications`)
+    ///
+    /// 通知の数を数える側 (`admin_stats` の今日の通知予定数、`admin_analytics` の内訳) が
+    /// それぞれ同じ規則を書き写すとずれるので、ここに一本化する
+    pub fn fire_minutes(raw: &[String]) -> Vec<i64> {
+        let mut minutes: Vec<i64> = Self::decode_all(raw)
+            .into_iter()
+            .map(Self::total_minutes)
+            // Bot は保存済みの設定に関係なく開始時刻の通知を送る
+            .chain(std::iter::once(0))
+            .collect();
+        minutes.sort_unstable();
+        minutes.dedup();
+        minutes
+    }
+
     /// API 表現 → DB の配列
     pub fn encode_all(list: &[Self]) -> Vec<String> {
         list.iter()
@@ -185,6 +208,26 @@ mod tests {
             Notification::decode_all(&Notification::encode_all(&list)),
             list
         );
+    }
+
+    #[test]
+    fn fire_minutes_follows_the_bot_rules() {
+        let raw = vec![
+            r#"{"key":0,"num":60,"type":"分前"}"#.to_owned(),
+            // 「60 分前」と発火時刻が同じ (Bot は 1 回にまとめる)
+            r#"{"key":1,"num":1,"type":"時間前"}"#.to_owned(),
+            // 保存済みの 0 分前は、必ず送られる開始時刻通知と同じ
+            r#"{"key":2,"num":0,"type":"分前"}"#.to_owned(),
+            r#"{"key":3,"num":1,"type":"日前"}"#.to_owned(),
+            "garbage".to_owned(),
+        ];
+        assert_eq!(Notification::fire_minutes(&raw), vec![0, 60, 1440]);
+    }
+
+    #[test]
+    fn fire_minutes_always_contains_the_start_notification() {
+        assert_eq!(Notification::fire_minutes(&[]), vec![0]);
+        assert_eq!(Notification::fire_minutes(&["garbage".to_owned()]), vec![0]);
     }
 
     #[test]

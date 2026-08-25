@@ -246,17 +246,8 @@ fn count_fired_between(
     } else {
         start_at
     };
-    let mut minutes: Vec<i64> = Notification::decode_all(raw_notifications)
-        .into_iter()
-        .map(Notification::total_minutes)
-        .collect();
-    // Bot は保存済みの設定に関係なく開始時刻の通知を送る
-    minutes.push(0);
-    // 「60 分前」と「1 時間前」のように分数が同じものは Bot も 1 回にまとめる
-    minutes.sort_unstable();
-    minutes.dedup();
-
-    minutes
+    // 開始時刻の通知の追加と、同じ分数のものをまとめる処理は Notification 側に一本化してある
+    Notification::fire_minutes(raw_notifications)
         .into_iter()
         .filter(|&m| {
             // num は u32 で上限を決めていないので、分に直した時点でも減算でも溢れうる。
