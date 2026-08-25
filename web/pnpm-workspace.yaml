@@ -6,3 +6,9 @@ ignoredBuiltDependencies:
   - esbuild
   - sharp
   - unrs-resolver
+
+# Dependabot は cooldown (公開から一定期間) を pnpm の minimumReleaseAge として渡してくる。
+# 範囲を満たすのが「公開直後の版」だけになると解決に失敗し、その回の npm 更新がまとめて落ちるため、
+# 更新の追従を優先したいパッケージはここで除外する (minimumReleaseAge を使わない通常の install では無効)。
+minimumReleaseAgeExclude:
+  - shadcn

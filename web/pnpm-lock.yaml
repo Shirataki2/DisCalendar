@@ -68,9 +68,6 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
-      shadcn:
-        specifier: ^4.19.0
-        version: 4.19.0(typescript@5.9.3)
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
@@ -120,6 +117,9 @@ importers:
       serwist:
         specifier: ^9.5.12
         version: 9.5.12(browserslist@4.28.8)(typescript@5.9.3)
+      shadcn:
+        specifier: ^4
+        version: 4.19.0(typescript@5.9.3)
       tailwindcss:
         specifier: ^4
         version: 4.3.3
