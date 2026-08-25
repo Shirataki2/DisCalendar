@@ -22,6 +22,9 @@ else
 fi
 cd "$repo_root" || exit 0
 
+# shellcheck source=lib/cloud-tools.sh
+source "$repo_root/.agents/scripts/lib/cloud-tools.sh"
+
 log() { echo "[agent-setup] $*"; }
 db_url="postgres://postgres:postgres@127.0.0.1:5432/discalendar_dev"
 
@@ -44,7 +47,8 @@ as_postgres() {
 }
 
 if [ "$install_tools" = 1 ]; then
-  if ! command -v pg_isready >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+  if { ! postgresql_server_available || ! command -v pg_isready >/dev/null 2>&1 || ! command -v psql >/dev/null 2>&1; } &&
+    command -v apt-get >/dev/null 2>&1; then
     if run_privileged apt-get update -qq && run_privileged apt-get install -y -qq postgresql postgresql-client; then
       log "PostgreSQL をインストールしました"
     else
@@ -52,10 +56,10 @@ if [ "$install_tools" = 1 ]; then
     fi
   fi
 
-  if command -v rustup >/dev/null 2>&1; then
+  if ensure_rustup; then
     rustup toolchain install >/dev/null 2>&1 || log "rustup toolchain install に失敗しました"
   else
-    log "rustup がありません。クラウド環境の package version で Rust を有効にしてください"
+    log "rustup の導入に失敗しました"
   fi
 
   if command -v corepack >/dev/null 2>&1; then

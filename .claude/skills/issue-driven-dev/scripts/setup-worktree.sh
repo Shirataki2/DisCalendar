@@ -11,6 +11,7 @@
 set -euo pipefail
 
 usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; }
+script_dir=$(cd "$(dirname "$0")" && pwd)
 
 issue="" slug="" install=0 branch="" prefix=""
 while [ $# -gt 0 ]; do
@@ -27,15 +28,17 @@ done
 
 if ! [[ "$issue" =~ ^[0-9]+$ ]]; then echo "Issue 番号 (数字) を指定してください" >&2; usage >&2; exit 2; fi
 if ! [[ "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then echo "slug は英小文字・数字・ハイフンで指定してください (例: bot-tasks)" >&2; exit 2; fi
-if [ -z "$prefix" ]; then
-  if [ -n "${CODEX_HOME:-}" ]; then prefix="codex"; else prefix="claude"; fi
-fi
-if ! [[ "$prefix" =~ ^[a-z0-9][a-z0-9/-]*$ ]]; then echo "prefix は英小文字・数字・スラッシュ・ハイフンで指定してください" >&2; exit 2; fi
-
 # メインの checkout (git worktree list の先頭) を基準にする
 main_wt=$(git worktree list --porcelain | awk 'NR==1 && /^worktree / {sub(/^worktree /, ""); print}')
 [ -n "$main_wt" ] || { echo "git リポジトリ内で実行してください" >&2; exit 1; }
 cd "$main_wt"
+
+# shellcheck source=../../../../.agents/scripts/lib/agent-context.sh
+source "$script_dir/../../../../.agents/scripts/lib/agent-context.sh"
+if [ -z "$prefix" ]; then
+  prefix=$(agent_branch_prefix)
+fi
+if ! [[ "$prefix" =~ ^[a-z0-9][a-z0-9/-]*$ ]]; then echo "prefix は英小文字・数字・スラッシュ・ハイフンで指定してください" >&2; exit 2; fi
 
 name="issue-${issue}-${slug}"
 path=".claude/worktrees/${name}"
