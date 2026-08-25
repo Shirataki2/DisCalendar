@@ -39,6 +39,16 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
 
+  # web / api / bot のバージョン (3 か所 + Cargo.lock) がずれていないか見る。
+  # リリースのたびに揃えて上げる運用なので、途中でずれると v タグと中身が食い違う (.claude/skills/release/)
+  version:
+    name: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: バージョンの整合
+        run: .github/scripts/check-versions.sh
+
   web:
     name: web
     needs: changes
@@ -197,19 +207,21 @@ jobs:
   # web / rust / e2e は変更がなければ skipped になるので、それは成功として扱う
   ci:
     name: ci
-    needs: [changes, web, rust, e2e]
+    needs: [changes, version, web, rust, e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: 結果の集約
         env:
           CHANGES: ${{ needs.changes.result }}
+          VERSION: ${{ needs.version.result }}
           WEB: ${{ needs.web.result }}
           RUST: ${{ needs.rust.result }}
           E2E: ${{ needs.e2e.result }}
         run: |
-          echo "changes=$CHANGES web=$WEB rust=$RUST e2e=$E2E"
+          echo "changes=$CHANGES version=$VERSION web=$WEB rust=$RUST e2e=$E2E"
           [ "$CHANGES" = "success" ] || exit 1
+          [ "$VERSION" = "success" ] || exit 1
           for r in "$WEB" "$RUST" "$E2E"; do
             case "$r" in
               success|skipped) ;;
