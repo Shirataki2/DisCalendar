@@ -140,6 +140,10 @@ async fn seed_broken_notifications(pool: &PgPool) {
              false, '2026-09-01T10:00:00', '2026-09-01T11:00:00', '2026-08-25T09:00:00'),
             -- num が負で u32 にできない
             ('111111111111111111', 'Z', ARRAY['{"key":0,"num":-1,"type":"分前"}'],
+             false, '2026-09-01T10:00:00', '2026-09-01T11:00:00', '2026-08-25T09:00:00'),
+            -- u32 としては有効だが、分に直すと日時の計算ができない (Bot も送れない)。
+            -- api は num の値域を検証していない (#46) ので API 直叩きや旧データで入りうる
+            ('111111111111111111', 'V', ARRAY['{"key":0,"num":4294967295,"type":"週間前"}'],
              false, '2026-09-01T10:00:00', '2026-09-01T11:00:00', '2026-08-25T09:00:00');
         "#,
     )
@@ -241,7 +245,7 @@ async fn active_users_keep_counting_a_session_that_is_still_in_use(pool: PgPool)
     assert_eq!(active.monthly.current, 1);
     assert_eq!(active.monthly.previous, 1);
 
-    let monthly = admin_analytics::monthly(&pool, now_utc()).await.unwrap();
+    let monthly = admin_analytics::monthly(&pool, now_jst()).await.unwrap();
     // 3 月に作られて今も生きているので、4 月以降のどの月でもアクティブとして数える
     let april = monthly
         .iter()
@@ -308,7 +312,7 @@ async fn notification_stats_count_only_settings_that_actually_notify(pool: PgPoo
     );
 
     seed_broken_notifications(&pool).await;
-    // 壊れた JSON / 未知の単位 / 負の num しか持たない予定は数に入らない
+    // 壊れた JSON / 未知の単位 / 負の num / 発火時刻を計算できない num しか持たない予定は数に入らない
     assert_eq!(
         admin_analytics::notification_stats(&pool).await.unwrap(),
         (2, 3)
@@ -335,9 +339,7 @@ async fn daily_series_covers_every_day_including_empty_ones(pool: PgPool) {
     seed_auth(&pool).await;
     seed_guilds(&pool).await;
 
-    let daily = admin_analytics::daily(&pool, now_jst().date())
-        .await
-        .unwrap();
+    let daily = admin_analytics::daily(&pool, now_jst()).await.unwrap();
 
     // 予定が無い日も 0 の点として並ぶ (グラフに穴を空けない)
     assert_eq!(daily.len() as i32, admin_analytics::DAILY_DAYS);
@@ -365,7 +367,7 @@ async fn monthly_series_buckets_by_jst_month(pool: PgPool) {
     seed_auth(&pool).await;
     seed_guilds(&pool).await;
 
-    let monthly = admin_analytics::monthly(&pool, now_utc()).await.unwrap();
+    let monthly = admin_analytics::monthly(&pool, now_jst()).await.unwrap();
 
     assert_eq!(monthly.len() as i32, admin_analytics::MONTHLY_MONTHS);
     assert_eq!(monthly[0].month, date("2025-09-01"));
@@ -382,6 +384,56 @@ async fn monthly_series_buckets_by_jst_month(pool: PgPool) {
     assert_eq!(july.events, 1); // F
     assert_eq!(july.new_users, 1); // u3
     assert_eq!(july.active_users, 1); // u3 (07-10 まで使っていた)
+}
+
+/// 集計の基準時刻より後の `created_at` を持つ予定を、どの集計にも入れないこと。
+/// (トランザクションを開くまでの間に作られた行、時計のずれ、手動投入で起こりうる)
+#[sqlx::test(migrations = "./migrations")]
+async fn future_dated_events_are_excluded_from_every_window(pool: PgPool) {
+    seed_auth(&pool).await;
+    seed_guilds(&pool).await;
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO events (guild_id, name, notifications, is_all_day, start_at, end_at, created_at) VALUES
+            -- 基準の 08-25 12:00 より後 (同じ「今日」ではあるが集計時点より未来)
+            ('222222222222222222', 'F1', ARRAY[]::text[],
+             false, '2026-09-10T10:00:00', '2026-09-10T11:00:00', '2026-08-25T23:00:00'),
+            -- ずっと先の日付が入っている行
+            ('333333333333333333', 'F2', ARRAY[]::text[],
+             false, '2027-01-01T10:00:00', '2027-01-01T11:00:00', '2027-01-01T00:00:00');
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (creation, _) = admin_analytics::event_creation(&pool, now_jst())
+        .await
+        .unwrap();
+    // 総数には入る (今 DB にある予定の数なので) が、期間の集計には入らない
+    assert_eq!(creation.total, 9);
+    assert_eq!(creation.last_day.current, 1);
+    assert_eq!(creation.last_month.current, 6);
+
+    // 推移の右端 (今日 / 当月) も同じ基準で切る。ここがずれると画面の合計と件数が食い違う
+    let daily = admin_analytics::daily(&pool, now_jst()).await.unwrap();
+    assert_eq!(daily[daily.len() - 1].date, date("2026-08-25"));
+    assert_eq!(daily[daily.len() - 1].events, 1);
+
+    let monthly = admin_analytics::monthly(&pool, now_jst()).await.unwrap();
+    let august = monthly
+        .iter()
+        .find(|m| m.month == date("2026-08-01"))
+        .unwrap();
+    assert_eq!(august.events, 6);
+
+    // 未来日時の予定 1 件でギルドをアクティブ扱いにしない
+    let (active_guilds, active_left_guilds, _) =
+        admin_analytics::guild_counts(&pool, recent_since(), now_jst())
+            .await
+            .unwrap();
+    assert_eq!(active_guilds, 2);
+    assert_eq!(active_left_guilds, 1);
 }
 
 #[sqlx::test(migrations = "./migrations")]

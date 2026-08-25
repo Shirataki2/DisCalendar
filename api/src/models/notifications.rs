@@ -5,6 +5,7 @@
 //! API の入出力では構造化した `{ "num": 30, "unit": "minutes" }` を使い、
 //! ここで相互変換する (Bot 移行後に保存形式を見直す際はこのモジュールだけ直せばよい)。
 
+use chrono::{Duration, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -120,6 +121,37 @@ impl Notification {
         minutes
     }
 
+    /// 予定の開始時刻。終日予定は 0:00 に丸める (web / api / Bot 共通の規約)
+    pub fn effective_start(start_at: NaiveDateTime, is_all_day: bool) -> NaiveDateTime {
+        if is_all_day {
+            start_at
+                .date()
+                .and_hms_opt(0, 0, 0)
+                .expect("date always has midnight")
+        } else {
+            start_at
+        }
+    }
+
+    /// その予定について Bot が実際に送る通知の発火時刻 ([`Notification::fire_minutes`] の順、発火が遅い順)。
+    ///
+    /// `num` の値域は api で検証していない (#46) ので、`total_minutes()` に直した時点や
+    /// 開始からの減算で溢れることがある。Bot (`fire_at`) はそれを送れないので、ここでも除く。
+    /// **開始時刻の通知は必ず計算できるため、戻り値は必ず 1 件以上**になる
+    pub fn fire_times(
+        start_at: NaiveDateTime,
+        is_all_day: bool,
+        raw: &[String],
+    ) -> Vec<NaiveDateTime> {
+        let start = Self::effective_start(start_at, is_all_day);
+        Self::fire_minutes(raw)
+            .into_iter()
+            .filter_map(|minutes| {
+                Duration::try_minutes(minutes).and_then(|offset| start.checked_sub_signed(offset))
+            })
+            .collect()
+    }
+
     /// API 表現 → DB の配列
     pub fn encode_all(list: &[Self]) -> Vec<String> {
         list.iter()
@@ -131,6 +163,8 @@ impl Notification {
 
 #[cfg(test)]
 mod tests {
+    use chrono::NaiveDateTime;
+
     use super::*;
 
     #[test]
@@ -228,6 +262,34 @@ mod tests {
     fn fire_minutes_always_contains_the_start_notification() {
         assert_eq!(Notification::fire_minutes(&[]), vec![0]);
         assert_eq!(Notification::fire_minutes(&["garbage".to_owned()]), vec![0]);
+    }
+
+    #[test]
+    fn fire_times_drop_notifications_that_cannot_be_computed() {
+        let start: NaiveDateTime = "2026-08-25T10:00:00".parse().unwrap();
+        let raw = vec![
+            r#"{"key":0,"num":30,"type":"分前"}"#.to_owned(),
+            // 分に直した時点で chrono の Duration に収まらない (Bot も送れない)
+            r#"{"key":1,"num":4294967295,"type":"週間前"}"#.to_owned(),
+        ];
+        // 30 分前と、必ず送られる開始時刻の通知だけが残る
+        assert_eq!(
+            Notification::fire_times(start, false, &raw),
+            vec![start, "2026-08-25T09:30:00".parse().unwrap()]
+        );
+    }
+
+    #[test]
+    fn fire_times_round_all_day_events_to_midnight() {
+        let start: NaiveDateTime = "2026-08-25T15:30:00".parse().unwrap();
+        let raw = vec![r#"{"key":0,"num":30,"type":"分前"}"#.to_owned()];
+        assert_eq!(
+            Notification::fire_times(start, true, &raw),
+            vec![
+                "2026-08-25T00:00:00".parse().unwrap(),
+                "2026-08-24T23:30:00".parse().unwrap(),
+            ]
+        );
     }
 
     #[test]

@@ -237,25 +237,11 @@ fn count_fired_between(
     day_start: NaiveDateTime,
     day_end: NaiveDateTime,
 ) -> usize {
-    // 終日予定は開始日の 0:00 を基準にする (web / api / Bot 共通の規約)
-    let start = if is_all_day {
-        start_at
-            .date()
-            .and_hms_opt(0, 0, 0)
-            .expect("valid midnight")
-    } else {
-        start_at
-    };
-    // 開始時刻の通知の追加と、同じ分数のものをまとめる処理は Notification 側に一本化してある
-    Notification::fire_minutes(raw_notifications)
+    // 終日予定の丸め・開始時刻の通知の追加・同じ分数のものの統合・計算できない通知の除外は
+    // すべて Notification::fire_times に一本化してある (Bot と数え方を揃えるため)
+    Notification::fire_times(start_at, is_all_day, raw_notifications)
         .into_iter()
-        .filter(|&m| {
-            // num は u32 で上限を決めていないので、分に直した時点でも減算でも溢れうる。
-            // 計算できない通知は Bot 側 (fire_at) でも送られないので数えない
-            chrono::Duration::try_minutes(m)
-                .and_then(|offset| start.checked_sub_signed(offset))
-                .is_some_and(|fire| fire >= day_start && fire < day_end)
-        })
+        .filter(|&fire| fire >= day_start && fire < day_end)
         .count()
 }
 

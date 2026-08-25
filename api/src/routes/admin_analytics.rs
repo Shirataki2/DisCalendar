@@ -82,8 +82,8 @@ pub async fn analytics(
         .await?;
 
     let active_users = admin_analytics::active_users(&mut *tx, now_utc).await?;
-    let daily = admin_analytics::daily(&mut *tx, now.date()).await?;
-    let monthly = admin_analytics::monthly(&mut *tx, now_utc).await?;
+    let daily = admin_analytics::daily(&mut *tx, now).await?;
+    let monthly = admin_analytics::monthly(&mut *tx, now).await?;
     let (event_creation, all_day_events) = admin_analytics::event_creation(&mut *tx, now).await?;
     let (events_with_notifications, notification_total) =
         admin_analytics::notification_stats(&mut *tx).await?;

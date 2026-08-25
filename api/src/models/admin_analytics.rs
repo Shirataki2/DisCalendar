@@ -247,34 +247,36 @@ pub async fn active_users<'e>(
 /// (日ごとの相関サブクエリにすると `events` を日数ぶん走査してしまう)
 pub async fn daily<'e>(
     executor: impl PgExecutor<'e>,
-    today: NaiveDate,
+    now: NaiveDateTime,
 ) -> sqlx::Result<Vec<DailyPoint>> {
     sqlx::query_as!(
         DailyPoint,
         r#"
         WITH days AS (
-            SELECT ($1::date - g)::date AS day
+            SELECT ($1::timestamp::date - g)::date AS day
             FROM generate_series($2::int - 1, 0, -1) AS g
         ),
+        -- 右端 (今日) は $1 (集計時刻) で切る。翌 0 時まで読むと、スナップショット確定までに
+        -- 作られた行や未来日時の行が入り、同じ上限を持つ直近 24 時間などの件数と食い違う
         ev AS (
             SELECT created_at::date AS day, count(*) AS n
             FROM events
-            WHERE created_at >= ($1::date - ($2::int - 1))::timestamp
-              AND created_at < ($1::date + 1)::timestamp
+            WHERE created_at >= ($1::timestamp::date - ($2::int - 1))::timestamp
+              AND created_at <= $1
             GROUP BY 1
         ),
         nu AS (
             SELECT ("createdAt" AT TIME ZONE 'Asia/Tokyo')::date AS day, count(*) AS n
             FROM "user"
-            WHERE "createdAt" >= ($1::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'
-              AND "createdAt" < ($1::date + 1)::timestamp AT TIME ZONE 'Asia/Tokyo'
+            WHERE "createdAt" >= ($1::timestamp::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'
+              AND "createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
             GROUP BY 1
         ),
         lg AS (
             SELECT ("createdAt" AT TIME ZONE 'Asia/Tokyo')::date AS day, count(*) AS n
             FROM "session"
-            WHERE "createdAt" >= ($1::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'
-              AND "createdAt" < ($1::date + 1)::timestamp AT TIME ZONE 'Asia/Tokyo'
+            WHERE "createdAt" >= ($1::timestamp::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'
+              AND "createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
             GROUP BY 1
         )
         SELECT
@@ -288,7 +290,7 @@ pub async fn daily<'e>(
         LEFT JOIN lg ON lg.day = d.day
         ORDER BY d.day
         "#,
-        today,
+        now,
         DAILY_DAYS,
     )
     .fetch_all(executor)
@@ -303,24 +305,24 @@ pub async fn daily<'e>(
 /// `session` の走査は 1 回で済ませる
 pub async fn monthly<'e>(
     executor: impl PgExecutor<'e>,
-    now: DateTime<Utc>,
+    now: NaiveDateTime,
 ) -> sqlx::Result<Vec<MonthlyPoint>> {
     sqlx::query_as!(
         MonthlyPoint,
         r#"
         WITH months AS (
-            SELECT date_trunc('month', $1::timestamptz AT TIME ZONE 'Asia/Tokyo')
-                     - make_interval(months => g) AS month_start
+            SELECT date_trunc('month', $1::timestamp) - make_interval(months => g) AS month_start
             FROM generate_series($2::int - 1, 0, -1) AS g
         ),
         span AS (
-            SELECT min(month_start) AS lo, max(month_start) + interval '1 month' AS hi
-            FROM months
+            SELECT min(month_start) AS lo FROM months
         ),
+        -- 右端 (当月) は $1 (集計時刻) で切る。翌月頭まで読むと、スナップショット確定までに
+        -- 作られた行や未来日時の行が入り、同じ上限を持つ直近 30 日などの件数と食い違う
         ev AS (
             SELECT date_trunc('month', e.created_at) AS month_start, count(*) AS n
             FROM events e, span
-            WHERE e.created_at >= span.lo AND e.created_at < span.hi
+            WHERE e.created_at >= span.lo AND e.created_at <= $1
             GROUP BY 1
         ),
         nu AS (
@@ -328,7 +330,7 @@ pub async fn monthly<'e>(
                    count(*) AS n
             FROM "user" u, span
             WHERE u."createdAt" >= span.lo AT TIME ZONE 'Asia/Tokyo'
-              AND u."createdAt" < span.hi AT TIME ZONE 'Asia/Tokyo'
+              AND u."createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
             GROUP BY 1
         ),
         lg AS (
@@ -336,7 +338,7 @@ pub async fn monthly<'e>(
                    count(*) AS n
             FROM "session" s, span
             WHERE s."createdAt" >= span.lo AT TIME ZONE 'Asia/Tokyo'
-              AND s."createdAt" < span.hi AT TIME ZONE 'Asia/Tokyo'
+              AND s."createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
             GROUP BY 1
         ),
         au AS (
@@ -344,6 +346,7 @@ pub async fn monthly<'e>(
             FROM months m
             LEFT JOIN "session" s
               ON s."createdAt" < (m.month_start + interval '1 month') AT TIME ZONE 'Asia/Tokyo'
+             AND s."createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
              AND s."updatedAt" >= m.month_start AT TIME ZONE 'Asia/Tokyo'
             GROUP BY m.month_start
         )
@@ -418,33 +421,36 @@ pub async fn event_creation<'e>(
     ))
 }
 
-/// 通知設定の集計 (実際に通知が増える予定の数, 通知の総数)。
+/// 通知設定の集計 (実際に通知が増える予定の数, 増える通知の総数)。
 ///
-/// 数えるのは **Bot が実際に発火させる通知のうち、必ず送られる開始時刻の通知を除いたもの**。
-/// [`Notification::fire_minutes`] が Bot と同じ規則で並べてくれるので、そこから 0 分前
-/// (= 開始時刻の通知) を除いた数を使う。つまり
+/// 数えるのは **Bot が実際に送る通知のうち、必ず送られる開始時刻の通知を除いたもの**。
+/// [`Notification::fire_times`] が Bot と同じ規則で並べてくれるので、その件数から 1
+/// (= 開始時刻の通知。必ず 1 件含まれる) を引く。つまり
 ///
 /// - 解釈できない設定 (壊れた JSON・負の `num`・未知の単位) は数えない
 /// - 「60 分前」と「1 時間前」のように発火時刻が同じものは 1 件として数える
 /// - 保存済みの「0 分前」は開始時刻の通知と同じなので数えない
+/// - `num` が大きすぎて発火時刻を計算できないものは Bot も送れないので数えない
 ///
 /// `notifications` は制約のない `TEXT[]` なので、判定を SQL に書き写すと本体
 /// (`models::notifications`) とずれる。設定が入っている予定だけを取り出して同じ関数に通す
 /// (行はストリームで受けて溜め込まない)
 pub async fn notification_stats<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<(i64, i64)> {
     let mut rows = sqlx::query!(
-        r#"SELECT notifications FROM events WHERE array_length(notifications, 1) > 0"#
+        r#"
+        SELECT start_at, is_all_day, notifications
+        FROM events WHERE array_length(notifications, 1) > 0
+        "#
     )
     .fetch(executor);
 
     let mut events_with_notifications = 0;
     let mut total = 0;
     while let Some(row) = rows.try_next().await? {
-        // fire_minutes には必ず 0 分前が入るので、それを除いた数が「設定によって増えた通知」
-        let extra = Notification::fire_minutes(&row.notifications)
-            .into_iter()
-            .filter(|&m| m != 0)
-            .count() as i64;
+        // fire_times には必ず開始時刻の通知が入るので、そのぶんを引くと「設定によって増えた通知」
+        let extra = Notification::fire_times(row.start_at, row.is_all_day, &row.notifications).len()
+            as i64
+            - 1;
         if extra > 0 {
             events_with_notifications += 1;
             total += extra;
@@ -526,13 +532,19 @@ pub async fn top_guilds<'e>(
 pub async fn guild_settings<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<(i64, i64)> {
     let rows = sqlx::query!(
         r#"
+        WITH channels AS (
+            -- 旧スキーマには guild_id の一意制約も索引も無いので、ギルドごとの相関サブクエリにすると
+            -- event_settings をギルドの数だけ走査してしまう。先頭の 1 行を一度に取って結合する
+            -- (先頭を使うのは Bot / admin_stats と同じ)
+            SELECT DISTINCT ON (guild_id) guild_id, channel_id
+            FROM event_settings ORDER BY guild_id, id
+        )
         SELECT
             g.guild_id,
-            -- 旧スキーマには guild_id の一意制約が無いので Bot と同じく先頭の 1 行を使う
-            (SELECT es.channel_id FROM event_settings es
-               WHERE es.guild_id = g.guild_id ORDER BY es.id LIMIT 1) AS channel_id,
+            c.channel_id,
             COALESCE(gc.restricted, false) AS "restricted!"
         FROM guilds g
+        LEFT JOIN channels c ON c.guild_id = g.guild_id
         LEFT JOIN guild_config gc ON gc.guild_id = g.guild_id
         "#
     )
