@@ -5,7 +5,7 @@
 // src/app/manifest.ts に合わせてある。favicon.ico の生成にだけ ImageMagick (magick) を使う。
 // 入っていない環境ではその 1 ファイルだけ飛ばすので、必要なら `brew install imagemagick` して撮り直す。
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -13,7 +13,8 @@ import { chromium } from "@playwright/test";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const web = path.resolve(here, "../..");
-const markUrl = pathToFileURL(path.join(here, "mark.svg")).href;
+// setContent で作る文書は about:blank なので file:// のマークを読めない。data URL にして埋め込む
+const markDataUrl = `data:image/svg+xml;base64,${readFileSync(path.join(here, "mark.svg")).toString("base64")}`;
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
@@ -29,10 +30,20 @@ async function renderMark({ size, background, scale = 1 }) {
               background: ${background ?? "transparent"}; }
        img { width: ${scale * 100}%; height: ${scale * 100}%; }
      </style>
-     <img src="${markUrl}">`,
+     <img src="${markDataUrl}">`,
   );
-  await page.waitForLoadState("networkidle");
+  // 読み込みに失敗しても白紙の PNG が撮れてしまうので、描画できたことを確かめてから撮る
+  await decodeImage("img");
   return page.screenshot({ omitBackground: !background });
+}
+
+/** 画像が実際にデコードできたか確かめる (失敗したら例外を投げて撮影を止める) */
+function decodeImage(selector) {
+  return page.evaluate(async (target) => {
+    const image = document.querySelector(target);
+    if (!image) throw new Error(`画像が見つかりません: ${target}`);
+    await image.decode();
+  }, selector);
 }
 
 async function writeMark(file, options) {
@@ -63,6 +74,7 @@ await writeMark("public/icons/icon-maskable-512.png", {
 await page.setViewportSize({ width: 1200, height: 630 });
 await page.goto(pathToFileURL(path.join(here, "opengraph-image.html")).href);
 await page.evaluate(() => document.fonts.ready);
+await decodeImage(".mark");
 await page.screenshot({ path: path.join(web, "src/app/opengraph-image.png") });
 written.push("src/app/opengraph-image.png");
 
