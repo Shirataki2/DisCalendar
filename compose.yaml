@@ -59,12 +59,19 @@ services:
       start_period: 20s
 
   web:
-    image: ghcr.io/shirataki2/discalendar-web:${IMAGE_TAG:-latest}
+    # OGP などの絶対 URL は next build 時に焼き込まれる (#87) ので、staging では staging のドメインを
+    # 焼き込んだ別ビルド (<IMAGE_TAG>-staging) を使う。デプロイ (.github/scripts/deploy.sh) が .env に書く。
+    # 本番とローカルでは IMAGE_TAG と同じ (本番ドメインを焼き込んだ既定のビルド)
+    image: ghcr.io/shirataki2/discalendar-web:${WEB_IMAGE_TAG:-${IMAGE_TAG:-latest}}
     build:
       context: ./web
-      # rewrites の宛先はビルド時に決まる (web/Dockerfile)。サービス名 api のままなら指定不要
-      # args:
-      #   API_URL: http://api:8080
+      # rewrites の宛先と OGP の絶対 URL はビルド時に決まる (web/Dockerfile)
+      args:
+        # ブラウザから見たこのサイトの URL。OGP などの絶対 URL に使う。
+        # staging のように別ドメインで出すときだけ .env で設定する
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://discalendar.app}
+        # rewrites の宛先。サービス名 api のままなら指定不要
+        # API_URL: http://api:8080
     restart: unless-stopped
     depends_on:
       db:

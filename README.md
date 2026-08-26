@@ -274,7 +274,11 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
   (deploy ジョブは Environment に属するので Environment `staging` / Repository どちらの Variables でもよい)。
   Repository variables (Environment ではなくリポジトリの Variables。build ジョブは Environment に属さないため): `STAGING_PLATFORMS`
   (ホストが arm64 なら `linux/arm64`)、`STAGING_BUILD_RUNNER` (arm64 なら `ubuntu-24.04-arm`。QEMU でもビルドできるが Rust が極端に遅い)、
-  `STAGING_COMPOSE_DIR` (任意)
+  `STAGING_COMPOSE_DIR` (任意)、`STAGING_SITE_URL` (任意。既定 `https://staging.discalendar.app`)
+- **web は 2 本ビルドされる** (#87): OGP などの絶対 URL は `next build` 時に焼き込まれるため、本番へそのまま配る既定のビルド
+  (本番ドメイン。`sha-xxxxxxx`) と、staging のドメイン (`STAGING_SITE_URL`) を焼き込んだビルド (`sha-xxxxxxx-staging`) を作る。
+  staging ホストは後者を使う (`.env` の `WEB_IMAGE_TAG` をデプロイが書き換える)。`-staging` が無いタグへロールバックしたときは
+  既定のビルドに落ちる (OGP だけ本番の URL になる)
 - ホストで動く手順は `.github/scripts/deploy.sh` (healthy になるまで待ち、失敗したらログを出して exit 1。本番と共通)
 
 ### 本番 (discalendar.app) へのデプロイ

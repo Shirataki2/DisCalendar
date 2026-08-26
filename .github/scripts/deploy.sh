@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
 # staging / 本番ホスト上で動かすデプロイ手順 (deploy-staging.yml / deploy-production.yml が ssh 経由で流し込む)。
-#   bash deploy.sh <compose のディレクトリ> <イメージタグ>
+#   bash deploy.sh <compose のディレクトリ> <イメージタグ> [web のイメージタグ]
 # 前提: ディレクトリに compose.yaml と .env (secrets、COMPOSE_PROFILES など。本番は COMPOSE_PROJECT_NAME も) が置いてあること。
-# .env の IMAGE_TAG を書き換えるので、手動で docker compose up しても同じタグが使われる
+# .env の IMAGE_TAG / WEB_IMAGE_TAG を書き換えるので、手動で docker compose up しても同じタグが使われる。
+# web は OGP などの絶対 URL をビルド時に焼き込む (#87) ため staging では別ビルドを使う。第 3 引数でそのタグを渡す
+# (省略したら web も IMAGE_TAG と同じ、つまり本番ドメインを焼き込んだイメージになる)
 set -euo pipefail
 
 dir="$1"
 tag="$2"
+web_tag="${3:-$2}"
 cd "$dir"
 
-if grep -q '^IMAGE_TAG=' .env; then
-  sed -i.bak "s|^IMAGE_TAG=.*|IMAGE_TAG=${tag}|" .env && rm -f .env.bak
-else
-  printf 'IMAGE_TAG=%s\n' "$tag" >> .env
-fi
-echo "deploying IMAGE_TAG=${tag} in ${dir}"
+set_env() {
+  if grep -q "^$1=" .env; then
+    sed -i.bak "s|^$1=.*|$1=$2|" .env && rm -f .env.bak
+  else
+    printf '%s=%s\n' "$1" "$2" >> .env
+  fi
+}
+
+set_env IMAGE_TAG "$tag"
+set_env WEB_IMAGE_TAG "$web_tag"
+echo "deploying IMAGE_TAG=${tag} (web: ${web_tag}) in ${dir}"
 
 docker compose pull --quiet
 docker compose up -d --remove-orphans

@@ -9,7 +9,8 @@
 #   vars STAGING_SSH_PORT (既定 22。deploy ジョブは Environment に属するので Environment / Repository どちらの variable でもよい)
 # Repository variables (build ジョブは Environment に属さないので Environment variables ではなくリポジトリ側に置く):
 #   STAGING_PLATFORMS (既定 linux/amd64) / STAGING_BUILD_RUNNER (既定 ubuntu-latest。arm64 ホストなら ubuntu-24.04-arm) /
-#   STAGING_COMPOSE_DIR (既定 /opt/discalendar-staging)。詳細は README
+#   STAGING_COMPOSE_DIR (既定 /opt/discalendar-staging) /
+#   STAGING_SITE_URL (既定 https://staging.discalendar.app。web の OGP などの絶対 URL に焼き込む)。詳細は README
 name: Deploy staging
 
 on:
@@ -33,7 +34,7 @@ permissions:
 
 jobs:
   build:
-    name: build (${{ matrix.image }})
+    name: build (${{ matrix.image }}${{ matrix.site && '-staging' || '' }})
     # image_tag が指定されたとき (ロールバック) はビルドしない。push イベントでは inputs は空。main 以外の ref では動かさない
     if: github.ref == 'refs/heads/main' && inputs.image_tag == ''
     # arm64 のイメージを作るときは QEMU でも動くが Rust のビルドが極端に遅いので、ネイティブの arm ランナーを使う
@@ -46,6 +47,12 @@ jobs:
           - image: web
             context: ./web
             dockerfile: ./web/Dockerfile
+          # OGP などの絶対 URL は next build 時に焼き込まれる (#87)。本番へは上の既定ビルド (本番ドメイン) を
+          # そのまま配るので、staging のドメインを焼き込んだ web を sha-xxxxxxx-staging として別に作る
+          - image: web
+            context: ./web
+            dockerfile: ./web/Dockerfile
+            site: staging
           - image: api
             context: .
             dockerfile: ./api/Dockerfile
@@ -67,20 +74,35 @@ jobs:
         with:
           # compose.yaml の image と同じ名前 (GHCR は小文字のみ)
           images: ghcr.io/shirataki2/discalendar-${{ matrix.image }}
+          # staging ドメイン版の web には sha-xxxxxxx-staging だけを付ける
+          # (floating な staging タグは、本番にも配る既定のビルドに付ける)
           tags: |
-            type=raw,value=staging
-            type=sha,prefix=sha-,format=short
-      # 管理コンソール (/admin) に「今どのコミット・イメージが動いているか」を出すため、api の実行ファイルに
-      # 焼き込む (#37)。他のイメージは受け取らないので、api のときだけ build-args を作る
-      - name: api に埋め込むビルド情報を決める
+            type=raw,value=staging,enable=${{ !matrix.site }}
+            type=sha,prefix=sha-,format=short,suffix=${{ matrix.site && '-staging' || '' }}
+      # イメージごとにビルド時の値を渡す。api には管理コンソール (/admin) に出すビルド情報 (#37)、
+      # web には staging のドメイン (OGP などの絶対 URL は next build 時に焼き込まれる #87) を渡す
+      - name: イメージに渡す build-args を決める
         id: build_info
-        if: matrix.image == 'api'
+        env:
+          IMAGE: ${{ matrix.image }}
+          SITE: ${{ matrix.site }}
+          SITE_URL: ${{ vars.STAGING_SITE_URL || 'https://staging.discalendar.app' }}
         run: |
           {
             echo "args<<ARGS_EOF"
-            echo "GIT_SHA=$GITHUB_SHA"
-            # metadata-action の type=sha,format=short と同じ 7 桁 (実際に push されるタグに合わせる)
-            echo "IMAGE_TAG=sha-${GITHUB_SHA:0:7}"
+            case "$IMAGE" in
+              api)
+                echo "GIT_SHA=$GITHUB_SHA"
+                # metadata-action の type=sha,format=short と同じ 7 桁 (実際に push されるタグに合わせる)
+                echo "IMAGE_TAG=sha-${GITHUB_SHA:0:7}"
+                ;;
+              web)
+                # staging 版だけドメインを差し替える (既定は web/Dockerfile の本番ドメイン)
+                if [ -n "$SITE" ]; then
+                  echo "NEXT_PUBLIC_SITE_URL=$SITE_URL"
+                fi
+                ;;
+            esac
             echo "ARGS_EOF"
           } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
@@ -95,8 +117,9 @@ jobs:
           platforms: ${{ vars.STAGING_PLATFORMS || 'linux/amd64' }}
           # attestation を付けると GHCR の一覧に unknown/unknown のエントリが増えるので切る
           provenance: false
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          # web は既定 / staging ドメインで 2 本ビルドするので、キャッシュも分ける
+          cache-from: type=gha,scope=${{ matrix.image }}${{ matrix.site && '-staging' || '' }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}${{ matrix.site && '-staging' || '' }}
 
   deploy:
     name: deploy
@@ -129,7 +152,15 @@ jobs:
             echo "::error::image_tag must look like sha-<hex> (got: $tag)"
             exit 1
           fi
+          # web は staging のドメインを焼き込んだ別ビルドを使う (#87)。この仕組みより前のタグへ戻すときは
+          # -staging が無いので、その場合だけ既定のビルド (本番ドメイン) にフォールバックする
+          web_tag="${tag}-staging"
+          if ! docker manifest inspect "ghcr.io/shirataki2/discalendar-web:${web_tag}" > /dev/null 2>&1; then
+            echo "::warning::ghcr.io/shirataki2/discalendar-web:${web_tag} が無いので ${tag} を使う (OGP は本番の URL になる)"
+            web_tag="$tag"
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "web_tag=$web_tag" >> "$GITHUB_OUTPUT"
           echo "image tag: $tag"
       - name: Tailnet に参加する
         uses: tailscale/github-action@v4
@@ -158,8 +189,11 @@ jobs:
           SSH_USER: ${{ secrets.STAGING_SSH_USER }}
           COMPOSE_DIR: ${{ vars.STAGING_COMPOSE_DIR || '/opt/discalendar-staging' }}
           IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+          WEB_IMAGE_TAG: ${{ steps.tag.outputs.web_tag }}
         run: |
-          # ssh はリモート側でもう一度シェルが解釈するので、引数は printf %q でクォートして渡す
+          # ssh はリモート側でもう一度シェルが解釈するので、引数は printf %q でクォートして渡す。
+          # web だけは staging のドメインを焼き込んだ別ビルド (-staging) を使う (#87)
           scp -q -P "$SSH_PORT" compose.yaml "$SSH_USER@$SSH_HOST:$(printf '%q' "$COMPOSE_DIR")/compose.yaml"
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash -s -- "$(printf '%q' "$COMPOSE_DIR")" "$(printf '%q' "$IMAGE_TAG")" \
+            "$(printf '%q' "$WEB_IMAGE_TAG")" \
             < .github/scripts/deploy.sh

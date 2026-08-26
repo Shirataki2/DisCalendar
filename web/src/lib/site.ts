@@ -3,8 +3,14 @@
 
 export const SITE_NAME = "DisCalendar";
 
-/** 公開 URL。OGP など絶対 URL が必要なメタ情報の基準 (旧 siteconfig.js の ogHost) */
-export const SITE_URL = "https://discalendar.app";
+/**
+ * 公開 URL。OGP など絶対 URL が必要なメタ情報の基準 (旧 siteconfig.js の ogHost)。
+ * トップページは静的に生成されるので metadata は next build 時に確定し、実行時の環境変数では変えられない。
+ * staging のように別ドメインで出すときは NEXT_PUBLIC_SITE_URL を渡してビルドし直す
+ * (web/Dockerfile の ARG。未設定なら本番の URL)
+ */
+export const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://discalendar.app";
 
 export const SITE_DESCRIPTION =
   "DisCalendarはDiscord用のカレンダーアプリです。予定の作成から通知まで面倒なコマンド操作はほとんど必要ありません。" +
