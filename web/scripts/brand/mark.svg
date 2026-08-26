@@ -1,0 +1,28 @@
+<!-- DisCalendar のシンボルマーク。favicon / PWA アイコン / OGP 画像の元になる。
+     色は Discord blurple (#5865F2) = lib/site.ts の THEME_COLOR。
+     各サイズの書き出しは scripts/brand/generate.mjs (pnpm brand) で行う -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>DisCalendar</title>
+  <defs>
+    <!-- 本体の上辺を綴じリングの形に切り欠き、リングが穴を通っているように見せる -->
+    <mask id="cutout">
+      <rect width="512" height="512" fill="#fff" />
+      <rect x="123" y="-1" width="78" height="155" rx="39" fill="#000" />
+      <rect x="311" y="-1" width="78" height="155" rx="39" fill="#000" />
+    </mask>
+  </defs>
+  <!-- 綴じリング -->
+  <rect x="140" y="16" width="44" height="130" rx="22" fill="#5865F2" />
+  <rect x="328" y="16" width="44" height="130" rx="22" fill="#5865F2" />
+  <!-- 本体 -->
+  <rect x="16" y="80" width="480" height="416" rx="116" fill="#5865F2" mask="url(#cutout)" />
+  <!-- 日付。下段の中央だけ大きくしてアクセントにする -->
+  <g fill="#fff">
+    <rect x="108" y="208" width="64" height="64" rx="20" />
+    <rect x="224" y="208" width="64" height="64" rx="20" />
+    <rect x="340" y="208" width="64" height="64" rx="20" />
+    <rect x="108" y="332" width="64" height="64" rx="20" />
+    <rect x="210" y="318" width="92" height="92" rx="29" />
+    <rect x="340" y="332" width="64" height="64" rx="20" />
+  </g>
+</svg>

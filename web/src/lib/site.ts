@@ -10,8 +10,11 @@ export const SITE_DESCRIPTION =
   "DisCalendarはDiscord用のカレンダーアプリです。予定の作成から通知まで面倒なコマンド操作はほとんど必要ありません。" +
   "使い慣れたブラウザから、どこでも予定の追加や編集をすることができます。";
 
-/** ブラウザの UI (アドレスバーなど) とマニフェストの theme_color (旧 siteconfig.js の themeColor) */
-export const THEME_COLOR = "#303f9f";
+/**
+ * ブランドカラー。ブラウザの UI (アドレスバーなど) とマニフェストの theme_color に使う
+ * (旧 siteconfig.js の themeColor)。アイコンの地色 (scripts/brand/mark.svg) と同じ Discord blurple
+ */
+export const THEME_COLOR = "#5865F2";
 
 /** サポートサーバー (Discord) の招待リンク */
 export const SUPPORT_SERVER_URL = "https://discord.gg/MyaZRuze23";
