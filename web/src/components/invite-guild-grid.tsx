@@ -18,6 +18,12 @@ export interface InvitableGuild {
 }
 
 /**
+ * 参加状況が空振りだったときに試し直す間隔 (ms)。招待を終えてすぐ戻ってくると、
+ * Bot が Discord のイベントを受けて guilds テーブルに書き終える前に問い合わせることがある
+ */
+const RETRY_DELAYS = [1000, 2000, 4000];
+
+/**
  * Bot を招待できるサーバーの一覧。
  * 招待は Discord の Bot 追加画面を別タブで開くので、戻ってきただけでは Server Component の
  * この画面は「参加済み」に変わらない。招待画面を開いたサーバーを覚えておき、タブに戻ったときに
@@ -32,28 +38,41 @@ export function InviteGuildGrid({ guilds }: { guilds: InvitableGuild[] }) {
 
   useEffect(() => {
     if (invited.length === 0) return;
+    // 招待したサーバーが増えるとこの effect は作り直される。作り直す前に投げた問い合わせの
+    // 結果で移動してしまわないよう、古い方は打ち切る
+    let cancelled = false;
     let running = false;
+
     const check = async () => {
-      if (running) return;
+      if (cancelled || running) return;
       running = true;
       setChecking(true);
       try {
-        const joined = await api.guilds.joined(invited);
-        if (joined.length === 0) return;
-        const joinedIds = new Set(joined.map((guild) => guild.guild_id));
-        setInvited((ids) => ids.filter((id) => !joinedIds.has(id)));
-        if (joined.length === 1) {
-          // 招待が済んだサーバーが 1 つならそのカレンダーへ (旧実装と同じ体験)
-          router.push(`/dashboard/${joined[0].guild_id}`);
-        } else {
-          // 複数まとめて招待した場合はどれを開くべきか決められないので、一覧の更新だけにする
-          router.refresh();
+        for (let attempt = 0; !cancelled; attempt++) {
+          const joined = await api.guilds.joined(invited);
+          if (cancelled) return;
+          if (joined.length > 0) {
+            const joinedIds = new Set(joined.map((guild) => guild.guild_id));
+            setInvited((ids) => ids.filter((id) => !joinedIds.has(id)));
+            if (joined.length === 1) {
+              // 招待が済んだサーバーが 1 つならそのカレンダーへ (旧実装と同じ体験)
+              router.push(`/dashboard/${joined[0].guild_id}`);
+            } else {
+              // 複数まとめて招待した場合はどれを開くべきか決められないので、一覧の更新だけにする
+              router.refresh();
+            }
+            return;
+          }
+          // Bot の参加がまだ DB に届いていないだけかもしれないので、間を置いて試し直す
+          const delay = RETRY_DELAYS[attempt];
+          if (delay === undefined) return;
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       } catch {
         // 参加状況を取れなくても画面はそのまま (次に戻ってきたときに試し直す)
       } finally {
         running = false;
-        setChecking(false);
+        if (!cancelled) setChecking(false);
       }
     };
     const onReturn = () => {
@@ -64,6 +83,7 @@ export function InviteGuildGrid({ guilds }: { guilds: InvitableGuild[] }) {
     document.addEventListener("visibilitychange", onReturn);
     window.addEventListener("focus", onReturn);
     return () => {
+      cancelled = true;
       document.removeEventListener("visibilitychange", onReturn);
       window.removeEventListener("focus", onReturn);
     };
@@ -71,30 +91,34 @@ export function InviteGuildGrid({ guilds }: { guilds: InvitableGuild[] }) {
 
   return (
     <GuildGrid>
-      {guilds.map((guild) => (
-        <li key={guild.id}>
-          {/* 招待は別タブで開く (ポップアップブロックを避けるため window.open は使わない) */}
-          <a
-            href={guild.inviteUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={guildCardClassName(true)}
-            onClick={() =>
-              setInvited((ids) =>
-                ids.includes(guild.id) ? ids : [...ids, guild.id],
-              )
-            }
-          >
-            <GuildCardBody
-              name={guild.name}
-              iconUrl={guild.iconUrl}
-              badge={
-                checking && invited.includes(guild.id) ? "確認中…" : "招待 ↗"
-              }
-            />
-          </a>
-        </li>
-      ))}
+      {guilds.map((guild) => {
+        // 中クリックで開いた場合は click ではなく auxclick なので、両方で覚える
+        const remember = () =>
+          setInvited((ids) =>
+            ids.includes(guild.id) ? ids : [...ids, guild.id],
+          );
+        return (
+          <li key={guild.id}>
+            {/* 招待は別タブで開く (ポップアップブロックを避けるため window.open は使わない) */}
+            <a
+              href={guild.inviteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={guildCardClassName(true)}
+              onClick={remember}
+              onAuxClick={remember}
+            >
+              <GuildCardBody
+                name={guild.name}
+                iconUrl={guild.iconUrl}
+                badge={
+                  checking && invited.includes(guild.id) ? "確認中…" : "招待 ↗"
+                }
+              />
+            </a>
+          </li>
+        );
+      })}
     </GuildGrid>
   );
 }
