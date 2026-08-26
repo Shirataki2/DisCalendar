@@ -1,6 +1,11 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { Pool } from "pg";
-import { E2E_ALL_GUILDS, E2E_GUILDS, E2E_USER } from "./fixtures";
+import {
+  E2E_ALL_GUILDS,
+  E2E_GUILDS,
+  E2E_USER,
+  type E2EGuild,
+} from "./fixtures";
 
 // E2E 用 DB の初期データ。Discord OAuth を通さずにログイン済みの状態を作るため、
 // Better Auth のテーブル (user / account / session) に直接行を入れ、api が読む guilds / guild_config も用意する。
@@ -47,6 +52,42 @@ export async function createExtraSession(databaseUrl: string): Promise<string> {
       [`e2e-session-${token.slice(0, 8)}`, token, E2E_USER.id],
     );
     return token;
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
+ * テスト中に Bot がギルドに参加したことにする (bot/ が guilds テーブルに行を入れるのと同じ)。
+ * Discord 側の参加状況は discord-mock.ts の setBotJoined で合わせる。
+ * 他のテストと DB を共有しているので、使ったら removeGuild で戻す
+ */
+export async function addGuild(
+  databaseUrl: string,
+  guild: E2EGuild,
+): Promise<void> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    await pool.query(
+      `INSERT INTO guilds (guild_id, name, avatar_url, locale) VALUES ($1, $2, NULL, 'ja')
+       ON CONFLICT (guild_id) DO NOTHING`,
+      [guild.id, guild.name],
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+/** addGuild で入れたギルドを消す (設定と予定ごと) */
+export async function removeGuild(
+  databaseUrl: string,
+  guildId: string,
+): Promise<void> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    await pool.query("DELETE FROM events WHERE guild_id = $1", [guildId]);
+    await pool.query("DELETE FROM guild_config WHERE guild_id = $1", [guildId]);
+    await pool.query("DELETE FROM guilds WHERE guild_id = $1", [guildId]);
   } finally {
     await pool.end();
   }

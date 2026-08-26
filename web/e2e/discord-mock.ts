@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { DISCORD_MOCK_URL } from "./env";
 import {
   E2E_ALL_GUILDS,
   E2E_BOT_TOKEN,
@@ -12,9 +13,31 @@ import {
 // - GET /users/@me/guilds            web (lib/discord.ts、ユーザーのトークン) と api の管理コンソール (Bot トークン)
 // - GET /guilds/{id}                 api (ギルド情報とロール一覧、権限計算)
 // - GET /guilds/{id}/members/{uid}   api (メンバー確認と所持ロール)
-// それ以外と未知のギルドは Discord と同じく 404 の JSON を返す
+// それ以外と未知のギルドは Discord と同じく 404 の JSON を返す。
+// テストから Bot の参加状況を変える PUT / DELETE /_test/guilds/{id} (setBotJoined) だけは Discord に無い追加
 
-const JOINED: E2EGuild[] = E2E_ALL_GUILDS.filter((g) => g.botJoined);
+/** Bot が参加しているギルド。テスト中に setBotJoined で増減する */
+const joinedGuilds = new Map<string, E2EGuild>(
+  E2E_ALL_GUILDS.filter((g) => g.botJoined).map((g) => [g.id, g]),
+);
+
+/**
+ * テスト中に Bot がギルドに参加した / 退出した状態にする (招待の再現)。
+ * モックは globalSetup のプロセスで動いていてテストからは直接触れないので、HTTP で伝える
+ */
+export async function setBotJoined(
+  guildId: string,
+  botJoined: boolean,
+): Promise<void> {
+  const res = await fetch(`${DISCORD_MOCK_URL}/_test/guilds/${guildId}`, {
+    method: botJoined ? "PUT" : "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Discord モックの参加状況を変更できませんでした (${guildId}): ${res.status}`,
+    );
+  }
+}
 
 /** `GET /users/@me/guilds` の 1 件 (ユーザーから見たギルド) */
 function userGuild(guild: E2EGuild) {
@@ -50,6 +73,21 @@ export function startDiscordMock(port: number): Promise<Server> {
     const notFound = (message: string, code: number) =>
       json(404, { message, code });
 
+    // テスト専用 (Discord には無い): Bot の参加状況を変える
+    const testMatch = /^\/_test\/guilds\/(\d+)$/.exec(url.pathname);
+    if (testMatch && (req.method === "PUT" || req.method === "DELETE")) {
+      const guild = E2E_ALL_GUILDS.find((g) => g.id === testMatch[1]);
+      if (!guild) {
+        return notFound("Unknown Guild", 10004);
+      }
+      if (req.method === "PUT") {
+        joinedGuilds.set(guild.id, guild);
+      } else {
+        joinedGuilds.delete(guild.id);
+      }
+      return json(200, { joined: joinedGuilds.has(guild.id) });
+    }
+
     if (req.method !== "GET") {
       return json(405, { message: "Method Not Allowed", code: 0 });
     }
@@ -61,7 +99,11 @@ export function startDiscordMock(port: number): Promise<Server> {
       if (auth === `Bot ${E2E_BOT_TOKEN}`) {
         return json(
           200,
-          JOINED.map((g) => ({ id: g.id, name: g.name, icon: null })),
+          [...joinedGuilds.values()].map((g) => ({
+            id: g.id,
+            name: g.name,
+            icon: null,
+          })),
         );
       }
       return json(401, { message: "401: Unauthorized", code: 0 });
@@ -75,7 +117,7 @@ export function startDiscordMock(port: number): Promise<Server> {
         return json(401, { message: "401: Unauthorized", code: 0 });
       }
       const [, guildId, userId] = guildMatch;
-      const guild = JOINED.find((g) => g.id === guildId);
+      const guild = joinedGuilds.get(guildId);
       if (!guild) {
         return notFound("Unknown Guild", 10004);
       }

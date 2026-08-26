@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import {
+  GuildCardBody,
+  GuildGrid,
+  guildCardClassName,
+} from "@/components/guild-card";
+import { InviteGuildGrid } from "@/components/invite-guild-grid";
 import { ApiError } from "@/lib/api";
 import { serverApi } from "@/lib/api/server";
 import {
@@ -76,80 +82,41 @@ export default async function DashboardPage() {
           を招待してください。
         </p>
       )}
-      <GuildGrid guilds={available} />
+      <JoinedGuildGrid guilds={available} />
       {invitable.length > 0 && (
         <>
           <h2 className="mt-10 mb-4 text-lg font-semibold text-muted-foreground">
             Bot を招待できるサーバー
           </h2>
-          <GuildGrid guilds={invitable} invite />
+          {/* 招待後に戻ってきたら参加状況を見て自動で移動するので、ここだけクライアント側で描く */}
+          <InviteGuildGrid
+            guilds={invitable.map((guild) => ({
+              id: guild.id,
+              name: guild.name,
+              iconUrl: guildIconUrl(guild),
+              inviteUrl: botInviteUrl(guild.id),
+            }))}
+          />
         </>
       )}
     </main>
   );
 }
 
-function GuildGrid({
-  guilds,
-  invite = false,
-}: {
-  guilds: DiscordGuild[];
-  invite?: boolean;
-}) {
+function JoinedGuildGrid({ guilds }: { guilds: DiscordGuild[] }) {
   if (guilds.length === 0) return null;
   return (
-    <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <GuildGrid>
       {guilds.map((guild) => (
         <li key={guild.id}>
-          <GuildCard guild={guild} invite={invite} />
+          <Link
+            href={`/dashboard/${guild.id}`}
+            className={guildCardClassName()}
+          >
+            <GuildCardBody name={guild.name} iconUrl={guildIconUrl(guild)} />
+          </Link>
         </li>
       ))}
-    </ul>
-  );
-}
-
-function GuildCard({
-  guild,
-  invite,
-}: {
-  guild: DiscordGuild;
-  invite: boolean;
-}) {
-  const icon = guildIconUrl(guild);
-  // ライトでは surface (白) と地の色がほとんど変わらないので、枠でカードの範囲を見せる
-  const className = `flex items-center gap-4 rounded-lg border border-border bg-surface p-4 transition-colors hover:bg-foreground/10 ${
-    invite ? "grayscale hover:grayscale-0" : ""
-  }`;
-  const body = (
-    <>
-      {icon ? (
-        // biome-ignore lint/performance/noImgElement: Discord CDN のアイコンは最適化不要
-        <img src={icon} alt="" className="h-12 w-12 rounded-full" />
-      ) : (
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-foreground/10 text-lg font-bold">
-          {guild.name.slice(0, 1)}
-        </span>
-      )}
-      <span className="flex-1 font-medium">{guild.name}</span>
-      {invite && <span className="text-xs text-muted-foreground">招待 ↗</span>}
-    </>
-  );
-  if (invite) {
-    // Discord の Bot 追加画面を別タブで開く (旧実装と同じ)。追加後にこの画面を再読込すれば上の一覧に移る
-    return (
-      <a
-        href={botInviteUrl(guild.id)}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={className}
-      >
-        {body}
-      </a>
-    );
-  }
-  return (
-    <Link href={`/dashboard/${guild.id}`} className={className}>
-      {body}
-    </Link>
+    </GuildGrid>
   );
 }
