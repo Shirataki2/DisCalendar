@@ -43,7 +43,7 @@ function Hero() {
     <section className="relative overflow-hidden">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[32rem] bg-[radial-gradient(ellipse_at_top,rgba(48,63,159,0.45),transparent_65%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[32rem] bg-[radial-gradient(ellipse_at_top,rgba(88,101,242,0.32),transparent_65%)]"
       />
       <div className="mx-auto flex max-w-6xl flex-col items-center px-4 pt-16 pb-12 text-center sm:px-6 sm:pt-24">
         <p className="mb-4 text-sm font-medium tracking-widest text-indigo-300">
@@ -285,7 +285,7 @@ function Steps() {
 
 function BottomCta() {
   return (
-    <section className="border-t border-white/10 bg-[radial-gradient(ellipse_at_bottom,rgba(48,63,159,0.35),transparent_70%)]">
+    <section className="border-t border-white/10 bg-[radial-gradient(ellipse_at_bottom,rgba(88,101,242,0.24),transparent_70%)]">
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-4 py-16 text-center sm:px-6 sm:py-24">
         <h2 className="text-2xl font-bold sm:text-3xl">
           まずは Bot をサーバーに追加してみてください

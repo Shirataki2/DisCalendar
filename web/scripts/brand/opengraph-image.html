@@ -1,0 +1,87 @@
+<!-- OGP 画像 (1200x630) の元。scripts/brand/generate.mjs が Chromium で撮影して
+     src/app/opengraph-image.png を書き出す。文言を変えたら pnpm brand で撮り直す -->
+<meta charset="utf-8" />
+<style>
+  /* ワードマークはヘッダ・LP と同じ Uni Sans Heavy (大文字のみのウェイト) */
+  @font-face {
+    font-family: "UniSansHeavy";
+    src: url("../../src/assets/fonts/UniSansHeavy.otf");
+    font-display: block;
+  }
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  body {
+    position: relative;
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+    background: #121212;
+    font-family: -apple-system, "Hiragino Sans", sans-serif;
+  }
+  /* LP のヒーローと同じ、上から降りてくるブランドカラーのグロー */
+  .glow {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      ellipse 95% 85% at 50% 8%,
+      rgba(88, 101, 242, 0.48),
+      transparent 62%
+    );
+  }
+  /* 予定表を思わせる薄いグリッド。中央だけ残して周囲は落とす */
+  .grid {
+    position: absolute;
+    inset: 0;
+    opacity: 0.5;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 120px 105px;
+    mask-image: radial-gradient(
+      ellipse 70% 70% at 50% 40%,
+      #000 40%,
+      transparent 100%
+    );
+  }
+  .row {
+    position: relative;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 84px;
+  }
+  .word {
+    font-family: "UniSansHeavy", sans-serif;
+    font-size: 104px;
+    line-height: 1;
+    color: #fff;
+    letter-spacing: 0.01em;
+  }
+  .word .accent {
+    color: #5865f2;
+  }
+  .tag {
+    margin-top: 26px;
+    font-size: 34px;
+    color: #b9bcca;
+    letter-spacing: 0.02em;
+  }
+  .mark {
+    width: 320px;
+    height: 320px;
+    filter: drop-shadow(0 0 80px rgba(88, 101, 242, 0.7));
+  }
+</style>
+<div class="glow"></div>
+<div class="grid"></div>
+<div class="row">
+  <div>
+    <div class="word"><span class="accent">Dis</span>Calendar</div>
+    <div class="tag">Discord 用予定管理 Bot</div>
+  </div>
+  <img class="mark" src="./mark.svg" alt="" />
+</div>
