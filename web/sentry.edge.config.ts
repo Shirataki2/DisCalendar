@@ -3,7 +3,9 @@
 import * as Sentry from "@sentry/nextjs";
 
 Sentry.init({
-  dsn: process.env.SENTRY_DSN ?? process.env.NEXT_PUBLIC_SENTRY_DSN,
+  // 空文字を未設定として扱う理由は sentry.server.config.ts のコメント参照
+  dsn:
+    process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN || undefined,
   environment: process.env.SENTRY_ENVIRONMENT,
   tracesSampleRate: 0,
   enableLogs: false,

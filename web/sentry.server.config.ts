@@ -4,7 +4,11 @@
 import * as Sentry from "@sentry/nextjs";
 
 Sentry.init({
-  dsn: process.env.SENTRY_DSN ?? process.env.NEXT_PUBLIC_SENTRY_DSN,
+  // compose は未設定の変数を空文字として渡す (`${WEB_SENTRY_DSN:-}`) ので、?? ではなく || で
+  // 空文字も未設定として扱う。そうしないと、ホストの .env に DSN を置かず Repository variable
+  // だけで運用する構成 (README の手順) で、焼き込まれた DSN があるのにサーバー側だけ無効になる
+  dsn:
+    process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN || undefined,
   // 未設定なら SDK の既定 (production)。staging では compose が SENTRY_ENVIRONMENT=staging を渡す
   environment: process.env.SENTRY_ENVIRONMENT,
   // 使うのはエラー収集だけ (instrumentation-client.ts と同じ方針)

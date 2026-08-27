@@ -14,7 +14,8 @@ function sentryEnvironment(): string {
 }
 
 Sentry.init({
-  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  // DSN を渡さずにビルドすると空文字が焼き込まれるので、未設定として扱えるよう undefined に寄せる
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN || undefined,
   environment: sentryEnvironment(),
   // 使うのはエラー収集だけ。パフォーマンス計測・Session Replay・Logs は無効にして
   // 無料枠を errors 以外で消費しない
