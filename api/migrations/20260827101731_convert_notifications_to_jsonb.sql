@@ -36,7 +36,7 @@ SELECT id, notifications FROM events;
 --   - key / num / type のどれかが重複している (serde は duplicate field エラー。
 --     未知のフィールドの重複は serde が無視するので、ここでも判定に含めない)
 --   - key が無い、整数でない、i64 に収まらない (旧 Web の v-for 用で値自体は使わないが必須だった)
---   - num が無い、非負整数でない、u32 に収まらない (api / bot ともに u32 で受けている)
+--   - num が無い、整数でない、0 未満、u32 に収まらない (api / bot ともに u32 で受けている)
 --   - type が既知の 4 種類 (分前 / 時間前 / 日前 / 週間前) でない
 -- 配列の順序は元のまま保つ (通知の一覧表示の順序が変わらないように)。
 -- ALTER TABLE ... USING にはサブクエリを直接書けないので関数に包み、変換後に落とす
@@ -53,27 +53,39 @@ LANGUAGE sql IMMUTABLE AS $$
                    )
             FROM unnest(legacy) WITH ORDINALITY AS raw_items(raw, ord)
             CROSS JOIN LATERAL (
-                -- json は入力の表記をそのまま保持し、jsonb は正規化する (1e2 → 100、
-                -- 重複キーは最後の値だけ)。旧 decoder が見ていたのは正規化前のトークンなので
-                -- 判定は json 側で行い、形 (オブジェクトか) の判定だけ jsonb で行う。
-                -- jsonb にできるものだけ扱えば、numeric に収まらない数値でキャストが落ちることもない
-                SELECT
-                    CASE WHEN pg_input_is_valid(raw_items.raw, 'jsonb') THEN raw_items.raw::jsonb END AS item,
-                    CASE WHEN pg_input_is_valid(raw_items.raw, 'jsonb') THEN raw_items.raw::json END AS raw_json
-            ) AS parsed
+                -- PostgreSQL は json / jsonb のどちらでも NUL (U+0000) を text にできず、
+                -- jsonb は入力の時点で、json も json_object_keys などの評価で落ちる。
+                -- 見るのは既知の 3 フィールドだけなので、判定の前に NUL のエスケープを
+                -- 空白のエスケープに置き換えて無害化する (JSON で NUL を書く方法はこの
+                -- エスケープだけ。type の値に入っていた場合は既知の 4 種類と一致しなくなり、
+                -- 旧 decoder が読めなかったものが捨てられるという結果も変わらない)。
+                -- バックスラッシュは chr(92) で組み立てて、このファイルに制御文字を書かない
+                SELECT replace(raw_items.raw, chr(92) || 'u0000', chr(92) || 'u0020')
+            ) AS sanitized(raw)
             CROSS JOIN LATERAL (
-                SELECT CASE parsed.raw_json->>'type'
-                           WHEN '分前' THEN 'minutes'
-                           WHEN '時間前' THEN 'hours'
-                           WHEN '日前' THEN 'days'
-                           WHEN '週間前' THEN 'weeks'
+                -- 判定はすべて json 型で行う。jsonb は数値を正規化し (1e2 なら 100)、重複キーを
+                -- 最後の値に潰す。旧 decoder (serde) が見ていたのは正規化前の入力そのものなので、
+                -- jsonb にできるかどうかで結果が変わると
+                -- 「無視されるはずの未知フィールドのせいで通知が消える」ことが起きる。
+                -- 出力は既知の 3 フィールドから組み立て直すので、未知フィールドは JSONB に持ち込まない
+                SELECT CASE WHEN pg_input_is_valid(sanitized.raw, 'json') THEN sanitized.raw::json END
+            ) AS parsed(raw_json)
+            CROSS JOIN LATERAL (
+                -- 値は `->` の text 表現 (JSON のトークンのまま) で見る。`->>` はエスケープを解いて
+                -- text にするので、値に NUL のエスケープがあるとそこで落ちる。旧 Web (JSON.stringify) も
+                -- 旧 Bot (serde_json) も日本語をエスケープせずに書くため、生のトークンで拾える
+                SELECT CASE (parsed.raw_json->'type')::text
+                           WHEN '"分前"' THEN 'minutes'
+                           WHEN '"時間前"' THEN 'hours'
+                           WHEN '"日前"' THEN 'days'
+                           WHEN '"週間前"' THEN 'weeks'
                        END
             ) AS mapped(unit)
             CROSS JOIN LATERAL (
                 -- 重複しているキーは json_object_keys が重複したまま返す
                 -- (オブジェクトでない値には使えないので CASE の中で呼ぶ)
                 SELECT CASE
-                           WHEN jsonb_typeof(parsed.item) = 'object'
+                           WHEN json_typeof(parsed.raw_json) = 'object'
                            THEN EXISTS (
                                SELECT 1
                                FROM json_object_keys(parsed.raw_json) AS keys(key_name)
@@ -84,15 +96,16 @@ LANGUAGE sql IMMUTABLE AS $$
                            ELSE FALSE
                        END
             ) AS dup(has_duplicate_known_keys)
-            WHERE jsonb_typeof(parsed.item) = 'object'
+            WHERE json_typeof(parsed.raw_json) = 'object'
               AND NOT dup.has_duplicate_known_keys
-              -- `->` の text 表現は数値ならトークンのまま (30 / 1e2)、文字列なら引用符付き ("30")、
-              -- キーが無ければ NULL。整数として書かれていたかどうかがこれで分かる
+              -- `->` の text 表現は数値ならトークンのまま (30 / 1e2 / -0)、文字列なら引用符付き ("30")、
+              -- キーが無ければ NULL。整数として書かれていたかどうかがこれで分かる。
+              -- 符号は表記として許し、値の範囲で弾く (serde の i64 は -0 を 0 として読めていた)
               AND (parsed.raw_json->'key')::text ~ '^-?[0-9]+$'
               AND (parsed.raw_json->'key')::text::numeric
                   BETWEEN -9223372036854775808 AND 9223372036854775807
-              AND (parsed.raw_json->'num')::text ~ '^[0-9]+$'
-              AND (parsed.raw_json->'num')::text::numeric <= 4294967295
+              AND (parsed.raw_json->'num')::text ~ '^-?[0-9]+$'
+              AND (parsed.raw_json->'num')::text::numeric BETWEEN 0 AND 4294967295
               AND unit IS NOT NULL
         ),
         '[]'::jsonb
