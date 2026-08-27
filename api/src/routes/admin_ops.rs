@@ -32,8 +32,8 @@ pub struct GuildTarget {
 struct EventSnapshot {
     #[serde(flatten)]
     event: Event,
-    /// DB に入っていた `notifications` そのまま (旧形式の JSON 文字列。`Event` への変換で捨てられる要素も含む)
-    raw_notifications: Vec<String>,
+    /// DB に入っていた `notifications` そのまま (`Event` への変換で捨てられる要素も含む)
+    raw_notifications: serde_json::Value,
 }
 
 /// 定型操作の結果
@@ -69,7 +69,7 @@ pub async fn delete_guild_events(
     ensure_guild_known(&mut *tx, guild_id).await?;
     let (snapshot_rows, count) = admin_ops::delete_guild_events(&mut tx, guild_id).await?;
     // スナップショットは API 形式 (Event) に加えて notifications の生データも残す
-    // (旧形式や壊れた要素は Event への変換で捨てられるため、削除した実データを復元・調査できるように)
+    // (壊れた要素は Event への変換で捨てられるため、削除した実データを復元・調査できるように)
     let sampled: Vec<EventSnapshot> = snapshot_rows
         .into_iter()
         .map(|row| EventSnapshot {

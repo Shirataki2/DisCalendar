@@ -42,10 +42,10 @@ async fn event_crud_is_scoped_to_guild(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(created.guild_id, GUILD);
-    // 通知は旧 Bot が読む形式で保存される
+    // 通知は API の入出力と同じ形で保存される
     assert_eq!(
         created.notifications,
-        vec![r#"{"key":0,"num":30,"type":"分前"}"#]
+        serde_json::json!([{ "num": 30, "unit": "minutes" }])
     );
 
     // 他ギルドからは更新・削除できない
@@ -69,7 +69,7 @@ async fn event_crud_is_scoped_to_guild(pool: PgPool) {
         .expect("event exists");
     assert_eq!(updated.name, "renamed");
     assert_eq!(updated.end_at, dt("2026-08-22T12:00:00"));
-    assert!(updated.notifications.is_empty());
+    assert_eq!(updated.notifications, serde_json::json!([]));
     // created_at は更新で変わらない
     assert_eq!(updated.created_at, created.created_at);
 

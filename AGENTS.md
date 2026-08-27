@@ -8,7 +8,7 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - `api/`: Rust (actix-web 4 + sqlx 0.9 + PostgreSQL)。詳細は [api/README.md](api/README.md)
 - `bot/`: Rust (poise 0.6 + serenity 0.12 + sqlx 0.9)。ギルドの参加・退出・更新を `guilds` テーブルに反映し、
   スラッシュコマンド (help / create / list / init / invite、オーナー用 register) を提供する。定期タスク (#4) は移行中。
-  予定の保存形式 (JST naive / 旧形式の通知 JSON / 終日予定の表現) は api と揃える。詳細は [bot/README.md](bot/README.md)
+  予定の保存形式 (JST naive / 通知の JSONB / 終日予定の表現) は api と揃える。詳細は [bot/README.md](bot/README.md)
 - 旧実装は `tmp/DisCalendarV2/` (git 管理外) にある。移行時の挙動の根拠はそこを見る
 
 ## コマンド
@@ -54,9 +54,10 @@ Codex cloud もタスクごとの隔離環境に clone して動く。セッシ�
 PR レビュー (Codex / Claude) では以下を優先し、指摘は日本語で書く。
 
 - CI (Biome / tsc / next build / rustfmt / clippy / cargo test) が検出する問題は指摘しない
-- **P0: DB スキーマの互換性**。`api/migrations/` の既存ファイルは旧版と `_sqlx_migrations` のチェックサムを共有しているため変更禁止。
-  `events` などのテーブルは稼働中の旧 Bot も読み書きするので、カラムの型変更・削除・NOT NULL 追加や、
-  通知設定 (`notifications`) の DB 上の保存形式の変更は Bot 移行が終わるまで不可
+- **P0: DB スキーマの互換性**。`api/migrations/` の適用済みファイルは `_sqlx_migrations` のチェックサムと
+  照合されるため変更禁止 (旧版から引き継いだ 2 ファイルを含む)。スキーマの変更は必ず新しいファイルで行う。
+  旧 Bot / 旧 Web との共有による凍結 (カラム型・通知設定の保存形式) は #15 で解除済みだが、
+  `events` などは api と bot が同じ形で読み書きするので、変えるときは両方の対応と `.sqlx/` の更新を同じ PR に含める
 - **P0: 認可の迂回**。api 側の権限チェック (restricted モード、`can_manage_server`、`guild_id` + `event_id` での絞り込み) や
   Better Auth セッション検証を弱める変更。web 側の表示制御だけで済ませてはいけない
 - **P0: 秘密情報**。`.env*` の内容、Bot トークン、セッション cookie の値、`BETTER_AUTH_SECRET` をコード・ログ・テスト・コミットに含める変更

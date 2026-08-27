@@ -23,7 +23,7 @@ Closes #
 - [ ] web: `pnpm lint` / `pnpm exec tsc --noEmit` / `pnpm build` が通る (CI でも確認される)
 - [ ] api / bot: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` が通る
 - [ ] sqlx のクエリを追加・変更した場合は該当クレートで `cargo sqlx prepare -- --all-targets` を実行して `.sqlx/` を更新した
-- [ ] DB スキーマを変える場合は旧 Bot との互換 (api/README.md) を確認した
+- [ ] DB スキーマを変える場合は新しいマイグレーションで行い、api / bot 両方の読み書きを揃えた (api/README.md)
 - [ ] README / docs を更新した (必要な場合)
 - [ ] `.env*` や秘密情報 (トークン・鍵) を含めていない
 - [ ] Claude / Codex のレビュー指摘を確認し、対応したか理由をコメントした

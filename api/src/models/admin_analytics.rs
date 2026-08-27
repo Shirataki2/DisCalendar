@@ -432,14 +432,14 @@ pub async fn event_creation<'e>(
 /// - 保存済みの「0 分前」は開始時刻の通知と同じなので数えない
 /// - `num` が大きすぎて発火時刻を計算できないものは Bot も送れないので数えない
 ///
-/// `notifications` は制約のない `TEXT[]` なので、判定を SQL に書き写すと本体
-/// (`models::notifications`) とずれる。設定が入っている予定だけを取り出して同じ関数に通す
-/// (行はストリームで受けて溜め込まない)
+/// `notifications` の要素の中身は DB では検証していない (CHECK 制約は JSONB が配列であることしか
+/// 見ていない) ので、判定を SQL に書き写すと本体 (`models::notifications`) とずれる。
+/// 設定が入っている予定だけを取り出して同じ関数に通す (行はストリームで受けて溜め込まない)
 pub async fn notification_stats<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<(i64, i64)> {
     let mut rows = sqlx::query!(
         r#"
         SELECT start_at, is_all_day, notifications
-        FROM events WHERE array_length(notifications, 1) > 0
+        FROM events WHERE jsonb_array_length(notifications) > 0
         "#
     )
     .fetch(executor);

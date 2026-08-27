@@ -1,4 +1,5 @@
 use chrono::NaiveDateTime;
+use serde_json::Value;
 use sqlx::PgPool;
 
 use super::notifications::Notification;
@@ -8,14 +9,15 @@ pub const NAME_MAX_CHARS: usize = 32;
 pub const DESCRIPTION_MAX_CHARS: usize = 1000;
 
 /// `events` テーブルの行。日時はタイムゾーンなしの JST
-#[derive(Debug, Clone, PartialEq, Eq)]
+// serde_json::Value は Eq を実装しないので PartialEq だけ
+#[derive(Debug, Clone, PartialEq)]
 pub struct Event {
     pub id: i32,
     pub guild_id: String,
     pub name: String,
     pub description: Option<String>,
-    /// 旧形式の JSON 文字列 (`Notification::decode_all` で読む)
-    pub notifications: Vec<String>,
+    /// DB に入っている JSONB そのまま (`Notification::decode_all` で読む)
+    pub notifications: Value,
     /// `#RRGGBB`
     pub color: String,
     /// 終日予定。`start_at` は開始日の 0:00、`end_at` は終了日 (含む) の 0:00 (web と同じ表現)
@@ -57,7 +59,7 @@ pub async fn create(pool: &PgPool, event: &NewEvent<'_>) -> sqlx::Result<Event> 
         event.guild_id,
         event.name,
         event.description,
-        &notifications[..],
+        notifications,
         event.color,
         event.is_all_day,
         event.start_at,

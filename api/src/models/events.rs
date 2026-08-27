@@ -1,5 +1,6 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{PgExecutor, PgPool};
 use utoipa::ToSchema;
 
@@ -18,7 +19,8 @@ pub struct EventRow {
     pub guild_id: String,
     pub name: String,
     pub description: Option<String>,
-    pub notifications: Vec<String>,
+    /// DB に入っている JSONB そのまま (`Notification::decode_all` で読む)
+    pub notifications: Value,
     pub color: String,
     pub is_all_day: bool,
     pub start_at: NaiveDateTime,
@@ -165,7 +167,7 @@ pub async fn create<'e>(
         guild_id,
         input.name,
         input.description,
-        &notifications[..],
+        notifications,
         input.color,
         input.is_all_day,
         input.start_at,
@@ -178,7 +180,7 @@ pub async fn create<'e>(
 
 /// ギルドに属する予定を 1 件取得し、トランザクションの終わりまで行をロックする (`FOR UPDATE`)。
 /// 管理コンソールが監査ログの「変更前」として読むのに使う。更新・削除までの間に別トランザクション
-/// (通常 API や旧 Bot) が同じ行を書き換えて、ログの before と実際の直前の値がずれるのを防ぐ。
+/// (通常 API や Bot) が同じ行を書き換えて、ログの before と実際の直前の値がずれるのを防ぐ。
 /// 他ギルドの ID を指定しても返さない。該当なしなら `None`
 pub async fn find_by_id_for_update<'e>(
     executor: impl PgExecutor<'e>,
@@ -221,7 +223,7 @@ pub async fn update<'e>(
         guild_id,
         input.name,
         input.description,
-        &notifications[..],
+        notifications,
         input.color,
         input.is_all_day,
         input.start_at,

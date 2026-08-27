@@ -1,12 +1,12 @@
 //! 予定の通知タイミング。
 //!
-//! DB (`events.notifications TEXT[]`) には旧 Web が保存し旧 Bot が読む
-//! `{"key":0,"num":30,"type":"分前"}` という JSON 文字列の配列で入っている。
-//! API の入出力では構造化した `{ "num": 30, "unit": "minutes" }` を使い、
-//! ここで相互変換する (Bot 移行後に保存形式を見直す際はこのモジュールだけ直せばよい)。
+//! DB (`events.notifications JSONB`) には API の入出力と同じ `[{ "num": 30, "unit": "minutes" }]`
+//! の形で入っている。旧 Web / 旧 Bot が使っていた `{"key":0,"num":30,"type":"分前"}` の
+//! JSON 文字列配列からは #15 のマイグレーションで移行済み。
 
 use chrono::{Duration, NaiveDateTime};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 
 /// 予定開始の「num unit 前」に通知する
@@ -28,26 +28,6 @@ pub enum NotificationUnit {
 }
 
 impl NotificationUnit {
-    /// 旧 Web / Bot が使う表現
-    fn legacy_label(self) -> &'static str {
-        match self {
-            Self::Minutes => "分前",
-            Self::Hours => "時間前",
-            Self::Days => "日前",
-            Self::Weeks => "週間前",
-        }
-    }
-
-    fn from_legacy_label(label: &str) -> Option<Self> {
-        match label {
-            "分前" => Some(Self::Minutes),
-            "時間前" => Some(Self::Hours),
-            "日前" => Some(Self::Days),
-            "週間前" => Some(Self::Weeks),
-            _ => None,
-        }
-    }
-
     /// 1 単位あたりの分数 (bot/src/models/notifications.rs と同じ)
     fn minutes_per_unit(self) -> i64 {
         match self {
@@ -59,16 +39,6 @@ impl NotificationUnit {
     }
 }
 
-/// DB に保存されている形式
-#[derive(Serialize, Deserialize)]
-struct Legacy {
-    /// 旧 Web の v-for 用キー。意味はないが Bot がデシリアライズ時に要求する
-    key: i64,
-    num: i64,
-    #[serde(rename = "type")]
-    ty: String,
-}
-
 impl Notification {
     /// 「予定の開始から何分前か」。Bot はこの分だけ手前で通知を送る
     /// (bot/src/models/notifications.rs の同名の関数と同じ値)
@@ -76,29 +46,27 @@ impl Notification {
         i64::from(self.num) * self.unit.minutes_per_unit()
     }
 
-    pub fn from_legacy(raw: &str) -> Option<Self> {
-        let legacy: Legacy = serde_json::from_str(raw).ok()?;
-        Some(Self {
-            num: u32::try_from(legacy.num).ok()?,
-            unit: NotificationUnit::from_legacy_label(&legacy.ty)?,
-        })
+    /// DB の JSONB → API 表現。解釈できない要素は無視する。
+    ///
+    /// 配列でない値や壊れた要素が入っていても予定そのものは読めるようにしている
+    /// (DB の CHECK 制約は配列であることしか保証せず、管理コンソールの定型操作や
+    /// 手作業での修正で api / bot 以外が書き込む余地があるため)
+    pub fn decode_all(raw: &Value) -> Vec<Self> {
+        let Some(items) = raw.as_array() else {
+            return Vec::new();
+        };
+        items
+            .iter()
+            .filter_map(|item| Self::deserialize(item).ok())
+            .collect()
     }
 
-    pub fn to_legacy(self, key: usize) -> String {
-        serde_json::to_string(&Legacy {
-            key: key as i64,
-            num: i64::from(self.num),
-            ty: self.unit.legacy_label().to_owned(),
-        })
-        .expect("Legacy is always serializable")
+    /// API 表現 → DB の JSONB
+    pub fn encode_all(list: &[Self]) -> Value {
+        serde_json::to_value(list).expect("Notification is always serializable")
     }
 
-    /// DB の配列 → API 表現。解釈できない要素は無視する
-    pub fn decode_all(raw: &[String]) -> Vec<Self> {
-        raw.iter().filter_map(|s| Self::from_legacy(s)).collect()
-    }
-
-    /// DB の配列 → Bot が実際に発火させる「開始の何分前か」の一覧 (昇順・重複なし)。
+    /// DB の値 → Bot が実際に発火させる「開始の何分前か」の一覧 (昇順・重複なし)。
     ///
     /// Bot (bot/src/tasks/notify.rs の `notify_for_event`) の扱いに合わせる:
     ///
@@ -109,7 +77,7 @@ impl Notification {
     ///
     /// 通知の数を数える側 (`admin_stats` の今日の通知予定数、`admin_analytics` の内訳) が
     /// それぞれ同じ規則を書き写すとずれるので、ここに一本化する
-    pub fn fire_minutes(raw: &[String]) -> Vec<i64> {
+    pub fn fire_minutes(raw: &Value) -> Vec<i64> {
         let mut minutes: Vec<i64> = Self::decode_all(raw)
             .into_iter()
             .map(Self::total_minutes)
@@ -141,7 +109,7 @@ impl Notification {
     pub fn fire_times(
         start_at: NaiveDateTime,
         is_all_day: bool,
-        raw: &[String],
+        raw: &Value,
     ) -> Vec<NaiveDateTime> {
         let start = Self::effective_start(start_at, is_all_day);
         Self::fire_minutes(raw)
@@ -151,28 +119,21 @@ impl Notification {
             })
             .collect()
     }
-
-    /// API 表現 → DB の配列
-    pub fn encode_all(list: &[Self]) -> Vec<String> {
-        list.iter()
-            .enumerate()
-            .map(|(i, n)| n.to_legacy(i))
-            .collect()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDateTime;
+    use serde_json::json;
 
     use super::*;
 
     #[test]
-    fn decodes_legacy_format_saved_by_old_web() {
-        let raw = vec![
-            r#"{"key":0,"num":1,"type":"日前"}"#.to_owned(),
-            r#"{"key":1,"num":30,"type":"分前"}"#.to_owned(),
-        ];
+    fn decodes_the_stored_json() {
+        let raw = json!([
+            { "num": 1, "unit": "days" },
+            { "num": 30, "unit": "minutes" },
+        ]);
         assert_eq!(
             Notification::decode_all(&raw),
             vec![
@@ -190,12 +151,12 @@ mod tests {
 
     #[test]
     fn skips_unparseable_entries() {
-        let raw = vec![
-            "garbage".to_owned(),
-            r#"{"key":0,"num":-1,"type":"分前"}"#.to_owned(),
-            r#"{"key":0,"num":2,"type":"年前"}"#.to_owned(),
-            r#"{"key":0,"num":2,"type":"時間前"}"#.to_owned(),
-        ];
+        let raw = json!([
+            "garbage",
+            { "num": -1, "unit": "minutes" },
+            { "num": 2, "unit": "years" },
+            { "num": 2, "unit": "hours" },
+        ]);
         assert_eq!(
             Notification::decode_all(&raw),
             vec![Notification {
@@ -206,7 +167,26 @@ mod tests {
     }
 
     #[test]
-    fn encodes_in_format_the_old_bot_reads() {
+    fn keeps_entries_that_carry_unknown_fields() {
+        // 将来この JSON を拡張しても (#93 のメンション先など)、古い api が予定を読めなくならないこと
+        let raw = json!([{ "num": 30, "unit": "minutes", "mention": "@everyone" }]);
+        assert_eq!(
+            Notification::decode_all(&raw),
+            vec![Notification {
+                num: 30,
+                unit: NotificationUnit::Minutes
+            }]
+        );
+    }
+
+    #[test]
+    fn treats_non_array_values_as_empty() {
+        assert!(Notification::decode_all(&json!(null)).is_empty());
+        assert!(Notification::decode_all(&json!({ "num": 30, "unit": "minutes" })).is_empty());
+    }
+
+    #[test]
+    fn encodes_in_the_api_representation() {
         let list = [
             Notification {
                 num: 1,
@@ -219,10 +199,10 @@ mod tests {
         ];
         assert_eq!(
             Notification::encode_all(&list),
-            vec![
-                r#"{"key":0,"num":1,"type":"週間前"}"#,
-                r#"{"key":1,"num":15,"type":"分前"}"#,
-            ]
+            json!([
+                { "num": 1, "unit": "weeks" },
+                { "num": 15, "unit": "minutes" },
+            ])
         );
     }
 
@@ -246,32 +226,32 @@ mod tests {
 
     #[test]
     fn fire_minutes_follows_the_bot_rules() {
-        let raw = vec![
-            r#"{"key":0,"num":60,"type":"分前"}"#.to_owned(),
+        let raw = json!([
+            { "num": 60, "unit": "minutes" },
             // 「60 分前」と発火時刻が同じ (Bot は 1 回にまとめる)
-            r#"{"key":1,"num":1,"type":"時間前"}"#.to_owned(),
+            { "num": 1, "unit": "hours" },
             // 保存済みの 0 分前は、必ず送られる開始時刻通知と同じ
-            r#"{"key":2,"num":0,"type":"分前"}"#.to_owned(),
-            r#"{"key":3,"num":1,"type":"日前"}"#.to_owned(),
-            "garbage".to_owned(),
-        ];
+            { "num": 0, "unit": "minutes" },
+            { "num": 1, "unit": "days" },
+            "garbage",
+        ]);
         assert_eq!(Notification::fire_minutes(&raw), vec![0, 60, 1440]);
     }
 
     #[test]
     fn fire_minutes_always_contains_the_start_notification() {
-        assert_eq!(Notification::fire_minutes(&[]), vec![0]);
-        assert_eq!(Notification::fire_minutes(&["garbage".to_owned()]), vec![0]);
+        assert_eq!(Notification::fire_minutes(&json!([])), vec![0]);
+        assert_eq!(Notification::fire_minutes(&json!(["garbage"])), vec![0]);
     }
 
     #[test]
     fn fire_times_drop_notifications_that_cannot_be_computed() {
         let start: NaiveDateTime = "2026-08-25T10:00:00".parse().unwrap();
-        let raw = vec![
-            r#"{"key":0,"num":30,"type":"分前"}"#.to_owned(),
+        let raw = json!([
+            { "num": 30, "unit": "minutes" },
             // 分に直した時点で chrono の Duration に収まらない (Bot も送れない)
-            r#"{"key":1,"num":4294967295,"type":"週間前"}"#.to_owned(),
-        ];
+            { "num": 4294967295u32, "unit": "weeks" },
+        ]);
         // 30 分前と、必ず送られる開始時刻の通知だけが残る
         assert_eq!(
             Notification::fire_times(start, false, &raw),
@@ -282,7 +262,7 @@ mod tests {
     #[test]
     fn fire_times_round_all_day_events_to_midnight() {
         let start: NaiveDateTime = "2026-08-25T15:30:00".parse().unwrap();
-        let raw = vec![r#"{"key":0,"num":30,"type":"分前"}"#.to_owned()];
+        let raw = json!([{ "num": 30, "unit": "minutes" }]);
         assert_eq!(
             Notification::fire_times(start, true, &raw),
             vec![

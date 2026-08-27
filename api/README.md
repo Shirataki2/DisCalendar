@@ -13,13 +13,20 @@ web 側の Better Auth 化に合わせて認証方式を変えつつ移行した
 | restricted モード | クライアント側で表示制御のみ | **サーバー側で強制** (予定の作成・更新・削除を 403) |
 | イベント更新/削除 | `event_id` だけで更新 (他ギルドの予定を触れた) | `guild_id` と `event_id` の両方で絞る |
 | 予定の取得 | `start_at` + `date_type` で固定幅 | `start` / `end` の範囲指定 (FullCalendar の `fetchInfo` と同じ) で、期間に**重なる**予定を返す |
-| 通知設定 | `{"key":0,"num":30,"type":"分前"}` の JSON 文字列配列 | API 上は `{ "num": 30, "unit": "minutes" }`。DB には旧形式のまま保存 (旧 Bot 互換) |
+| 通知設定 | `{"key":0,"num":30,"type":"分前"}` の JSON 文字列配列 (`TEXT[]`) | API も DB (`JSONB`) も `{ "num": 30, "unit": "minutes" }` (#15 で移行) |
 | Snowflake | serenity の `GuildId` (数値) → フロントで json-bigint が必要 | すべて文字列 |
 | OpenAPI | なし | utoipa で `/openapi.json`、`/docs/` に Swagger UI |
 
 DB スキーマ (`migrations/`) は旧実装のファイルを**そのまま**引き継いでいる
-(`_sqlx_migrations` のチェックサムが一致するよう変更しないこと)。
-稼働中の旧 Bot が同じテーブルを読み書きするため、カラムの型変更は Bot 移行後に行う。
+(適用済みのファイルは `_sqlx_migrations` のチェックサムと照合されるので変更しないこと。変更は新しいファイルで行う)。
+
+旧 Bot / 旧 Web と同じ DB を共有していた間は凍結していたカラム型を、本番切替 (#12) の後に整理した (#15):
+
+- `events.notifications` は `TEXT[]` (旧形式の JSON 文字列) から **`JSONB`** になり、API と同じ
+  `[{ "num": 30, "unit": "minutes" }]` を保存する。変換前の生データは `events_notifications_legacy` に退避してある
+- 日時 (`start_at` / `end_at` / `created_at`) は **タイムゾーンなしの JST (`TIMESTAMP`) のまま**。
+  予定は「JST の壁時計時刻」であって絶対時刻ではなく (終日予定の 0:00 判定も JST の日付で決まる)、
+  TIMESTAMPTZ にしても web / api / bot のどこかで JST に固定変換することになるため
 
 ## エンドポイント
 
@@ -130,5 +137,5 @@ src/
                     admin_status.rs / admin_users.rs / admin_audit.rs が稼働状況・ユーザー / セッション・監査ログ
   openapi.rs        OpenAPI ドキュメント定義
 build.rs            migrations/ の変更検知と GIT_SHA / IMAGE_TAG の再ビルド指示
-migrations/         旧実装から引き継いだスキーマ (変更禁止、追加は新ファイルで)
+migrations/         スキーマ (適用済みのファイルは変更禁止、変更は新ファイルで)
 ```

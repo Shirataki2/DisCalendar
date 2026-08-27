@@ -1,0 +1,13 @@
+-- カレンダー表示のクエリ (api の events::list_between) が使う複合インデックス (#15)。
+--
+-- `WHERE guild_id = $1 AND start_at < $3 AND end_at >= $2` で毎回引くのに、
+-- 既存のインデックスは start_at 単独 (idx_events_start_at) しかなく、
+-- guild_id で絞り込めずに他ギルドの行まで読んでいた。
+-- start_at 単独のインデックスは全ギルド横断で未来の予定を引く通知タスク
+-- (bot の events::list_all_future) が使うので残す。
+--
+-- 直前のマイグレーション (notifications の JSONB 化) が ALTER TABLE ... TYPE で
+-- テーブル全体を書き換え ACCESS EXCLUSIVE ロックを取るため、ここで CREATE INDEX CONCURRENTLY を
+-- 使ってもデプロイ全体の停止時間は縮まらない。途中で失敗しても無効なインデックスを残さない
+-- 通常の CREATE INDEX (トランザクション内) にしている
+CREATE INDEX idx_events_guild_id_start_at ON events (guild_id, start_at);

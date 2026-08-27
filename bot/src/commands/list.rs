@@ -91,9 +91,11 @@ impl EventRange {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
-    fn event(notifications: Vec<String>, all_day: bool) -> Event {
+    fn event(notifications: serde_json::Value, all_day: bool) -> Event {
         Event {
             id: 1,
             guild_id: "1".to_owned(),
@@ -111,10 +113,10 @@ mod tests {
     #[test]
     fn describes_timed_event_with_notifications() {
         let e = event(
-            vec![
-                r#"{"key":0,"num":30,"type":"分前"}"#.to_owned(),
-                r#"{"key":1,"num":1,"type":"日前"}"#.to_owned(),
-            ],
+            json!([
+                { "num": 30, "unit": "minutes" },
+                { "num": 1, "unit": "days" },
+            ]),
             false,
         );
         assert_eq!(
@@ -125,7 +127,7 @@ mod tests {
 
     #[test]
     fn describes_all_day_event_without_notifications() {
-        let e = event(vec![], true);
+        let e = event(json!([]), true);
         assert_eq!(
             describe(&e),
             "`開始時刻`: 2026/08/23\n`終了時刻`: 2026/08/24\n`　通知　`: なし"

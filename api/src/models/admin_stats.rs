@@ -233,7 +233,7 @@ pub fn is_sendable_channel(channel_id: &str) -> bool {
 fn count_fired_between(
     start_at: NaiveDateTime,
     is_all_day: bool,
-    raw_notifications: &[String],
+    raw_notifications: &serde_json::Value,
     day_start: NaiveDateTime,
     day_end: NaiveDateTime,
 ) -> usize {
@@ -248,6 +248,7 @@ fn count_fired_between(
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDateTime;
+    use serde_json::{Value, json};
 
     use super::{count_fired_between, is_sendable_channel};
 
@@ -256,7 +257,7 @@ mod tests {
     }
 
     /// 8/23 の 1 日ぶんを判定窓にする
-    fn count(start: &str, is_all_day: bool, notifications: &[String]) -> usize {
+    fn count(start: &str, is_all_day: bool, notifications: &Value) -> usize {
         count_fired_between(
             dt(start),
             is_all_day,
@@ -268,26 +269,26 @@ mod tests {
 
     #[test]
     fn counts_notifications_firing_within_the_day() {
-        let notifications = vec![
+        let notifications = json!([
             // 開始 (8/24 10:00) の 30 分前 = 8/24 09:30 → 今日ではない
-            r#"{"key":0,"num":30,"type":"分前"}"#.to_owned(),
+            { "num": 30, "unit": "minutes" },
             // 1 日前 = 8/23 10:00 → 今日
-            r#"{"key":1,"num":1,"type":"日前"}"#.to_owned(),
+            { "num": 1, "unit": "days" },
             // 1 週間前 = 8/17 10:00 → 今日ではない
-            r#"{"key":2,"num":1,"type":"週間前"}"#.to_owned(),
+            { "num": 1, "unit": "weeks" },
             // 24 時間前 = 8/23 10:00 → 今日だが「1 日前」と同じ時刻なので Bot は 1 回しか送らない
-            r#"{"key":3,"num":24,"type":"時間前"}"#.to_owned(),
-        ];
+            { "num": 24, "unit": "hours" },
+        ]);
         assert_eq!(count("2026-08-24T10:00:00", false, &notifications), 1);
     }
 
     #[test]
     fn ignores_unparseable_and_overflowing_notifications() {
-        let notifications = vec![
-            "garbage".to_owned(),
+        let notifications = json!([
+            "garbage",
             // 桁が大きすぎて日時の演算がオーバーフローする (Bot も送れない)
-            r#"{"key":0,"num":4294967295,"type":"週間前"}"#.to_owned(),
-        ];
+            { "num": 4294967295u32, "unit": "weeks" },
+        ]);
         // 残るのは Bot が必ず送る開始時刻の通知だけ
         assert_eq!(count("2026-08-23T10:00:00", false, &notifications), 1);
         assert_eq!(count("2026-08-24T10:00:00", false, &notifications), 0);
@@ -296,9 +297,9 @@ mod tests {
     #[test]
     fn always_counts_the_start_notification_the_bot_adds() {
         // 設定が無くても Bot は開始時刻に通知する
-        assert_eq!(count("2026-08-23T10:00:00", false, &[]), 1);
+        assert_eq!(count("2026-08-23T10:00:00", false, &json!([])), 1);
         // 保存済みの 0 分前と重複しても 1 回 (Bot も dedup する)
-        let zero = vec![r#"{"key":0,"num":0,"type":"分前"}"#.to_owned()];
+        let zero = json!([{ "num": 0, "unit": "minutes" }]);
         assert_eq!(count("2026-08-23T10:00:00", false, &zero), 1);
     }
 
@@ -314,7 +315,7 @@ mod tests {
 
     #[test]
     fn all_day_events_fire_from_midnight() {
-        let notifications = vec![r#"{"key":0,"num":30,"type":"分前"}"#.to_owned()];
+        let notifications = json!([{ "num": 30, "unit": "minutes" }]);
         // 終日予定の開始は 0:00 に丸められるので、8/24 の予定の 30 分前は 8/23 23:30 = 今日
         assert_eq!(count("2026-08-24T15:30:00", true, &notifications), 1);
         // 終日でなければ 8/24 09:30 なので今日ではない (開始通知も 8/24)

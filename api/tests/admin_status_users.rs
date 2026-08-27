@@ -64,11 +64,11 @@ async fn seed_guilds(pool: &PgPool) {
         INSERT INTO guilds (guild_id, name) VALUES ('111111111111111111', 'メインサーバー');
         INSERT INTO event_settings (guild_id, channel_id) VALUES ('111111111111111111', '444444444444444444');
         INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES
-            ('111111111111111111', '定例', ARRAY['{"key":0,"num":1,"type":"日前"}'],
+            ('111111111111111111', '定例', '[{"num":1,"unit":"days"}]'::jsonb,
              '2026-08-24T10:00:00', '2026-08-24T11:00:00'),
-            ('111111111111111111', '終わった予定', ARRAY[]::text[],
+            ('111111111111111111', '終わった予定', '[]'::jsonb,
              '2020-01-01T10:00:00', '2020-01-01T11:00:00'),
-            ('222222222222222222', '残骸', ARRAY[]::text[],
+            ('222222222222222222', '残骸', '[]'::jsonb,
              '2026-09-01T10:00:00', '2026-09-01T11:00:00');
         "#,
     )
@@ -144,7 +144,7 @@ async fn upcoming_events_keeps_all_day_events_until_the_next_midnight(pool: PgPo
     sqlx::raw_sql(
         r#"
         INSERT INTO events (guild_id, name, notifications, is_all_day, start_at, end_at) VALUES
-            ('111111111111111111', '今日の終日予定', ARRAY[]::text[], true,
+            ('111111111111111111', '今日の終日予定', '[]'::jsonb, true,
              '2026-08-23T00:00:00', '2026-08-23T00:00:00');
         "#,
     )
@@ -172,7 +172,7 @@ async fn does_not_count_notifications_for_left_guilds(pool: PgPool) {
         r#"
         INSERT INTO event_settings (guild_id, channel_id) VALUES ('222222222222222222', '555555555555555555');
         INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES
-            ('222222222222222222', '退出済みの予定', ARRAY[]::text[],
+            ('222222222222222222', '退出済みの予定', '[]'::jsonb,
              '2026-08-23T10:00:00', '2026-08-23T11:00:00');
         "#,
     )
@@ -198,7 +198,7 @@ async fn counts_notifications_set_further_ahead_than_a_year(pool: PgPool) {
         INSERT INTO guilds (guild_id, name) VALUES ('111111111111111111', 'メインサーバー');
         INSERT INTO event_settings (guild_id, channel_id) VALUES ('111111111111111111', '444444444444444444');
         INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES
-            ('111111111111111111', '2 年近く先の予定', ARRAY['{"key":0,"num":100,"type":"週間前"}'],
+            ('111111111111111111', '2 年近く先の予定', '[{"num":100,"unit":"weeks"}]'::jsonb,
              '2028-07-23T10:00:00', '2028-07-23T11:00:00');
         "#,
     )
@@ -225,7 +225,7 @@ async fn does_not_count_notifications_for_invalid_channels(pool: PgPool) {
         INSERT INTO guilds (guild_id, name) VALUES ('444444444444444444', '不正な通知先');
         INSERT INTO event_settings (guild_id, channel_id) VALUES ('444444444444444444', '0');
         INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES
-            ('444444444444444444', '通知先が不正', ARRAY[]::text[],
+            ('444444444444444444', '通知先が不正', '[]'::jsonb,
              '2026-08-23T10:00:00', '2026-08-23T11:00:00');
         "#,
     )
@@ -250,7 +250,7 @@ async fn does_not_count_notifications_for_guilds_without_a_channel(pool: PgPool)
         r#"
         INSERT INTO guilds (guild_id, name) VALUES ('333333333333333333', '未設定サーバー');
         INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES
-            ('333333333333333333', '通知先未設定', ARRAY['{"key":0,"num":30,"type":"分前"}'],
+            ('333333333333333333', '通知先未設定', '[{"num":30,"unit":"minutes"}]'::jsonb,
              '2026-08-23T10:00:00', '2026-08-23T11:00:00');
         "#,
     )

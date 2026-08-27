@@ -50,7 +50,7 @@
       {
         "ordinal": 4,
         "name": "notifications",
-        "type_info": "TextArray",
+        "type_info": "Jsonb",
         "origin": {
           "Table": {
             "table": "events",
@@ -119,7 +119,7 @@
         "Text",
         "Text",
         "Text",
-        "TextArray",
+        "Jsonb",
         "Text",
         "Bool",
         "Timestamp",
