@@ -71,14 +71,15 @@ LANGUAGE sql IMMUTABLE AS $$
                 SELECT CASE WHEN pg_input_is_valid(sanitized.raw, 'json') THEN sanitized.raw::json END
             ) AS parsed(raw_json)
             CROSS JOIN LATERAL (
-                -- 値は `->` の text 表現 (JSON のトークンのまま) で見る。`->>` はエスケープを解いて
-                -- text にするので、値に NUL のエスケープがあるとそこで落ちる。旧 Web (JSON.stringify) も
-                -- 旧 Bot (serde_json) も日本語をエスケープせずに書くため、生のトークンで拾える
-                SELECT CASE (parsed.raw_json->'type')::text
-                           WHEN '"分前"' THEN 'minutes'
-                           WHEN '"時間前"' THEN 'hours'
-                           WHEN '"日前"' THEN 'days'
-                           WHEN '"週間前"' THEN 'weeks'
+                -- type は `->>` でエスケープを解いた文字列と比べる。旧 decoder (serde) も
+                -- デコード後の String で見ていたので、日本語が Unicode エスケープで
+                -- 書かれていても ("分前" など) 同じように拾える。
+                -- `->>` が落ちるのは NUL を含むときだけで、それは上で無害化済み
+                SELECT CASE parsed.raw_json->>'type'
+                           WHEN '分前' THEN 'minutes'
+                           WHEN '時間前' THEN 'hours'
+                           WHEN '日前' THEN 'days'
+                           WHEN '週間前' THEN 'weeks'
                        END
             ) AS mapped(unit)
             CROSS JOIN LATERAL (
@@ -98,13 +99,18 @@ LANGUAGE sql IMMUTABLE AS $$
             ) AS dup(has_duplicate_known_keys)
             WHERE json_typeof(parsed.raw_json) = 'object'
               AND NOT dup.has_duplicate_known_keys
-              -- `->` の text 表現は数値ならトークンのまま (30 / 1e2 / -0)、文字列なら引用符付き ("30")、
-              -- キーが無ければ NULL。整数として書かれていたかどうかがこれで分かる。
-              -- 符号は表記として許し、値の範囲で弾く (serde の i64 は -0 を 0 として読めていた)
-              AND (parsed.raw_json->'key')::text ~ '^-?[0-9]+$'
+              -- 数値は `->` の text 表現 (JSON のトークンのまま) で見る。数値ならトークンのまま
+              -- (30 / 1e2 / -0)、文字列なら引用符付き ("30")、キーが無ければ NULL になるので、
+              -- 整数として書かれていたかどうかがこれで分かる。
+              -- 符号は表記として許し、値の範囲で弾く (serde の i64 は -0 を 0 として読めていた)。
+              -- 桁数も正規表現で抑える: numeric の上限を超える桁数の整数トークンがあると
+              -- ::numeric が overflow でエラーになり、マイグレーション全体が中断してしまう
+              -- (旧 decoder はその要素を範囲外として無視するだけだった)。
+              -- i64 は最大 19 桁、u32 は最大 10 桁なので、それを超えるものは必ず範囲外
+              AND (parsed.raw_json->'key')::text ~ '^-?[0-9]{1,19}$'
               AND (parsed.raw_json->'key')::text::numeric
                   BETWEEN -9223372036854775808 AND 9223372036854775807
-              AND (parsed.raw_json->'num')::text ~ '^-?[0-9]+$'
+              AND (parsed.raw_json->'num')::text ~ '^-?[0-9]{1,10}$'
               AND (parsed.raw_json->'num')::text::numeric BETWEEN 0 AND 4294967295
               AND unit IS NOT NULL
         ),
