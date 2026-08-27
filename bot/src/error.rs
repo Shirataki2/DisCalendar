@@ -2,6 +2,12 @@ use poise::serenity_prelude as serenity;
 
 use crate::data::{Context, Data};
 
+/// コマンドの panic を記録するときのログ target (#17)。
+/// panic 自体はスタックトレース付きで Sentry の panic integration が送るので、poise が
+/// `catch_unwind` で拾ったあとのこのログまでイベントにすると同じ障害が二重に届く。
+/// main.rs の event_filter がこの target をパンくず扱いにして、送信を 1 回に保つ
+pub const COMMAND_PANIC_LOG_TARGET: &str = "discalendar_bot::command_panic";
+
 /// コマンド・イベントハンドラが返すエラー
 #[derive(Debug, thiserror::Error)]
 pub enum BotError {
@@ -51,7 +57,12 @@ pub async fn on_error(error: poise::FrameworkError<'_, Data, BotError>) {
             reply_ephemeral(ctx, UNEXPECTED_ERROR).await;
         }
         FrameworkError::CommandPanic { ctx, payload, .. } => {
-            tracing::error!(?payload, command = ctx.command().name, "command panicked");
+            tracing::error!(
+                target: COMMAND_PANIC_LOG_TARGET,
+                ?payload,
+                command = ctx.command().name,
+                "command panicked"
+            );
             reply_ephemeral(ctx, UNEXPECTED_ERROR).await;
         }
         // check 関数が false を返したとき (error: None) は check 側で理由を返信済み

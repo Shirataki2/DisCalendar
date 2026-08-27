@@ -24,8 +24,18 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| EnvFilter::new("info,discalendar_bot=debug,sqlx=warn")),
         )
         .with(tracing_subscriber::fmt::layer())
-        // ERROR をイベントとして Sentry へ送り、WARN 以下はパンくずとして直近のイベントに添える
-        .with(sentry::integrations::tracing::layer())
+        // ERROR をイベントとして Sentry へ送り、WARN 以下はパンくずとして直近のイベントに添える。
+        // ただしコマンドの panic だけは panic integration が (スタックトレース付きで) 送るので、
+        // poise が拾ったあとのログはパンくずに落として二重送信を防ぐ (error.rs のコメント参照)
+        .with(
+            sentry::integrations::tracing::layer().event_filter(|metadata| {
+                if metadata.target() == discalendar_bot::error::COMMAND_PANIC_LOG_TARGET {
+                    sentry::integrations::tracing::EventFilter::Breadcrumb
+                } else {
+                    sentry::integrations::tracing::default_event_filter(metadata)
+                }
+            }),
+        )
         .init();
 
     // 起動に失敗してプロセスが終わるときも Sentry に残す。設定の読み込み・DB 接続・Gateway 接続の失敗は

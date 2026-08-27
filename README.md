@@ -360,6 +360,9 @@ DSN が未設定なら 3 サービスとも何も送らない (ローカル開�
   environment タグは焼き込まれた `NEXT_PUBLIC_SITE_URL` から導出する (本番ドメイン → production、`staging.` → staging)。
   ブラウザのスタックトレースをソースマップで戻したい場合は、Repository variables `SENTRY_ORG` / `SENTRY_PROJECT_WEB` と
   secret `SENTRY_AUTH_TOKEN` (scope: `project:releases`) を設定する (未設定ならアップロードはスキップ)
+- **同じ障害を二重に数えない**: api の 5xx は `ApiError::error_response` のログだけをイベントにし (`sentry-actix` の
+  `capture_server_errors` は無効。ミドルウェアはリクエスト情報の付与のために残している)、bot のコマンドの panic は
+  panic 側だけをイベントにする (poise が拾ったあとのログはパンくず扱い)。どちらも無料枠を余分に消費しないため
 - **リリースとの紐付け**: api / bot はクレートのバージョン (`discalendar-api@3.x.y` など) を release として送る。
   バージョンは 3 サービス共通 (上記「リリース」) なので、どの版で出たエラーかは release タグで追える
 
