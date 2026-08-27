@@ -22,7 +22,8 @@
 
 LOCK TABLE events IN ACCESS EXCLUSIVE MODE;
 
--- API 表現 → 旧形式。key は旧 Web と同じく配列内の位置 (0 始まり) を振り直す。
+-- API 表現 → 旧形式。key には元の配列での位置 (0 始まり) を入れる。捨てた要素があると
+-- 番号は飛ぶが、旧 Web / 旧 Bot とも key の値は使わない (デシリアライズで存在と型を要求するだけ)。
 -- 解釈できない要素は捨てる (api / bot が元から無視していたものなので、戻す先でも読めない)。
 -- 移行前にあった未知のフィールドは戻らない (旧 decoder も serde が読み飛ばしていた値なので、
 -- 戻した先の挙動は変わらない)。
@@ -53,10 +54,18 @@ LANGUAGE sql IMMUTABLE AS $$
                        END
             ) AS mapped(label)
             WHERE jsonb_typeof(item) = 'object'
-              AND jsonb_typeof(item->'num') = 'number'
-              AND (item->>'num') ~ '^[0-9]+$'
-              AND (item->>'num')::numeric <= 4294967295
               AND label IS NOT NULL
+              -- 新スキーマは要素の形を縛っていない (CHECK は配列であることだけ) ので、
+              -- api / bot が読み飛ばす壊れた要素 ({"num":"bad"} など) が入りうる。
+              -- WHERE の AND は評価順が保証されず、型や表記の判定より先に ::numeric が
+              -- 評価されるとロールバック全体が落ちるので、前方変換と同じく CASE で順序を明示する。
+              -- 桁数を先に抑えるのも同じ理由 (jsonb の数値は numeric なので巨大な値が入りうる)
+              AND CASE
+                      WHEN jsonb_typeof(item->'num') = 'number'
+                           AND (item->>'num') ~ '^[0-9]{1,10}$'
+                      THEN (item->>'num')::numeric <= 4294967295
+                      ELSE FALSE
+                  END
         ),
         '{}'::text[]
     );

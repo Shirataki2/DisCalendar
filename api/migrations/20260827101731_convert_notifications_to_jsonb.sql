@@ -53,14 +53,24 @@ LANGUAGE sql IMMUTABLE AS $$
                    )
             FROM unnest(legacy) WITH ORDINALITY AS raw_items(raw, ord)
             CROSS JOIN LATERAL (
-                -- PostgreSQL は json / jsonb のどちらでも NUL (U+0000) を text にできず、
-                -- jsonb は入力の時点で、json も json_object_keys などの評価で落ちる。
-                -- 見るのは既知の 3 フィールドだけなので、判定の前に NUL のエスケープを
-                -- 空白のエスケープに置き換えて無害化する (JSON で NUL を書く方法はこの
-                -- エスケープだけ。type の値に入っていた場合は既知の 4 種類と一致しなくなり、
-                -- 旧 decoder が読めなかったものが捨てられるという結果も変わらない)。
+                -- json は「入力として妥当」でも text にデコードできない Unicode エスケープを
+                -- そのまま受け取る。デコードは json_object_keys や `->>` の評価時に走るので、
+                -- そこで初めてエラーになり、要素 1 つでマイグレーション全体が中断してしまう
+                -- (旧 decoder = serde はその要素を捨てるだけだった)。該当するのは 2 つ:
+                --   - NUL (U+0000) のエスケープ … JSON で NUL を書く唯一の方法
+                --   - サロゲート範囲 (U+D800〜U+DFFF) のエスケープ … 単独だとデコードできない
+                -- 見るのは既知の 3 フィールドだけなので、判定の前にどちらも空白のエスケープへ
+                -- 置き換えて無害化する。正しいサロゲートペア (絵文字など) も一緒に潰れるが、
+                -- 既知の単位 (分前 / 時間前 / 日前 / 週間前) はサロゲートを使わないので、
+                -- 潰れた値は「既知の 4 種類と一致しない」= 旧 decoder が読めなかったものと同じ結果になる。
                 -- バックスラッシュは chr(92) で組み立てて、このファイルに制御文字を書かない
-                SELECT replace(raw_items.raw, chr(92) || 'u0000', chr(92) || 'u0020')
+                -- (正規表現の中ではリテラルのバックスラッシュを表すために 2 つ必要)
+                SELECT regexp_replace(
+                           replace(raw_items.raw, chr(92) || 'u0000', chr(92) || 'u0020'),
+                           chr(92) || chr(92) || 'u[dD][89a-fA-F][0-9a-fA-F][0-9a-fA-F]',
+                           chr(92) || chr(92) || 'u0020',
+                           'g'
+                       )
             ) AS sanitized(raw)
             CROSS JOIN LATERAL (
                 -- 判定はすべて json 型で行う。jsonb は数値を正規化し (1e2 なら 100)、重複キーを
