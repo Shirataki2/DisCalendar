@@ -27,6 +27,17 @@ fn main() -> anyhow::Result<()> {
         .with(sentry::integrations::tracing::layer())
         .init();
 
+    // 起動に失敗してプロセスが終わるときも Sentry に残す。設定の読み込み・DB 接続・マイグレーション・bind の
+    // 失敗は Err を返すだけで tracing にも panic にも乗らず、そのままでは監視から漏れる (プロセスが
+    // 立ち上がらない障害ほど気づきたい)。ここで拾った ERROR は _sentry の drop 時に flush される
+    let result = start();
+    if let Err(error) = &result {
+        tracing::error!(error = ?error, "fatal error; shutting down");
+    }
+    result
+}
+
+fn start() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     actix_web::rt::System::new().block_on(discalendar_api::run(config))
 }

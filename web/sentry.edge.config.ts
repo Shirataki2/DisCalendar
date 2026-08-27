@@ -7,4 +7,5 @@ Sentry.init({
   environment: process.env.SENTRY_ENVIRONMENT,
   tracesSampleRate: 0,
   enableLogs: false,
+  sendDefaultPii: false,
 });

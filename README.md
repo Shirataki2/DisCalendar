@@ -353,7 +353,8 @@ DSN が未設定なら 3 サービスとも何も送らない (ローカル開�
   通知は Sentry の Discord インテグレーションでサポートサーバーのチャンネルへ流す (Sentry 側の設定のみ。コード不要)
 - **api / bot**: DSN は実行時の環境変数。ホストの `.env` に `API_SENTRY_DSN` / `BOT_SENTRY_DSN` を入れる
   (staging ホストは `SENTRY_ENVIRONMENT=staging` も)。同種エラーの嵐で無料枠 (5,000 件/月) が溶けそうなときは
-  `SENTRY_SAMPLE_RATE` (0.0〜1.0) で送信率を絞れる
+  `.env` の `SENTRY_SAMPLE_RATE` (0.0〜1.0。compose が両サービスへ渡す) で送信率を絞り、`docker compose up -d` で反映する。
+  起動に失敗してプロセスが終わるとき (設定の誤り・DB 接続不可など) もイベントとして送る
 - **web**: ブラウザに配る DSN なので `next build` 時に焼き込まれる。GHCR のイメージには Repository variable
   `WEB_SENTRY_DSN` をデプロイ CI (`deploy-staging.yml`) が build-arg で渡す (未設定なら Sentry 無効のままビルドされる)。
   environment タグは焼き込まれた `NEXT_PUBLIC_SITE_URL` から導出する (本番ドメイン → production、`staging.` → staging)。

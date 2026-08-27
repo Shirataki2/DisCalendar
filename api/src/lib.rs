@@ -78,9 +78,16 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             .map(|app| {
                 app.wrap(TracingLogger::default())
                     .wrap(middleware::Compress::default())
-                    // ハンドラのエラー (500 系) を Sentry へ送る (#17)。リクエストごとの Hub を張るので
-                    // 一番外側 (最後に wrap) に置き、内側の TracingLogger のスパンやエラーが紐づくようにする
-                    .wrap(sentry_actix::Sentry::new())
+                    // リクエストごとの Sentry Hub を張り、イベントに URL・メソッドなどの情報を付ける (#17)。
+                    // 一番外側 (最後に wrap) に置き、内側の TracingLogger のスパンやエラーが紐づくようにする。
+                    // エラーの送信自体は tracing 側の layer に任せる (ApiError::error_response が 5xx を
+                    // tracing::error! で記録する)。capture_server_errors を既定の true のままにすると
+                    // 同じエラーが二重にイベント化され、無料枠を余分に使う
+                    .wrap(
+                        sentry_actix::Sentry::builder()
+                            .capture_server_errors(false)
+                            .finish(),
+                    )
             })
             .app_data(state.clone())
             .app_data(json_config())

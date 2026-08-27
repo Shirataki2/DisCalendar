@@ -10,4 +10,6 @@ Sentry.init({
   // 使うのはエラー収集だけ (instrumentation-client.ts と同じ方針)
   tracesSampleRate: 0,
   enableLogs: false,
+  // 個人を識別しうる情報は送らない (プライバシーポリシーの説明と揃える)
+  sendDefaultPii: false,
 });

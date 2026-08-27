@@ -20,6 +20,9 @@ Sentry.init({
   // 無料枠を errors 以外で消費しない
   tracesSampleRate: 0,
   enableLogs: false,
+  // IP アドレスや cookie などの個人を識別しうる情報は送らない (SDK の既定だが、
+  // プライバシーポリシー「不具合 (エラー) の記録」の説明と揃えるために明示する)
+  sendDefaultPii: false,
 });
 
 // App Router のページ遷移をパンくずとして記録する (エラー時に直前の遷移が分かる)
