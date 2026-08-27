@@ -12,7 +12,8 @@
 #   STAGING_COMPOSE_DIR (既定 /opt/discalendar-staging) /
 #   STAGING_SITE_URL (既定 https://staging.discalendar.app。web の OGP などの絶対 URL に焼き込む)。詳細は README
 # 任意 (エラー監視 #17): Repository variables WEB_SENTRY_DSN (web の DSN。next build 時に焼き込む) /
-#   SENTRY_ORG / SENTRY_PROJECT_WEB と、secret SENTRY_AUTH_TOKEN (ソースマップのアップロード用)。
+#   SENTRY_ORG / SENTRY_PROJECT_WEB と、secret SENTRY_AUTH_TOKEN (ソースマップのアップロード用。
+#   Sentry の組織設定で作る Organization Auth Token (sntrys_...) を使う。README 参照)。
 #   未設定なら web の Sentry は無効のままビルドされる。api / bot の DSN はホスト側 .env で渡す (実行時に読む)
 name: Deploy staging
 
@@ -122,7 +123,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           build-args: ${{ steps.build_info.outputs.args }}
-          # web のソースマップを Sentry へアップロードするためのトークン (#17)。
+          # web のソースマップを Sentry へアップロードするための Organization Auth Token (#17)。
           # secret 未設定なら空のままで、アップロードはスキップされる (web/Dockerfile)
           secrets: |
             SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}

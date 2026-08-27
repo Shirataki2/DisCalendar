@@ -361,7 +361,11 @@ DSN が未設定なら 3 サービスとも何も送らない (ローカル開�
   `WEB_SENTRY_DSN` をデプロイ CI (`deploy-staging.yml`) が build-arg で渡す (未設定なら Sentry 無効のままビルドされる)。
   environment タグは焼き込まれた `NEXT_PUBLIC_SITE_URL` から導出する (本番ドメイン → production、`staging.` → staging)。
   ブラウザのスタックトレースをソースマップで戻したい場合は、Repository variables `SENTRY_ORG` / `SENTRY_PROJECT_WEB` と
-  secret `SENTRY_AUTH_TOKEN` (scope: `project:releases`) を設定する (未設定ならアップロードはスキップ)
+  secret `SENTRY_AUTH_TOKEN` を設定する (未設定ならアップロードはスキップ)。トークンは Sentry の組織設定
+  (Settings → Auth Tokens) で作る **Organization Auth Token** (`sntrys_` で始まる) を使う。CI 向けに権限が固定されていて
+  scope を選ぶ必要がなく、個人アカウントに紐づかないので発行者の権限が変わってもビルドが壊れない
+  (個人トークンでも動くが、その場合は scope に `project:releases` が要る)。
+  Organization Auth Token を使う場合も `SENTRY_ORG` / `SENTRY_PROJECT_WEB` の指定は必要
 - **同じ障害を二重に数えない**: api の 5xx は `ApiError::error_response` のログだけをイベントにし (`sentry-actix` の
   `capture_server_errors` は無効。ミドルウェアはリクエスト情報の付与のために残している)、bot のコマンドの panic は
   panic 側だけをイベントにする (poise が拾ったあとのログはパンくず扱い)。どちらも無料枠を余分に消費しないため

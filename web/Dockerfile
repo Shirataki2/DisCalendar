@@ -17,8 +17,8 @@ ARG NEXT_PUBLIC_SITE_URL=https://discalendar.app
 
 # エラー監視 (#17)。ブラウザに配る DSN なので next build 時に焼き込む。未設定なら Sentry は無効。
 # DSN は秘密情報ではない (ブラウザに露出する公開キー) が、リポジトリには書かず build-arg で渡す。
-# SENTRY_ORG / SENTRY_PROJECT はソースマップのアップロード先 (SENTRY_AUTH_TOKEN が secret で
-# 渡されたときだけ使われる。下の RUN --mount=type=secret)
+# SENTRY_ORG / SENTRY_PROJECT はソースマップのアップロード先 (Organization Auth Token を使う場合も指定が要る)。
+# SENTRY_AUTH_TOKEN が secret で渡されたときだけ使われる (下の RUN --mount=type=secret)
 ARG NEXT_PUBLIC_SENTRY_DSN=
 ARG SENTRY_ORG=
 ARG SENTRY_PROJECT=
