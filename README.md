@@ -13,6 +13,7 @@ Discord 用のカレンダーアプリ。予定の作成から通知まで、ブ
 | `web/` | Next.js 16 (App Router) + React 19 + FullCalendar v7 + Better Auth + TanStack Query + shadcn/ui + React Hook Form / Zod | LP (静的生成、OGP / favicon)、PWA (manifest / Service Worker)、使い方ページ・規約ページ (MDX、静的生成)、Discord ログイン、サーバー選択、カレンダー (予定の取得 / 作成・編集ダイアログ / 移動 / 削除)、サーバー設定ダイアログ (restricted モード) |
 | `api/` | Rust API（actix-web 4 + sqlx 0.9、旧版から移行） | 移行済み（[README](api/README.md)） |
 | `bot/` | Discord Bot（poise 0.6 + serenity 0.12 + sqlx 0.9、旧版から移行中） | 基盤 (起動 / DB 接続 / ギルドの参加・退出・更新を `guilds` に反映) とスラッシュコマンド (help / create / list / init / invite / register) を移行済み（[README](bot/README.md)）。定期タスク (#4) は未着手 |
+| `infra/` | Cloudflare の設定 (Terraform) とホストで動かす運用スクリプト | R2 のバックアップ用バケットと日次バックアップ ([README](infra/README.md)) |
 | `docs/` | 技術選定・設計ドキュメント | [技術選定](docs/tech-stack-selection.md) |
 
 Rust 側（api / bot）はルートの `Cargo.toml` を workspace とし、`rust-toolchain.toml` で toolchain を固定している。
@@ -374,26 +375,47 @@ DSN が未設定なら 3 サービスとも何も送らない (ローカル開�
 - **リリースとの紐付け**: api / bot はクレートのバージョン (`discalendar-api@3.x.y` など) を release として送る。
   バージョンは 3 サービス共通 (上記「リリース」) なので、どの版で出たエラーかは release タグで追える
 
-### DB のバックアップと復元 (compose)
+### DB のバックアップと復元
 
-compose の db (postgres:18) はボリューム (`<プロジェクト名>_db-data`) に保存される。その環境の compose ディレクトリで実行する
+compose の db (postgres:18) はボリューム (`<プロジェクト名>_db-data`) に保存される。
+
+**日次バックアップは自動で走る** (#102)。本番ホストの systemd timer が毎日 JST 04:00 に `pg_dump -Fc` して
+Cloudflare R2 (`s3://discalendar-backups/production/`) にアップロードする。30 日を過ぎた分は R2 の
+ライフサイクルルールで自動削除され、直近 7 日ぶんはバケットロックで削除・上書きできない
+(アップロード用のキーが漏れても消せない)。設置・確認・一覧の手順は [infra/README.md](infra/README.md)、
+バケットの定義は [infra/terraform/](infra/terraform/)。
+
+手でバックアップを取るときは、その環境の compose ディレクトリで実行する
 (本番は `.env` の `COMPOSE_PROJECT_NAME` が効くのでコマンドは共通):
 
 ```sh
-# バックアップ (カスタム形式)。定期実行し、ホスト外にもコピーしておく
+# バックアップ (カスタム形式)
 # (-T は TTY 割り当てを止めるオプション。付けないとバイナリ出力が壊れることがある)
 docker compose exec -T db pg_dump -U discalendar -d discalendar -Fc > discalendar_$(date +%Y%m%d%H%M%S).dump
+```
 
-# 復元は空の DB に対して行う。先に db だけ起動して復元する
-# (api を先に起動すると起動時マイグレーションが空 DB に走り、復元と衝突する)
+復元は**空の DB に対して**行う。R2 のバックアップから staging に入れる場合:
+
+```sh
+# 1. R2 から落とす (一覧の見方は infra/README.md。落とすのは staging ホストの作業ディレクトリで)
+sudo BACKUP_ENV_FILE=/etc/discalendar/production.env /opt/discalendar-backup/r2.sh \
+  s3 cp "s3://discalendar-backups/production/discalendar-20260827T190000Z.dump" .
+
+# 2. staging の compose ディレクトリで、db だけ起動して復元する
+#    (api を先に起動すると起動時マイグレーションが空 DB に走り、復元と衝突する。
+#     bot も起動していると本番と同じ予定で通知が飛ぶので、その間は bot プロファイルを外す)
+docker compose down
 docker compose up -d db
+docker compose exec -T db psql -U discalendar -d postgres \
+  -c 'DROP DATABASE discalendar' -c 'CREATE DATABASE discalendar OWNER discalendar'
 docker compose exec -T db pg_restore -U discalendar -d discalendar --no-owner --no-privileges < <ダンプファイル>
 docker compose up -d
 ```
 
+- 既存の DB に上書きで復元すると、マイグレーション履歴 (`_sqlx_migrations`) と実体が食い違って api が起動しなくなる。
+  上のように DB を作り直してから入れる
 - 旧版 (postgres 13、オーナー `postgres`) からの移行では `--no-owner --no-privileges` が必須。旧 DB 側では
   `pg_dump -Fc --no-owner --no-privileges -U postgres <DB名>` で取得する (切替手順の全体は #12)
-- staging に本番データを入れて検証するときも同じ手順で復元する (その間は bot プロファイルを外す)
 
 ### DB を書き換えるマイグレーションを適用するとき
 

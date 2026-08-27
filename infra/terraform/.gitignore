@@ -1,0 +1,15 @@
+# provider のダウンロード先と、init で作られるローカルの設定
+.terraform/
+.terraform.tfstate.lock.info
+
+# state は R2 の backend に置く。ローカルに落ちたものはコミットしない
+*.tfstate
+*.tfstate.*
+
+# 実際の値 (アカウント ID・バケット名・エンドポイント)。*.example だけコミットする
+*.tfvars
+!*.tfvars.example
+backend.hcl
+
+crash.log
+crash.*.log

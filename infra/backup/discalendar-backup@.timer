@@ -1,0 +1,16 @@
+# 日次バックアップのスケジュール (#102)。
+#   sudo systemctl enable --now discalendar-backup@production.timer
+#   systemctl list-timers 'discalendar-backup@*'
+[Unit]
+Description=DisCalendar (%i) の DB バックアップを日次で実行する
+
+[Timer]
+# JST 04:00 (利用が少なく、デプロイとも重なりにくい時間帯)
+OnCalendar=*-*-* 19:00:00 UTC
+# 同じ瞬間に本番と staging が走って pg_dump が重ならないよう散らす
+RandomizedDelaySec=10min
+# ホストが止まっていて実行できなかった分は、起動後に 1 回だけ流す
+Persistent=true
+
+[Install]
+WantedBy=timers.target

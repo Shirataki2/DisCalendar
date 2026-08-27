@@ -9,6 +9,8 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - `bot/`: Rust (poise 0.6 + serenity 0.12 + sqlx 0.9)。ギルドの参加・退出・更新を `guilds` テーブルに反映し、
   スラッシュコマンド (help / create / list / init / invite、オーナー用 register) を提供する。定期タスク (#4) は移行中。
   予定の保存形式 (JST naive / 通知の JSONB / 終日予定の表現) は api と揃える。詳細は [bot/README.md](bot/README.md)
+- `infra/`: Cloudflare の設定 (Terraform、cloudflare provider 5 系をバージョン固定) と、本番ホストで動かす
+  DB バックアップ (pg_dump → R2、systemd timer)。秘密情報は置かない (`*.tfvars` / `backend.hcl` は git 管理外)。詳細は [infra/README.md](infra/README.md)
 - 旧実装は `tmp/DisCalendarV2/` (git 管理外) にある。移行時の挙動の根拠はそこを見る
 
 ## コマンド
@@ -18,6 +20,8 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - api / bot (ルートで実行): `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` (Postgres が必要)。
   `query!` を追加・変更したら該当クレートのディレクトリで `cargo sqlx prepare -- --all-targets` を実行し、
   `api/.sqlx/` / `bot/.sqlx/` を更新する (CI は `SQLX_OFFLINE=true`)
+- infra (`infra/terraform/` で実行): `terraform fmt -check -recursive` / `terraform init -backend=false` → `terraform validate`。
+  `plan` / `apply` は Cloudflare の認証情報が要るので手元だけ (CI は書式と構文のみ)。`infra/backup/*.sh` は `shellcheck`
 - コメント・ドキュメント・PR の文章は日本語
 - **利用者に見える機能追加・変更・不具合修正をしたら、更新履歴 (`web/src/content/changelog.mdx`) に同じ PR で追記する**。
   利用者に伝わる言葉で書く (技術的な変更はそれ自体を書かず、利用者から見える効果に言い換える)。書き方のルールはファイル冒頭のコメント

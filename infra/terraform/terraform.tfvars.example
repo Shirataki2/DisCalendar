@@ -1,0 +1,12 @@
+# コピーして terraform.tfvars を作る (git 管理外)。
+#   cp terraform.tfvars.example terraform.tfvars
+# 秘密情報 (API トークン) はここに書かない。環境変数 CLOUDFLARE_API_TOKEN で渡す (infra/README.md)。
+
+# Cloudflare のアカウント ID (ダッシュボードの URL や R2 のエンドポイントに出る 32 桁)
+account_id = "00000000000000000000000000000000"
+
+# 既定から変えるときだけ設定する
+# backup_bucket_name     = "discalendar-backups"
+# backup_bucket_location = "apac"
+# backup_retention_days  = 30
+# backup_lock_days       = 7
