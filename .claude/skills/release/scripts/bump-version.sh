@@ -110,9 +110,10 @@ if ! version_gt "$next" "$current"; then
   exit 1
 fi
 
-# web/package.json: 先頭に現れる "version" (dependencies の中には無い)
+# web/package.json: 先頭に現れる "version" (dependencies の中には無い)。
+# sed の 0,/re/ アドレスは GNU 拡張で、BSD sed (macOS) はエラーも出さずに何も置換しないため awk で書く
 tmp=$(mktemp) && trap 'rm -f "$tmp"' EXIT
-sed -E '0,/"version"[[:space:]]*:/s/("version"[[:space:]]*:[[:space:]]*")[^"]+(")/\1'"$next"'\2/' \
+awk -v v="$next" '!done && /"version"[[:space:]]*:/ { sub(/:[[:space:]]*"[^"]+"/, ": \"" v "\""); done = 1 } { print }' \
   web/package.json > "$tmp" && cp "$tmp" web/package.json
 
 # Cargo.toml: [package] セクションの version
