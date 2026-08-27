@@ -350,7 +350,9 @@ compose の logging 設定 (json-file、10MB × 3 世代) でローテーショ�
 DSN が未設定なら 3 サービスとも何も送らない (ローカル開発・CI・E2E はそのまま)。
 
 - **Sentry 側の準備**: プロジェクトを web (platform: Next.js) / api / bot (platform: Rust) の 3 つ作り、それぞれの DSN を控える。
-  通知は Sentry の Discord インテグレーションでサポートサーバーのチャンネルへ流す (Sentry 側の設定のみ。コード不要)
+  通知は Sentry 側の設定だけで足りる (コードは不要)。Discord インテグレーション (Settings → Integrations → Discord) を
+  使えればサポートサーバーのチャンネルへ流せるが、無料プランで third-party integrations が使えるかは
+  契約時点の Sentry のプラン次第なので、使えなければメール通知にする
 - **api / bot**: DSN は実行時の環境変数。ホストの `.env` に `API_SENTRY_DSN` / `BOT_SENTRY_DSN` を入れる
   (staging ホストは `SENTRY_ENVIRONMENT=staging` も)。同種エラーの嵐で無料枠 (5,000 件/月) が溶けそうなときは
   `.env` の `SENTRY_SAMPLE_RATE` (0.0〜1.0。compose が両サービスへ渡す) で送信率を絞り、`docker compose up -d` で反映する。
