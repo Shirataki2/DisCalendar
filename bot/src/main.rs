@@ -1,7 +1,9 @@
 use anyhow::Context as _;
 use discalendar_bot::config::Config;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer as _;
 use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
 fn main() -> anyhow::Result<()> {
@@ -23,7 +25,7 @@ fn main() -> anyhow::Result<()> {
             EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| EnvFilter::new("info,discalendar_bot=debug,sqlx=warn")),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(fmt_layer())
         // ERROR をイベントとして Sentry へ送り、WARN 以下はパンくずとして直近のイベントに添える。
         // ただしコマンドの panic だけは panic integration が (スタックトレース付きで) 送るので、
         // poise が拾ったあとのログはパンくずに落として二重送信を防ぐ (error.rs のコメント参照)
@@ -55,6 +57,20 @@ fn start() -> anyhow::Result<()> {
         .build()
         .context("failed to build tokio runtime")?
         .block_on(discalendar_bot::run(config))
+}
+
+/// ログの出力形式 (#104)。`LOG_FORMAT=json` のときだけ 1 行 1 JSON にする
+/// (コンテナログを Grafana Alloy が Loki へ送るときに、レベルなどを取り出せるようにするため)。
+/// 未設定なら人が読む形式のまま (cargo run やローカルの `docker compose logs`)
+fn fmt_layer<S>() -> Box<dyn tracing_subscriber::Layer<S> + Send + Sync>
+where
+    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+{
+    if std::env::var("LOG_FORMAT").is_ok_and(|format| format.eq_ignore_ascii_case("json")) {
+        tracing_subscriber::fmt::layer().json().boxed()
+    } else {
+        tracing_subscriber::fmt::layer().boxed()
+    }
 }
 
 /// SENTRY_SAMPLE_RATE (0.0〜1.0、既定 1.0)。同種エラーの嵐が無料枠 (5,000 件/月) を

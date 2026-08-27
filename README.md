@@ -347,14 +347,14 @@ git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
 ### エラー監視 (Sentry) とコンテナログ
 
 方針 (#17): エラー追跡は Sentry SaaS (Developer 無料枠。5,000 件/月・保持 30 日・1 ユーザー) を web / api / bot の
-3 サービスに入れ、コンテナログは compose の logging 設定 (json-file、10MB × 3 世代) でローテーションだけ行う。
-ログの横断検索・ログベースのアラートは #104。
+3 サービスに入れ、コンテナログは compose の logging 設定 (json-file、10MB × 3 世代) でローテーションする。
+そこから溢れたログの横断検索と、ログベースの Discord 通知は下の「ログ集約 (Grafana Cloud)」が担う (#104)。
 DSN が未設定なら 3 サービスとも何も送らない (ローカル開発・CI・E2E はそのまま)。
 
 - **Sentry 側の準備**: プロジェクトを web (platform: Next.js) / api / bot (platform: Rust) の 3 つ作り、それぞれの DSN を控える。
   通知は Sentry 側の設定だけで足りる (コードは不要)。**無料プラン (Developer) の通知はメールのみ**で、
   Discord などの third-party integrations は Team プラン以上でないと使えない (2026-08 時点。実際に確認済み)。
-  Discord のチャンネルへ流したい場合は、Team プランにするか、ログ側のアラート (#104 の Grafana Cloud は
+  Discord のチャンネルへ流したい場合は、Team プランにするか、下のログ側のアラート (Grafana Cloud は
   無料枠で Discord 通知に対応) で代替する
 - **api / bot**: DSN は実行時の環境変数。ホストの `.env` に `API_SENTRY_DSN` / `BOT_SENTRY_DSN` を入れる
   (staging ホストは `SENTRY_ENVIRONMENT=staging` も)。同種エラーの嵐で無料枠 (5,000 件/月) が溶けそうなときは
@@ -374,6 +374,21 @@ DSN が未設定なら 3 サービスとも何も送らない (ローカル開�
   panic 側だけをイベントにする (poise が拾ったあとのログはパンくず扱い)。どちらも無料枠を余分に消費しないため
 - **リリースとの紐付け**: api / bot はクレートのバージョン (`discalendar-api@3.x.y` など) を release として送る。
   バージョンは 3 サービス共通 (上記「リリース」) なので、どの版で出たエラーかは release タグで追える
+
+### ログ集約 (Grafana Cloud)
+
+方針 (#104): compose の各サービスのコンテナログを Grafana Alloy (compose の `alloy`、`--profile logging`) が
+Grafana Cloud の Loki に送り、横断検索とログベースのアラート (Discord 通知) をそこで行う。
+Sentry が例外の中身を、こちらがログの流れと通知を受け持つ。
+
+- **ラベル**: `env` (production / staging)・`service` (compose のサービス名)・`level` (api / bot だけ)。
+  api / bot は `LOG_FORMAT=json` (compose の既定) で `tracing` を JSON 出力にしてあり、そこから `level` を起こす。
+  ローカルで `docker compose logs` を人が読むときは `.env` に `LOG_FORMAT=text` を入れる
+- **ホスト側**: `.env` に `GRAFANA_CLOUD_LOKI_URL` / `_USER` / `_TOKEN` を入れ、`COMPOSE_PROFILES` に `logging` を足す。
+  設定ファイル (`infra/alloy/config.alloy`) はデプロイのたびに compose.yaml と一緒に配られる
+- **アラート**: 「api / bot の ERROR が 5 分で 10 件超」と「本番のログが 15 分途絶」の 2 本を Terraform
+  (`infra/terraform/grafana/`) で管理し、Discord の Webhook に流す
+- 準備の手順 (スタック・トークン・Terraform の apply) と LogQL の例は [infra/README.md](infra/README.md) にまとめてある
 
 ### DB のバックアップと復元
 

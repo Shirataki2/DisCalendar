@@ -1,20 +1,31 @@
 # infra
 
-Cloudflare まわりの設定 (Terraform) と、ホストで動かす運用スクリプトを置く。
+SaaS 側の設定 (Terraform) と、ホストで動かす運用スクリプト・エージェントの設定を置く。
 
 | ディレクトリ | 中身 |
 | --- | --- |
 | [`terraform/`](terraform/) | Cloudflare の設定。今は DB バックアップ用の R2 バケットだけ (#102) |
+| [`terraform/grafana/`](terraform/grafana/) | Grafana Cloud のログベースのアラートと Discord への通知 (#104) |
 | [`backup/`](backup/) | 本番 / staging ホストで日次に動かす DB バックアップ (pg_dump → R2) |
+| [`alloy/`](alloy/) | コンテナログを Grafana Cloud (Loki) に送る Grafana Alloy の設定 (#104) |
 
-**秘密情報 (API トークン・アクセスキー) はこの下に置かない**。値は Cloudflare のダッシュボードで発行して、
-ローカルの環境変数かホストの `/etc/discalendar/<環境名>.env` にだけ入れる。`terraform.tfvars` と `backend.hcl` は
+**秘密情報 (API トークン・アクセスキー・Webhook URL) はこの下に置かない**。値は各サービスのダッシュボードで発行して、
+ローカルの環境変数かホストの `.env` / `/etc/discalendar/<環境名>.env` にだけ入れる。`terraform.tfvars` と `backend.hcl` は
 git 管理外 (`terraform/.gitignore`) で、リポジトリにあるのは `*.example` だけ。
 
 ## Terraform
 
-Cloudflare の設定をダッシュボード任せにせず、リポジトリで diff を見られるようにするための下地。
-provider は 5 系でリソースごとに粗さが残るのでバージョンを固定してある (`terraform/versions.tf`)。
+ダッシュボード任せにせず、リポジトリで diff を見られるようにするための下地。ルートモジュールは 2 つあり、
+provider も認証情報も state も別になっている。**どちらも同じ手順 (`init -backend-config=backend.hcl` → `plan` → `apply`) で動かす**。
+
+| ディレクトリ | provider | state のキー | 認証 |
+| --- | --- | --- | --- |
+| `terraform/` | cloudflare 5 系 | `discalendar/terraform.tfstate` | 環境変数 `CLOUDFLARE_API_TOKEN` |
+| `terraform/grafana/` | grafana 4 系 | `discalendar/grafana.tfstate` | 環境変数 `GRAFANA_AUTH` |
+
+provider はリソースの形が版によって動くのでバージョンを固定してある (`versions.tf`)。
+
+## Cloudflare (`terraform/`)
 
 ### 管理しているもの / していないもの
 
@@ -64,8 +75,102 @@ terraform apply
   `terraform init -upgrade -backend-config=backend.hcl` → `terraform plan` で差分を確認する。
   `.terraform.lock.hcl` は darwin_arm64 / linux_amd64 / linux_arm64 のハッシュを入れてあるので、
   更新は `terraform providers lock -platform=darwin_arm64 -platform=linux_amd64 -platform=linux_arm64`
-- CI (`.github/workflows/ci.yml` の `terraform` ジョブ) は `terraform fmt -check` と `validate` だけを実行する。
-  Cloudflare の認証情報を GitHub 側に置かないので、`plan` / `apply` は手元から行う
+- CI (`.github/workflows/ci.yml` の `infra` ジョブ) は `terraform fmt -check -recursive` と、ルートモジュールごとの
+  `validate` だけを実行する。認証情報を GitHub 側に置かないので、`plan` / `apply` は手元から行う
+
+## ログ集約とアラート (Grafana Cloud)
+
+コンテナログはホストで 10MB × 3 世代までしか残らない (`compose.yaml` の `x-logging`) ので、
+それより前を追えるように Grafana Cloud の Loki へ送る。Sentry (#17) との分担は次のとおり。
+
+- **Sentry**: 例外のグルーピング・スタックトレース・ソースマップ。通知はメールだけ (無料プランは Discord 連携が使えない)
+- **Grafana Cloud (ここ)**: ログの横断検索と、ログベースのアラートの Discord への通知
+
+送っているのは compose のコンテナログ (web / api / bot / db / cloudflared)。ホスト側の systemd で動く
+DB バックアップは journal に出るだけで、ここには乗らない (必要になったら `loki.source.journal` を足す)。
+
+### 何にどんなラベルが付くか
+
+`infra/alloy/config.alloy` が付けるラベルは 3 つだけ。ストリームが増えすぎないよう、
+コンテナ ID や名前のように再作成で変わるものはラベルにしていない。
+
+| ラベル | 値 | 付く範囲 |
+| --- | --- | --- |
+| `env` | `production` / `staging` (`.env` の `SENTRY_ENVIRONMENT`) | 全サービス |
+| `service` | compose のサービス名 (`web` / `api` / `bot` / `db` / `cloudflared`) | 全サービス |
+| `level` | `ERROR` / `WARN` / `INFO` など | api / bot だけ (`LOG_FORMAT=json` の JSON ログから起こす) |
+
+web と db はテキストログなので `level` が付かない。本文の全文検索 (`|= "error"`) で追う。
+
+### Grafana Cloud の準備 (最初の 1 回)
+
+1. [Grafana Cloud](https://grafana.com/) にサインアップしてスタックを作る (無料枠: ログ 50GB/月・保持 14 日)
+2. スタックの **Loki** の詳細 (Send Logs) に出る **push URL** と **User** を控える
+3. **アクセスポリシートークン**を作る (Access Policies → Create access policy)。スコープは `logs:write` だけ、
+   有効期限は無期限でよい。作成後に一度だけ表示される値を控える
+4. Terraform 用に **サービスアカウントとトークン**を作る (Grafana の Administration → Users and access →
+   Service accounts)。ロールは **Admin** (アラートルールと通知先を作るため)
+5. アラートを流す Discord チャンネルの **Webhook URL** を作る (チャンネルの設定 → 連携サービス → ウェブフック)
+
+### ホスト側の設定 (ログを送る)
+
+ホストの `.env` (compose と同じディレクトリ) に手順 2・3 の値を入れて、profile を足す:
+
+```sh
+GRAFANA_CLOUD_LOKI_URL=https://logs-prod-030.grafana.net/loki/api/v1/push
+GRAFANA_CLOUD_LOKI_USER=1234567
+GRAFANA_CLOUD_LOKI_TOKEN=glc_...
+COMPOSE_PROFILES=bot,tunnel,logging
+```
+
+```sh
+docker compose up -d          # alloy が起動する
+docker compose logs alloy     # 送信できないときはここにエラーが出る
+```
+
+設定ファイル (`infra/alloy/config.alloy`) はデプロイのたびに compose.yaml と一緒に配られ、
+`.github/scripts/deploy.sh` が `docker compose restart alloy` で読み直させる
+(bind mount なので、up -d だけでは新しい設定が反映されない)。手で置くときは compose.yaml から見て
+同じ相対パス (`<compose のディレクトリ>/infra/alloy/config.alloy`) に置くこと。
+
+### アラート (`terraform/grafana/`)
+
+ルールと通知先は Terraform で管理する。作られるのは 2 本:
+
+- **ERROR ログの急増**: `{service=~"api|bot", level="ERROR"}` を 5 分窓で数え、`error_threshold` (既定 10) を超えたら通知
+- **ログの途絶**: 本番のログが `log_gap_minutes` (既定 15) 分 1 行も届かなければ通知 (ホストか alloy が落ちている)
+
+```sh
+cd infra/terraform/grafana
+cp terraform.tfvars.example terraform.tfvars   # スタックの URL と Loki データソース名を書く
+cp backend.hcl.example backend.hcl             # state バケット (Cloudflare 側と同じ) を書く
+
+export GRAFANA_AUTH=...                        # 手順 4 のサービスアカウントトークン
+export TF_VAR_discord_webhook_url=...          # 手順 5 の Webhook URL
+export AWS_ACCESS_KEY_ID=...                   # state の読み書き (Cloudflare 側と同じキー)
+export AWS_SECRET_ACCESS_KEY=...
+
+terraform init -backend-config=backend.hcl
+terraform plan
+terraform apply
+```
+
+- `loki_datasource_name` は Grafana の Connections → Data sources に出ている名前
+  (`grafanacloud-<組織のスラッグ>-logs`)。UID は Terraform が名前から引く
+- 通知先は root の通知ポリシーではなくルール側 (`notification_settings`) で指定してあるので、
+  Grafana Cloud が既定で持っている通知の設定には触らない
+- 実際に鳴るか試すには、Grafana の Alerting → Contact points で **Test** を押す
+
+### ログを見る
+
+Grafana の **Explore** で Loki を選び、次のようなクエリを使う。
+
+```logql
+{env="production"}                                  # 全サービス
+{env="production", service="api", level="ERROR"}    # api のエラーだけ
+{env="production", service="web"} |= "Error"        # web はテキストログなので全文検索
+{env="production"} | json | line_format "{{.fields_message}}"   # JSON を読みやすく整形する
+```
 
 ## DB のバックアップ (pg_dump → R2)
 
@@ -106,7 +211,8 @@ systemctl list-timers 'discalendar-backup@*'
 (R2 → API → Manage API tokens → **Object Read & Write**、Specify bucket に `discalendar-backups` だけ)。
 
 失敗すると service が `failed` になり、内容は `journalctl` に残る。**失敗しても通知は飛ばない**ので、
-`systemctl list-timers` と R2 のオブジェクト一覧をときどき見る (ログの集約とアラートは #104)。
+`systemctl list-timers` と R2 のオブジェクト一覧をときどき見る (systemd の journal はコンテナログではないので、
+上のログ集約にも乗らない。ここも通知したくなったら alloy に `loki.source.journal` を足す)。
 
 ### 中身を見る / 落とす
 

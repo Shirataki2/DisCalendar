@@ -1,0 +1,17 @@
+# コピーして terraform.tfvars を作る (git 管理外)。
+#   cp terraform.tfvars.example terraform.tfvars
+# 秘密情報 (サービスアカウントトークン・Discord の Webhook URL) はここに書かない。
+# 環境変数 GRAFANA_AUTH / TF_VAR_discord_webhook_url で渡す (infra/README.md)。
+
+# Grafana Cloud のスタックの URL
+grafana_url = "https://example.grafana.net"
+
+# ログの検索先。スタックに最初からある Loki データソースの名前
+# (Grafana の Connections → Data sources。grafanacloud-<組織のスラッグ>-logs)
+loki_datasource_name = "grafanacloud-example-logs"
+
+# 既定から変えるときだけ設定する
+# alert_folder_title  = "DisCalendar"
+# error_threshold     = 10
+# log_gap_environment = "production"
+# log_gap_minutes     = 15

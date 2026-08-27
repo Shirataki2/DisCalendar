@@ -207,8 +207,8 @@ jobs:
             web/test-results
           retention-days: 7
 
-  # infra/ (Cloudflare の Terraform とホストのバックアップスクリプト)。
-  # Cloudflare の認証情報は CI に置かないので plan はせず、書式と構文だけ見る
+  # infra/ (Cloudflare / Grafana Cloud の Terraform、ホストのバックアップスクリプト、alloy の設定)。
+  # Cloudflare と Grafana の認証情報は CI に置かないので plan はせず、書式と構文だけ見る
   infra:
     name: infra
     needs: changes
@@ -231,6 +231,20 @@ jobs:
       - name: terraform validate
         run: terraform validate
         working-directory: infra/terraform
+      # Grafana Cloud 側は provider も state も別のルートモジュールにしてあるので、init / validate も別に流す
+      # (fmt は上の -recursive がこのディレクトリも見ている)
+      - name: terraform init (grafana, backend なし)
+        run: terraform init -backend=false -input=false
+        working-directory: infra/terraform/grafana
+      - name: terraform validate (grafana)
+        run: terraform validate
+        working-directory: infra/terraform/grafana
+      - name: alloy の設定を検証
+        # ホストに配ってから壊れていることに気づくと、その間のログが丸ごと失われる。
+        # 版は compose.yaml の alloy と揃えること (構文は版によって変わる)
+        run: |
+          docker run --rm -v "$PWD/infra/alloy:/etc/alloy:ro" \
+            grafana/alloy:v1.19.2 validate /etc/alloy/config.alloy
       - name: shellcheck
         # ホストで動かすスクリプトは手元で流す機会が少ないので静的に見ておく
         run: shellcheck infra/backup/*.sh

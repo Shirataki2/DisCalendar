@@ -33,7 +33,7 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "h
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dotenvy = "0.15"
 # エラー監視 (#17)。SENTRY_DSN が未設定なら何も送らない。
 # 実行イメージ (debian slim) に OpenSSL が無いので既定の native-tls ではなく rustls で送る。
