@@ -1,8 +1,7 @@
 //! DB アクセス層。テーブル定義は `api/migrations/` を参照 (api と共有)。
 //!
-//! 日時はすべてタイムゾーンなしの JST (`TIMESTAMP`) で保存されている (旧 Web / 旧 Bot の慣習で、api も同じ)。
-//! 通知設定 (`events.notifications`) も旧形式の JSON 文字列のまま保存する (`notifications` モジュール)。
-//! 保存形式の見直しは Bot 移行後 (#15)。
+//! 日時はすべてタイムゾーンなしの JST (`TIMESTAMP`) で保存されている (api も同じ)。
+//! 通知設定 (`events.notifications`) は api の入出力と同じ JSONB で保存する (`notifications` モジュール)。
 
 pub mod event_settings;
 pub mod events;

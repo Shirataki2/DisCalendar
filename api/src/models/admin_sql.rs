@@ -16,7 +16,7 @@
 //!    手で作って `SQL_CONSOLE_DATABASE_URL` で渡す (README)。実行のたびに接続のセッションユーザーが
 //!    このロールで superuser でなく保護テーブルを読めないことを確かめ、満たさなければ実行しない (fail closed)
 //! 3. `BEGIN READ ONLY` のトランザクションで実行する (`WITH ... DELETE` のような書き込みは Postgres が拒否し、
-//!    ロールにも書き込み権限が無い) ので、稼働中の旧 Bot と共有している `events` などを誤って壊せない
+//!    ロールにも書き込み権限が無い) ので、Bot と共有している `events` などを誤って壊せない
 //! 4. `SET LOCAL statement_timeout` で長いクエリを打ち切る。カーソルからの `FETCH` は複数回に分けるので、
 //!    コマンドごとではなく開始時刻からの締切 ([`STATEMENT_TIMEOUT`]) で残り時間を設定し直す
 //! 5. **実行計画での事前判定**: `EXPLAIN (FORMAT JSON)` の計画を走査し、`Relation Name` に保護テーブルや

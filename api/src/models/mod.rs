@@ -1,7 +1,8 @@
-//! DB アクセス層。テーブル定義は `migrations/` を参照 (旧実装・Bot と共有)。
+//! DB アクセス層。テーブル定義は `migrations/` を参照 (Bot と共有)。
 //!
-//! 日時はすべてタイムゾーンなしの JST (`TIMESTAMP`) で保存されている (旧 Web/Bot の慣習)。
-//! Bot の移行が終わったら TIMESTAMPTZ への移行を検討する。
+//! 日時はすべてタイムゾーンなしの JST (`TIMESTAMP`) で保存されている。
+//! 予定は「JST の壁時計時刻」であって絶対時刻ではない (終日予定の 0:00 判定も JST の日付で決まる) ため、
+//! Bot 移行後のスキーマ整理 (#15) でも TIMESTAMPTZ には変えず naive のままにしている。
 
 pub mod admin_analytics;
 pub mod admin_audit;

@@ -1,22 +1,24 @@
 //! 予定の通知タイミング。
 //!
-//! DB (`events.notifications TEXT[]`) には旧 Web が保存し旧 Bot が読む
-//! `{"key":0,"num":30,"type":"分前"}` という JSON 文字列の配列で入っている。
-//! api (`api/src/models/notifications.rs`) と同じ変換をここでも行い、
+//! DB (`events.notifications JSONB`) には api の入出力と同じ `[{ "num": 30, "unit": "minutes" }]`
+//! の形で入っている (#15 で旧 Web / 旧 Bot 由来の JSON 文字列配列から移行した)。
+//! api (`api/src/models/notifications.rs`) と同じ読み書きをここでも行い、
 //! `/create` で保存した予定を web が読め、web で作った予定を `/list` が読めるようにする。
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// 予定開始の「num unit 前」に通知する
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Notification {
     pub num: u32,
     pub unit: NotificationUnit,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum NotificationUnit {
     Minutes,
     Hours,
@@ -25,23 +27,13 @@ pub enum NotificationUnit {
 }
 
 impl NotificationUnit {
-    /// 旧 Web / Bot が使う表現。表示にもそのまま使う
+    /// 通知の埋め込みや `/list` の表示に使う日本語の単位
     pub fn label(self) -> &'static str {
         match self {
             Self::Minutes => "分前",
             Self::Hours => "時間前",
             Self::Days => "日前",
             Self::Weeks => "週間前",
-        }
-    }
-
-    fn from_label(label: &str) -> Option<Self> {
-        match label {
-            "分前" => Some(Self::Minutes),
-            "時間前" => Some(Self::Hours),
-            "日前" => Some(Self::Days),
-            "週間前" => Some(Self::Weeks),
-            _ => None,
         }
     }
 
@@ -56,16 +48,6 @@ impl NotificationUnit {
     }
 }
 
-/// DB に保存されている形式
-#[derive(Serialize, Deserialize)]
-struct Legacy {
-    /// 旧 Web の v-for 用キー。意味はないが旧 Bot がデシリアライズ時に要求する
-    key: i64,
-    num: i64,
-    #[serde(rename = "type")]
-    ty: String,
-}
-
 impl Notification {
     pub const fn new(num: u32, unit: NotificationUnit) -> Self {
         Self { num, unit }
@@ -76,34 +58,21 @@ impl Notification {
         i64::from(self.num) * self.unit.minutes_per_unit()
     }
 
-    pub fn from_legacy(raw: &str) -> Option<Self> {
-        let legacy: Legacy = serde_json::from_str(raw).ok()?;
-        Some(Self {
-            num: u32::try_from(legacy.num).ok()?,
-            unit: NotificationUnit::from_label(&legacy.ty)?,
-        })
-    }
-
-    pub fn to_legacy(self, key: usize) -> String {
-        serde_json::to_string(&Legacy {
-            key: key as i64,
-            num: i64::from(self.num),
-            ty: self.unit.label().to_owned(),
-        })
-        .expect("Legacy is always serializable")
-    }
-
-    /// DB の配列 → 構造化した一覧。解釈できない要素は無視する
-    pub fn decode_all(raw: &[String]) -> Vec<Self> {
-        raw.iter().filter_map(|s| Self::from_legacy(s)).collect()
-    }
-
-    /// 構造化した一覧 → DB の配列
-    pub fn encode_all(list: &[Self]) -> Vec<String> {
-        list.iter()
-            .enumerate()
-            .map(|(i, n)| n.to_legacy(i))
+    /// DB の JSONB → 構造化した一覧。解釈できない要素は無視する
+    /// (api の `Notification::decode_all` と同じ扱い)
+    pub fn decode_all(raw: &Value) -> Vec<Self> {
+        let Some(items) = raw.as_array() else {
+            return Vec::new();
+        };
+        items
+            .iter()
+            .filter_map(|item| Self::deserialize(item).ok())
             .collect()
+    }
+
+    /// 構造化した一覧 → DB の JSONB
+    pub fn encode_all(list: &[Self]) -> Value {
+        serde_json::to_value(list).expect("Notification is always serializable")
     }
 }
 
@@ -116,14 +85,16 @@ impl fmt::Display for Notification {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[test]
-    fn decodes_legacy_format_saved_by_web() {
-        let raw = vec![
-            r#"{"key":0,"num":1,"type":"日前"}"#.to_owned(),
-            r#"{"key":1,"num":30,"type":"分前"}"#.to_owned(),
-        ];
+    fn decodes_the_stored_json() {
+        let raw = json!([
+            { "num": 1, "unit": "days" },
+            { "num": 30, "unit": "minutes" },
+        ]);
         assert_eq!(
             Notification::decode_all(&raw),
             vec![
@@ -135,12 +106,12 @@ mod tests {
 
     #[test]
     fn skips_unparseable_entries() {
-        let raw = vec![
-            "garbage".to_owned(),
-            r#"{"key":0,"num":-1,"type":"分前"}"#.to_owned(),
-            r#"{"key":0,"num":2,"type":"年前"}"#.to_owned(),
-            r#"{"key":0,"num":2,"type":"時間前"}"#.to_owned(),
-        ];
+        let raw = json!([
+            "garbage",
+            { "num": -1, "unit": "minutes" },
+            { "num": 2, "unit": "years" },
+            { "num": 2, "unit": "hours" },
+        ]);
         assert_eq!(
             Notification::decode_all(&raw),
             vec![Notification::new(2, NotificationUnit::Hours)]
@@ -148,17 +119,23 @@ mod tests {
     }
 
     #[test]
-    fn encodes_in_format_the_old_bot_and_api_read() {
+    fn treats_non_array_values_as_empty() {
+        assert!(Notification::decode_all(&json!(null)).is_empty());
+        assert!(Notification::decode_all(&json!({ "num": 30, "unit": "minutes" })).is_empty());
+    }
+
+    #[test]
+    fn encodes_in_the_format_the_api_reads() {
         let list = [
             Notification::new(1, NotificationUnit::Weeks),
             Notification::new(15, NotificationUnit::Minutes),
         ];
         assert_eq!(
             Notification::encode_all(&list),
-            vec![
-                r#"{"key":0,"num":1,"type":"週間前"}"#,
-                r#"{"key":1,"num":15,"type":"分前"}"#,
-            ]
+            json!([
+                { "num": 1, "unit": "weeks" },
+                { "num": 15, "unit": "minutes" },
+            ])
         );
     }
 

@@ -27,8 +27,8 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 「管理権限」は api / web と同じく「管理者」「サーバー管理」「メッセージの管理」「ロールの管理」のいずれか
 (ギルドレベルの基本パーミッション。オーナーは常に可)。
 
-予定の保存形式 (タイムゾーンなしの JST、通知は `{"key":0,"num":30,"type":"分前"}` の JSON 文字列配列、
-終日予定は開始日 0:00 〜 終了日 0:00) は api (`api/README.md`) と同じで、`models/notifications.rs` が api 側と同じ変換を持つ。
+予定の保存形式 (タイムゾーンなしの JST、通知は `[{ "num": 30, "unit": "minutes" }]` の JSONB、
+終日予定は開始日 0:00 〜 終了日 0:00) は api (`api/README.md`) と同じで、`models/notifications.rs` が api 側と同じ読み書きを持つ。
 
 ## 旧実装からの変更点
 
@@ -143,7 +143,7 @@ src/
   checks.rs         管理権限の判定 (api の can_manage_server と同じ)
   paginator.rs      /list のページ送り (ボタン付き埋め込み)
   commands/         スラッシュコマンド (help.txt は /help の本文)
-  models/           sqlx クエリ (guilds / events / event_settings / guild_config) と通知形式の変換 (notifications)
+  models/           sqlx クエリ (guilds / events / event_settings / guild_config) と通知設定の読み書き (notifications)
   tasks/            定期タスク (notify = 予定の通知 / presence = ステータス表示 / icon_updater = 日付アイコン)
 tests/              DB テスト (#[sqlx::test])
 assets/             icon_updater が使う日付入りアイコン画像 (01.png 〜 31.png、土曜は _b、日曜・祝日は _r)

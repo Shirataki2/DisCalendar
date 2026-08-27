@@ -42,10 +42,10 @@ async fn event_crud_is_scoped_to_guild(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(created.guild_id, GUILD);
-    // 通知は旧 Bot が読む形式で保存される
+    // 通知は API の入出力と同じ形で保存される
     assert_eq!(
         created.notifications,
-        vec![r#"{"key":0,"num":30,"type":"分前"}"#]
+        serde_json::json!([{ "num": 30, "unit": "minutes" }])
     );
 
     // 他ギルドからは更新・削除できない
@@ -69,7 +69,7 @@ async fn event_crud_is_scoped_to_guild(pool: PgPool) {
         .expect("event exists");
     assert_eq!(updated.name, "renamed");
     assert_eq!(updated.end_at, dt("2026-08-22T12:00:00"));
-    assert!(updated.notifications.is_empty());
+    assert_eq!(updated.notifications, serde_json::json!([]));
     // created_at は更新で変わらない
     assert_eq!(updated.created_at, created.created_at);
 
@@ -136,6 +136,45 @@ async fn list_returns_events_overlapping_range(pool: PgPool) {
     .unwrap();
     let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
     assert_eq!(names, vec!["spans-into", "inside"]);
+}
+
+/// `notifications` の中身は DB では検証していない (CHECK は配列であることだけ) ので、
+/// 手作業などで PostgreSQL では有効な JSONB が入りうる。f64 に収まらない数値が 1 つあるだけで
+/// `serde_json::Value` へのデコードごと失敗すると、その予定だけでなく一覧全体
+/// (Bot の通知タスクなら全ギルドの通知) が止まる。
+/// workspace の serde_json は `arbitrary_precision` を有効にしてあるので、まず値として読めて、
+/// 解釈できない要素だけが `Notification::decode_all` で落ちる
+#[sqlx::test(migrations = "./migrations")]
+async fn events_with_out_of_range_numbers_in_notifications_are_still_readable(pool: PgPool) {
+    sqlx::query(
+        r#"
+        INSERT INTO events (guild_id, name, notifications, color, is_all_day, start_at, end_at, created_at)
+        VALUES ($1, '桁が大きすぎる通知', '[{"num":1e400,"unit":"minutes"},{"num":30,"unit":"minutes"}]'::jsonb,
+                '#2196F3', false, '2026-09-05 10:00:00', '2026-09-05 11:00:00', '2026-09-01 00:00:00')
+        "#,
+    )
+    .bind(GUILD)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows = events::list_between(
+        &pool,
+        GUILD,
+        dt("2026-09-01T00:00:00"),
+        dt("2026-10-01T00:00:00"),
+    )
+    .await
+    .expect("a row with an out-of-range number must not break the whole query");
+    assert_eq!(rows.len(), 1);
+    // 読めない要素だけが無視され、残りの通知は使える
+    assert_eq!(
+        Notification::decode_all(&rows[0].notifications),
+        vec![Notification {
+            num: 30,
+            unit: NotificationUnit::Minutes
+        }]
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]

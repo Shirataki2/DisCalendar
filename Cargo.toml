@@ -23,7 +23,11 @@ sqlx = { version = "0.9", default-features = false, features = [
   "migrate",
 ] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# arbitrary_precision: events.notifications (JSONB) に PostgreSQL では有効でも f64 では表せない
+# 数値 (1e400 など) が手作業で入っても Value として読めるようにする。既定の Value は数値を f64 で
+# 持つため、そこで sqlx のデコードごと失敗し、1 行のせいで予定一覧や Bot の通知タスクが
+# まるごと落ちる (要素単位で無視する decode_all まで処理が届かない)
+serde_json = { version = "1", features = ["arbitrary_precision"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "json"] }
 thiserror = "2"

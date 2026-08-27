@@ -109,8 +109,11 @@ curl -fsS https://discalendar.app/ > /dev/null && echo ok
 **同じ "Deploy production" に前の版のタグを入れて実行するだけ** (`image_tag: v3.0.0`)。GitHub Release やバージョンは戻さない
 (履歴として残す)。次に出す版は、修正を入れてから新しい番号 (`v3.1.1`) にする。
 
-- DB マイグレーションが入った版から戻すときは注意。`api/migrations/` は前方互換 (旧 Bot も動く) 前提だが、
-  新しいマイグレーションを適用済みの DB に古い api を当てて問題ないかを先に確かめる (AGENTS.md の P0)
+- **DB マイグレーションが入った版から戻すときは、イメージより先に DB を戻す**。古い api / bot は変更後のスキーマを
+  読めないうえ、`sqlx::migrate!` は既定で「自分の `migrations/` に無いバージョンが `_sqlx_migrations` にある」だけで
+  起動に失敗する。戻す SQL は `api/rollback/<version>_*.sql` にあり (自動実行はされない)、手順はファイル冒頭に書いてある。
+  流れは「api / bot を止める → ダンプを取る → SQL を流す → 前の版のタグでデプロイ」。詳細は README の
+  「マイグレーションが入った版から戻す」
 - イメージのロールバックで直らないもの (データの問題など) は、README の「DB のバックアップと復元」を見る
 
 ## 落とし穴

@@ -289,7 +289,8 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
 
 - **デプロイ / ロールバック**: Actions の "Deploy production" → "Run workflow" で `image_tag` に `v3.x.y`
   (リリースタグ。下記「リリース」で `sha-*` と同じ digest に付け直したもの) か `sha-xxxxxxx` を指定する。
-  ロールバックも同じ手順で過去のタグを指定するだけ
+  ロールバックも同じ手順で過去のタグを指定するだけ。ただし**戻す先より後に DB マイグレーションが入っている場合は、
+  イメージを戻す前に DB も戻す** (下記「マイグレーションが入った版から戻す」)
 - **staging と同居する**: 本番ホストは staging と同一マシンのため、compose のプロジェクト名とポートを `.env` で分ける。
   `compose.yaml` の `name: discalendar` は staging が使っているので、本番の `.env` には **`COMPOSE_PROJECT_NAME=discalendar-prod`**
   (compose ファイルの `name:` より優先される) と、staging (3000) と重ならない **`WEB_PORT`** (例: 3001) を入れる。
@@ -362,6 +363,35 @@ docker compose up -d
 - 旧版 (postgres 13、オーナー `postgres`) からの移行では `--no-owner --no-privileges` が必須。旧 DB 側では
   `pg_dump -Fc --no-owner --no-privileges -U postgres <DB名>` で取得する (切替手順の全体は #12)
 - staging に本番データを入れて検証するときも同じ手順で復元する (その間は bot プロファイルを外す)
+
+### DB を書き換えるマイグレーションを適用するとき
+
+既存の行を書き換えるマイグレーション (カラムの型変換など) は、適用中その表への書き込みが止まる。
+**Bot の通知タスクは起動時に直近 5 分ぶんしか遡らない** (`bot/src/tasks/notify.rs` の `STARTUP_LOOKBACK`。
+それより古い分は「陳腐化した通知」として送らずに早送りする) ので、デプロイの停止時間が 5 分を超えると、
+その間に発火するはずだった通知は送られないまま終わる。
+
+適用前に対象テーブルの規模を確かめる:
+
+```sh
+docker compose exec -T db psql -U discalendar -d discalendar -c "SELECT count(*) FROM events"
+```
+
+数万行なら型変換は一瞬で終わる。桁が違うようなら、サポートサーバーでの告知や、
+予定の少ない時間帯での実施を検討する。
+
+### マイグレーションが入った版から戻す
+
+イメージだけ戻しても DB は戻らない。**戻す先より後に入ったマイグレーションがあるときは、DB を先に戻す**:
+
+- 古い api / bot は変更後のスキーマを読めない (例: `notifications` を `TEXT[]` としてデコードするので、
+  JSONB のままだと予定のクエリが失敗し続ける)
+- `sqlx::migrate!` は既定 (`ignore_missing = false`) なので、**自分の `migrations/` に無いバージョンが
+  `_sqlx_migrations` にあるだけで api の起動が失敗する**
+
+戻すための SQL は `api/rollback/<マイグレーションと同じ version>_*.sql` に置いてある (`migrations/` ではないので自動実行はされない)。
+ファイル冒頭に手順があり、要点は「api / bot を止める → ダンプを取る → SQL を流す → 前の版のタグでデプロイ」。
+DB を変えるマイグレーションを追加する PR では、対になる戻し方をここに用意する。
 
 ## 開発の進め方 (GitHub)
 

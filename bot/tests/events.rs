@@ -49,13 +49,13 @@ async fn create_stores_notifications_in_legacy_format(pool: PgPool) {
     assert_eq!(event.guild_id, GUILD);
     assert_eq!(event.name, "定例");
     assert_eq!(event.description.as_deref(), Some("説明"));
-    // DB には旧 Web / 旧 Bot / api と同じ JSON 文字列で入る
+    // DB には api / web と同じ JSONB で入る
     assert_eq!(
         event.notifications,
-        vec![
-            r#"{"key":0,"num":30,"type":"分前"}"#,
-            r#"{"key":1,"num":1,"type":"日前"}"#,
-        ]
+        serde_json::json!([
+            { "num": 30, "unit": "minutes" },
+            { "num": 1, "unit": "days" },
+        ])
     );
     assert_eq!(event.notifications(), notifications);
     assert_eq!(event.color, "#2196F3");
@@ -136,17 +136,14 @@ async fn lists_are_scoped_to_guild_and_split_by_now(pool: PgPool) {
 
 #[sqlx::test(migrations = "../api/migrations")]
 async fn reads_events_saved_by_web(pool: PgPool) {
-    // web (api) が保存する形: 終日予定は開始日 0:00 〜 終了日 0:00、通知は旧形式 JSON
+    // web (api) が保存する形: 終日予定は開始日 0:00 〜 終了日 0:00
     sqlx::query!(
         r#"
         INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at)
         VALUES ($1, 'web の予定', NULL, $2, '#F44336', TRUE, '2026-08-23 00:00:00', '2026-08-24 00:00:00')
         "#,
         GUILD,
-        &[
-            r#"{"key":0,"num":1,"type":"週間前"}"#.to_owned(),
-            "broken".to_owned(),
-        ][..]
+        serde_json::json!([{ "num": 1, "unit": "weeks" }, "broken"])
     )
     .execute(&pool)
     .await

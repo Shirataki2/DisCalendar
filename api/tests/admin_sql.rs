@@ -148,7 +148,7 @@ async fn select_returns_columns_and_text_values(pool: PgPool) {
             None,
             Some("false".to_owned()),
             Some("2026-08-22 10:00:00".to_owned()),
-            Some("{}".to_owned()),
+            Some("[]".to_owned()),
         ]
     );
 
@@ -708,7 +708,7 @@ async fn delete_guild_events_snapshot_is_bounded(pool: PgPool) {
     let n = admin_ops::DELETE_SNAPSHOT_LIMIT + 5;
     sqlx::query(
         "INSERT INTO events (guild_id, name, notifications, color, is_all_day, start_at, end_at, created_at)
-         SELECT $1, 'e' || g, '{}', '#000000', false, now(), now(), now() FROM generate_series(1, $2) g",
+         SELECT $1, 'e' || g, '[]'::jsonb, '#000000', false, now(), now(), now() FROM generate_series(1, $2) g",
     )
     .bind(GUILD)
     .bind(n as i32)

@@ -235,40 +235,58 @@ async fn acquire_startup_lock(conn: &mut sqlx::PgConnection) -> anyhow::Result<(
 /// アドバイザリロックで直列化しているので、他インスタンスが構築中の有効なインデックスを
 /// 誤って消すことはない。
 ///
-/// 存在確認は `public.events` テーブルに紐づく `public.idx_events_start_at` だけに絞る。
+/// 存在確認は `public.events` テーブルに紐づくインデックスだけに絞る。
 /// スキーマ・対象テーブルを限定しないと、同じデータベースの無関係なスキーマにたまたま
 /// 同名の無効インデックスがあるだけで真になり、その後の DROP が `search_path` の解決順で
 /// 見つかった別の (対象テーブルの有効な) インデックスを消しかねない
 async fn cleanup_invalid_concurrent_indexes(conn: &mut sqlx::PgConnection) -> anyhow::Result<()> {
-    let has_invalid_index: bool = sqlx::query_scalar(
-        r#"
-        SELECT EXISTS (
-            SELECT 1
-            FROM pg_index i
-            JOIN pg_class idx ON idx.oid = i.indexrelid
-            JOIN pg_class tbl ON tbl.oid = i.indrelid
-            JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-            WHERE idx.relname = 'idx_events_start_at'
-              AND tbl.relname = 'events'
-              AND ns.nspname = 'public'
-              AND NOT i.indisvalid
+    for (index, drop_statement) in CONCURRENT_EVENT_INDEXES {
+        let has_invalid_index: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_index i
+                JOIN pg_class idx ON idx.oid = i.indexrelid
+                JOIN pg_class tbl ON tbl.oid = i.indrelid
+                JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+                WHERE idx.relname = $1
+                  AND tbl.relname = 'events'
+                  AND ns.nspname = 'public'
+                  AND NOT i.indisvalid
+            )
+            "#,
         )
-        "#,
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .context("failed to check for an invalid idx_events_start_at index")?;
-
-    if !has_invalid_index {
-        return Ok(());
-    }
-    tracing::warn!("found an invalid idx_events_start_at index, dropping it concurrently");
-    sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS public.idx_events_start_at")
-        .execute(&mut *conn)
+        .bind(index)
+        .fetch_one(&mut *conn)
         .await
-        .context("failed to drop an invalid idx_events_start_at index")?;
+        .with_context(|| format!("failed to check for an invalid {index} index"))?;
+
+        if !has_invalid_index {
+            continue;
+        }
+        tracing::warn!(index, "found an invalid index, dropping it concurrently");
+        sqlx::query(drop_statement)
+            .execute(&mut *conn)
+            .await
+            .with_context(|| format!("failed to drop an invalid {index} index"))?;
+    }
     Ok(())
 }
+
+/// `events` に `CREATE INDEX CONCURRENTLY` で作るインデックスと、それを落とす文。
+/// マイグレーションで CONCURRENTLY のインデックスを増やしたらここにも足す
+/// (足し忘れると、その作成が中断したときに無効なインデックスが残り続ける)。
+/// DROP 文を組み立てず定数で持つのは、sqlx が動的な SQL 文字列を型で弾くため
+const CONCURRENT_EVENT_INDEXES: [(&str, &str); 2] = [
+    (
+        "idx_events_start_at",
+        "DROP INDEX CONCURRENTLY IF EXISTS public.idx_events_start_at",
+    ),
+    (
+        "idx_events_guild_id_start_at",
+        "DROP INDEX CONCURRENTLY IF EXISTS public.idx_events_guild_id_start_at",
+    ),
+];
 
 // 抽出エラー (不正な JSON / パス / クエリ) も JSON のエラーレスポンスに統一する
 
