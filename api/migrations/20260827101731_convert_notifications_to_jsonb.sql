@@ -8,6 +8,13 @@
 --
 -- 旧 Bot / 旧 Web は本番切替 (#12) で停止済みなので、この非互換な型変更ができる。
 
+-- 退避と型変換の間に events が書き換わると、退避した内容と実際に変換された値がずれる
+-- (INSERT ... SELECT が取るのは ACCESS SHARE なので通常の INSERT / UPDATE と競合せず、
+--  後続の ALTER TABLE が排他ロックを得るまでに作られた行は変換対象になるのに退避表には無い、
+--  更新された行は退避表だけ古い値のまま残る)。その状態の退避表から戻すと通知設定を失うので、
+-- どのみち ALTER TABLE ... TYPE が取る排他ロックを最初に取って writer を止めてしまう
+LOCK TABLE events IN ACCESS EXCLUSIVE MODE;
+
 -- 変換前の生データを退避する。変換で捨てられる要素 (壊れた JSON・未知の単位・範囲外の num) は
 -- 元々 api / bot が無視していて利用者には見えていないが、非可逆な変換なのでここに残しておく。
 -- 旧形式に戻す必要がないと確認できたら別のマイグレーションで DROP する
@@ -21,8 +28,11 @@ INSERT INTO events_notifications_legacy (event_id, notifications)
 SELECT id, notifications FROM events;
 
 -- 旧形式 → API 表現の変換。api (Notification::from_legacy) / bot が読めていた要素だけを残し、
--- 読めなかった要素は同じ規則で捨てる:
+-- 読めなかった要素は同じ規則で捨てる。旧 decoder は serde の
+-- `Legacy { key: i64, num: i64, type: String }` で、フィールドが 1 つでも欠けたり型が合わなければ
+-- その要素のデシリアライズに失敗して捨てていたので、次のいずれかに当たるものは残さない:
 --   - JSON として壊れている、オブジェクトでない
+--   - key が無い、整数でない、i64 に収まらない (旧 Web の v-for 用で値自体は使わないが必須だった)
 --   - num が非負整数でない、u32 に収まらない (api / bot ともに u32 で受けている)
 --   - type が既知の 4 種類 (分前 / 時間前 / 日前 / 週間前) でない
 -- 配列の順序は元のまま保つ (通知の一覧表示の順序が変わらないように)。
@@ -48,8 +58,11 @@ LANGUAGE sql IMMUTABLE AS $$
                        END
             ) AS mapped(unit)
             WHERE jsonb_typeof(item) = 'object'
+              -- jsonb の number は numeric なので、整数かどうかは文字列表現で見る
+              AND jsonb_typeof(item->'key') = 'number'
+              AND (item->>'key') ~ '^-?[0-9]+$'
+              AND (item->>'key')::numeric BETWEEN -9223372036854775808 AND 9223372036854775807
               AND jsonb_typeof(item->'num') = 'number'
-              -- jsonb の number は numeric なので、非負整数かどうかは文字列表現で見る
               AND (item->>'num') ~ '^[0-9]+$'
               AND (item->>'num')::numeric <= 4294967295
               AND unit IS NOT NULL
