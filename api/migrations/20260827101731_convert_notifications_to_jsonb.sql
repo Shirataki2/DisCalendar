@@ -103,15 +103,24 @@ LANGUAGE sql IMMUTABLE AS $$
               -- (30 / 1e2 / -0)、文字列なら引用符付き ("30")、キーが無ければ NULL になるので、
               -- 整数として書かれていたかどうかがこれで分かる。
               -- 符号は表記として許し、値の範囲で弾く (serde の i64 は -0 を 0 として読めていた)。
-              -- 桁数も正規表現で抑える: numeric の上限を超える桁数の整数トークンがあると
+              --
+              -- 桁数はまず正規表現で抑える: numeric の上限を超える桁数の整数トークンがあると
               -- ::numeric が overflow でエラーになり、マイグレーション全体が中断してしまう
               -- (旧 decoder はその要素を範囲外として無視するだけだった)。
-              -- i64 は最大 19 桁、u32 は最大 10 桁なので、それを超えるものは必ず範囲外
-              AND (parsed.raw_json->'key')::text ~ '^-?[0-9]{1,19}$'
-              AND (parsed.raw_json->'key')::text::numeric
-                  BETWEEN -9223372036854775808 AND 9223372036854775807
-              AND (parsed.raw_json->'num')::text ~ '^-?[0-9]{1,10}$'
-              AND (parsed.raw_json->'num')::text::numeric BETWEEN 0 AND 4294967295
+              -- i64 は最大 19 桁、u32 は最大 10 桁なので、それを超えるものは必ず範囲外。
+              -- WHERE の AND は評価順が保証されず、プランナが先に ::numeric を評価しうるので、
+              -- 桁数を確かめてからキャストすることを CASE (評価順が保証される) で明示する
+              AND CASE
+                      WHEN (parsed.raw_json->'key')::text ~ '^-?[0-9]{1,19}$'
+                      THEN (parsed.raw_json->'key')::text::numeric
+                           BETWEEN -9223372036854775808 AND 9223372036854775807
+                      ELSE FALSE
+                  END
+              AND CASE
+                      WHEN (parsed.raw_json->'num')::text ~ '^-?[0-9]{1,10}$'
+                      THEN (parsed.raw_json->'num')::text::numeric BETWEEN 0 AND 4294967295
+                      ELSE FALSE
+                  END
               AND unit IS NOT NULL
         ),
         '[]'::jsonb
