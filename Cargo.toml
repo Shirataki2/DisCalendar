@@ -35,8 +35,22 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
+# エラー監視 (#17)。SENTRY_DSN が未設定なら何も送らない。
+# 実行イメージ (debian slim) に OpenSSL が無いので既定の native-tls ではなく rustls で送る。
+# "tracing" は sentry::integrations::tracing (ERROR をイベント、WARN 以下をパンくずとして送る layer)
+sentry = { version = "0.49", default-features = false, features = [
+  "backtrace",
+  "contexts",
+  "debug-images",
+  "panic",
+  "release-health",
+  "reqwest",
+  "rustls",
+  "tracing",
+] }
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
-strip = true
+# シンボル名は Sentry のバックトレースの関数名表示に要るので残し、デバッグ情報だけ削る (#17)
+strip = "debuginfo"

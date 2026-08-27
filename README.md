@@ -343,6 +343,37 @@ git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
   タグ付きで push されると、`contents: write` / `packages: write` のトークンで Release や GHCR タグを操作できてしまう
   (ワークフロー内の「main のコミットか」の確認も、その改変版では消せる)。ブランチ保護だけでは塞げない
 
+### エラー監視 (Sentry) とコンテナログ
+
+方針 (#17): エラー追跡は Sentry SaaS (Developer 無料枠。5,000 件/月・保持 30 日・1 ユーザー) を web / api / bot の
+3 サービスに入れ、コンテナログは compose の logging 設定 (json-file、10MB × 3 世代) でローテーションだけ行う。
+ログの横断検索・ログベースのアラートは #104。
+DSN が未設定なら 3 サービスとも何も送らない (ローカル開発・CI・E2E はそのまま)。
+
+- **Sentry 側の準備**: プロジェクトを web (platform: Next.js) / api / bot (platform: Rust) の 3 つ作り、それぞれの DSN を控える。
+  通知は Sentry 側の設定だけで足りる (コードは不要)。**無料プラン (Developer) の通知はメールのみ**で、
+  Discord などの third-party integrations は Team プラン以上でないと使えない (2026-08 時点。実際に確認済み)。
+  Discord のチャンネルへ流したい場合は、Team プランにするか、ログ側のアラート (#104 の Grafana Cloud は
+  無料枠で Discord 通知に対応) で代替する
+- **api / bot**: DSN は実行時の環境変数。ホストの `.env` に `API_SENTRY_DSN` / `BOT_SENTRY_DSN` を入れる
+  (staging ホストは `SENTRY_ENVIRONMENT=staging` も)。同種エラーの嵐で無料枠 (5,000 件/月) が溶けそうなときは
+  `.env` の `SENTRY_SAMPLE_RATE` (0.0〜1.0。compose が両サービスへ渡す) で送信率を絞り、`docker compose up -d` で反映する。
+  起動に失敗してプロセスが終わるとき (設定の誤り・DB 接続不可など) もイベントとして送る
+- **web**: ブラウザに配る DSN なので `next build` 時に焼き込まれる。GHCR のイメージには Repository variable
+  `WEB_SENTRY_DSN` をデプロイ CI (`deploy-staging.yml`) が build-arg で渡す (未設定なら Sentry 無効のままビルドされる)。
+  environment タグは焼き込まれた `NEXT_PUBLIC_SITE_URL` から導出する (本番ドメイン → production、`staging.` → staging)。
+  ブラウザのスタックトレースをソースマップで戻したい場合は、Repository variables `SENTRY_ORG` / `SENTRY_PROJECT_WEB` と
+  secret `SENTRY_AUTH_TOKEN` を設定する (未設定ならアップロードはスキップ)。トークンは Sentry の組織設定
+  (Settings → Auth Tokens) で作る **Organization Auth Token** (`sntrys_` で始まる) を使う。CI 向けに権限が固定されていて
+  scope を選ぶ必要がなく、個人アカウントに紐づかないので発行者の権限が変わってもビルドが壊れない
+  (個人トークンでも動くが、その場合は scope に `project:releases` が要る)。
+  Organization Auth Token を使う場合も `SENTRY_ORG` / `SENTRY_PROJECT_WEB` の指定は必要
+- **同じ障害を二重に数えない**: api の 5xx は `ApiError::error_response` のログだけをイベントにし (`sentry-actix` の
+  `capture_server_errors` は無効。ミドルウェアはリクエスト情報の付与のために残している)、bot のコマンドの panic は
+  panic 側だけをイベントにする (poise が拾ったあとのログはパンくず扱い)。どちらも無料枠を余分に消費しないため
+- **リリースとの紐付け**: api / bot はクレートのバージョン (`discalendar-api@3.x.y` など) を release として送る。
+  バージョンは 3 サービス共通 (上記「リリース」) なので、どの版で出たエラーかは release タグで追える
+
 ### DB のバックアップと復元 (compose)
 
 compose の db (postgres:18) はボリューム (`<プロジェクト名>_db-data`) に保存される。その環境の compose ディレクトリで実行する

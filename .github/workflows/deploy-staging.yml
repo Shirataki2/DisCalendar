@@ -11,6 +11,10 @@
 #   STAGING_PLATFORMS (既定 linux/amd64) / STAGING_BUILD_RUNNER (既定 ubuntu-latest。arm64 ホストなら ubuntu-24.04-arm) /
 #   STAGING_COMPOSE_DIR (既定 /opt/discalendar-staging) /
 #   STAGING_SITE_URL (既定 https://staging.discalendar.app。web の OGP などの絶対 URL に焼き込む)。詳細は README
+# 任意 (エラー監視 #17): Repository variables WEB_SENTRY_DSN (web の DSN。next build 時に焼き込む) /
+#   SENTRY_ORG / SENTRY_PROJECT_WEB と、secret SENTRY_AUTH_TOKEN (ソースマップのアップロード用。
+#   Sentry の組織設定で作る Organization Auth Token (sntrys_...) を使う。README 参照)。
+#   未設定なら web の Sentry は無効のままビルドされる。api / bot の DSN はホスト側 .env で渡す (実行時に読む)
 name: Deploy staging
 
 on:
@@ -80,13 +84,18 @@ jobs:
             type=raw,value=staging,enable=${{ !matrix.site }}
             type=sha,prefix=sha-,format=short,suffix=${{ matrix.site && '-staging' || '' }}
       # イメージごとにビルド時の値を渡す。api には管理コンソール (/admin) に出すビルド情報 (#37)、
-      # web には staging のドメイン (OGP などの絶対 URL は next build 時に焼き込まれる #87) を渡す
+      # web には staging のドメイン (OGP などの絶対 URL は next build 時に焼き込まれる #87) と
+      # Sentry の DSN (#17。ブラウザに配る値なので next build 時に焼き込まれる) を渡す
       - name: イメージに渡す build-args を決める
         id: build_info
         env:
           IMAGE: ${{ matrix.image }}
           SITE: ${{ matrix.site }}
           SITE_URL: ${{ vars.STAGING_SITE_URL || 'https://staging.discalendar.app' }}
+          # Repository variables (未設定なら Sentry は無効のままビルドされる)。DSN は秘密情報ではない
+          WEB_SENTRY_DSN: ${{ vars.WEB_SENTRY_DSN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT_WEB: ${{ vars.SENTRY_PROJECT_WEB }}
         run: |
           {
             echo "args<<ARGS_EOF"
@@ -101,6 +110,10 @@ jobs:
                 if [ -n "$SITE" ]; then
                   echo "NEXT_PUBLIC_SITE_URL=$SITE_URL"
                 fi
+                echo "NEXT_PUBLIC_SENTRY_DSN=$WEB_SENTRY_DSN"
+                # ソースマップのアップロード先 (secret SENTRY_AUTH_TOKEN があるときだけ使われる)
+                echo "SENTRY_ORG=$SENTRY_ORG"
+                echo "SENTRY_PROJECT=$SENTRY_PROJECT_WEB"
                 ;;
             esac
             echo "ARGS_EOF"
@@ -110,6 +123,10 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           build-args: ${{ steps.build_info.outputs.args }}
+          # web のソースマップを Sentry へアップロードするための Organization Auth Token (#17)。
+          # secret 未設定なら空のままで、アップロードはスキップされる (web/Dockerfile)
+          secrets: |
+            SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
