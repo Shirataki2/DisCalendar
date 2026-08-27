@@ -7,10 +7,20 @@
 
 name: discalendar
 
+# コンテナログのローテーション (#17)。既定の json-file ドライバはローテーションしないので、
+# 放っておくと再起動ループなどでログがディスクを埋める。全サービス共通で 10MB × 3 世代に抑える。
+# 直近より前のログを追いたい要件はエラー監視 (Sentry) とログ集約 (#104) が担う
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   db:
     image: postgres:18
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: discalendar
       # 各サービスの DATABASE_URL にそのまま埋め込む (URL エンコードされない) ので英数字のみにする (.env.example)
@@ -36,6 +46,7 @@ services:
         GIT_SHA: ${GIT_SHA:-}
         IMAGE_TAG: ${IMAGE_TAG:-}
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       db:
         condition: service_healthy
@@ -50,6 +61,9 @@ services:
       # 管理コンソール (/admin) を使える Discord ユーザー ID (カンマ区切り)。空なら無効
       ADMIN_DISCORD_USER_IDS: ${ADMIN_DISCORD_USER_IDS:-}
       RUST_LOG: ${API_RUST_LOG:-info,discalendar_api=info,sqlx=warn}
+      # エラー監視 (#17)。DSN 未設定なら何も送らない。SENTRY_ENVIRONMENT は staging では staging にする
+      SENTRY_DSN: ${API_SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
     # 起動時のマイグレーション適用が終わって待ち受けを始めたら healthy になる (bot はそれを待つ)
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
@@ -70,9 +84,13 @@ services:
         # ブラウザから見たこのサイトの URL。OGP などの絶対 URL に使う。
         # staging のように別ドメインで出すときだけ .env で設定する
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://discalendar.app}
+        # ブラウザ側のエラー監視 (#17)。DSN は next build 時に焼き込まれる。
+        # GHCR のイメージはデプロイ CI (deploy-staging.yml) が Repository variable から渡す
+        NEXT_PUBLIC_SENTRY_DSN: ${WEB_SENTRY_DSN:-}
         # rewrites の宛先。サービス名 api のままなら指定不要
         # API_URL: http://api:8080
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       db:
         condition: service_healthy
@@ -93,6 +111,9 @@ services:
       DISCORD_BOT_INVITE_URL: ${DISCORD_BOT_INVITE_URL:-}
       # 起動時に Better Auth のテーブルを作成・更新する (web/src/instrumentation.ts)
       AUTO_MIGRATE: "true"
+      # Next.js サーバー側のエラー監視 (#17)。DSN 未設定なら何も送らない
+      SENTRY_DSN: ${WEB_SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
     healthcheck:
       test:
         [
@@ -116,6 +137,7 @@ services:
       context: .
       dockerfile: bot/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     profiles: ["bot"]
     depends_on:
       # マイグレーションは api が適用するので、api が healthy (= 適用済みで待ち受け中) になってから起動する
@@ -129,6 +151,9 @@ services:
       DISCORD_BOT_INVITE_URL: ${DISCORD_BOT_INVITE_URL:-}
       BOT_SUPPORT_GUILD_ID: ${BOT_SUPPORT_GUILD_ID:-}
       RUST_LOG: ${BOT_RUST_LOG:-info,discalendar_bot=info,sqlx=warn}
+      # エラー監視 (#17)。DSN 未設定なら何も送らない
+      SENTRY_DSN: ${BOT_SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
 
   # Cloudflare Tunnel でホストのポートを開けずに公開する (staging.discalendar.app など)。
   # Cloudflare Zero Trust で Tunnel を作り、Public Hostname の Service を http://web:3000 に向け、
@@ -136,6 +161,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
+    logging: *default-logging
     profiles: ["tunnel"]
     command: tunnel --no-autoupdate run
     environment:

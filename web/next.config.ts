@@ -1,4 +1,5 @@
 import createMDX from "@next/mdx";
+import { withSentryConfig } from "@sentry/nextjs";
 import { withSerwist } from "@serwist/turbopack";
 import type { NextConfig } from "next";
 
@@ -62,4 +63,13 @@ const withMDX = createMDX({
 
 // Service Worker (app/serwist/[path]/route.ts が app/sw.ts を esbuild で束ねる)。
 // withSerwist は esbuild を serverExternalPackages に足すだけで、SW の生成は Route Handler 側で行う
-export default withSerwist(withMDX(nextConfig));
+//
+// withSentryConfig はエラー監視 (#17) のビルド設定。SDK の初期化は src/instrumentation.ts (サーバー) と
+// src/instrumentation-client.ts (ブラウザ) で行い、DSN 未設定なら何も送らない。
+// ソースマップのアップロードは SENTRY_AUTH_TOKEN / SENTRY_ORG / SENTRY_PROJECT が揃っているときだけ
+// 行われる (無ければスキップされ、ビルドはそのまま通る)
+export default withSentryConfig(withSerwist(withMDX(nextConfig)), {
+  // アップロードしない通常のビルド (ローカル・CI) で警告ログを出さない
+  silent: !process.env.SENTRY_AUTH_TOKEN,
+  telemetry: false,
+});

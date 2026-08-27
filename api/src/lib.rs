@@ -78,6 +78,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             .map(|app| {
                 app.wrap(TracingLogger::default())
                     .wrap(middleware::Compress::default())
+                    // ハンドラのエラー (500 系) を Sentry へ送る (#17)。リクエストごとの Hub を張るので
+                    // 一番外側 (最後に wrap) に置き、内側の TracingLogger のスパンやエラーが紐づくようにする
+                    .wrap(sentry_actix::Sentry::new())
             })
             .app_data(state.clone())
             .app_data(json_config())

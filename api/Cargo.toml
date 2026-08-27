@@ -25,6 +25,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-actix-web = "0.7"
 dotenvy.workspace = true
+sentry.workspace = true
+# ハンドラのエラー (500 系) を Sentry に送るミドルウェア。リクエストごとの Hub も張るので一番外側に wrap する
+sentry-actix = "0.49"
 futures-util = { version = "0.3", default-features = false }
 hmac = "0.13"
 sha2 = "0.11"
