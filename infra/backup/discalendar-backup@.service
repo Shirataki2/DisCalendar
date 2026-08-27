@@ -1,0 +1,18 @@
+# DB のバックアップを 1 回実行する (#102)。インスタンス名は環境名 (production / staging) で、
+# /etc/discalendar/<環境名>.env を設定として読む。設置手順は infra/README.md。
+#   sudo systemctl start discalendar-backup@production.service   # 手で 1 回動かす
+#   journalctl -u discalendar-backup@production.service -n 50    # 結果を見る
+[Unit]
+Description=DisCalendar (%i) の DB を Cloudflare R2 にバックアップする
+Documentation=https://github.com/Shirataki2/DisCalendar/blob/main/infra/README.md
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/discalendar/%i.env
+ExecStart=/opt/discalendar-backup/backup-db.sh
+# docker と compose のディレクトリを触るので root で動かす (docker グループのユーザーでもよい)
+User=root
+# pg_dump とアップロードが詰まったまま次の日を迎えないよう上限を付ける
+TimeoutStartSec=30min

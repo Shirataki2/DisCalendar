@@ -22,6 +22,7 @@ jobs:
     outputs:
       web: ${{ steps.filter.outputs.web }}
       rust: ${{ steps.filter.outputs.rust }}
+      infra: ${{ steps.filter.outputs.infra }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -37,6 +38,9 @@ jobs:
               - "Cargo.toml"
               - "Cargo.lock"
               - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+            infra:
+              - "infra/**"
               - ".github/workflows/ci.yml"
 
   # web / api / bot のバージョン (3 か所 + Cargo.lock) がずれていないか見る。
@@ -203,11 +207,39 @@ jobs:
             web/test-results
           retention-days: 7
 
+  # infra/ (Cloudflare の Terraform とホストのバックアップスクリプト)。
+  # Cloudflare の認証情報は CI に置かないので plan はせず、書式と構文だけ見る
+  infra:
+    name: infra
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          # provider の固定 (infra/terraform/versions.tf) と違い、こちらは実行する CLI の版
+          terraform_version: "1.16.0"
+          terraform_wrapper: false
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+        working-directory: infra/terraform
+      - name: terraform init (backend なし)
+        # state (R2) に触らずに provider だけ入れる
+        run: terraform init -backend=false -input=false
+        working-directory: infra/terraform
+      - name: terraform validate
+        run: terraform validate
+        working-directory: infra/terraform
+      - name: shellcheck
+        # ホストで動かすスクリプトは手元で流す機会が少ないので静的に見ておく
+        run: shellcheck infra/backup/*.sh
+
   # ルールセットの必須ステータスチェックはこのジョブだけを見る。
-  # web / rust / e2e は変更がなければ skipped になるので、それは成功として扱う
+  # web / rust / e2e / infra は変更がなければ skipped になるので、それは成功として扱う
   ci:
     name: ci
-    needs: [changes, version, web, rust, e2e]
+    needs: [changes, version, web, rust, e2e, infra]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -218,11 +250,12 @@ jobs:
           WEB: ${{ needs.web.result }}
           RUST: ${{ needs.rust.result }}
           E2E: ${{ needs.e2e.result }}
+          INFRA: ${{ needs.infra.result }}
         run: |
-          echo "changes=$CHANGES version=$VERSION web=$WEB rust=$RUST e2e=$E2E"
+          echo "changes=$CHANGES version=$VERSION web=$WEB rust=$RUST e2e=$E2E infra=$INFRA"
           [ "$CHANGES" = "success" ] || exit 1
           [ "$VERSION" = "success" ] || exit 1
-          for r in "$WEB" "$RUST" "$E2E"; do
+          for r in "$WEB" "$RUST" "$E2E" "$INFRA"; do
             case "$r" in
               success|skipped) ;;
               *) exit 1 ;;
