@@ -8,6 +8,12 @@
 --
 -- 旧 Bot / 旧 Web は本番切替 (#12) で停止済みなので、この非互換な型変更ができる。
 -- 戻し方は api/rollback/20260827101731_revert_notifications_to_text_array.sql。
+--
+-- 適用中は events への書き込みが止まる (下の LOCK と ALTER TABLE ... TYPE の全表書き換え)。
+-- Bot の通知タスクは起動時に直近 5 分ぶんしか遡らない (bot の STARTUP_LOOKBACK) ので、
+-- デプロイの停止時間がそれを超えると、その間に発火するはずだった通知は送られないまま終わる。
+-- events が小さければ一瞬で終わるが、適用前に規模を確かめること
+-- (README の「DB を書き換えるマイグレーションを適用するとき」)。
 
 -- 退避と型変換の間に events が書き換わると、退避した内容と実際に変換された値がずれる
 -- (INSERT ... SELECT が取るのは ACCESS SHARE なので通常の INSERT / UPDATE と競合せず、
@@ -42,7 +48,15 @@ SELECT id, notifications FROM events;
 -- ALTER TABLE ... USING にはサブクエリを直接書けないので関数に包み、変換後に落とす
 CREATE FUNCTION convert_legacy_notifications(legacy TEXT[]) RETURNS JSONB
 LANGUAGE sql IMMUTABLE AS $$
-    SELECT COALESCE(
+    SELECT CASE
+    -- 旧 api / bot はこの列を Vec<String> として読むので、多次元配列や NULL 要素を含む配列は
+    -- 列のデコードごと失敗していた (その行の通知が読めないどころか、予定の取得自体が失敗する)。
+    -- 同じ結果になるよう、そういう配列は中身を拾わず空にする。
+    -- CASE は上から順に評価されるので、多次元を先に弾いてから array_position を呼べる
+    -- (多次元配列に array_position は使えない)
+    WHEN array_ndims(legacy) > 1 THEN '[]'::jsonb
+    WHEN array_position(legacy, NULL) IS NOT NULL THEN '[]'::jsonb
+    ELSE COALESCE(
         (
             SELECT jsonb_agg(
                        jsonb_build_object(
@@ -53,32 +67,29 @@ LANGUAGE sql IMMUTABLE AS $$
                    )
             FROM unnest(legacy) WITH ORDINALITY AS raw_items(raw, ord)
             CROSS JOIN LATERAL (
-                -- json は「入力として妥当」でも text にデコードできない Unicode エスケープを
-                -- そのまま受け取る。デコードは json_object_keys や `->>` の評価時に走るので、
-                -- そこで初めてエラーになり、要素 1 つでマイグレーション全体が中断してしまう
-                -- (旧 decoder = serde はその要素を捨てるだけだった)。該当するのは 2 つ:
-                --   - NUL (U+0000) のエスケープ … JSON で NUL を書く唯一の方法
-                --   - サロゲート範囲 (U+D800〜U+DFFF) のエスケープ … 単独だとデコードできない
-                -- 見るのは既知の 3 フィールドだけなので、判定の前にどちらも空白のエスケープへ
-                -- 置き換えて無害化する。正しいサロゲートペア (絵文字など) も一緒に潰れるが、
-                -- 既知の単位 (分前 / 時間前 / 日前 / 週間前) はサロゲートを使わないので、
-                -- 潰れた値は「既知の 4 種類と一致しない」= 旧 decoder が読めなかったものと同じ結果になる。
+                -- NUL (U+0000) のエスケープ (JSON で NUL を書く唯一の方法) を空白のエスケープに
+                -- 置き換える。serde は NUL を含む文字列を読めていた (Rust の String は NUL を持てる)
+                -- ので要素は捨てないが、PostgreSQL は json / jsonb のどちらでも NUL を text にできず、
+                -- json_object_keys や `->>` の評価で落ちてしまう。既知の 3 フィールドの値に
+                -- 入っていた場合も、既知の 4 種類と一致しなくなるだけで結果は変わらない。
                 -- バックスラッシュは chr(92) で組み立てて、このファイルに制御文字を書かない
-                -- (正規表現の中ではリテラルのバックスラッシュを表すために 2 つ必要)
-                SELECT regexp_replace(
-                           replace(raw_items.raw, chr(92) || 'u0000', chr(92) || 'u0020'),
-                           chr(92) || chr(92) || 'u[dD][89a-fA-F][0-9a-fA-F][0-9a-fA-F]',
-                           chr(92) || chr(92) || 'u0020',
-                           'g'
-                       )
+                SELECT replace(raw_items.raw, chr(92) || 'u0000', chr(92) || 'u0020')
             ) AS sanitized(raw)
             CROSS JOIN LATERAL (
-                -- 判定はすべて json 型で行う。jsonb は数値を正規化し (1e2 なら 100)、重複キーを
-                -- 最後の値に潰す。旧 decoder (serde) が見ていたのは正規化前の入力そのものなので、
-                -- jsonb にできるかどうかで結果が変わると
-                -- 「無視されるはずの未知フィールドのせいで通知が消える」ことが起きる。
+                -- json と jsonb の両方に通るものだけを対象にする。NUL を除いたあとに jsonb が
+                -- 受け付けない = text にデコードできない Unicode エスケープ (単独サロゲートなど) が
+                -- あるということで、serde も未知フィールドの値であれ読み飛ばす際にパースするので
+                -- 要素ごと捨てていた。正しいサロゲートペア (絵文字) やエスケープされた
+                -- バックスラッシュ (リテラルの \uD800 という文字列) はどちらも通るので、
+                -- 正規表現で見分けるより確実。
+                -- 判定自体は入力の表記を保持する json 側で行う (jsonb は数値を正規化して
+                -- 1e2 を 100 にし、重複キーを最後の値に潰してしまう)。
                 -- 出力は既知の 3 フィールドから組み立て直すので、未知フィールドは JSONB に持ち込まない
-                SELECT CASE WHEN pg_input_is_valid(sanitized.raw, 'json') THEN sanitized.raw::json END
+                SELECT CASE
+                           WHEN pg_input_is_valid(sanitized.raw, 'json')
+                                AND pg_input_is_valid(sanitized.raw, 'jsonb')
+                           THEN sanitized.raw::json
+                       END
             ) AS parsed(raw_json)
             CROSS JOIN LATERAL (
                 -- type は `->>` でエスケープを解いた文字列と比べる。旧 decoder (serde) も
@@ -134,7 +145,8 @@ LANGUAGE sql IMMUTABLE AS $$
               AND unit IS NOT NULL
         ),
         '[]'::jsonb
-    );
+    )
+    END;
 $$;
 
 ALTER TABLE events
