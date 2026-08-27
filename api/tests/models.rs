@@ -138,6 +138,45 @@ async fn list_returns_events_overlapping_range(pool: PgPool) {
     assert_eq!(names, vec!["spans-into", "inside"]);
 }
 
+/// `notifications` の中身は DB では検証していない (CHECK は配列であることだけ) ので、
+/// 手作業などで PostgreSQL では有効な JSONB が入りうる。f64 に収まらない数値が 1 つあるだけで
+/// `serde_json::Value` へのデコードごと失敗すると、その予定だけでなく一覧全体
+/// (Bot の通知タスクなら全ギルドの通知) が止まる。
+/// workspace の serde_json は `arbitrary_precision` を有効にしてあるので、まず値として読めて、
+/// 解釈できない要素だけが `Notification::decode_all` で落ちる
+#[sqlx::test(migrations = "./migrations")]
+async fn events_with_out_of_range_numbers_in_notifications_are_still_readable(pool: PgPool) {
+    sqlx::query(
+        r#"
+        INSERT INTO events (guild_id, name, notifications, color, is_all_day, start_at, end_at, created_at)
+        VALUES ($1, '桁が大きすぎる通知', '[{"num":1e400,"unit":"minutes"},{"num":30,"unit":"minutes"}]'::jsonb,
+                '#2196F3', false, '2026-09-05 10:00:00', '2026-09-05 11:00:00', '2026-09-01 00:00:00')
+        "#,
+    )
+    .bind(GUILD)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows = events::list_between(
+        &pool,
+        GUILD,
+        dt("2026-09-01T00:00:00"),
+        dt("2026-10-01T00:00:00"),
+    )
+    .await
+    .expect("a row with an out-of-range number must not break the whole query");
+    assert_eq!(rows.len(), 1);
+    // 読めない要素だけが無視され、残りの通知は使える
+    assert_eq!(
+        Notification::decode_all(&rows[0].notifications),
+        vec![Notification {
+            num: 30,
+            unit: NotificationUnit::Minutes
+        }]
+    );
+}
+
 #[sqlx::test(migrations = "./migrations")]
 async fn guild_config_defaults_and_upserts(pool: PgPool) {
     let config = guilds::get_config(&pool, GUILD).await.unwrap();

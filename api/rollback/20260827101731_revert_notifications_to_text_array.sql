@@ -24,6 +24,8 @@ LOCK TABLE events IN ACCESS EXCLUSIVE MODE;
 
 -- API 表現 → 旧形式。key は旧 Web と同じく配列内の位置 (0 始まり) を振り直す。
 -- 解釈できない要素は捨てる (api / bot が元から無視していたものなので、戻す先でも読めない)。
+-- 移行前にあった未知のフィールドは戻らない (旧 decoder も serde が読み飛ばしていた値なので、
+-- 戻した先の挙動は変わらない)。
 --
 -- json_build_object はキーと値の間に空白を入れる (`{"key" : 0, ...}`) ので、旧 Web / 旧 api が
 -- 書いていた表記に揃うよう文字列で組み立てる。読む側は serde_json / JSON.parse なので

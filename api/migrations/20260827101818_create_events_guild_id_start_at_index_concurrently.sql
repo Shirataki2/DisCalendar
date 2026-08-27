@@ -1,0 +1,19 @@
+-- no-transaction
+-- カレンダー表示のクエリ (api の events::list_between) が使う複合インデックス (#15)。
+--
+-- `WHERE guild_id = $1 AND start_at < $3 AND end_at >= $2` で毎回引くのに、
+-- 既存のインデックスは start_at 単独 (idx_events_start_at) しかなく、
+-- guild_id で絞り込めずに他ギルドの行まで読んでいた。
+-- start_at 単独のインデックスは全ギルド横断で未来の予定を引く通知タスク
+-- (bot の events::list_all_future) が使うので残す。
+--
+-- 直前のマイグレーション (notifications の JSONB 化) は別トランザクションなので、
+-- ここに来る時点で排他ロックは解放されている。通常の CREATE INDEX にすると
+-- 型変換で止めた直後にもう一度書き込みを止めることになるため、
+-- 既存の 20260823050636 と同じく CREATE INDEX CONCURRENTLY を使う
+-- (トランザクション内では実行できないので先頭の "-- no-transaction" が要る)。
+--
+-- CONCURRENTLY が接続切断・キャンセルなどで失敗すると同名の INVALID なインデックスが
+-- 残ることがある。その掃除は `api::cleanup_invalid_concurrent_indexes` (api/src/lib.rs) が
+-- マイグレーション実行の直前に毎回試みる
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_guild_id_start_at ON events (guild_id, start_at);
