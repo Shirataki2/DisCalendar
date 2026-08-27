@@ -1,0 +1,75 @@
+// compose の各サービス (web / api / bot / db / cloudflared) のコンテナログを Grafana Cloud (Loki) に送る (#104)。
+// このファイルは compose の alloy サービスが /etc/alloy/config.alloy として読み込む (profile logging のときだけ起動する)。
+// 設定値は環境変数で渡す (compose.yaml / .env。値をここに書かないこと):
+//   COMPOSE_PROJECT          収集対象を絞る compose プロジェクト名 (同じホストに本番と staging を並べても混ざらないように)
+//   LOG_ENVIRONMENT          ラベル env の値 (production / staging)
+//   GRAFANA_CLOUD_LOKI_URL   送り先 (https://logs-prod-xxx.grafana.net/loki/api/v1/push)
+//   GRAFANA_CLOUD_LOKI_USER  Loki の User (数字)
+//   GRAFANA_CLOUD_LOKI_TOKEN アクセスポリシートークン (logs:write)
+// 変更したらホストに配り直して `docker compose up -d alloy` で再起動する。
+
+// Alloy 自身のログ。既定 (info) だと送信のたびに行が出て、それ自体も収集対象になるので warn まで落とす
+logging {
+	level  = "warn"
+	format = "logfmt"
+}
+
+// 同じ compose プロジェクトのコンテナだけを対象にする。
+// ホストで他の compose や docker run が動いていても拾わない (本番ホストに staging が同居しても分かれる)
+discovery.docker "compose" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "15s"
+
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.project=" + sys.env("COMPOSE_PROJECT")]
+	}
+}
+
+discovery.relabel "compose" {
+	targets = discovery.docker.compose.targets
+
+	// ラベルは service (compose のサービス名) だけにする。コンテナ ID や名前は
+	// 再作成のたびに変わり、Loki のストリームが際限なく増えるのでラベルにしない
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+}
+
+loki.source.docker "compose" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.compose.output
+	labels     = {env = sys.env("LOG_ENVIRONMENT")}
+	forward_to = [loki.process.level.receiver]
+}
+
+// api / bot は LOG_FORMAT=json で 1 行 1 JSON を吐く (tracing)。レベルだけをラベルに起こして
+// {service="api", level="ERROR"} で絞れるようにする (アラートもこの形で数える。infra/terraform/grafana/)。
+// web (Next.js) と db (Postgres) はテキストログなので、そのまま送って全文検索で追う
+loki.process "level" {
+	stage.match {
+		selector = "{service=~\"api|bot\"}"
+
+		stage.json {
+			expressions = {level = "level"}
+		}
+
+		stage.labels {
+			values = {level = ""}
+		}
+	}
+
+	forward_to = [loki.write.grafana_cloud.receiver]
+}
+
+loki.write "grafana_cloud" {
+	endpoint {
+		url = sys.env("GRAFANA_CLOUD_LOKI_URL")
+
+		basic_auth {
+			username = sys.env("GRAFANA_CLOUD_LOKI_USER")
+			password = sys.env("GRAFANA_CLOUD_LOKI_TOKEN")
+		}
+	}
+}

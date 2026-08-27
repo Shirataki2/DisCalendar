@@ -1,0 +1,8 @@
+# コピーして backend.hcl を作り、init のときに渡す (git 管理外)。
+#   cp backend.hcl.example backend.hcl
+#   terraform init -backend-config=backend.hcl
+# state は Cloudflare 側 (infra/terraform/) と同じ R2 のバケットに、別のキー (versions.tf) で置く。
+# アクセスキーはここに書かず、環境変数 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY で渡す。
+
+bucket    = "discalendar-tfstate"
+endpoints = { s3 = "https://00000000000000000000000000000000.r2.cloudflarestorage.com" }

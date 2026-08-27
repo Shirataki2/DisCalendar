@@ -27,6 +27,11 @@ echo "deploying IMAGE_TAG=${tag} (web: ${web_tag}) in ${dir}"
 docker compose pull --quiet
 docker compose up -d --remove-orphans
 
+# ログ集約の alloy (#104) は設定ファイル (infra/alloy/config.alloy) を bind mount で読むので、
+# 中身が変わってもイメージが同じなら up -d では作り直されない。配り直した設定を読ませるために明示的に再起動する。
+# logging profile を使っていないホストでは「そんなサービスは無い」で失敗するだけなので無視してよい
+docker compose restart alloy > /dev/null 2>&1 || true
+
 # healthcheck を持つサービス (db / api / web) が全部 healthy になるまで待つ (bot / cloudflared は healthcheck なし)
 unhealthy=""
 for _ in $(seq 1 36); do

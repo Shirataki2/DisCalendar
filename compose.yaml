@@ -2,6 +2,7 @@
 #   docker compose build            # 各 Dockerfile からイメージを作る (web/Dockerfile, api/Dockerfile, bot/Dockerfile)
 #   docker compose up -d            # db + api + web。web は http://localhost:${WEB_PORT:-3000}
 #   docker compose --profile bot up -d   # bot も起動する (下の注意を読むこと)
+#   docker compose --profile logging up -d   # ログを Grafana Cloud に送る alloy も起動する (#104)
 # イメージ名は GHCR に push するときの名前に合わせてある (IMAGE_TAG 既定 latest)。
 # ステージング / 本番ではこのファイルを pull 先として使い、差分は compose.override.yaml や環境変数で与える。
 
@@ -9,7 +10,7 @@ name: discalendar
 
 # コンテナログのローテーション (#17)。既定の json-file ドライバはローテーションしないので、
 # 放っておくと再起動ループなどでログがディスクを埋める。全サービス共通で 10MB × 3 世代に抑える。
-# 直近より前のログを追いたい要件はエラー監視 (Sentry) とログ集約 (#104) が担う
+# ここから溢れた分を追う手段がエラー監視 (Sentry) と、下の alloy による Grafana Cloud への集約 (#104)
 x-logging: &default-logging
   driver: json-file
   options:
@@ -61,6 +62,9 @@ services:
       # 管理コンソール (/admin) を使える Discord ユーザー ID (カンマ区切り)。空なら無効
       ADMIN_DISCORD_USER_IDS: ${ADMIN_DISCORD_USER_IDS:-}
       RUST_LOG: ${API_RUST_LOG:-info,discalendar_api=info,sqlx=warn}
+      # ログの形式 (#104)。json だと 1 行 1 JSON になり、alloy がレベルを取り出して Loki のラベルにできる。
+      # ローカルで docker compose logs を人が読むときは .env で LOG_FORMAT=text にする
+      LOG_FORMAT: ${LOG_FORMAT:-json}
       # エラー監視 (#17)。DSN 未設定なら何も送らない。SENTRY_ENVIRONMENT は staging では staging にする。
       # SENTRY_SAMPLE_RATE (0.0〜1.0、既定 1.0) はエラーの急増で無料枠を使い切りそうなときの逃し弁
       SENTRY_DSN: ${API_SENTRY_DSN:-}
@@ -153,6 +157,8 @@ services:
       DISCORD_BOT_INVITE_URL: ${DISCORD_BOT_INVITE_URL:-}
       BOT_SUPPORT_GUILD_ID: ${BOT_SUPPORT_GUILD_ID:-}
       RUST_LOG: ${BOT_RUST_LOG:-info,discalendar_bot=info,sqlx=warn}
+      # ログの形式 (#104)。api と同じ (LOG_FORMAT=text で人が読む形式に戻せる)
+      LOG_FORMAT: ${LOG_FORMAT:-json}
       # エラー監視 (#17)。DSN 未設定なら何も送らない
       SENTRY_DSN: ${BOT_SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
@@ -173,5 +179,41 @@ services:
       web:
         condition: service_started
 
+  # 各サービスのコンテナログを Grafana Cloud (Loki) に送るエージェント (#104)。
+  # 送る内容とラベルは infra/alloy/config.alloy に書いてある (デプロイのたびに compose.yaml と一緒に配られる)。
+  # Grafana Cloud のアクセスポリシートークンを .env に入れ、--profile logging (または .env の COMPOSE_PROFILES) で起動する。
+  # 未設定のまま起動すると送信先が空でエラーになるので、トークンを用意してから profile を足すこと
+  alloy:
+    image: grafana/alloy:v1.19.2
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: ["logging"]
+    # docker.sock (root:docker 0660) を読むために root で動かす。ホストの docker グループ ID は
+    # OS ごとに違い、group_add だと環境ごとの設定が増えるため。docker API が読める時点でホストと
+    # 同等の権限になるので、収集対象は下の COMPOSE_PROJECT で自分の compose プロジェクトだけに絞ってある
+    user: root
+    command:
+      - run
+      # 待ち受けは compose のネットワーク内だけ (ports で公開しない)。設定やパイプラインの状態を UI で
+      # 見たいときだけ、一時的に ports: ["127.0.0.1:12345:12345"] を足して http://localhost:12345 を開く
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./infra/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # どこまで送ったかの記録。消すと再起動時に古いログを送り直す
+      - alloy-data:/var/lib/alloy/data
+    environment:
+      # 収集対象を絞る compose プロジェクト名 (COMPOSE_PROJECT_NAME 未設定ならこのファイルの name)
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-discalendar}
+      # ラベル env の値。Sentry と画面を突き合わせやすいよう同じ変数を使う
+      LOG_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      # Grafana Cloud の Loki (スタックの詳細に出る Push URL と User、トークンは logs:write のもの)
+      GRAFANA_CLOUD_LOKI_URL: ${GRAFANA_CLOUD_LOKI_URL:-}
+      GRAFANA_CLOUD_LOKI_USER: ${GRAFANA_CLOUD_LOKI_USER:-}
+      GRAFANA_CLOUD_LOKI_TOKEN: ${GRAFANA_CLOUD_LOKI_TOKEN:-}
+
 volumes:
   db-data:
+  alloy-data:
