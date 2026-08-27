@@ -32,6 +32,8 @@ SELECT id, notifications FROM events;
 -- `Legacy { key: i64, num: i64, type: String }` で、フィールドが 1 つでも欠けたり型が合わなければ
 -- その要素のデシリアライズに失敗して捨てていたので、次のいずれかに当たるものは残さない:
 --   - JSON として壊れている、オブジェクトでない
+--   - key / num / type のどれかが重複している (serde は duplicate field エラーにするが、
+--     jsonb は最後の値だけを残すので、素通しにすると読めなかった要素が有効な通知に化ける)
 --   - key が無い、整数でない、i64 に収まらない (旧 Web の v-for 用で値自体は使わないが必須だった)
 --   - num が非負整数でない、u32 に収まらない (api / bot ともに u32 で受けている)
 --   - type が既知の 4 種類 (分前 / 時間前 / 日前 / 週間前) でない
@@ -57,7 +59,21 @@ LANGUAGE sql IMMUTABLE AS $$
                            WHEN '週間前' THEN 'weeks'
                        END
             ) AS mapped(unit)
+            CROSS JOIN LATERAL (
+                -- jsonb はキーが重複していると最後の値だけを残すので、重複の有無は
+                -- 元の文字列を json (入力をそのまま保持する型) として読み直して見る。
+                -- オブジェクトでない値に json_object_keys は使えないため CASE の中で呼ぶ
+                SELECT CASE
+                           WHEN jsonb_typeof(parsed.item) = 'object'
+                           THEN (
+                               SELECT count(*) <> count(DISTINCT key_name)
+                               FROM json_object_keys(raw_items.raw::json) AS keys(key_name)
+                           )
+                           ELSE FALSE
+                       END
+            ) AS dup(has_duplicate_keys)
             WHERE jsonb_typeof(item) = 'object'
+              AND NOT dup.has_duplicate_keys
               -- jsonb の number は numeric なので、整数かどうかは文字列表現で見る
               AND jsonb_typeof(item->'key') = 'number'
               AND (item->>'key') ~ '^-?[0-9]+$'
