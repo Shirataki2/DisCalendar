@@ -345,14 +345,16 @@ git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
 
 ### エラー監視 (Sentry) とコンテナログ
 
-方針 (#17): エラー追跡は Sentry SaaS (Developer 無料枠) を web / api / bot の 3 サービスに入れ、コンテナログは
-compose の logging 設定 (json-file、10MB × 3 世代) でローテーションだけ行う。ログの横断検索・ログベースのアラートは #104。
+方針 (#17): エラー追跡は Sentry SaaS (Developer 無料枠。5,000 件/月・保持 30 日・1 ユーザー) を web / api / bot の
+3 サービスに入れ、コンテナログは compose の logging 設定 (json-file、10MB × 3 世代) でローテーションだけ行う。
+ログの横断検索・ログベースのアラートは #104。
 DSN が未設定なら 3 サービスとも何も送らない (ローカル開発・CI・E2E はそのまま)。
 
 - **Sentry 側の準備**: プロジェクトを web (platform: Next.js) / api / bot (platform: Rust) の 3 つ作り、それぞれの DSN を控える。
-  通知は Sentry 側の設定だけで足りる (コードは不要)。Discord インテグレーション (Settings → Integrations → Discord) を
-  使えればサポートサーバーのチャンネルへ流せるが、無料プランで third-party integrations が使えるかは
-  契約時点の Sentry のプラン次第なので、使えなければメール通知にする
+  通知は Sentry 側の設定だけで足りる (コードは不要)。**無料プラン (Developer) の通知はメールのみ**で、
+  Discord などの third-party integrations は Team プラン以上でないと使えない (2026-08 時点。実際に確認済み)。
+  Discord のチャンネルへ流したい場合は、Team プランにするか、ログ側のアラート (#104 の Grafana Cloud は
+  無料枠で Discord 通知に対応) で代替する
 - **api / bot**: DSN は実行時の環境変数。ホストの `.env` に `API_SENTRY_DSN` / `BOT_SENTRY_DSN` を入れる
   (staging ホストは `SENTRY_ENVIRONMENT=staging` も)。同種エラーの嵐で無料枠 (5,000 件/月) が溶けそうなときは
   `.env` の `SENTRY_SAMPLE_RATE` (0.0〜1.0。compose が両サービスへ渡す) で送信率を絞り、`docker compose up -d` で反映する。
