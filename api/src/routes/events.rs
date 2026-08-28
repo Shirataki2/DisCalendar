@@ -141,7 +141,8 @@ pub async fn create(
     let mut row = match result {
         Ok(row) => row,
         Err(err) => {
-            cleanup_scheduled_event(&state.discord, guild_id, &scheduled_event_id).await;
+            // COMMIT の応答だけ失われて実は保存されていることがあるので、確かめてから消す
+            cleanup_unsaved_scheduled_event(&state, guild_id, &scheduled_event_id).await;
             return Err(err);
         }
     };
@@ -469,6 +470,33 @@ fn describe_create_error(guild_id: &str, name: &str, err: DiscordError) -> ApiEr
     describe_scheduled_event_error(err)
 }
 
+/// 保存できなかったつもりの Discord イベントを消す (#94)。
+///
+/// `COMMIT` の応答を受け取れなかった場合、DB 側では確定していることがある。そのまま消すと
+/// 保存された予定が「消えた Discord イベント」を指してしまうので、**別の接続で対応付けを
+/// 確かめてから**消す。確かめられないときは消さない (孤児のイベントが残る方が、
+/// DB が実在しない ID を指すより直しやすい)
+async fn cleanup_unsaved_scheduled_event(
+    state: &AppState,
+    guild_id: &str,
+    scheduled_event_id: &str,
+) {
+    match event_links::exists_by_scheduled_event_id(&state.pool, guild_id, scheduled_event_id).await
+    {
+        Ok(false) => cleanup_scheduled_event(&state.discord, guild_id, scheduled_event_id).await,
+        Ok(true) => {
+            tracing::warn!(
+                guild_id,
+                scheduled_event_id,
+                "the event was saved after all (the commit result was lost): keeping the scheduled event"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(guild_id, scheduled_event_id, error = %err, "could not check whether the link was saved: leaving the scheduled event in discord");
+        }
+    }
+}
+
 /// 予定を保存できなかったときに、先に済ませた Discord への反映を取り消す (#94。すべてベストエフォート)。
 ///
 /// - `created_now` (この試行で作ったイベント) は削除する
@@ -484,7 +512,7 @@ async fn undo_scheduled_event_changes(
     before: &events::EventRow,
 ) {
     if let Some(sid) = created_now {
-        cleanup_scheduled_event(&state.discord, guild_id, sid).await;
+        cleanup_unsaved_scheduled_event(state, guild_id, sid).await;
         return;
     }
     // 作っていないのに desired があるのは、既存のイベントを変更 (PATCH) した場合だけ

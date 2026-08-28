@@ -157,6 +157,24 @@ describe("nowInJst", () => {
     expect([jst.getHours(), jst.getMinutes()]).toEqual([10, 30]);
     expect(jst.getDate()).toBe(23);
   });
+
+  it("日付をまたぐ時刻でも JST の日付になる", () => {
+    // UTC の 16:00 は JST の翌日 01:00
+    const jst = nowInJst(new Date(Date.UTC(2026, 7, 23, 16, 0)));
+    expect([jst.getFullYear(), jst.getMonth(), jst.getDate()]).toEqual([
+      2026, 7, 24,
+    ]);
+    expect([jst.getHours(), jst.getMinutes()]).toEqual([1, 0]);
+  });
+
+  it("他のタイムゾーンの夏時間の切り替え時刻でもずれない", () => {
+    // America/New_York の 2026-03-08 は 2:00 に夏時間へ切り替わる日。
+    // その日の 00:30 EST (= UTC 05:30) は JST の 14:30。
+    // 「ローカルのオフセットぶん足す」実装だと、足した先が EDT になって 15:30 になっていた
+    const jst = nowInJst(new Date(Date.UTC(2026, 2, 8, 5, 30)));
+    expect([jst.getHours(), jst.getMinutes()]).toEqual([14, 30]);
+    expect(jst.getDate()).toBe(8);
+  });
 });
 
 describe("withCheckedDiscordEvent", () => {

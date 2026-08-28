@@ -178,9 +178,33 @@ function combine(date: Date, time: string): Date {
  * JST 以外のタイムゾーンのブラウザで api の検証 (`now_jst`) と食い違う
  */
 export function nowInJst(now = new Date()): Date {
-  // getTimezoneOffset は「UTC - ローカル」の分 (JST なら -540)。UTC に戻してから +9 時間
-  return new Date(now.getTime() + (now.getTimezoneOffset() + 9 * 60) * 60_000);
+  // Asia/Tokyo での壁時計の各要素を取り出し、そのままローカルの Date として組み立てる。
+  // 「ローカルのオフセットぶん足す」計算にすると、足した先が夏時間の切り替えを跨ぐ
+  // タイムゾーン (America/New_York など) で 1 時間ずれる
+  const parts = JST_PARTS.formatToParts(now);
+  const at = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  return new Date(
+    at("year"),
+    at("month") - 1,
+    at("day"),
+    at("hour"),
+    at("minute"),
+    at("second"),
+  );
 }
+
+/** [`nowInJst`] 用。生成が重いので使い回す (hourCycle は 0〜23 にする) */
+const JST_PARTS = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Tokyo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
 
 /**
  * フォームの開始日時。時刻が未入力・不正なら null。

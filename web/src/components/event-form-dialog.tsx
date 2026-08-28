@@ -139,6 +139,7 @@ function EventForm({
   discordSync,
 }: FormProps) {
   const isEdit = state.mode === "edit";
+  const initialValues = isEdit ? eventToFormValues(state.event) : state.values;
   const {
     control,
     register,
@@ -148,7 +149,12 @@ function EventForm({
     formState: { errors, isSubmitting },
   } = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
-    defaultValues: isEdit ? eventToFormValues(state.event) : state.values,
+    // 連携を扱わない画面 (管理コンソール) ではチェックボックスを出さないので、値も落とす。
+    // 連携済みの予定を開くと `eventToFormValues` が true にするが、そのままだと
+    // 見えないフラグで Discord 向けの検証だけが効いて保存できなくなる
+    defaultValues: discordSync
+      ? initialValues
+      : { ...initialValues, discordEvent: false },
   });
   const notifications = useFieldArray({ control, name: "notifications" });
   const [isAllDay, name, description, startDate, startTime] = useWatch({

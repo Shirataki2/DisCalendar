@@ -61,6 +61,28 @@ pub async fn insert<'e>(
     Ok(())
 }
 
+/// この scheduled_event_id を指す対応付けがあるか。
+/// COMMIT の応答を受け取れなかったとき (実際には確定しているかもしれない) に、
+/// 作った Discord イベントを消してよいかを別の接続で確かめるのに使う
+pub async fn exists_by_scheduled_event_id<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+    scheduled_event_id: &str,
+) -> sqlx::Result<bool> {
+    let row = sqlx::query!(
+        r#"
+        SELECT 1 AS "one!"
+        FROM event_discord_links
+        WHERE guild_id = $1 AND scheduled_event_id = $2
+        "#,
+        guild_id,
+        scheduled_event_id
+    )
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.is_some())
+}
+
 /// 対応先を差し替える (Discord 側で手動削除されたイベントを作り直したとき)
 pub async fn set_scheduled_event_id<'e>(
     executor: impl PgExecutor<'e>,
