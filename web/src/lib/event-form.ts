@@ -16,7 +16,11 @@ import type {
   Notification,
   NotificationUnit,
 } from "@/lib/api/types";
-import { parseApiDateTime, toApiDateTime } from "@/lib/calendar-events";
+import {
+  nowInJst,
+  parseApiDateTime,
+  toApiDateTime,
+} from "@/lib/calendar-events";
 
 // 予定の作成・編集フォーム (旧 NewEvent.vue) のスキーマと API との相互変換。
 // 上限値は api/src/models/events.rs の validate() と揃えている
@@ -170,41 +174,6 @@ function combine(date: Date, time: string): Date {
   const [hours, minutes] = time.split(":").map(Number);
   return set(startOfDay(date), { hours, minutes });
 }
-
-/**
- * 現在時刻を「JST の壁時計」として読み替えたローカル Date (#94)。
- * フォームの日時はブラウザのローカル時刻を JST とみなして API へ送るため、
- * 「開始が過去か」の判定もローカルの現在時刻ではなく JST の現在時刻と比べないと、
- * JST 以外のタイムゾーンのブラウザで api の検証 (`now_jst`) と食い違う
- */
-export function nowInJst(now = new Date()): Date {
-  // Asia/Tokyo での壁時計の各要素を取り出し、そのままローカルの Date として組み立てる。
-  // 「ローカルのオフセットぶん足す」計算にすると、足した先が夏時間の切り替えを跨ぐ
-  // タイムゾーン (America/New_York など) で 1 時間ずれる
-  const parts = JST_PARTS.formatToParts(now);
-  const at = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((part) => part.type === type)?.value);
-  return new Date(
-    at("year"),
-    at("month") - 1,
-    at("day"),
-    at("hour"),
-    at("minute"),
-    at("second"),
-  );
-}
-
-/** [`nowInJst`] 用。生成が重いので使い回す (hourCycle は 0〜23 にする) */
-const JST_PARTS = new Intl.DateTimeFormat("en-US", {
-  timeZone: "Asia/Tokyo",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hourCycle: "h23",
-});
 
 /**
  * フォームの開始日時。時刻が未入力・不正なら null。

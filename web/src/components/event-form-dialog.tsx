@@ -43,6 +43,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useLastValue } from "@/hooks/use-last-value";
 import { describeApiError } from "@/lib/api";
 import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
+import { nowInJst } from "@/lib/calendar-events";
 import {
   DESCRIPTION_MAX_CHARS,
   type EventFormValues,
@@ -55,7 +56,6 @@ import {
   NOTIFICATION_NUM_MIN,
   NOTIFICATION_UNITS,
   NOTIFICATIONS_MAX,
-  nowInJst,
   withCheckedDiscordEvent,
 } from "@/lib/event-form";
 

@@ -4,6 +4,7 @@ import type { ApiEvent } from "@/lib/api/types";
 import {
   describeEventRange,
   describeNotification,
+  nowInJst,
   parseApiDateTime,
   sourceOf,
   toApiDateTime,
@@ -42,6 +43,34 @@ function fakeEventApi(fields: {
     extendedProps: { source: fields.source },
   } as unknown as EventApi;
 }
+
+describe("nowInJst", () => {
+  it("実行環境のタイムゾーンによらず JST の壁時計時刻になる", () => {
+    // UTC の 2026-08-23 01:30 = JST の 10:30。ローカル表現の Date として返るので
+    // ローカルのフィールドで JST の値が読める (Node の UTC でもブラウザの JST でも同じ)
+    const jst = nowInJst(new Date(Date.UTC(2026, 7, 23, 1, 30)));
+    expect([jst.getHours(), jst.getMinutes()]).toEqual([10, 30]);
+    expect(jst.getDate()).toBe(23);
+  });
+
+  it("日付をまたぐ時刻でも JST の日付になる", () => {
+    // UTC の 16:00 は JST の翌日 01:00
+    const jst = nowInJst(new Date(Date.UTC(2026, 7, 23, 16, 0)));
+    expect([jst.getFullYear(), jst.getMonth(), jst.getDate()]).toEqual([
+      2026, 7, 24,
+    ]);
+    expect([jst.getHours(), jst.getMinutes()]).toEqual([1, 0]);
+  });
+
+  it("他のタイムゾーンの夏時間の切り替え時刻でもずれない", () => {
+    // America/New_York の 2026-03-08 は 2:00 に夏時間へ切り替わる日。
+    // その日の 00:30 EST (= UTC 05:30) は JST の 14:30。
+    // 「ローカルのオフセットぶん足す」実装だと、足した先が EDT になって 15:30 になっていた
+    const jst = nowInJst(new Date(Date.UTC(2026, 2, 8, 5, 30)));
+    expect([jst.getHours(), jst.getMinutes()]).toEqual([14, 30]);
+    expect(jst.getDate()).toBe(8);
+  });
+});
 
 describe("toApiDateTime / parseApiDateTime", () => {
   it("タイムゾーンなしの JST 文字列と相互変換する", () => {
@@ -178,8 +207,43 @@ describe("toApiEventInput", () => {
       end: day(24, 14, 30),
       allDay: false,
     });
+    // 移動先 (8/24 13:00 JST) より前を「今」として渡す
     expect(
-      toApiEventInput(moved, { ...event, discord_scheduled_event_id: "9001" })
+      toApiEventInput(
+        moved,
+        { ...event, discord_scheduled_event_id: "9001" },
+        new Date(Date.UTC(2026, 7, 24, 3, 0)),
+      ).discord_scheduled_event,
+    ).toBe(true);
+  });
+
+  it("過去へドラッグしたら連携を落とす (api が拒否して移動ごと取り消されるのを防ぐ)", () => {
+    const moved = fakeEventApi({
+      start: day(24, 13),
+      end: day(24, 14, 30),
+      allDay: false,
+    });
+    // 移動先より後を「今」として渡す (UTC 05:00 = JST 14:00 で、開始の 13:00 を過ぎている)
+    expect(
+      toApiEventInput(
+        moved,
+        { ...event, discord_scheduled_event_id: "9001" },
+        new Date(Date.UTC(2026, 7, 24, 5, 0)),
+      ).discord_scheduled_event,
+    ).toBe(false);
+  });
+
+  it("終日予定は開始日の 0:00 で判定する (api の検証と同じ)", () => {
+    const moved = fakeEventApi({ start: day(24), end: null, allDay: true });
+    const linked = { ...event, discord_scheduled_event_id: "9001" };
+    // 8/24 の当日 (JST 09:00) は、開始の 0:00 を過ぎているので落ちる
+    expect(
+      toApiEventInput(moved, linked, new Date(Date.UTC(2026, 7, 24, 0, 0)))
+        .discord_scheduled_event,
+    ).toBe(false);
+    // 前日のうちなら引き継ぐ
+    expect(
+      toApiEventInput(moved, linked, new Date(Date.UTC(2026, 7, 23, 0, 0)))
         .discord_scheduled_event,
     ).toBe(true);
   });
