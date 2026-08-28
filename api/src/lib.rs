@@ -180,7 +180,13 @@ async fn run_startup_migrations(pool: &sqlx::PgPool) -> anyhow::Result<()> {
             .set_locking(false)
             .run(&mut conn)
             .await
-            .context("failed to run migrations")
+            .context("failed to run migrations")?;
+        // user_daily_activity の "user" への外部キー (#81)。マイグレーション適用時に
+        // Better Auth のテーブルがまだ無い環境 (新規 compose 環境では api が web より先に起動する)
+        // では migration 内の DO ブロックが張れないため、起動のたびに確かめて張り直す
+        models::user_activity::ensure_user_fk(&mut conn)
+            .await
+            .context("failed to ensure the user_daily_activity foreign key")
     }
     .await;
 

@@ -17,8 +17,10 @@ CREATE INDEX idx_user_daily_activity_day ON user_daily_activity (day);
 
 -- 利用者に関する情報を削除するとき (退会の請求など) に記録も一緒に消えるよう外部キーを張る。
 -- "user" は Better Auth (web 側) が作るテーブルで api のマイグレーションには含まれず、
--- まっさらな DB (テスト・新規環境) にはまだ無いので、あるときだけ張る。
--- 無い環境との差は「user の行を消したときに記録が残るかどうか」だけで、読み書きの挙動は変わらない
+-- まっさらな DB (テスト・新規環境。compose では api が web より先に起動する) にはまだ無いので、
+-- あるときだけ張る。無いときは api が起動のたびに確かめて、"user" ができた後の起動で張り直す
+-- (models::user_activity::ensure_user_fk)。それまでの差は「user の行を消したときに記録が
+-- 残るかどうか」だけで、読み書きの挙動は変わらない
 DO $$
 BEGIN
     IF to_regclass('public."user"') IS NOT NULL THEN
