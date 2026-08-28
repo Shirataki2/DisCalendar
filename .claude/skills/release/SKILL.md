@@ -57,7 +57,8 @@ git switch -c codex/release-v3.1.0     # Claude Code では claude/release-v3.1.
 .claude/skills/release/scripts/bump-version.sh minor    # または 3.1.0 のように直接指定
 git add -A && git commit -m "リリース準備: v3.1.0"
 git push -u origin "$(git branch --show-current)"
-gh pr create --title "リリース準備: v3.1.0" --milestone "v3 リリース" --body-file pr-body.md
+# マイルストーンは gh api repos/{owner}/{repo}/milestones --jq '.[].title' で確認して内容に合うもの (運用系) を指定する
+gh pr create --title "リリース準備: v3.1.0" --milestone "<内容に合うもの>" --body-file pr-body.md
 ```
 
 - スクリプトが 4 か所を書き換える。更新履歴には**何も足さない** (エントリは各機能 PR で既に入っている。

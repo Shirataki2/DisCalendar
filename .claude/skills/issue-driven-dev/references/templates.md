@@ -25,7 +25,8 @@ GitHub 上のフォーム (`.github/ISSUE_TEMPLATE/*.yml`) は `gh issue create`
 ```
 
 ```bash
-gh issue create --title "[task] <一文>" --label task --label area:web --milestone "v3 リリース" --body-file body.md
+# マイルストーンは gh api repos/{owner}/{repo}/milestones --jq '.[].title' で確認して内容に合うものを指定する
+gh issue create --title "[task] <一文>" --label task --label area:web --milestone "<内容に合うもの>" --body-file body.md
 ```
 
 ## Issue: 不具合報告 (`[bug]`、ラベル `bug` + `area:*`)
@@ -107,7 +108,7 @@ Closes #4
 
 ```bash
 gh pr create --title "bot: 定期タスク (予定の通知 / presence / 日付アイコン更新) を移行する" \
-  --milestone "v3 リリース" --label area:bot --body-file pr-body.md
+  --milestone "<Issue と同じマイルストーン>" --label area:bot --body-file pr-body.md
 ```
 
 ポイント:
