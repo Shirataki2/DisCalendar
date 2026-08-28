@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # リリース準備: web / api / bot のバージョンを揃えて上げる (release スキルの手順 2)。
 #   .claude/skills/release/scripts/bump-version.sh 3.1.0
-#   .claude/skills/release/scripts/bump-version.sh minor   # 今の版から major / minor / patch を 1 つ上げる
+#   .claude/skills/release/scripts/bump-version.sh minor              # 今の版から major / minor / patch を 1 つ上げる
+#   .claude/skills/release/scripts/bump-version.sh 3.1.0 2026-08-30   # タグを打つ予定日を見出しの日付にする
 # 書き換えるのは web/package.json / api/Cargo.toml / bot/Cargo.toml / Cargo.lock の 4 か所と、
 # 更新履歴 (web/src/content/changelog.mdx) へのバージョン見出しの挿入 (正式版のみ)。
+# 見出しの日付 = 利用者に見えるリリース日なので、タグを打つ日が今日でないなら第 2 引数で渡す
+# (release.yml がタグの日とずれた見出しに警告を出す)。
 # 変更をコミットするのは呼び出し側 (この手のスクリプトはコミットしない)
 set -euo pipefail
 
@@ -14,9 +17,14 @@ cd "$root"
 source "$root/.agents/scripts/lib/agent-context.sh"
 
 arg="${1:-}"
+release_date="${2:-}"
 if [ -z "$arg" ]; then
-  echo "usage: $0 <3.1.0 | major | minor | patch>" >&2
+  echo "usage: $0 <3.1.0 | major | minor | patch> [リリース日 YYYY-MM-DD (省略時は今日)]" >&2
   exit 2
+fi
+if [ -n "$release_date" ] && ! [[ "$release_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  echo "::error::リリース日は YYYY-MM-DD で渡す (got: $release_date)" >&2
+  exit 1
 fi
 
 current=$(.github/scripts/check-versions.sh)
@@ -146,7 +154,11 @@ elif grep -q "^## v${next} " "$changelog"; then
 elif ! awk '/^## / { exit } /^### / { found = 1; exit } END { exit !found }' "$changelog"; then
   echo "::warning::更新履歴 (${changelog}) に未リリースのエントリが無いのでバージョン見出しを入れない (リリースノートは「変更なし」になる)" >&2
 else
-  read -r y m d < <(date '+%Y %m %d')
+  if [ -n "$release_date" ]; then
+    IFS=- read -r y m d <<< "$release_date"
+  else
+    read -r y m d < <(date '+%Y %m %d')
+  fi
   heading="## v${next} (${y}年$((10#$m))月$((10#$d))日)"
   awk -v heading="$heading" '
     !done && /^### / { print heading; print ""; done = 1 }

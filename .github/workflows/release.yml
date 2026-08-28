@@ -121,6 +121,19 @@ jobs:
           echo "previous tag: ${prev:-(なし)}"
           # 正式版はタグと同じバージョンの節、プレリリースは (見出しがまだ無いので) 未リリース分を出す
           notes=$(.github/scripts/release-notes.sh "$TAG")
+
+          # 見出しの日付は bump-version.sh が実行日 (または引数の日付) で書くので、リリース準備 PR が
+          # 日をまたいでマージされると実際のリリース日とずれる。利用者に見える日付なので、ずれていたら知らせる
+          # (止めはしない。見出しの日付を直すコミットを入れてタグを打ち直すかは判断に任せる)
+          if [ "$PRERELEASE" != "true" ]; then
+            heading=$(grep -m1 "^## ${TAG} (" web/src/content/changelog.mdx || true)
+            today=$(TZ=Asia/Tokyo date '+%Y年%-m月%-d日')
+            if [ -z "$heading" ]; then
+              echo "::warning::更新履歴に ${TAG} のバージョン見出しが無い (bump-version.sh を通していない?)。リリースノートは「変更なし」になる"
+            elif [ "$heading" != "## ${TAG} (${today})" ]; then
+              echo "::warning::更新履歴の見出し「${heading}」の日付が今日 (${today}) と違う。リリース準備 PR が日をまたいだ場合は、見出しの日付を直してからタグを打ち直すことを検討する"
+            fi
+          fi
           {
             if [ -n "$notes" ]; then
               echo "$notes"
