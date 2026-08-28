@@ -19,6 +19,11 @@ use crate::{
 /// 一度に取得できる期間の上限 (FullCalendar の月表示は最大 6 週間)
 const MAX_RANGE_DAYS: i64 = 400;
 
+/// 予定の更新で、同じ予定への並行更新に割り込まれたときにやり直す回数 (#94)。
+/// Discord への反映をトランザクションの外で行うため、その間に対応付けが変わっていたら
+/// 最初から読み直す。何度も割り込まれるのは考えにくいので少なめでよい
+const UPDATE_SYNC_ATTEMPTS: u32 = 3;
+
 #[derive(Deserialize, IntoParams)]
 pub struct ListQuery {
     /// 取得範囲の開始 (JST、この時刻を含む)
@@ -118,6 +123,9 @@ pub async fn create(
         .map_err(describe_scheduled_event_error)?;
     let result: Result<events::EventRow, ApiError> = async {
         let mut tx = state.pool.begin().await?;
+        // 管理コンソールの全予定削除と排他する (新しい行は行ロックでは待たせられないため、
+        // ギルド単位の勧告ロックで、削除側が控えた対応付けの一覧からこの連携が漏れないようにする)
+        event_links::lock_guild(&mut *tx, guild_id).await?;
         let row = events::create(&mut *tx, guild_id, &body, now_jst()).await?;
         event_links::insert(&mut *tx, guild_id, row.id, &scheduled_event_id, now_jst()).await?;
         tx.commit().await?;
@@ -147,6 +155,7 @@ pub async fn create(
         (status = 401, body = ErrorBody),
         (status = 403, description = "非メンバー / restricted モードで権限なし", body = ErrorBody),
         (status = 404, body = ErrorBody),
+        (status = 409, description = "同じ予定への並行更新とぶつかった (やり直せば通る)", body = ErrorBody),
     )
 )]
 #[put("/{guild_id}/{event_id}")]
@@ -164,115 +173,138 @@ pub async fn update(
     // 変更前の状態をロックせずに読み、Discord への反映を分岐する (#94)。
     // DB 接続を握ったまま最大 10 秒の外部呼び出しを待たないため、Discord の操作は
     // トランザクションの外で先に済ませ、書き込み時にロックを取り直して実際の対応付けと
-    // 突き合わせる (PUT は全置換なので、並行更新は後勝ちで揃える)
-    let old = events::find_by_id(&state.pool, guild_id, path.event_id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-
-    // 連携なしの通常更新 (最頻パス) は 1 文で済ませる。直前に別リクエストが連携を
-    // 足していた場合は、その連携への値の反映が次の編集まで遅れるだけ
-    if old.discord_scheduled_event_id.is_none() && !body.discord_scheduled_event {
-        let row = events::update(&state.pool, guild_id, path.event_id, &body)
+    // 突き合わせる。突き合わせがずれていたら (同じ予定への並行更新)、割り込んだ側の
+    // commit 後の後始末がこの更新の対応先を消しうるので、書き込まずに最初からやり直す
+    for _ in 0..UPDATE_SYNC_ATTEMPTS {
+        let old = events::find_by_id(&state.pool, guild_id, path.event_id)
             .await?
             .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-        tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event updated");
-        return Ok(web::Json(Event::from(row)));
-    }
 
-    // Discord 側を先に「あるべき状態」にする。失敗したら予定には一切触れず全体を失敗にする。
-    // desired = この更新後に紐付いているべき scheduled_event_id (None = 連携なし)、
-    // created_now = この更新で新しく作った Discord イベント (DB 失敗時の後始末対象)
-    let (desired, created_now): (Option<String>, Option<String>) = match (
-        &old.discord_scheduled_event_id,
-        body.discord_scheduled_event,
-    ) {
-        (None, true) => {
-            let id = state
-                .discord
-                .create_scheduled_event(
-                    guild_id,
-                    &payload_for(&state.site_base_url, guild_id, &body),
-                )
-                .await
-                .map_err(describe_scheduled_event_error)?;
-            (Some(id.clone()), Some(id))
+        // 連携なしの通常更新 (最頻パス) は 1 文で済ませる。直前に別リクエストが連携を
+        // 足していた場合は、その連携への値の反映が次の編集まで遅れるだけ
+        if old.discord_scheduled_event_id.is_none() && !body.discord_scheduled_event {
+            let row = events::update(&state.pool, guild_id, path.event_id, &body)
+                .await?
+                .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+            tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event updated");
+            return Ok(web::Json(Event::from(row)));
         }
-        (Some(current), true) => {
-            let payload = payload_for(&state.site_base_url, guild_id, &body);
-            let modified = state
-                .discord
-                .modify_scheduled_event(guild_id, current, &payload)
-                .await
-                .map_err(describe_scheduled_event_error)?;
-            if modified {
-                (Some(current.clone()), None)
-            } else {
-                // Discord 側で手動削除されていた: フラグが有効 = あるべき状態なので作り直す
+
+        // Discord 側を先に「あるべき状態」にする。失敗したら予定には一切触れず全体を失敗にする。
+        // desired = この更新後に紐付いているべき scheduled_event_id (None = 連携なし)、
+        // created_now = この更新で新しく作った Discord イベント (DB 失敗・やり直し時の後始末対象)
+        let (desired, created_now): (Option<String>, Option<String>) = match (
+            &old.discord_scheduled_event_id,
+            body.discord_scheduled_event,
+        ) {
+            (None, true) => {
                 let id = state
                     .discord
-                    .create_scheduled_event(guild_id, &payload)
+                    .create_scheduled_event(
+                        guild_id,
+                        &payload_for(&state.site_base_url, guild_id, &body),
+                    )
                     .await
                     .map_err(describe_scheduled_event_error)?;
                 (Some(id.clone()), Some(id))
             }
-        }
-        // 連携を外す。Discord 側の削除は commit 後にベストエフォートで行う
-        (Some(_), false) => (None, None),
-        (None, false) => unreachable!("handled above"),
-    };
-
-    // 短いトランザクションで値を更新し、対応付けを desired に合わせる。
-    // ロック後に読んだ実際の対応付けが分岐時と違っていたら (並行更新)、
-    // desired で上書きし、置き換えられた側のイベントは commit 後に消す
-    let mut replaced: Option<String> = None;
-    let tx_result: Result<events::EventRow, ApiError> = async {
-        let mut tx = state.pool.begin().await?;
-        let current = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-        let mut row = events::update(&mut *tx, guild_id, path.event_id, &body)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-        match (&current.discord_scheduled_event_id, &desired) {
-            (None, Some(sid)) => {
-                event_links::insert(&mut *tx, guild_id, row.id, sid, now_jst()).await?;
-            }
-            (Some(existing), Some(sid)) if existing != sid => {
-                event_links::set_scheduled_event_id(&mut *tx, guild_id, row.id, sid).await?;
-                replaced = Some(existing.clone());
-            }
-            (Some(existing), None) => {
-                event_links::delete(&mut *tx, guild_id, row.id).await?;
-                // 開始前のイベントだけ Discord 側も消す (開始済みはサーバーの履歴として残す)
-                if old.start_at > now_jst() {
-                    replaced = Some(existing.clone());
+            (Some(current), true) => {
+                let payload = payload_for(&state.site_base_url, guild_id, &body);
+                let modified = state
+                    .discord
+                    .modify_scheduled_event(guild_id, current, &payload)
+                    .await
+                    .map_err(describe_scheduled_event_error)?;
+                if modified {
+                    (Some(current.clone()), None)
+                } else {
+                    // Discord 側で手動削除されていた: フラグが有効 = あるべき状態なので作り直す
+                    let id = state
+                        .discord
+                        .create_scheduled_event(guild_id, &payload)
+                        .await
+                        .map_err(describe_scheduled_event_error)?;
+                    (Some(id.clone()), Some(id))
                 }
             }
-            _ => {}
-        }
-        tx.commit().await?;
-        row.discord_scheduled_event_id = desired.clone();
-        Ok(row)
-    }
-    .await;
-    let row = match tx_result {
-        Ok(row) => row,
-        Err(err) => {
-            // この更新で新しく作った Discord イベントは後始末する
-            // (変更 (PATCH) は戻せないので、値のずれは次の編集の反映に任せる)
-            if let Some(sid) = &created_now {
-                cleanup_scheduled_event(&state.discord, guild_id, sid).await;
+            // 連携を外す。Discord 側の削除は commit 後にベストエフォートで行う
+            (Some(_), false) => (None, None),
+            (None, false) => unreachable!("handled above"),
+        };
+
+        // 短いトランザクションで、対応付けが分岐の起点から変わっていないことを確かめてから
+        // (変わっていたら `None` = やり直し)、値を更新して対応付けを desired に合わせる
+        let tx_result: Result<Option<(events::EventRow, Option<String>)>, ApiError> = async {
+            let mut tx = state.pool.begin().await?;
+            // 管理コンソールの全予定削除と排他する (routes/admin_ops.rs のロック順と揃える)
+            event_links::lock_guild(&mut *tx, guild_id).await?;
+            let current = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
+                .await?
+                .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+            if current.discord_scheduled_event_id != old.discord_scheduled_event_id {
+                return Ok(None);
             }
-            return Err(err);
+            let mut row = events::update(&mut *tx, guild_id, path.event_id, &body)
+                .await?
+                .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+            // 突き合わせ済みなので current の対応付けは old と同じ。desired との差分だけ書く
+            let mut replaced: Option<String> = None;
+            match (&current.discord_scheduled_event_id, &desired) {
+                (None, Some(sid)) => {
+                    event_links::insert(&mut *tx, guild_id, row.id, sid, now_jst()).await?;
+                }
+                (Some(existing), Some(sid)) if existing != sid => {
+                    event_links::set_scheduled_event_id(&mut *tx, guild_id, row.id, sid).await?;
+                    replaced = Some(existing.clone());
+                }
+                (Some(existing), None) => {
+                    event_links::delete(&mut *tx, guild_id, row.id).await?;
+                    // 開始前のイベントだけ Discord 側も消す (開始済みはサーバーの履歴として残す)
+                    if old.start_at > now_jst() {
+                        replaced = Some(existing.clone());
+                    }
+                }
+                _ => {}
+            }
+            tx.commit().await?;
+            row.discord_scheduled_event_id = desired.clone();
+            Ok(Some((row, replaced)))
         }
-    };
-    // 置き換え・解除で不要になったイベントの後始末 (ベストエフォート。
-    // Bot が権限を失った後でも連携の解除まで塞がず、取り残しは Discord 側で手動削除できる)
-    if let Some(sid) = &replaced {
-        cleanup_scheduled_event(&state.discord, guild_id, sid).await;
+        .await;
+        match tx_result {
+            Ok(Some((row, replaced))) => {
+                // 置き換え・解除で不要になったイベントの後始末 (ベストエフォート。
+                // Bot が権限を失った後でも連携の解除まで塞がず、取り残しは Discord 側で手動削除できる)
+                if let Some(sid) = &replaced {
+                    cleanup_scheduled_event(&state.discord, guild_id, sid).await;
+                }
+                tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event updated");
+                return Ok(web::Json(Event::from(row)));
+            }
+            // 並行更新に割り込まれた: この試行で作った Discord イベントを片付けてやり直す
+            Ok(None) => {
+                if let Some(sid) = &created_now {
+                    cleanup_scheduled_event(&state.discord, guild_id, sid).await;
+                }
+                tracing::info!(
+                    guild_id,
+                    event_id = path.event_id,
+                    "retrying an event update due to a concurrent link change"
+                );
+            }
+            Err(err) => {
+                // この更新で新しく作った Discord イベントは後始末する
+                // (変更 (PATCH) は戻せないので、値のずれは次の編集の反映に任せる)
+                if let Some(sid) = &created_now {
+                    cleanup_scheduled_event(&state.discord, guild_id, sid).await;
+                }
+                return Err(err);
+            }
+        }
     }
-    tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event updated");
-    Ok(web::Json(Event::from(row)))
+    Err(ApiError::Conflict(
+        "the event was updated concurrently, please retry".into(),
+    ))
 }
 
 /// 予定の削除

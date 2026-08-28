@@ -7,6 +7,22 @@
 use chrono::NaiveDateTime;
 use sqlx::PgExecutor;
 
+/// ギルド単位の勧告ロック (トランザクションの終わりまで保持)。
+/// 対応付けを書き込むトランザクション (作成・更新) と、ギルドの予定を一括で消す
+/// トランザクションが同じ順序で取ることで、一括削除が「消す対応付けの控え」を読んでから
+/// `DELETE` するまでの間に連携付きの予定が増えて、Discord 側のイベントだけ取り残されるのを防ぐ
+/// (新しく作られる行は既存行の `FOR UPDATE` では待たせられない)。
+/// キーはギルド ID のハッシュなので、衝突しても無関係なギルドを誤って待たせるだけで整合性には影響しない
+pub async fn lock_guild<'e>(executor: impl PgExecutor<'e>, guild_id: &str) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"SELECT pg_advisory_xact_lock(hashtext('event_discord_links'), hashtext($1)) AS "lock""#,
+        guild_id
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(())
+}
+
 /// 予定に紐付く scheduled_event_id。未連携なら `None`。他ギルドの予定 ID を指定しても返さない
 pub async fn get<'e>(
     executor: impl PgExecutor<'e>,
