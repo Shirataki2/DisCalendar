@@ -261,6 +261,8 @@ pub async fn update(
                             undo_scheduled_event_changes(
                                 &state,
                                 guild_id,
+                                path.event_id,
+                                &body,
                                 &None,
                                 &Some(current.clone()),
                                 &old,
@@ -340,7 +342,16 @@ pub async fn update(
             }
             // 並行更新に割り込まれた: Discord への反映を取り消してやり直す
             Ok(None) => {
-                undo_scheduled_event_changes(&state, guild_id, &created_now, &desired, &old).await;
+                undo_scheduled_event_changes(
+                    &state,
+                    guild_id,
+                    path.event_id,
+                    &body,
+                    &created_now,
+                    &desired,
+                    &old,
+                )
+                .await;
                 tracing::info!(
                     guild_id,
                     event_id = path.event_id,
@@ -348,7 +359,16 @@ pub async fn update(
                 );
             }
             Err(err) => {
-                undo_scheduled_event_changes(&state, guild_id, &created_now, &desired, &old).await;
+                undo_scheduled_event_changes(
+                    &state,
+                    guild_id,
+                    path.event_id,
+                    &body,
+                    &created_now,
+                    &desired,
+                    &old,
+                )
+                .await;
                 return Err(err);
             }
         }
@@ -385,7 +405,25 @@ pub async fn delete(
         .await?
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
     events::delete(&mut *tx, guild_id, path.event_id).await?;
-    tx.commit().await?;
+    if let Err(err) = tx.commit().await {
+        // COMMIT の応答だけ失われて、実際には消えていることがある。その場合に何もしないと
+        // 予定は消えたのに Discord のイベントだけ残り、再試行しても 404 で ID を回収できない。
+        // 別の接続で消えたことを確かめられたときだけ Discord 側も片付ける
+        if let Some(scheduled_event_id) = &row.discord_scheduled_event_id
+            && matches!(
+                events::find_by_id(&state.pool, guild_id, path.event_id).await,
+                Ok(None)
+            )
+        {
+            tracing::warn!(
+                guild_id,
+                event_id = path.event_id,
+                "the event was deleted after all (the commit result was lost): cleaning up the scheduled event"
+            );
+            cleanup_scheduled_event(&state.discord, guild_id, scheduled_event_id).await;
+        }
+        return Err(err.into());
+    }
     if let Some(scheduled_event_id) = &row.discord_scheduled_event_id {
         // 予定を消したら Discord のイベントも消す (開始済みかどうかでは分けない。
         // DB の start_at は Discord に同期していない変更でずれることがあり、判定に使えない)。
@@ -497,16 +535,42 @@ async fn cleanup_unsaved_scheduled_event(
     }
 }
 
+/// この更新の内容が DB に入っているか (`COMMIT` の応答が失われたときの照合、#94)。
+/// 値と対応付けの両方がこの更新の結果と一致していれば「確定していた」とみなす
+/// (一致しなければ、確定していないか、後から別の更新が入っている)
+async fn update_was_applied(
+    state: &AppState,
+    guild_id: &str,
+    event_id: i32,
+    input: &EventInput,
+    desired: &Option<String>,
+) -> sqlx::Result<bool> {
+    let Some(row) = events::find_by_id(&state.pool, guild_id, event_id).await? else {
+        return Ok(false);
+    };
+    Ok(row.name == input.name
+        && row.description == input.description
+        && row.color == input.color
+        && row.is_all_day == input.is_all_day
+        && row.start_at == input.start_at
+        && row.end_at == input.end_at
+        && row.discord_scheduled_event_id == *desired)
+}
+
 /// 予定を保存できなかったときに、先に済ませた Discord への反映を取り消す (#94。すべてベストエフォート)。
 ///
 /// - `created_now` (この試行で作ったイベント) は削除する
 /// - 既存のイベントに変更 (PATCH) を送っていたなら、変更前の値で PATCH し直す
 ///   (これをしないと、予定は元の値のまま Discord だけ新しい内容になって食い違う)
 ///
+/// どちらも、`COMMIT` の応答だけ失われて実際には保存されている場合があるので、
+/// **別の接続で保存されていないことを確かめてから**行う (確かめられないときは触らない)。
 /// 取り消し自体が失敗したときは warn ログだけ残す (次の編集で改めて反映される)
 async fn undo_scheduled_event_changes(
     state: &AppState,
     guild_id: &str,
+    event_id: i32,
+    input: &EventInput,
     created_now: &Option<String>,
     desired: &Option<String>,
     before: &events::EventRow,
@@ -517,6 +581,18 @@ async fn undo_scheduled_event_changes(
     }
     // 作っていないのに desired があるのは、既存のイベントを変更 (PATCH) した場合だけ
     let Some(sid) = desired else { return };
+    // 実は保存されていたなら、戻すと DB (新しい内容) と Discord (古い内容) が食い違う
+    match update_was_applied(state, guild_id, event_id, input, desired).await {
+        Ok(true) => {
+            tracing::warn!(guild_id, event_id, scheduled_event_id = %sid, "the event was updated after all (the commit result was lost): keeping the scheduled event as is");
+            return;
+        }
+        Err(err) => {
+            tracing::warn!(guild_id, event_id, scheduled_event_id = %sid, error = %err, "could not check whether the update was applied: leaving the scheduled event as is");
+            return;
+        }
+        Ok(false) => {}
+    }
     // 終日予定は終了日の翌日を送るので、翌日が無い値は組み立てられない
     // (`validate_discord_flag` が弾いた値が管理コンソール経由などで残っていた場合の保険)
     if before.is_all_day && before.end_at.date().succ_opt().is_none() {

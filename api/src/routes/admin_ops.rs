@@ -106,12 +106,33 @@ pub async fn delete_guild_events(
         },
     )
     .await?;
-    tx.commit().await?;
-    // Discord 側の後始末 (#94)。管理コンソールの削除は Discord 側の失敗で止めない (ベストエフォート)。
-    // 1 件ずつ直列に待つと件数に比例して応答が遅くなるので、数件ずつ並行で呼ぶ
-    // (レート制限に当たりにくい程度の並行数に抑える)
+    if let Err(err) = tx.commit().await {
+        // COMMIT の応答だけ失われて実際には消えていることがある。何もしないと Discord の
+        // イベントだけ残り、対応付けも消えているので後から ID を回収できない。
+        // 別の接続で対応付けが空になったことを確かめられたときだけ Discord 側も片付ける
+        if matches!(
+            event_links::list_scheduled_event_ids(&state.pool, guild_id).await,
+            Ok(ref remaining) if remaining.is_empty()
+        ) {
+            tracing::warn!(
+                guild_id,
+                "the events were deleted after all (the commit result was lost): cleaning up the scheduled events"
+            );
+            delete_scheduled_events(&state, guild_id, &scheduled_event_ids).await;
+        }
+        return Err(err.into());
+    }
+    delete_scheduled_events(&state, guild_id, &scheduled_event_ids).await;
+    tracing::info!(guild_id, deleted = count, admin = %admin.discord_user_id, "all events of a guild deleted by admin");
+    Ok(web::Json(OpsResult { deleted: count }))
+}
+
+/// 一括削除に伴う Discord 側の後始末 (#94)。管理コンソールの削除は Discord 側の失敗で
+/// 止めない (ベストエフォート)。1 件ずつ直列に待つと件数に比例して応答が遅くなるので、
+/// 数件ずつ並行で呼ぶ (レート制限に当たりにくい程度の並行数に抑える)
+async fn delete_scheduled_events(state: &AppState, guild_id: &str, scheduled_event_ids: &[String]) {
     let discord = &state.discord;
-    stream::iter(&scheduled_event_ids)
+    stream::iter(scheduled_event_ids)
         .for_each_concurrent(4, |scheduled_event_id| async move {
             if let Err(err) = discord
                 .delete_scheduled_event(guild_id, scheduled_event_id)
@@ -121,8 +142,6 @@ pub async fn delete_guild_events(
             }
         })
         .await;
-    tracing::info!(guild_id, deleted = count, admin = %admin.discord_user_id, "all events of a guild deleted by admin");
-    Ok(web::Json(OpsResult { deleted: count }))
 }
 
 /// Better Auth の期限切れセッション (`session."expiresAt" < now()`) を削除する。

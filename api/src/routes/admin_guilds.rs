@@ -311,16 +311,30 @@ pub async fn delete_event(
         },
     )
     .await?;
-    tx.commit().await?;
+    if let Err(err) = tx.commit().await {
+        // COMMIT の応答だけ失われて実際には消えていることがある。何もしないと Discord の
+        // イベントだけ残り、再試行しても 404 で ID を回収できない (通常の削除と同じ扱い)
+        if let Some(scheduled_event_id) = &before.discord_scheduled_event_id
+            && matches!(
+                events::find_by_id(&state.pool, guild_id, path.event_id).await,
+                Ok(None)
+            )
+        {
+            tracing::warn!(
+                guild_id,
+                event_id = path.event_id,
+                "the event was deleted after all (the commit result was lost): cleaning up the scheduled event"
+            );
+            delete_scheduled_event_best_effort(&state, guild_id, path.event_id, scheduled_event_id)
+                .await;
+        }
+        return Err(err.into());
+    }
     // 連携している Discord スケジュールイベントの後始末 (#94)。
     // 管理コンソールの削除は Discord 側の失敗で止めない (ベストエフォート)
-    if let Some(scheduled_event_id) = &before.discord_scheduled_event_id
-        && let Err(err) = state
-            .discord
-            .delete_scheduled_event(guild_id, scheduled_event_id)
-            .await
-    {
-        tracing::warn!(guild_id, event_id = path.event_id, scheduled_event_id, error = %err, "failed to delete the linked scheduled event");
+    if let Some(scheduled_event_id) = &before.discord_scheduled_event_id {
+        delete_scheduled_event_best_effort(&state, guild_id, path.event_id, scheduled_event_id)
+            .await;
     }
     tracing::info!(guild_id, event_id = path.event_id, admin = %admin.discord_user_id, "event deleted by admin");
     Ok(HttpResponse::NoContent().finish())
@@ -369,6 +383,23 @@ pub async fn put_config(
     tx.commit().await?;
     tracing::info!(guild_id, restricted = after.restricted, admin = %admin.discord_user_id, "guild config updated by admin");
     Ok(web::Json(after))
+}
+
+/// 連携している Discord スケジュールイベントを消す (#94)。管理コンソールの削除は
+/// Discord 側の失敗で止めない (失敗は warn ログだけ残す)
+async fn delete_scheduled_event_best_effort(
+    state: &AppState,
+    guild_id: &str,
+    event_id: i32,
+    scheduled_event_id: &str,
+) {
+    if let Err(err) = state
+        .discord
+        .delete_scheduled_event(guild_id, scheduled_event_id)
+        .await
+    {
+        tracing::warn!(guild_id, event_id, scheduled_event_id, error = %err, "failed to delete the linked scheduled event");
+    }
 }
 
 /// 書き込み前に、現在または過去に存在したギルドであることを確認する (無ければ 404)
