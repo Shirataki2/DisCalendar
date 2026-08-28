@@ -45,6 +45,7 @@ import {
 import {
   defaultEventFormValues,
   type EventFormValues,
+  eventToFormValues,
   newEventFormValues,
 } from "@/lib/event-form";
 import {
@@ -214,6 +215,10 @@ export function EventCalendar({
     setDialog({ mode: "edit", event });
   };
 
+  // 複製は元の内容を初期値にした「作成」として扱う (#91)。保存は作成 API をそのまま使う
+  const openDuplicate = (event: ApiEvent) =>
+    openCreate(eventToFormValues(event));
+
   // ダイアログからの保存。失敗したら reject してダイアログ側でエラー表示する
   const submitDialog = (input: ApiEventInput) =>
     dialog?.mode === "edit"
@@ -336,6 +341,7 @@ export function EventCalendar({
         anchor={popover?.anchor ?? null}
         canEdit={canEdit}
         onEdit={openEdit}
+        onDuplicate={openDuplicate}
         onDelete={setDeleteTarget}
         onClose={() => setPopover(null)}
       />

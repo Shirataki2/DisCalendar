@@ -24,6 +24,7 @@ test.describe.configure({ mode: "serial" });
 const stamp = Date.now().toString(36);
 const createdTitle = `E2E 予定 ${stamp}`;
 const editedTitle = `E2E 予定 ${stamp} (編集済み)`;
+const duplicatedTitle = `E2E 予定 ${stamp} (複製)`;
 
 test.beforeEach(async ({ page }) => {
   await page.goto(`/dashboard/${guildId}`);
@@ -68,6 +69,43 @@ test("予定をクリックすると概要が出て、編集ダイアログか�
   await expect(eventOn(page, createdTitle)).toHaveCount(0);
   const reopened = await openEventPopover(page, editedTitle);
   await expect(reopened).toContainText("E2E で編集した説明");
+});
+
+test("複製すると元の内容が入った作成ダイアログが開き、新しい予定として保存できる", async ({
+  page,
+}) => {
+  const popover = await openEventPopover(page, editedTitle);
+  await popover.getByRole("button", { name: "複製" }).click();
+
+  // 元のタイトル・説明が入った「作成」ダイアログが開く
+  const dialog = page.getByRole("dialog", { name: "予定を作成" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("タイトル")).toHaveValue(editedTitle);
+  await expect(dialog.getByLabel("説明")).toHaveValue("E2E で編集した説明");
+  await dialog.getByLabel("タイトル").fill(duplicatedTitle);
+  const created = page.waitForResponse(
+    (res) => eventsApi.test(res.url()) && res.request().method() === "POST",
+  );
+  await dialog.getByRole("button", { name: "作成" }).click();
+  expect((await created).status()).toBe(201);
+  await expect(dialog).toBeHidden();
+
+  // 元の予定は残ったまま複製が増え、通知設定も引き継がれている
+  await expect(eventOn(page, editedTitle)).toBeVisible();
+  const reopened = await openEventPopover(page, duplicatedTitle);
+  await expect(reopened).toContainText("1日前・1時間前");
+
+  // 後続のテスト (ドラッグ・削除) の対象を editedTitle だけに保つため、複製は消しておく
+  await reopened.getByRole("button", { name: "削除" }).click();
+  const deleted = page.waitForResponse(
+    (res) => eventsApi.test(res.url()) && res.request().method() === "DELETE",
+  );
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "削除" })
+    .click();
+  expect((await deleted).status()).toBe(204);
+  await expect(eventOn(page, duplicatedTitle)).toHaveCount(0);
 });
 
 test("タイトルが空のままでは作成できない (フォームの検証)", async ({

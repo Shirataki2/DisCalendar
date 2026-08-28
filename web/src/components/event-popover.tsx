@@ -1,7 +1,13 @@
 "use client";
 
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
-import { AlarmClockIcon, BellIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import {
+  AlarmClockIcon,
+  BellIcon,
+  CopyIcon,
+  PencilIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import { useLastValue } from "@/hooks/use-last-value";
@@ -23,6 +29,7 @@ interface Props {
   anchor: PopoverAnchor | null;
   canEdit: boolean;
   onEdit: (event: ApiEvent) => void;
+  onDuplicate: (event: ApiEvent) => void;
   onDelete: (event: ApiEvent) => void;
   onClose: () => void;
 }
@@ -33,6 +40,7 @@ export function EventPopover({
   anchor,
   canEdit,
   onEdit,
+  onDuplicate,
   onDelete,
   onClose,
 }: Props) {
@@ -86,15 +94,26 @@ export function EventPopover({
         </div>
         {canEdit && (
           <div className="flex items-center justify-between border-t px-2 py-1.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onEdit(shown)}
-            >
-              <PencilIcon />
-              編集
-            </Button>
+            <div className="flex items-center">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onEdit(shown)}
+              >
+                <PencilIcon />
+                編集
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onDuplicate(shown)}
+              >
+                <CopyIcon />
+                複製
+              </Button>
+            </div>
             <Button
               type="button"
               variant="ghost"
