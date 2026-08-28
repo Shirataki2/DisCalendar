@@ -137,6 +137,27 @@
   --fc-classic-border: #ffffff1f;
 }
 
+/*
+ * リストビュー (#92) の微調整。v7 のクラス名はビルドごとに変わるハッシュなので、自前の器
+ * (components/event-calendar.tsx の calendar-shell) からロールで辿って指す。
+ * role="list" はカレンダーの中ではリストビューにしか無く、その中の予定は
+ * eventClick を付けているため role="button" になる (中身は「点 → 時刻 → タイトル」)
+ */
+
+/* 予定は「時刻」と「タイトル」の 2 列で並び、はみ出した分は隠れる。
+   classic テーマは時刻にだけ省略記号を付けているので、タイトルにも付けて途中で切れたと分かるようにする */
+.calendar-shell [role="list"] [role="button"] div {
+  text-overflow: ellipsis;
+}
+
+/* 時刻の列は classic テーマだと幅の半分 (最大 200px) を取るため、スマートフォンでは
+   タイトルが数文字しか残らない。時刻 ("19:00 - 19:30") が収まる幅に詰めて残りをタイトルに回す */
+@media (width < 40rem) {
+  .calendar-shell [role="list"] [role="button"] > div > div:first-child {
+    width: 7rem;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
