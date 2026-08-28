@@ -13,6 +13,8 @@ pub struct AppState {
     /// SQL コンソールの監査用の伏せ字で残してよい既知の単語 (`admin_sql::load_known_words`) のキャッシュ
     pub sql_known_words: tokio::sync::Mutex<Option<KnownWords>>,
     pub discord: DiscordClient,
+    /// web の公開 URL (`Config::site_base_url`)。Discord スケジュールイベントの「場所」リンクに使う (#94)
+    pub site_base_url: String,
     pub auth: AuthConfig,
     /// 日次アクティビティ (#81) を同じ日に何度も書きに行かないためのキャッシュ
     /// (Better Auth の user.id → 記録済みの JST の日付)

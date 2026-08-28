@@ -116,7 +116,16 @@ pub async fn my_permissions(
     state: web::Data<AppState>,
 ) -> Result<web::Json<MyPermissions>, ApiError> {
     let p = member.permissions();
-    let bot_create_events = state.discord.bot_create_events(member.guild_id()).await?;
+    // Bot 権限は付加情報なので、取得に失敗してもユーザー自身の権限の応答は返す
+    // (ここで全体を失敗させると、連携チェックボックスの可否が不明なだけでカレンダーが開けなくなる)。
+    // false 側に倒れるとチェックボックスは案内つきで無効になる
+    let bot_create_events = match state.discord.bot_create_events(member.guild_id()).await {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(guild_id = member.guild_id(), error = %err, "failed to check the bot's create events permission");
+            false
+        }
+    };
     Ok(web::Json(MyPermissions {
         user_id: member.user.discord_user_id.clone(),
         permissions: p.bits().to_string(),

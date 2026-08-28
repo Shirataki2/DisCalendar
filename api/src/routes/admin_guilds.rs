@@ -241,7 +241,7 @@ pub async fn update_event(
     let guild_id = validated_guild_id(&path.guild_id)?;
     body.validate()?;
     let mut tx = state.pool.begin().await?;
-    let before = events::find_by_id_for_update(&mut *tx, guild_id, path.event_id)
+    let before = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
@@ -291,7 +291,7 @@ pub async fn delete_event(
 ) -> Result<HttpResponse, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
     let mut tx = state.pool.begin().await?;
-    let before = events::find_by_id_for_update(&mut *tx, guild_id, path.event_id)
+    let before = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;

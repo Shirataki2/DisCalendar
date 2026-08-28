@@ -55,6 +55,7 @@ import {
   NOTIFICATION_NUM_MIN,
   NOTIFICATION_UNITS,
   NOTIFICATIONS_MAX,
+  nowInJst,
 } from "@/lib/event-form";
 
 export type EventDialogState =
@@ -159,13 +160,13 @@ function EventForm({
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Discord 連携 (#94): 開始が過去 (現在を含む) だと Discord はイベントを作れない。
-  // api 側の validate_discord_flag と同じ条件でチェックを無効化する
+  // api 側の validate_discord_flag と同じ条件・同じ JST の現在時刻でチェックを無効化する
   const startAt =
     startDate instanceof Date
       ? formStartAt({ isAllDay, startDate, startTime })
       : null;
   const discordStartsInPast =
-    startAt !== null && startAt.getTime() <= Date.now();
+    startAt !== null && startAt.getTime() <= nowInJst().getTime();
   useEffect(() => {
     // 無効化したら値も落とす (表示と送信値を一致させる)。連携済みの予定なら保存時に解除される
     if (discordStartsInPast && getValues("discordEvent")) {

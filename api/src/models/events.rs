@@ -156,6 +156,14 @@ pub fn validate_discord_flag(input: &EventInput, now: NaiveDateTime) -> Result<(
             "end_at must be after start_at to create a Discord scheduled event".into(),
         ));
     }
+    // 終日予定は Discord の終了時刻に「終了日の翌日 0:00」を渡すので、翌日が表現できない
+    // 終了日 (chrono の上限ぎりぎり) は弾く (通しても Discord が受け付けないうえ、
+    // 変換 (`ScheduledEventPayload::new`) が panic してしまう)
+    if input.is_all_day && input.end_at.date().succ_opt().is_none() {
+        return Err(ApiError::BadRequest(
+            "end_at is too far in the future for a Discord scheduled event".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -217,30 +225,38 @@ pub async fn create<'e>(
 }
 
 /// ギルドに属する予定を 1 件取得し、トランザクションの終わりまで行をロックする (`FOR UPDATE`)。
-/// 管理コンソールが監査ログの「変更前」として読むのに使う。更新・削除までの間に別トランザクション
-/// (通常 API や Bot) が同じ行を書き換えて、ログの before と実際の直前の値がずれるのを防ぐ。
-/// 他ギルドの ID を指定しても返さない。該当なしなら `None`
-pub async fn find_by_id_for_update<'e>(
-    executor: impl PgExecutor<'e>,
+/// 管理コンソールが監査ログの「変更前」として読むのと、Discord 連携 (#94) の分岐の起点に使う。
+/// 更新・削除までの間に別トランザクションが同じ行を書き換えて、before と実際の直前の値が
+/// ずれるのを防ぐ。他ギルドの ID を指定しても返さない。該当なしなら `None`。
+///
+/// 対応付け (`event_discord_links`) は**ロックを取った後に別の文で**読む。
+/// ロックと同じ文で JOIN すると、ロック待ちの間に別トランザクションが足した対応付けが
+/// 文の開始時点のスナップショットに含まれず、古い (無い) ように見えてしまうため
+pub async fn find_by_id_for_update(
+    conn: &mut sqlx::PgConnection,
     guild_id: &str,
     id: i32,
 ) -> sqlx::Result<Option<EventRow>> {
-    sqlx::query_as!(
+    let row = sqlx::query_as!(
         EventRow,
         r#"
-        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
-               e.start_at, e.end_at, e.created_at,
-               l.scheduled_event_id AS "discord_scheduled_event_id?"
-        FROM events e
-        LEFT JOIN event_discord_links l ON l.event_id = e.id
-        WHERE e.id = $1 AND e.guild_id = $2
-        FOR UPDATE OF e
+        SELECT id, guild_id, name, description, notifications, color, is_all_day,
+               start_at, end_at, created_at,
+               NULL::text AS "discord_scheduled_event_id?"
+        FROM events
+        WHERE id = $1 AND guild_id = $2
+        FOR UPDATE
         "#,
         id,
         guild_id
     )
-    .fetch_optional(executor)
-    .await
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some(mut row) = row else {
+        return Ok(None);
+    };
+    row.discord_scheduled_event_id = super::event_links::get(&mut *conn, guild_id, id).await?;
+    Ok(Some(row))
 }
 
 /// ギルドに属する予定だけを更新する (他ギルドの ID を指定しても更新されない)。該当なしなら `None`。
@@ -378,6 +394,18 @@ mod tests {
         i.is_all_day = false;
         i.discord_scheduled_event = false;
         assert!(validate_discord_flag(&i, now).is_ok());
+    }
+
+    #[test]
+    fn discord_flag_rejects_all_day_end_at_date_max() {
+        // chrono の上限日は「翌日 0:00」が作れず変換が panic するので、検証で弾く
+        let now = "2026-08-01T00:00:00".parse().unwrap();
+        let mut i = input();
+        i.discord_scheduled_event = true;
+        i.is_all_day = true;
+        i.end_at = chrono::NaiveDate::MAX.and_hms_opt(0, 0, 0).unwrap();
+        assert!(i.validate().is_ok());
+        assert!(validate_discord_flag(&i, now).is_err());
     }
 
     #[test]

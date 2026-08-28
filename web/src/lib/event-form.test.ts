@@ -12,6 +12,7 @@ import {
   NOTIFICATION_NUM_MAX,
   NOTIFICATIONS_MAX,
   newEventFormValues,
+  nowInJst,
   toDateRange,
 } from "@/lib/event-form";
 
@@ -144,6 +145,16 @@ describe("eventFormSchema", () => {
         endTime: "08:00",
       }),
     ).toEqual({});
+  });
+});
+
+describe("nowInJst", () => {
+  it("実行環境のタイムゾーンによらず JST の壁時計時刻になる", () => {
+    // UTC の 2026-08-23 01:30 = JST の 10:30。ローカル表現の Date として返るので
+    // ローカルのフィールドで JST の値が読める (Node の UTC でもブラウザの JST でも同じ)
+    const jst = nowInJst(new Date(Date.UTC(2026, 7, 23, 1, 30)));
+    expect([jst.getHours(), jst.getMinutes()]).toEqual([10, 30]);
+    expect(jst.getDate()).toBe(23);
   });
 });
 

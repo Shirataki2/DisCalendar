@@ -170,7 +170,7 @@ async fn event_links_are_scoped_and_cascade(pool: PgPool) {
     .unwrap();
     assert_eq!(rows[0].discord_scheduled_event_id.as_deref(), Some("9001"));
     let mut tx = pool.begin().await.unwrap();
-    let found = events::find_by_id_for_update(&mut *tx, GUILD, event.id)
+    let found = events::find_by_id_for_update(&mut tx, GUILD, event.id)
         .await
         .unwrap()
         .expect("event exists");
@@ -547,13 +547,13 @@ async fn event_writes_work_inside_a_transaction(pool: PgPool) {
     )
     .await
     .unwrap();
-    let found = events::find_by_id_for_update(&mut *tx, GUILD, created.id)
+    let found = events::find_by_id_for_update(&mut tx, GUILD, created.id)
         .await
         .unwrap();
     assert_eq!(found.map(|e| e.name).as_deref(), Some("tx"));
     // 他ギルドの ID では見えない
     assert!(
-        events::find_by_id_for_update(&mut *tx, OTHER_GUILD, created.id)
+        events::find_by_id_for_update(&mut tx, OTHER_GUILD, created.id)
             .await
             .unwrap()
             .is_none()
@@ -561,8 +561,9 @@ async fn event_writes_work_inside_a_transaction(pool: PgPool) {
     tx.rollback().await.unwrap();
 
     // ロールバックしたので残っていない
+    let mut conn = pool.acquire().await.unwrap();
     assert!(
-        events::find_by_id_for_update(&pool, GUILD, created.id)
+        events::find_by_id_for_update(&mut conn, GUILD, created.id)
             .await
             .unwrap()
             .is_none()

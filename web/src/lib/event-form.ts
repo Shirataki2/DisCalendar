@@ -172,6 +172,17 @@ function combine(date: Date, time: string): Date {
 }
 
 /**
+ * 現在時刻を「JST の壁時計」として読み替えたローカル Date (#94)。
+ * フォームの日時はブラウザのローカル時刻を JST とみなして API へ送るため、
+ * 「開始が過去か」の判定もローカルの現在時刻ではなく JST の現在時刻と比べないと、
+ * JST 以外のタイムゾーンのブラウザで api の検証 (`now_jst`) と食い違う
+ */
+export function nowInJst(now = new Date()): Date {
+  // getTimezoneOffset は「UTC - ローカル」の分 (JST なら -540)。UTC に戻してから +9 時間
+  return new Date(now.getTime() + (now.getTimezoneOffset() + 9 * 60) * 60_000);
+}
+
+/**
  * フォームの開始日時。時刻が未入力・不正なら null。
  * Discord 連携 (#94) の「開始が過去なら連携できない」の判定に使う (api 側の検証と同じ条件)
  */

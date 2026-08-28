@@ -104,26 +104,33 @@ pub async fn create(
         return Ok(HttpResponse::Created().json(Event::from(row)));
     }
 
-    // Discord 連携あり (#94): 予定と対応付けを同じトランザクションで作り、間で Discord に
-    // イベントを作る。Discord 側が失敗したら全体を失敗にする (オプトインしたのに連携されて
-    // いない予定を作らない)。DB 側が失敗したら作ってしまったイベントを後始末する
-    let mut tx = state.pool.begin().await?;
-    let mut row = events::create(&mut *tx, guild_id, &body, now_jst()).await?;
+    // Discord 連携あり (#94): 先に Discord にイベントを作り、成功したら短いトランザクションで
+    // 予定と対応付けを保存する (DB 接続を握ったまま最大 10 秒の外部呼び出しを待つと、Discord の
+    // 遅延時に少ないプールが埋まってしまう)。Discord 側が失敗したら予定も作らず全体を失敗にし、
+    // DB 側が失敗したら作ってしまったイベントを後始末する
     let scheduled_event_id = state
         .discord
-        .create_scheduled_event(guild_id, &payload_for(guild_id, &body))
+        .create_scheduled_event(
+            guild_id,
+            &payload_for(&state.site_base_url, guild_id, &body),
+        )
         .await
         .map_err(describe_scheduled_event_error)?;
-    if let Err(err) =
-        event_links::insert(&mut *tx, guild_id, row.id, &scheduled_event_id, now_jst()).await
-    {
-        cleanup_scheduled_event(&state.discord, guild_id, &scheduled_event_id).await;
-        return Err(err.into());
+    let result: Result<events::EventRow, ApiError> = async {
+        let mut tx = state.pool.begin().await?;
+        let row = events::create(&mut *tx, guild_id, &body, now_jst()).await?;
+        event_links::insert(&mut *tx, guild_id, row.id, &scheduled_event_id, now_jst()).await?;
+        tx.commit().await?;
+        Ok(row)
     }
-    if let Err(err) = tx.commit().await {
-        cleanup_scheduled_event(&state.discord, guild_id, &scheduled_event_id).await;
-        return Err(err.into());
-    }
+    .await;
+    let mut row = match result {
+        Ok(row) => row,
+        Err(err) => {
+            cleanup_scheduled_event(&state.discord, guild_id, &scheduled_event_id).await;
+            return Err(err);
+        }
+    };
     row.discord_scheduled_event_id = Some(scheduled_event_id);
     tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event created with a discord scheduled event");
     Ok(HttpResponse::Created().json(Event::from(row)))
@@ -157,7 +164,7 @@ pub async fn update(
     // 変更前の行をロックして読む (#94)。既存の対応付けと「Discord 側のイベントが開始前か」
     // (変更前の start_at で判断する) を見て Discord への反映を分岐する
     let mut tx = state.pool.begin().await?;
-    let old = events::find_by_id_for_update(&mut *tx, guild_id, path.event_id)
+    let old = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
         .await?
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
     let mut row = events::update(&mut *tx, guild_id, path.event_id, &body)
@@ -171,7 +178,10 @@ pub async fn update(
         (None, true) => {
             let scheduled_event_id = state
                 .discord
-                .create_scheduled_event(guild_id, &payload_for(guild_id, &body))
+                .create_scheduled_event(
+                    guild_id,
+                    &payload_for(&state.site_base_url, guild_id, &body),
+                )
                 .await
                 .map_err(describe_scheduled_event_error)?;
             if let Err(err) =
@@ -189,7 +199,7 @@ pub async fn update(
         }
         // 連携を保ったまま変更: Discord 側にも反映する
         (Some(scheduled_event_id), true) => {
-            let payload = payload_for(guild_id, &body);
+            let payload = payload_for(&state.site_base_url, guild_id, &body);
             let modified = state
                 .discord
                 .modify_scheduled_event(guild_id, &scheduled_event_id, &payload)
@@ -258,7 +268,7 @@ pub async fn delete(
     // 対応付け (#94) を読んでから消すため、行をロックして削除する。
     // 対応付けの行自体は events の削除に CASCADE で追随する
     let mut tx = state.pool.begin().await?;
-    let row = events::find_by_id_for_update(&mut *tx, guild_id, path.event_id)
+    let row = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
         .await?
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
     events::delete(&mut *tx, guild_id, path.event_id).await?;
@@ -288,8 +298,9 @@ async fn ensure_can_edit(pool: &PgPool, member: &GuildMember) -> Result<(), ApiE
 }
 
 /// 予定の値から Discord スケジュールイベントのボディを組み立てる (#94)
-fn payload_for(guild_id: &str, input: &EventInput) -> ScheduledEventPayload {
+fn payload_for(site_base_url: &str, guild_id: &str, input: &EventInput) -> ScheduledEventPayload {
     ScheduledEventPayload::new(
+        site_base_url,
         guild_id,
         &input.name,
         input.description.as_deref(),

@@ -37,11 +37,14 @@ struct EntityMetadata {
 
 impl ScheduledEventPayload {
     /// 予定の値から Discord へ送るボディを組み立てる。
+    /// `site_base_url` は web の公開 URL (末尾スラッシュなし。staging では staging のドメイン)。
     ///
     /// 日時はアプリの慣習 (タイムゾーンなしの JST) から `+09:00` 付きの ISO 8601 に変換する。
     /// 終日予定は DB 上「`start_at` = 開始日 0:00、`end_at` = 終了日 (期間に含む) の 0:00」なので、
     /// Discord の終了時刻 (排他的) には `end_at` の翌日 0:00 を渡す
+    /// (翌日が無い終了日は `validate_discord_flag` が事前に弾いている)
     pub fn new(
+        site_base_url: &str,
         guild_id: &str,
         name: &str,
         description: Option<&str>,
@@ -53,7 +56,12 @@ impl ScheduledEventPayload {
             let midnight = |d: chrono::NaiveDate| d.and_hms_opt(0, 0, 0).expect("valid time");
             (
                 midnight(start_at.date()),
-                midnight(end_at.date().succ_opt().expect("date in range")),
+                midnight(
+                    end_at
+                        .date()
+                        .succ_opt()
+                        .expect("checked by validate_discord_flag"),
+                ),
             )
         } else {
             (start_at, end_at)
@@ -67,7 +75,7 @@ impl ScheduledEventPayload {
             entity_type: ENTITY_TYPE_EXTERNAL,
             entity_metadata: EntityMetadata {
                 // 「場所」にはギルドのカレンダーの URL を入れる (Discord 側の表示から予定に辿れるように)
-                location: format!("https://discalendar.app/dashboard/{guild_id}"),
+                location: format!("{site_base_url}/dashboard/{guild_id}"),
             },
         }
     }
@@ -152,6 +160,7 @@ mod tests {
     #[test]
     fn timed_event_gets_jst_offset() {
         let p = ScheduledEventPayload::new(
+            "https://discalendar.app",
             "123",
             "定例",
             Some("説明"),
@@ -172,6 +181,7 @@ mod tests {
     fn all_day_event_ends_at_next_midnight() {
         // 8/22〜8/23 の 2 日間の終日予定 (end_at は期間に含む 8/23 の 0:00)
         let p = ScheduledEventPayload::new(
+            "https://discalendar.app",
             "123",
             "合宿",
             None,
@@ -188,6 +198,7 @@ mod tests {
     fn all_day_event_ignores_stored_time_of_day() {
         // 時刻が 0:00 でない終日予定でも日付だけを見る (Bot の /create 由来の揺れへの保険)
         let p = ScheduledEventPayload::new(
+            "https://discalendar.app",
             "123",
             "祭り",
             None,
@@ -202,6 +213,7 @@ mod tests {
     #[test]
     fn description_none_is_serialized_as_null() {
         let p = ScheduledEventPayload::new(
+            "https://discalendar.app",
             "123",
             "会議",
             None,

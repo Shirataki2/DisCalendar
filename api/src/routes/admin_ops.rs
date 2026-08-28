@@ -5,6 +5,7 @@
 //! 予定 1 件の編集・削除と restricted の切替は `/admin/guilds/*` (#35) にある。
 
 use actix_web::{post, web};
+use futures_util::{StreamExt as _, stream};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -105,16 +106,20 @@ pub async fn delete_guild_events(
     )
     .await?;
     tx.commit().await?;
-    // Discord 側の後始末 (#94)。管理コンソールの削除は Discord 側の失敗で止めない (ベストエフォート)
-    for scheduled_event_id in &scheduled_event_ids {
-        if let Err(err) = state
-            .discord
-            .delete_scheduled_event(guild_id, scheduled_event_id)
-            .await
-        {
-            tracing::warn!(guild_id, scheduled_event_id, error = %err, "failed to delete a linked scheduled event");
-        }
-    }
+    // Discord 側の後始末 (#94)。管理コンソールの削除は Discord 側の失敗で止めない (ベストエフォート)。
+    // 1 件ずつ直列に待つと件数に比例して応答が遅くなるので、数件ずつ並行で呼ぶ
+    // (レート制限に当たりにくい程度の並行数に抑える)
+    let discord = &state.discord;
+    stream::iter(&scheduled_event_ids)
+        .for_each_concurrent(4, |scheduled_event_id| async move {
+            if let Err(err) = discord
+                .delete_scheduled_event(guild_id, scheduled_event_id)
+                .await
+            {
+                tracing::warn!(guild_id, scheduled_event_id, error = %err, "failed to delete a linked scheduled event");
+            }
+        })
+        .await;
     tracing::info!(guild_id, deleted = count, admin = %admin.discord_user_id, "all events of a guild deleted by admin");
     Ok(web::Json(OpsResult { deleted: count }))
 }
