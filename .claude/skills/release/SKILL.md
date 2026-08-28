@@ -16,7 +16,8 @@ GHCR のイメージに `v3.x.y` を付け直し、更新履歴から作った�
 ## 上げ幅の決め方 (このリポジトリでの semver)
 
 前回のタグ以降に main へ入った変更のうち、**利用者に見えるもの**で決める (内部のリファクタ・CI・依存更新だけなら上げない)。
-判断材料は更新履歴 (`web/src/content/changelog.mdx`) の前回タグ以降のエントリ = リリースノートに載る内容そのもの。
+判断材料は更新履歴 (`web/src/content/changelog.mdx`) の先頭にある未リリース分 (最初のバージョン見出しより上のエントリ)
+= リリースノートに載る内容そのもの。
 
 | 上げ幅 | DisCalendar での目安 | 例 |
 |---|---|---|
@@ -43,8 +44,8 @@ GHCR のイメージに `v3.x.y` を付け直し、更新履歴から作った�
 
 ```bash
 git switch main && git pull --ff-only
-git describe --tags --abbrev=0 --match 'v*'   # 前回のリリース (最初は何も出ない)
-.github/scripts/release-notes.sh "$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null)"
+git describe --tags --abbrev=0 --match 'v*'   # 前回のリリース (参考)
+.github/scripts/release-notes.sh              # 引数なし = 未リリース分のエントリを出す
 ```
 
 出てきた更新履歴のエントリがそのままリリースノートになる。これを見て上げ幅 (major / minor / patch) を決める。
@@ -60,9 +61,10 @@ git push -u origin "$(git branch --show-current)"
 gh pr create --title "リリース準備: v3.1.0" --milestone "v3 リリース" --body-file pr-body.md
 ```
 
-- スクリプトが 4 か所を書き換える。更新履歴には**何も足さない** (エントリは各機能 PR で既に入っている。
-  バージョンと日付の対応は GitHub Release 側に残る)
-- この PR には**バージョン以外の変更を混ぜない**。CI が通ったらマージする (squash)
+- スクリプトが 4 か所の書き換えに加え、更新履歴 (`web/src/content/changelog.mdx`) の未リリース分の上に
+  「`## vX.Y.Z (YYYY年M月D日)`」のバージョン見出しを挿入する (エントリ自体は各機能 PR で既に入っている。
+  プレリリースでは挿入しない)。リリースノートはこの節から作られる
+- この PR には**リリース準備 (バージョン 4 か所とこの見出し) 以外の変更を混ぜない**。CI が通ったらマージする (squash)
 
 ### 3. タグを打つ
 
@@ -85,7 +87,7 @@ release.yml がやること (数十秒):
 2. タグのコミットが main にあることを確認する
 3. GHCR の `discalendar-{web,api,bot}:sha-xxxxxxx` に `v3.1.0` (プレリリースでなければ `latest` も) を **同じ digest のまま**付ける。
    再ビルドしないので、staging で動かしたイメージと必ず同一
-4. 前回タグ以降の更新履歴からノートを作って GitHub Release を公開する
+4. 更新履歴のそのバージョンの節 (プレリリースは、まだ見出しが無いので未リリース分) からノートを作って GitHub Release を公開する
 
 ### 4. 本番に反映する
 
@@ -121,6 +123,8 @@ curl -fsS https://discalendar.app/ > /dev/null && echo ok
 - **タグを打つ前に "Deploy staging" を待つ**。イメージが無いとタグだけ残って release.yml が落ちる
 - **バージョンだけ上げてタグを打たない**状態を作らない (フッタは 3.1.0 なのにリリースが無い、が起きる)。
   リリース準備 PR をマージしたらその日のうちにタグまで進める
+- **リリース準備 PR のマージからタグまでの間に機能 PR をマージしない**。そのエントリはバージョン見出しより上に
+  残ったままになり、今回のリリースノートにも更新履歴の今回の節にも入らない (次のリリース扱いになる)
 - **タグは打ち直さない**のが原則。既に公開した `v3.1.0` を別のコミットに付け替えると、GHCR のタグと Release がずれる。
   間違えたら次の番号で出し直す (公開直後で誰も pull していないと確信できるときだけ、タグと Release を消してやり直す)
 - `latest` は**最新の正式リリース**を指す (`compose.yaml` の `IMAGE_TAG` 既定値)。`release` ジョブの後に動く `latest` ジョブが、

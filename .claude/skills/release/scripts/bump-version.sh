@@ -2,7 +2,8 @@
 # リリース準備: web / api / bot のバージョンを揃えて上げる (release スキルの手順 2)。
 #   .claude/skills/release/scripts/bump-version.sh 3.1.0
 #   .claude/skills/release/scripts/bump-version.sh minor   # 今の版から major / minor / patch を 1 つ上げる
-# 書き換えるのは web/package.json / api/Cargo.toml / bot/Cargo.toml / Cargo.lock の 4 か所。
+# 書き換えるのは web/package.json / api/Cargo.toml / bot/Cargo.toml / Cargo.lock の 4 か所と、
+# 更新履歴 (web/src/content/changelog.mdx) へのバージョン見出しの挿入 (正式版のみ)。
 # 変更をコミットするのは呼び出し側 (この手のスクリプトはコミットしない)
 set -euo pipefail
 
@@ -131,6 +132,26 @@ else
       '{ if (prev == n && $0 ~ /^version[[:space:]]*=/) { sub(/=.*/, "= \"" v "\"") } prev = $0; print }' \
       Cargo.lock > "$tmp" && cp "$tmp" Cargo.lock
   done
+fi
+
+# 更新履歴にバージョン見出しを挿入する。エントリは機能 PR がバージョンなしで先頭に足している
+# (changelog.mdx 冒頭のルール) ので、未リリース分の最初のエントリ (### ...) の直前に
+# 「## vX.Y.Z (YYYY年M月D日)」を入れる。この節が release-notes.sh でそのままリリースノートになる。
+# プレリリース (3.1.0-rc.1) は正式版を出すときにまとめて見出しを付けるので入れない
+changelog=web/src/content/changelog.mdx
+if [[ "$next" == *-* ]]; then
+  echo "プレリリースなので更新履歴 (${changelog}) にバージョン見出しは入れない"
+elif grep -q "^## v${next} " "$changelog"; then
+  echo "更新履歴 (${changelog}) に v${next} の見出しが既にある"
+elif ! awk '/^## / { exit } /^### / { found = 1; exit } END { exit !found }' "$changelog"; then
+  echo "::warning::更新履歴 (${changelog}) に未リリースのエントリが無いのでバージョン見出しを入れない (リリースノートは「変更なし」になる)" >&2
+else
+  read -r y m d < <(date '+%Y %m %d')
+  heading="## v${next} (${y}年$((10#$m))月$((10#$d))日)"
+  awk -v heading="$heading" '
+    !done && /^### / { print heading; print ""; done = 1 }
+    { print }' "$changelog" > "$tmp" && cp "$tmp" "$changelog"
+  echo "更新履歴 (${changelog}) に「${heading}」を挿入した"
 fi
 
 .github/scripts/check-versions.sh "$next" > /dev/null

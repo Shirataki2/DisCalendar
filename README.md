@@ -321,11 +321,12 @@ CI の `version` ジョブが `.github/scripts/check-versions.sh` でずれを�
 2. staging へのデプロイで GHCR に push 済みの `sha-<short sha>` イメージ 3 つに、**同じ digest のまま**
    `v3.x.y` (プレリリースでなければ `latest` も) を付け直す (`docker buildx imagetools create`。再ビルドしないので
    staging で検証したものと必ず同一。イメージが未ビルドならエラーで止まるので "Deploy staging" の完了を待ってタグを打つ)
-3. 更新履歴 (`web/src/content/changelog.mdx`) の前回タグ以降のエントリからリリースノートを作り、GitHub Release を公開する
+3. 更新履歴 (`web/src/content/changelog.mdx`) のそのバージョンの節 (リリース準備時に `bump-version.sh` が挿入した
+   バージョン見出しの下のエントリ) からリリースノートを作り、GitHub Release を公開する
 
 ```sh
 # main にマージ済みの状態から
-.claude/skills/release/scripts/bump-version.sh minor   # 4 か所を書き換える → PR にしてマージ
+.claude/skills/release/scripts/bump-version.sh minor   # 4 か所の書き換え + 更新履歴にバージョン見出しを挿入 → PR にしてマージ
 git switch main && git pull --ff-only
 git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
 ```
