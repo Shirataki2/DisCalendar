@@ -9,7 +9,7 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
-use super::{DiscordClient, DiscordError};
+use super::{DiscordClient, DiscordError, checked_id};
 
 /// チャンネルに紐付けない外部イベント。`scheduled_end_time` と `entity_metadata.location` が必須
 const ENTITY_TYPE_EXTERNAL: u8 = 3;
@@ -106,7 +106,7 @@ impl DiscordClient {
         let text = self
             .send(
                 reqwest::Method::POST,
-                &format!("/guilds/{guild_id}/scheduled-events"),
+                &format!("/guilds/{}/scheduled-events", checked_id(guild_id)?),
                 Some(&payload.to_json()),
             )
             .await?
@@ -129,7 +129,11 @@ impl DiscordClient {
         Ok(self
             .send(
                 reqwest::Method::PATCH,
-                &format!("/guilds/{guild_id}/scheduled-events/{scheduled_event_id}"),
+                &format!(
+                    "/guilds/{}/scheduled-events/{}",
+                    checked_id(guild_id)?,
+                    checked_id(scheduled_event_id)?
+                ),
                 Some(&payload.to_json()),
             )
             .await?
@@ -145,7 +149,11 @@ impl DiscordClient {
         Ok(self
             .send(
                 reqwest::Method::DELETE,
-                &format!("/guilds/{guild_id}/scheduled-events/{scheduled_event_id}"),
+                &format!(
+                    "/guilds/{}/scheduled-events/{}",
+                    checked_id(guild_id)?,
+                    checked_id(scheduled_event_id)?
+                ),
                 None,
             )
             .await?

@@ -69,6 +69,9 @@ impl From<DiscordError> for ApiError {
     fn from(err: DiscordError) -> Self {
         match err {
             DiscordError::RateLimited => Self::RateLimited,
+            // 呼び出し元が検証済みの値だけを渡すので通常は起きないが、
+            // 万一 URL に使えない ID が来ていたら入力の誤りとして返す (502 にはしない)
+            DiscordError::InvalidId => Self::BadRequest("invalid discord id".into()),
             other => Self::Discord(other),
         }
     }

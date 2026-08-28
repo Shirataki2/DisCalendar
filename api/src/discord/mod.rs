@@ -49,6 +49,27 @@ pub enum DiscordError {
     RateLimited,
     #[error("unexpected response from Discord API: {0}")]
     Unexpected(&'static str),
+    /// URL に埋め込む ID が Snowflake ではない。呼び出し元が検証済みの値だけを渡すので
+    /// 通常は起きないが、URL の組み立て時に必ず確認する (パスの意味が変わるのを防ぐ多層防御)
+    #[error("invalid discord id")]
+    InvalidId,
+}
+
+/// Discord の Snowflake ID (数字のみ、20 桁以下) か。
+/// URL のパスに埋め込む値は必ずこれを通す: 数字だけなら `/` や `..`、クエリの区切りが
+/// 入り込まないので、組み立てた URL が別のエンドポイントを指すことはない
+pub fn is_snowflake(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 20 && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// URL のパスに埋め込む前に ID を確認する
+fn checked_id(id: &str) -> Result<&str, DiscordError> {
+    if is_snowflake(id) {
+        Ok(id)
+    } else {
+        tracing::warn!("refused to build a discord url with a non-snowflake id");
+        Err(DiscordError::InvalidId)
+    }
 }
 
 /// 権限計算に必要な最小限のギルド情報
@@ -251,7 +272,7 @@ impl DiscordClient {
             return Ok(cached);
         }
         let guild = self
-            .get_json::<ApiGuild>(&format!("/guilds/{guild_id}"))
+            .get_json::<ApiGuild>(&format!("/guilds/{}", checked_id(guild_id)?))
             .await?
             .map(|g| {
                 Arc::new(GuildSnapshot {
@@ -285,7 +306,11 @@ impl DiscordClient {
             Some(cached) => cached,
             None => {
                 let fetched = self
-                    .get_json::<ApiMember>(&format!("/guilds/{guild_id}/members/{user_id}"))
+                    .get_json::<ApiMember>(&format!(
+                        "/guilds/{}/members/{}",
+                        checked_id(guild_id)?,
+                        checked_id(user_id)?
+                    ))
                     .await?
                     .map(|m| Arc::new(m.roles));
                 self.members.insert(key, fetched.clone()).await;
