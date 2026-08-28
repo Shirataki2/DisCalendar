@@ -153,7 +153,19 @@ pub fn validate_discord_flag(
     if !discord_scheduled_event {
         return Ok(());
     }
-    if input.start_at <= now {
+    // Discord へ実際に送る開始時刻で判定する。終日予定は時刻を切り捨てた開始日の 0:00 を
+    // 送るので (`ScheduledEventPayload::new`)、未正規化の `start_at` で見ると、
+    // 時刻付きの終日予定 (API を直接叩いた場合) がここを通ってから Discord に弾かれてしまう
+    let start_at = if input.is_all_day {
+        input
+            .start_at
+            .date()
+            .and_hms_opt(0, 0, 0)
+            .expect("midnight is always valid")
+    } else {
+        input.start_at
+    };
+    if start_at <= now {
         return Err(ApiError::BadRequest(
             "start_at must be in the future to create a Discord scheduled event".into(),
         ));
@@ -439,6 +451,21 @@ mod tests {
         // 開始が現在以前なら拒否 (Discord は未来の開始時刻を必須とする)
         assert!(validate_discord_flag(&i, true, now).is_err());
         assert!(validate_discord_flag(&i, true, "2026-08-22T09:59:59".parse().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn discord_flag_checks_the_normalized_start_for_all_day_events() {
+        // 終日予定は開始日の 0:00 を Discord へ送るので、時刻部分が未来でも
+        // その日の 0:00 が過ぎていれば連携できない (API を直接叩いた場合の入力)
+        let mut i = input();
+        i.is_all_day = true;
+        i.start_at = "2026-08-22T23:00:00".parse().unwrap();
+        i.end_at = "2026-08-22T23:00:00".parse().unwrap();
+        let noon = "2026-08-22T12:00:00".parse().unwrap();
+        assert!(validate_discord_flag(&i, true, noon).is_err());
+        // 前日のうちなら通る (0:00 がまだ未来)
+        let day_before = "2026-08-21T23:59:59".parse().unwrap();
+        assert!(validate_discord_flag(&i, true, day_before).is_ok());
     }
 
     #[test]
