@@ -220,9 +220,11 @@ async fn event_links_are_scoped_and_cascade(pool: PgPool) {
     );
 }
 
-/// 一括削除用の一覧は「ギルド + 開始が未来」で絞る (#94)
+/// 一括削除用の一覧はギルドで絞る (#94)。開始日時では絞らない:
+/// DB の `start_at` は Discord に同期していない変更 (管理コンソールの編集) でずれることがあり、
+/// 「開始前だけ消す」判定に使うと Discord 側に未来のイベントを取り残してしまう
 #[sqlx::test(migrations = "./migrations")]
-async fn scheduled_event_ids_are_filtered_by_guild_and_start(pool: PgPool) {
+async fn scheduled_event_ids_are_filtered_by_guild(pool: PgPool) {
     let now = dt("2026-08-01T00:00:00");
     let future = events::create(
         &pool,
@@ -258,10 +260,12 @@ async fn scheduled_event_ids_are_filtered_by_guild_and_start(pool: PgPool) {
         .await
         .unwrap();
 
-    let ids = event_links::list_scheduled_event_ids(&pool, GUILD, dt("2026-08-01T00:00:00"))
+    let mut ids = event_links::list_scheduled_event_ids(&pool, GUILD)
         .await
         .unwrap();
-    assert_eq!(ids, vec!["1".to_owned()]);
+    ids.sort();
+    // 開始が過去の予定 ("2") も含む。他ギルドの予定 ("3") は含まない
+    assert_eq!(ids, vec!["1".to_owned(), "2".to_owned()]);
 }
 
 /// `notifications` の中身は DB では検証していない (CHECK は配列であることだけ) ので、

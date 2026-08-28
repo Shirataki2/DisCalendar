@@ -20,9 +20,9 @@ use crate::{
 const MAX_RANGE_DAYS: i64 = 400;
 
 /// 予定の更新で、状態を読み直してやり直す回数の上限 (#94)。
-/// 連携が絡む更新は予定単位のロック取得後に 1 回読み直すのと、
-/// 別プロセス経由などロックの外から対応付けが変わっていたときのやり直しに使う。
-/// 何度も割り込まれるのは考えにくいので少なめでよい
+/// 同じ予定への更新は予定単位のロックで直列化しているので、やり直しが要るのは
+/// ロックの外 (別プロセスの api、管理コンソール、Discord 側の手動操作) から
+/// 対応付けが変わったときだけ。何度も割り込まれるのは考えにくいので少なめでよい
 const UPDATE_SYNC_ATTEMPTS: u32 = 4;
 
 #[derive(Deserialize, IntoParams)]
@@ -175,12 +175,19 @@ pub async fn update(
     body.validate()?;
     let guild_id = member.guild_id();
 
-    // 変更前の状態をロックせずに読み、Discord への反映を分岐する (#94)。
+    // 同じ予定への更新は、連携の有無に関わらず最初から直列化する (#94)。
+    // 連携が絡む更新では Discord への反映と commit の順序を揃えるため、連携なしの更新でも
+    // 「未連携と読んだ後に別リクエストが連携を足す」競合を防ぐために要る
+    // (UPDATE 文の副問い合わせは行ロックを待つ間も文開始時のスナップショットを見るので、
+    // SQL の条件だけでは新しい対応付けに気付けない)。
+    // ロックは api のプロセス内の軽いもの (`AppState::event_update_locks`) で、DB 接続は握らない
+    let _event_lock = state.event_update_locks.lock(path.event_id).await;
+
+    // 変更前の状態をロックせずに読み、Discord への反映を分岐する。
     // DB 接続を握ったまま最大 10 秒の外部呼び出しを待たないため、Discord の操作は
     // トランザクションの外で先に済ませ、書き込み時にロックを取り直して実際の対応付けと
-    // 突き合わせる。突き合わせがずれていたら (同じ予定への並行更新)、割り込んだ側の
+    // 突き合わせる。突き合わせがずれていたら (プロセス外からの変更)、割り込んだ側の
     // commit 後の後始末がこの更新の対応先を消しうるので、書き込まずに最初からやり直す
-    let mut event_lock = None;
     for _ in 0..UPDATE_SYNC_ATTEMPTS {
         let old = events::find_by_id(&state.pool, guild_id, path.event_id)
             .await?
@@ -220,15 +227,6 @@ pub async fn update(
                 event_id = path.event_id,
                 "retrying an event update: a discord link appeared"
             );
-            continue;
-        }
-
-        // 連携が絡む更新は予定単位で直列化する (同じ予定への並行更新では、突き合わせだけだと
-        // 双方が同じ連携を維持したまま Discord への反映順と commit 順が食い違い、
-        // どちらの内容とも言えない状態で成功してしまう)。ロックは api のプロセス内のもの
-        // (`AppState::event_update_locks`)。待っている間に状態が変わりうるので、取れたら読み直す
-        if event_lock.is_none() {
-            event_lock = Some(state.event_update_locks.lock(path.event_id).await);
             continue;
         }
 
@@ -302,10 +300,10 @@ pub async fn update(
                 }
                 (Some(existing), None) => {
                     event_links::delete(&mut *tx, guild_id, row.id).await?;
-                    // 開始前のイベントだけ Discord 側も消す (開始済みはサーバーの履歴として残す)
-                    if old.start_at > now_jst() {
-                        replaced = Some(existing.clone());
-                    }
+                    // Discord 側も消す。開始済みかどうかでは分けない: DB の start_at は
+                    // Discord に同期していない変更 (管理コンソールの編集) でずれることがあり、
+                    // 「開始前だけ消す」判定に使うと未来のイベントを取り残してしまう
+                    replaced = Some(existing.clone());
                 }
                 _ => {}
             }
@@ -372,10 +370,9 @@ pub async fn delete(
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
     events::delete(&mut *tx, guild_id, path.event_id).await?;
     tx.commit().await?;
-    if let Some(scheduled_event_id) = &row.discord_scheduled_event_id
-        && row.start_at > now_jst()
-    {
-        // 開始前のイベントだけ Discord 側も消す (開始済みはサーバーの履歴として残す)。
+    if let Some(scheduled_event_id) = &row.discord_scheduled_event_id {
+        // 予定を消したら Discord のイベントも消す (開始済みかどうかでは分けない。
+        // DB の start_at は Discord に同期していない変更でずれることがあり、判定に使えない)。
         // ベストエフォート: Discord 側の失敗で予定の削除を詰まらせない
         // (Bot が権限を失っていても削除はできる。取り残したイベントは Discord 側で手動削除できる)
         cleanup_scheduled_event(&state.discord, guild_id, scheduled_event_id).await;

@@ -17,7 +17,6 @@ use crate::{
         admin_audit::{self, AuditEntry},
         admin_ops, event_links,
         events::Event,
-        now_jst,
     },
     state::AppState,
 };
@@ -69,15 +68,14 @@ pub async fn delete_guild_events(
     let guild_id = validated_guild_id(&body.guild_id)?;
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
-    // 連携している Discord スケジュールイベントのうち開始前のものを控えておく (#94)。
+    // 連携している Discord スケジュールイベントを控えておく (#94)。
     // 控えてから削除するまでに連携が増えて取り残さないよう、まずギルド単位の勧告ロックで
     // 連携付きの新規作成 (新しい行は行ロックでは待たせられない) と排他し、
     // 次に既存の予定行をロックして連携の追加・変更・解除を待たせる。
     // 対応付けの行自体は events の削除に CASCADE で追随する
     event_links::lock_guild(&mut *tx, guild_id).await?;
     admin_ops::lock_guild_events(&mut *tx, guild_id).await?;
-    let scheduled_event_ids =
-        event_links::list_scheduled_event_ids(&mut *tx, guild_id, now_jst()).await?;
+    let scheduled_event_ids = event_links::list_scheduled_event_ids(&mut *tx, guild_id).await?;
     let (snapshot_rows, count) = admin_ops::delete_guild_events(&mut tx, guild_id).await?;
     // スナップショットは API 形式 (Event) に加えて notifications の生データも残す
     // (壊れた要素は Event への変換で捨てられるため、削除した実データを復元・調査できるように)

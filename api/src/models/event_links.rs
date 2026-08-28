@@ -98,22 +98,15 @@ pub async fn delete<'e>(
     Ok(result.rows_affected() > 0)
 }
 
-/// ギルドの対応付けのうち、予定の開始が `starts_after` より後のものの scheduled_event_id。
-/// 管理コンソールの一括削除で「開始前の Discord イベントだけ消す」のに使う
+/// ギルドの対応付けの scheduled_event_id をすべて返す。
+/// 管理コンソールの一括削除で、消す予定に紐付く Discord イベントを控えるのに使う
 pub async fn list_scheduled_event_ids<'e>(
     executor: impl PgExecutor<'e>,
     guild_id: &str,
-    starts_after: NaiveDateTime,
 ) -> sqlx::Result<Vec<String>> {
     let rows = sqlx::query!(
-        r#"
-        SELECT l.scheduled_event_id
-        FROM event_discord_links l
-        JOIN events e ON e.id = l.event_id
-        WHERE l.guild_id = $1 AND e.start_at > $2
-        "#,
-        guild_id,
-        starts_after
+        "SELECT scheduled_event_id FROM event_discord_links WHERE guild_id = $1",
+        guild_id
     )
     .fetch_all(executor)
     .await?;
