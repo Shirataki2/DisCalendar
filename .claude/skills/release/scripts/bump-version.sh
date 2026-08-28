@@ -157,7 +157,8 @@ else
   if [ -n "$release_date" ]; then
     IFS=- read -r y m d <<< "$release_date"
   else
-    read -r y m d < <(date '+%Y %m %d')
+    # 利用者に見せる日付なので、ホストのタイムゾーンによらず JST で取る (release.yml の検査も JST)
+    read -r y m d < <(TZ=Asia/Tokyo date '+%Y %m %d')
   fi
   heading="## v${next} (${y}年$((10#$m))月$((10#$d))日)"
   awk -v heading="$heading" '
