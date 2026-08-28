@@ -39,6 +39,12 @@ const components = {
   h3: (props) => (
     <h3 className="mt-8 mb-3 scroll-mt-20 text-lg font-semibold" {...props} />
   ),
+  h4: (props) => (
+    <h4
+      className="mt-6 mb-2 scroll-mt-20 text-base font-semibold text-neutral-300"
+      {...props}
+    />
+  ),
   p: (props) => (
     <p className="my-4 leading-8 text-neutral-200 sm:text-[15px]" {...props} />
   ),

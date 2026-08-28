@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # リリース準備: web / api / bot のバージョンを揃えて上げる (release スキルの手順 2)。
 #   .claude/skills/release/scripts/bump-version.sh 3.1.0
-#   .claude/skills/release/scripts/bump-version.sh minor   # 今の版から major / minor / patch を 1 つ上げる
-# 書き換えるのは web/package.json / api/Cargo.toml / bot/Cargo.toml / Cargo.lock の 4 か所。
+#   .claude/skills/release/scripts/bump-version.sh minor              # 今の版から major / minor / patch を 1 つ上げる
+#   .claude/skills/release/scripts/bump-version.sh 3.1.0 2026-08-30   # タグを打つ予定日を見出しの日付にする
+# 書き換えるのは web/package.json / api/Cargo.toml / bot/Cargo.toml / Cargo.lock の 4 か所と、
+# 更新履歴 (web/src/content/changelog.mdx) へのバージョン見出しの挿入 (正式版のみ)。
+# 見出しの日付 = 利用者に見えるリリース日なので、タグを打つ日が今日でないなら第 2 引数で渡す
+# (release.yml がタグの日とずれた見出しに警告を出す)。
 # 変更をコミットするのは呼び出し側 (この手のスクリプトはコミットしない)
 set -euo pipefail
 
@@ -13,9 +17,14 @@ cd "$root"
 source "$root/.agents/scripts/lib/agent-context.sh"
 
 arg="${1:-}"
+release_date="${2:-}"
 if [ -z "$arg" ]; then
-  echo "usage: $0 <3.1.0 | major | minor | patch>" >&2
+  echo "usage: $0 <3.1.0 | major | minor | patch> [リリース日 YYYY-MM-DD (省略時は今日)]" >&2
   exit 2
+fi
+if [ -n "$release_date" ] && ! [[ "$release_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  echo "::error::リリース日は YYYY-MM-DD で渡す (got: $release_date)" >&2
+  exit 1
 fi
 
 current=$(.github/scripts/check-versions.sh)
@@ -131,6 +140,31 @@ else
       '{ if (prev == n && $0 ~ /^version[[:space:]]*=/) { sub(/=.*/, "= \"" v "\"") } prev = $0; print }' \
       Cargo.lock > "$tmp" && cp "$tmp" Cargo.lock
   done
+fi
+
+# 更新履歴にバージョン見出しを挿入する。エントリは機能 PR がバージョンなしで先頭に足している
+# (changelog.mdx 冒頭のルール) ので、未リリース分の最初のエントリ (### ...) の直前に
+# 「## vX.Y.Z (YYYY年M月D日)」を入れる。この節が release-notes.sh でそのままリリースノートになる。
+# プレリリース (3.1.0-rc.1) は正式版を出すときにまとめて見出しを付けるので入れない
+changelog=web/src/content/changelog.mdx
+if [[ "$next" == *-* ]]; then
+  echo "プレリリースなので更新履歴 (${changelog}) にバージョン見出しは入れない"
+elif grep -q "^## v${next} " "$changelog"; then
+  echo "更新履歴 (${changelog}) に v${next} の見出しが既にある"
+elif ! awk '/^## / { exit } /^### / { found = 1; exit } END { exit !found }' "$changelog"; then
+  echo "::warning::更新履歴 (${changelog}) に未リリースのエントリが無いのでバージョン見出しを入れない (リリースノートは「変更なし」になる)" >&2
+else
+  if [ -n "$release_date" ]; then
+    IFS=- read -r y m d <<< "$release_date"
+  else
+    # 利用者に見せる日付なので、ホストのタイムゾーンによらず JST で取る (release.yml の検査も JST)
+    read -r y m d < <(TZ=Asia/Tokyo date '+%Y %m %d')
+  fi
+  heading="## v${next} (${y}年$((10#$m))月$((10#$d))日)"
+  awk -v heading="$heading" '
+    !done && /^### / { print heading; print ""; done = 1 }
+    { print }' "$changelog" > "$tmp" && cp "$tmp" "$changelog"
+  echo "更新履歴 (${changelog}) に「${heading}」を挿入した"
 fi
 
 .github/scripts/check-versions.sh "$next" > /dev/null

@@ -1,7 +1,7 @@
 # v3.x.y タグを push したらリリースを確定させる (#12 の本番切替を v3.0.0 とし、以降は semver で上げる)。
 # 手順: タグとリポジトリ内のバージョンの一致を確認 → そのコミットが main にあることを確認 →
 #   staging へのデプロイで GHCR に push 済みの sha-<short sha> イメージに v3.x.y を付け直す (再ビルドしない) →
-#   更新履歴 (web/src/content/changelog.mdx) の前回リリース以降のエントリからリリースノートを作り、GitHub Release を公開する →
+#   更新履歴 (web/src/content/changelog.mdx) のそのバージョンの節からリリースノートを作り、GitHub Release を公開する →
 #   最後に latest ジョブが「今いちばん新しい公開済みリリース」にイメージの latest を向ける。
 # 本番への反映はこのワークフローでは行わない。Actions の "Deploy production" を image_tag: v3.x.y で実行する
 # (承認と「staging で確かめたものを配る」運用をそのまま残すため)。詳細は .claude/skills/release/
@@ -98,11 +98,11 @@ jobs:
           SRC_TAG: ${{ steps.version.outputs.image_tag }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
-          # 前回リリースは「GitHub Release が公開されていて、このタグから辿れるタグ」のうち一番新しいもの。
-          # git のタグ一覧 (git describe) だと、打ち間違えたタグや途中で失敗した run のタグまで前回リリース扱いになり、
-          # 今回のノートからエントリが丸ごと消える。
-          # 正式版のノートは直前の「正式版」と比べる: v3.1.0-rc.1 を出した後の v3.1.0 で rc と比べてしまうと、
-          # 更新履歴の見出しが rc の時点で既にあるため「変更なし」になってしまう
+          # ノート本文は更新履歴のバージョン見出し (リリース準備時に bump-version.sh が挿入) の節から作る。
+          # 前回リリースは「変更点」の compare リンクにだけ使い、「GitHub Release が公開されていて、
+          # このタグから辿れるタグ」のうち一番新しいものを選ぶ。git のタグ一覧 (git describe) だと、
+          # 打ち間違えたタグや途中で失敗した run のタグまで前回リリース扱いになる。
+          # 正式版はプレリリースを飛ばして直前の正式版と比べる
           if [ "$PRERELEASE" = "true" ]; then
             filter='select(.isDraft == false)'
           else
@@ -119,7 +119,21 @@ jobs:
             break
           done < <(git tag --merged "${TAG}^" --sort=-creatordate)
           echo "previous tag: ${prev:-(なし)}"
-          notes=$(.github/scripts/release-notes.sh "$prev")
+          # 正式版はタグと同じバージョンの節、プレリリースは (見出しがまだ無いので) 未リリース分を出す
+          notes=$(.github/scripts/release-notes.sh "$TAG")
+
+          # 見出しの日付は bump-version.sh が実行日 (または引数の日付) で書くので、リリース準備 PR が
+          # 日をまたいでマージされると実際のリリース日とずれる。利用者に見える日付なので、ずれていたら知らせる
+          # (止めはしない。見出しの日付を直すコミットを入れてタグを打ち直すかは判断に任せる)
+          if [ "$PRERELEASE" != "true" ]; then
+            heading=$(grep -m1 "^## ${TAG} (" web/src/content/changelog.mdx || true)
+            today=$(TZ=Asia/Tokyo date '+%Y年%-m月%-d日')
+            if [ -z "$heading" ]; then
+              echo "::warning::更新履歴に ${TAG} のバージョン見出しが無い (bump-version.sh を通していない?)。リリースノートは「変更なし」になる"
+            elif [ "$heading" != "## ${TAG} (${today})" ]; then
+              echo "::warning::更新履歴の見出し「${heading}」の日付が今日 (${today}) と違う。リリース準備 PR が日をまたいだ場合は、見出しの日付を直してからタグを打ち直すことを検討する"
+            fi
+          fi
           {
             if [ -n "$notes" ]; then
               echo "$notes"
