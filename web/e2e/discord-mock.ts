@@ -64,13 +64,13 @@ function botGuild(guild: E2EGuild) {
     owner_id: guild.owner ? E2E_USER.discordId : OTHER_OWNER_ID,
     roles: [
       { id: guild.id, name: "@everyone", permissions: "1024" },
-      // botManageEvents のギルドでは Bot に「イベントの管理」(1<<33) のロールが付いている
-      ...(guild.botManageEvents
+      // botCreateEvents のギルドでは Bot に「イベントの作成」(1<<44) のロールが付いている
+      ...(guild.botCreateEvents
         ? [
             {
               id: E2E_BOT_ROLE_ID,
               name: "DisCalendar",
-              permissions: "8589934592",
+              permissions: "17592186044416",
             },
           ]
         : []),
@@ -110,7 +110,7 @@ export function startDiscordMock(port: number): Promise<Server> {
       return json(200, { joined: joinedGuilds.has(guild.id) });
     }
 
-    // スケジュールイベント (#94)。Bot トークン + 「イベントの管理」権限が必要
+    // スケジュールイベント (#94)。Bot トークン + 「イベントの作成」権限が必要
     const scheduledMatch =
       /^\/guilds\/(\d+)\/scheduled-events(?:\/(\d+))?$/.exec(url.pathname);
     if (scheduledMatch) {
@@ -122,7 +122,7 @@ export function startDiscordMock(port: number): Promise<Server> {
       if (!guild) {
         return notFound("Unknown Guild", 10004);
       }
-      if (!guild.botManageEvents) {
+      if (!guild.botCreateEvents) {
         return json(403, { message: "Missing Permissions", code: 50013 });
       }
       if (req.method === "POST" && scheduledEventId === undefined) {
@@ -191,11 +191,11 @@ export function startDiscordMock(port: number): Promise<Server> {
       if (userId === undefined) {
         return json(200, botGuild(guild));
       }
-      // Bot 自身のメンバー情報 (#94。api の bot_manage_events が読む)
+      // Bot 自身のメンバー情報 (#94。api の bot_create_events が読む)
       if (userId === E2E_BOT_USER_ID) {
         return json(200, {
           user: { id: E2E_BOT_USER_ID, username: "DisCalendar" },
-          roles: guild.botManageEvents ? [E2E_BOT_ROLE_ID] : [],
+          roles: guild.botCreateEvents ? [E2E_BOT_ROLE_ID] : [],
         });
       }
       if (userId !== E2E_USER.discordId) {

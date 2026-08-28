@@ -188,15 +188,15 @@ impl DiscordClient {
         Ok(self.bot_user_id.get_or_init(|| user.id).clone())
     }
 
-    /// Bot 自身がギルドで「イベントの管理」権限を持つか (#94)。
+    /// Bot 自身がギルドで「イベントの作成」権限を持つか (#94)。
     /// Bot が未参加なら `false`。ギルド・メンバーのキャッシュに乗るため、
     /// 再招待などの権限変更が反映されるまで最大で数分の遅れがある
-    pub async fn bot_manage_events(&self, guild_id: &str) -> Result<bool, DiscordError> {
+    pub async fn bot_create_events(&self, guild_id: &str) -> Result<bool, DiscordError> {
         let bot_user_id = self.bot_user_id().await?;
         Ok(self
             .member_access(guild_id, &bot_user_id)
             .await?
-            .is_some_and(|access| access.permissions.manage_events()))
+            .is_some_and(|access| access.permissions.create_events()))
     }
 
     /// Bot が参加している全ギルド (`GET /users/@me/guilds` を 200 件ずつ辿る)。

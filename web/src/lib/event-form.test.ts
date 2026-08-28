@@ -122,6 +122,15 @@ describe("eventFormSchema", () => {
     });
     // 同時刻は許可 (isBefore は厳密)
     expect(issuesOf({ ...valid, endTime: "10:00" })).toEqual({});
+    // ただし Discord 連携 (#94) を有効にした時刻指定の予定は、終了が開始より後でないと
+    // Discord 側が受け付けない (api の validate_discord_flag と同じ条件)
+    expect(
+      issuesOf({ ...valid, endTime: "10:00", discordEvent: true }),
+    ).toHaveProperty("endTime");
+    // 終日は終了に +1 日されるので同日でよい
+    expect(issuesOf({ ...valid, isAllDay: true, discordEvent: true })).toEqual(
+      {},
+    );
     expect(
       issuesOf({ ...valid, isAllDay: true, endDate: day(22) }),
     ).toHaveProperty("endDate");

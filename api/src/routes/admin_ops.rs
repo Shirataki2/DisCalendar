@@ -69,7 +69,9 @@ pub async fn delete_guild_events(
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
     // 連携している Discord スケジュールイベントのうち開始前のものを控えておく (#94)。
+    // 控えてから削除するまでに連携が増えて取り残さないよう、先に予定行をロックする。
     // 対応付けの行自体は events の削除に CASCADE で追随する
+    admin_ops::lock_guild_events(&mut *tx, guild_id).await?;
     let scheduled_event_ids =
         event_links::list_scheduled_event_ids(&mut *tx, guild_id, now_jst()).await?;
     let (snapshot_rows, count) = admin_ops::delete_guild_events(&mut tx, guild_id).await?;

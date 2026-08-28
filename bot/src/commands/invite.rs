@@ -11,14 +11,15 @@ pub async fn invite(ctx: Context<'_>) -> Result<(), BotError> {
 
 /// 招待時に求める権限 (web の `DEFAULT_BOT_PERMISSIONS` と同じ):
 /// チャンネルを見る / メッセージを送信 / 埋め込みリンク / メッセージ履歴を読む / アプリコマンドを使う /
-/// イベントの管理 (予定を Discord のスケジュールイベントとしても作る #94)
+/// イベントの作成 (予定を Discord のスケジュールイベントとしても作る #94。
+/// 自分が作ったイベントの変更・削除もこの権限でできるので「イベントの管理」は求めない)
 pub fn required_bot_permissions() -> Permissions {
     Permissions::VIEW_CHANNEL
         | Permissions::SEND_MESSAGES
         | Permissions::EMBED_LINKS
         | Permissions::READ_MESSAGE_HISTORY
         | Permissions::USE_APPLICATION_COMMANDS
-        | Permissions::MANAGE_EVENTS
+        | Permissions::CREATE_EVENTS
 }
 
 /// 招待 URL の既定値 (`DISCORD_BOT_INVITE_URL` が未設定のとき)。
@@ -37,14 +38,14 @@ mod tests {
     #[test]
     fn permissions_match_the_web_invite_url() {
         // web/src/lib/discord.ts の DEFAULT_BOT_PERMISSIONS
-        assert_eq!(required_bot_permissions().bits(), 10_737_503_232);
+        assert_eq!(required_bot_permissions().bits(), 17_594_333_613_056);
     }
 
     #[test]
     fn builds_invite_url_from_application_id() {
         assert_eq!(
             default_invite_url(ApplicationId::new(771795045543313409)),
-            "https://discord.com/oauth2/authorize?client_id=771795045543313409&scope=bot%20applications.commands&permissions=10737503232"
+            "https://discord.com/oauth2/authorize?client_id=771795045543313409&scope=bot%20applications.commands&permissions=17594333613056"
         );
     }
 }

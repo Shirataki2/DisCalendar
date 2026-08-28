@@ -3,7 +3,7 @@ import { addDays, calendarToday, dayCell, eventOn } from "./calendar";
 import { E2E_GUILDS } from "./fixtures";
 
 // 予定を Discord のスケジュールイベントとしても作成する (#94)。
-// Discord 側はモック (discord-mock.ts) で、admin ギルドは「イベントの管理」あり、
+// Discord 側はモック (discord-mock.ts) で、admin ギルドは「イベントの作成」あり、
 // noEventsPerm ギルドはなしに設定してある
 
 const guildId = E2E_GUILDS.admin.id;
@@ -89,7 +89,7 @@ test("後続のテストに予定を残さない (削除で Discord 側も消え
   await expect(eventOn(page, linkedTitle)).toHaveCount(0);
 });
 
-test("Bot に「イベントの管理」権限がないサーバーではチェックできず、案内が出る", async ({
+test("Bot に「イベントの作成」権限がないサーバーではチェックできず、案内が出る", async ({
   page,
 }) => {
   await page.goto(`/dashboard/${E2E_GUILDS.noEventsPerm.id}`);
@@ -104,7 +104,7 @@ test("Bot に「イベントの管理」権限がないサーバーではチェ�
     }),
   ).toBeDisabled();
   await expect(
-    dialog.getByText("Bot に「イベントの管理」権限がないため利用できません"),
+    dialog.getByText("Bot に「イベントの作成」権限がないため利用できません"),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "キャンセル" }).click();
   await expect(dialog).toBeHidden();

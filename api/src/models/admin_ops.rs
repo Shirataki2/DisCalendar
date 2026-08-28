@@ -11,6 +11,24 @@ use super::events::EventRow;
 /// (大量の予定を一括で読み込んで JSONB 1 値に詰めると、api のメモリと監査ログの挿入が破綻して削除自体も失敗するため)
 pub const DELETE_SNAPSHOT_LIMIT: i64 = 200;
 
+/// ギルドの予定行をすべてロックする。全予定削除の前に呼び、Discord 連携の対応付け (#94) を
+/// 控えてから削除するまでの間に、並行トランザクションが既存の予定に連携を足す隙を無くす
+/// (連携の追加・変更は予定行の `FOR UPDATE` を取ってから行われるため、ここで待たされる)。
+/// 削除と並行して新しく作られた予定の連携までは防げないが、そちらは作成側が
+/// このトランザクションの削除にぶつかるだけで、取り残しは既存行の再連携より起きにくい
+pub async fn lock_guild_events<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        "SELECT id FROM events WHERE guild_id = $1 FOR UPDATE",
+        guild_id
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(())
+}
+
 /// 指定ギルドの予定をすべて削除する。戻り値は (スナップショット (先頭 `DELETE_SNAPSHOT_LIMIT` 件、id 順), 削除件数)。
 /// 呼び出し側のトランザクションの中で動かす。スナップショットの行は `FOR UPDATE` でロックしてから消すので、
 /// 監査ログに残る内容と実際に消えた行が (同時に更新されても) 一致する

@@ -68,7 +68,7 @@ export function GuildDashboard({ guild }: Props) {
         canEdit={canEdit}
         // 権限を取得できるまでは無効 (disabled + 案内) 側に倒す
         discordSync={{
-          botManageEvents: permissionsQuery.data?.bot_manage_events ?? false,
+          botCreateEvents: permissionsQuery.data?.bot_create_events ?? false,
         }}
       />
       <GuildSettingsDialog

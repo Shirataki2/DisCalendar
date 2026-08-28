@@ -74,8 +74,8 @@ interface Props {
    * 未指定 (管理コンソールなど連携を扱わない画面) ならチェックボックス自体を出さない
    */
   discordSync?: {
-    /** Bot 自身が「イベントの管理」権限を持つか。false なら無効化して案内を出す */
-    botManageEvents: boolean;
+    /** Bot 自身が「イベントの作成」権限を持つか。false なら無効化して案内を出す */
+    botCreateEvents: boolean;
   };
 }
 
@@ -416,7 +416,7 @@ function EventForm({
           <DiscordEventField
             control={control}
             checked={discordEvent}
-            botManageEvents={discordSync.botManageEvents}
+            botCreateEvents={discordSync.botCreateEvents}
             startsInPast={discordStartsInPast}
           />
         )}
@@ -467,15 +467,15 @@ function EventForm({
 function DiscordEventField({
   control,
   checked,
-  botManageEvents,
+  botCreateEvents,
   startsInPast,
 }: {
   control: Control<EventFormValues>;
   checked: boolean;
-  botManageEvents: boolean;
+  botCreateEvents: boolean;
   startsInPast: boolean;
 }) {
-  const locked = startsInPast || (!checked && !botManageEvents);
+  const locked = startsInPast || (!checked && !botCreateEvents);
   return (
     <Field orientation="horizontal" data-disabled={locked || undefined}>
       <Controller
@@ -497,10 +497,10 @@ function DiscordEventField({
         <FieldDescription>
           {startsInPast
             ? "開始日時が過去の予定は Discord のイベントにできません (連携済みの予定は保存すると連携が解除されます)"
-            : !botManageEvents && !checked
+            : !botCreateEvents && !checked
               ? discordPermissionHint
-              : !botManageEvents
-                ? "Bot に「イベントの管理」権限がないため、変更は Discord に反映できません。チェックを外すと連携を解除します"
+              : !botCreateEvents
+                ? "Bot に「イベントの作成」権限がないため、変更は Discord に反映できません。チェックを外すと連携を解除します"
                 : "予定の作成・変更・削除を Discord のスケジュールイベントにも反映します"}
         </FieldDescription>
       </FieldContent>
@@ -511,7 +511,7 @@ function DiscordEventField({
 /** 権限がないときの案内 (再招待への導線つき) */
 const discordPermissionHint = (
   <>
-    Bot に「イベントの管理」権限がないため利用できません。
+    Bot に「イベントの作成」権限がないため利用できません。
     <a
       href="/docs/invite"
       target="_blank"

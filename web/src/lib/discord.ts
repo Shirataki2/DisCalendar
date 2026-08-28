@@ -61,9 +61,9 @@ export function canInviteBot(guild: DiscordGuild): boolean {
 }
 
 // Bot に必要な権限: チャンネルを見る / メッセージを送信 / 埋め込みリンク /
-// メッセージ履歴を読む / アプリコマンドを使う / イベントの管理 (#94)。
+// メッセージ履歴を読む / アプリコマンドを使う / イベントの作成 (#94)。
 // bot/src/commands/invite.rs の required_bot_permissions() と揃える (向こうのテストが一致を確認する)
-const DEFAULT_BOT_PERMISSIONS = "10737503232";
+const DEFAULT_BOT_PERMISSIONS = "17594333613056";
 
 /**
  * Bot の招待 URL。DISCORD_BOT_INVITE_URL (旧実装の INVITATION_URL 相当) があればそれを使い、

@@ -300,13 +300,13 @@ fn payload_for(guild_id: &str, input: &EventInput) -> ScheduledEventPayload {
 }
 
 /// スケジュールイベント操作の Discord エラーを利用者に返せる形に変換する。
-/// 403 は Bot の「イベントの管理」権限の不足 (再招待で直る)、
+/// 403 は Bot の「イベントの作成」権限の不足 (再招待で直る)、
 /// 400 は Discord 側が受け付けない内容 (開始済みイベントの日時変更など)。
 /// それ以外は既存の変換のまま (429 → 503、他 → 502)
 fn describe_scheduled_event_error(err: DiscordError) -> ApiError {
     match &err {
         DiscordError::Status { status, .. } if *status == reqwest::StatusCode::FORBIDDEN => {
-            ApiError::Forbidden("the bot lacks the Manage Events permission in this guild".into())
+            ApiError::Forbidden("the bot lacks the Create Events permission in this guild".into())
         }
         DiscordError::Status { status, .. } if *status == reqwest::StatusCode::BAD_REQUEST => {
             ApiError::BadRequest("Discord did not accept the scheduled event".into())

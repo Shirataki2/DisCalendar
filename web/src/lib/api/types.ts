@@ -357,10 +357,10 @@ export interface MyPermissions {
   /** 上記 4 つのいずれか */
   can_manage_server: boolean;
   /**
-   * Bot 自身が「イベントの管理」権限を持つか (#94)。
+   * Bot 自身が「イベントの作成」権限を持つか (#94)。
    * 予定ダイアログの「Discord のイベントとしても作成する」の出し分けに使う
    */
-  bot_manage_events: boolean;
+  bot_create_events: boolean;
 }
 
 // 分析情報 (#79。api/src/routes/admin_analytics.rs, api/src/models/admin_analytics.rs)

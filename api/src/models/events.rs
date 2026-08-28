@@ -139,11 +139,21 @@ fn is_hex_color(s: &str) -> bool {
 
 /// 通常 API 用: 「Discord のイベントとしても作成する」を有効にできるかの検証 (#94)。
 /// Discord は開始時刻が未来のイベントしか作れないため、過去 (現在を含む) 開始でフラグ有効は拒否する。
-/// web 側も同じ条件でチェックボックスを無効化する。管理コンソールはフラグを無視するのでこの検証を通さない
+/// また Discord の外部イベントは終了が開始より後である必要があるため、時刻指定の予定では
+/// 通常の検証が許している「同時刻」も拒否する (終日予定は終了に +1 日するので同時刻でよい)。
+/// web 側も同じ条件でチェックボックスを制御する。管理コンソールはフラグを無視するのでこの検証を通さない
 pub fn validate_discord_flag(input: &EventInput, now: NaiveDateTime) -> Result<(), ApiError> {
-    if input.discord_scheduled_event && input.start_at <= now {
+    if !input.discord_scheduled_event {
+        return Ok(());
+    }
+    if input.start_at <= now {
         return Err(ApiError::BadRequest(
             "start_at must be in the future to create a Discord scheduled event".into(),
+        ));
+    }
+    if !input.is_all_day && input.end_at <= input.start_at {
+        return Err(ApiError::BadRequest(
+            "end_at must be after start_at to create a Discord scheduled event".into(),
         ));
     }
     Ok(())
@@ -350,6 +360,24 @@ mod tests {
         // 開始が現在以前なら拒否 (Discord は未来の開始時刻を必須とする)
         assert!(validate_discord_flag(&i, now).is_err());
         assert!(validate_discord_flag(&i, "2026-08-22T09:59:59".parse().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn discord_flag_requires_end_after_start_for_timed_events() {
+        let now = "2026-08-01T00:00:00".parse().unwrap();
+        let mut i = input();
+        i.discord_scheduled_event = true;
+        i.end_at = i.start_at;
+        // 時刻指定の同時刻は通常の検証は許すが、Discord の外部イベントは作れないので拒否
+        assert!(i.validate().is_ok());
+        assert!(validate_discord_flag(&i, now).is_err());
+        // 終日予定は終了に +1 日するので同時刻でよい
+        i.is_all_day = true;
+        assert!(validate_discord_flag(&i, now).is_ok());
+        // フラグが無効なら関知しない
+        i.is_all_day = false;
+        i.discord_scheduled_event = false;
+        assert!(validate_discord_flag(&i, now).is_ok());
     }
 
     #[test]

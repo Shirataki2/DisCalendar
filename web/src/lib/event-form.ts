@@ -145,6 +145,17 @@ export const eventFormSchema = z
         path: [values.isAllDay ? "endDate" : "endTime"],
         message: "終了日時を開始日時より前にすることはできません",
       });
+    } else if (
+      values.discordEvent &&
+      !values.isAllDay &&
+      end.getTime() === start.getTime()
+    ) {
+      // Discord の外部イベントは終了が開始より後である必要がある (api の validate_discord_flag と同じ条件)
+      ctx.addIssue({
+        code: "custom",
+        path: ["endTime"],
+        message: "Discord のイベントにするには終了を開始より後にしてください",
+      });
     }
   });
 
