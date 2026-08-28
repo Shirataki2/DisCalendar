@@ -95,6 +95,10 @@ pub struct MyPermissions {
     pub manage_roles: bool,
     /// 上記 4 つのいずれか。restricted モードでの編集可否とサーバー設定の変更可否に使う
     pub can_manage_server: bool,
+    /// **Bot 自身**が「イベントの管理」権限を持つか (#94)。
+    /// 予定ダイアログの「Discord のイベントとしても作成する」を出し分けるのに使う。
+    /// Bot 側のキャッシュにより、再招待などの変更が反映されるまで最大で数分の遅れがある
+    pub bot_manage_events: bool,
 }
 
 #[utoipa::path(
@@ -107,9 +111,13 @@ pub struct MyPermissions {
     )
 )]
 #[get("/{guild_id}/@me/permissions")]
-pub async fn my_permissions(member: GuildMember) -> web::Json<MyPermissions> {
+pub async fn my_permissions(
+    member: GuildMember,
+    state: web::Data<AppState>,
+) -> Result<web::Json<MyPermissions>, ApiError> {
     let p = member.permissions();
-    web::Json(MyPermissions {
+    let bot_manage_events = state.discord.bot_manage_events(member.guild_id()).await?;
+    Ok(web::Json(MyPermissions {
         user_id: member.user.discord_user_id.clone(),
         permissions: p.bits().to_string(),
         administrator: p.administrator(),
@@ -117,7 +125,8 @@ pub async fn my_permissions(member: GuildMember) -> web::Json<MyPermissions> {
         manage_messages: p.manage_messages(),
         manage_roles: p.manage_roles(),
         can_manage_server: p.can_manage_server(),
-    })
+        bot_manage_events,
+    }))
 }
 
 /// ギルド設定 (未設定なら既定値)

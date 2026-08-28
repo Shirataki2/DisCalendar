@@ -36,6 +36,7 @@ fn input(name: &str) -> EventInput {
         is_all_day: false,
         start_at: dt("2026-08-22T10:00:00"),
         end_at: dt("2026-08-22T11:00:00"),
+        discord_scheduled_event: false,
     }
 }
 

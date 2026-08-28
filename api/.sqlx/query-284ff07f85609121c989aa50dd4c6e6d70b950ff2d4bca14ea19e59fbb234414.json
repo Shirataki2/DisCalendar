@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at\n        FROM events\n        WHERE guild_id = $1 AND start_at < $3 AND end_at >= $2\n        ORDER BY start_at, id\n        ",
+  "query": "\n        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at,\n                  NULL::text AS \"discord_scheduled_event_id?\"\n        ",
   "describe": {
     "columns": [
       {
@@ -112,11 +112,23 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 10,
+        "name": "discord_scheduled_event_id?",
+        "type_info": "Text",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Bool",
+        "Timestamp",
         "Timestamp",
         "Timestamp"
       ]
@@ -131,8 +143,9 @@
       false,
       false,
       false,
-      false
+      false,
+      null
     ]
   },
-  "hash": "4df2db1e3f7ea785b5b487837bbb53aee2bed835cfad17acc4ec7f3901bfaf7a"
+  "hash": "284ff07f85609121c989aa50dd4c6e6d70b950ff2d4bca14ea19e59fbb234414"
 }

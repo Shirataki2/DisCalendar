@@ -308,6 +308,18 @@ pub async fn delete_event(
     )
     .await?;
     tx.commit().await?;
+    // 連携している Discord スケジュールイベントの後始末 (#94)。開始前のものだけ消す
+    // (開始済みはサーバーの履歴として残す)。管理コンソールの削除は Discord 側の失敗で
+    // 止めない (ベストエフォート)
+    if let Some(scheduled_event_id) = &before.discord_scheduled_event_id
+        && before.start_at > now_jst()
+        && let Err(err) = state
+            .discord
+            .delete_scheduled_event(guild_id, scheduled_event_id)
+            .await
+    {
+        tracing::warn!(guild_id, event_id = path.event_id, scheduled_event_id, error = %err, "failed to delete the linked scheduled event");
+    }
     tracing::info!(guild_id, event_id = path.event_id, admin = %admin.discord_user_id, "event deleted by admin");
     Ok(HttpResponse::NoContent().finish())
 }

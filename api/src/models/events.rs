@@ -26,6 +26,8 @@ pub struct EventRow {
     pub start_at: NaiveDateTime,
     pub end_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    /// 連携している Discord スケジュールイベントの ID (`event_discord_links`、#94)。未連携なら `None`
+    pub discord_scheduled_event_id: Option<String>,
 }
 
 /// API レスポンスの予定。日時はタイムゾーンなしの JST (`YYYY-MM-DDTHH:MM:SS`)
@@ -47,6 +49,9 @@ pub struct Event {
     #[schema(example = "2026-08-22T11:00:00")]
     pub end_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    /// 連携している Discord スケジュールイベントの ID。未連携なら `null`
+    #[schema(example = "1024667289529835550")]
+    pub discord_scheduled_event_id: Option<String>,
 }
 
 impl From<EventRow> for Event {
@@ -62,6 +67,7 @@ impl From<EventRow> for Event {
             start_at: row.start_at,
             end_at: row.end_at,
             created_at: row.created_at,
+            discord_scheduled_event_id: row.discord_scheduled_event_id,
         }
     }
 }
@@ -85,6 +91,10 @@ pub struct EventInput {
     pub start_at: NaiveDateTime,
     #[schema(example = "2026-08-22T11:00:00")]
     pub end_at: NaiveDateTime,
+    /// Discord のスケジュールイベントとしても作成・同期するか (#94)。
+    /// 通常 API (web のダイアログ) だけが見るフラグで、管理コンソールのルートでは無視される
+    #[serde(default)]
+    pub discord_scheduled_event: bool,
 }
 
 impl EventInput {
@@ -127,6 +137,18 @@ fn is_hex_color(s: &str) -> bool {
     s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// 通常 API 用: 「Discord のイベントとしても作成する」を有効にできるかの検証 (#94)。
+/// Discord は開始時刻が未来のイベントしか作れないため、過去 (現在を含む) 開始でフラグ有効は拒否する。
+/// web 側も同じ条件でチェックボックスを無効化する。管理コンソールはフラグを無視するのでこの検証を通さない
+pub fn validate_discord_flag(input: &EventInput, now: NaiveDateTime) -> Result<(), ApiError> {
+    if input.discord_scheduled_event && input.start_at <= now {
+        return Err(ApiError::BadRequest(
+            "start_at must be in the future to create a Discord scheduled event".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// 期間 `[start, end)` に重なる予定 (途中から始まっている複数日の予定も含む)
 pub async fn list_between(
     pool: &PgPool,
@@ -137,10 +159,13 @@ pub async fn list_between(
     sqlx::query_as!(
         EventRow,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
-        FROM events
-        WHERE guild_id = $1 AND start_at < $3 AND end_at >= $2
-        ORDER BY start_at, id
+        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
+               e.start_at, e.end_at, e.created_at,
+               l.scheduled_event_id AS "discord_scheduled_event_id?"
+        FROM events e
+        LEFT JOIN event_discord_links l ON l.event_id = e.id
+        WHERE e.guild_id = $1 AND e.start_at < $3 AND e.end_at >= $2
+        ORDER BY e.start_at, e.id
         "#,
         guild_id,
         start,
@@ -150,6 +175,8 @@ pub async fn list_between(
     .await
 }
 
+/// 返る行の `discord_scheduled_event_id` は常に `None` (対応付けは行を作った後にルート層が
+/// [`super::event_links`] へ書き、レスポンスへは呼び出し元が詰め直す)
 pub async fn create<'e>(
     executor: impl PgExecutor<'e>,
     guild_id: &str,
@@ -162,7 +189,8 @@ pub async fn create<'e>(
         r#"
         INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
+        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at,
+                  NULL::text AS "discord_scheduled_event_id?"
         "#,
         guild_id,
         input.name,
@@ -190,10 +218,13 @@ pub async fn find_by_id_for_update<'e>(
     sqlx::query_as!(
         EventRow,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
-        FROM events
-        WHERE id = $1 AND guild_id = $2
-        FOR UPDATE
+        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
+               e.start_at, e.end_at, e.created_at,
+               l.scheduled_event_id AS "discord_scheduled_event_id?"
+        FROM events e
+        LEFT JOIN event_discord_links l ON l.event_id = e.id
+        WHERE e.id = $1 AND e.guild_id = $2
+        FOR UPDATE OF e
         "#,
         id,
         guild_id
@@ -203,7 +234,8 @@ pub async fn find_by_id_for_update<'e>(
 }
 
 /// ギルドに属する予定だけを更新する (他ギルドの ID を指定しても更新されない)。該当なしなら `None`。
-/// 書き込み関数は executor を受け取るので、管理コンソールからは監査ログと同じトランザクションで呼べる
+/// 書き込み関数は executor を受け取るので、管理コンソールからは監査ログと同じトランザクションで呼べる。
+/// 返る行の `discord_scheduled_event_id` は常に `None` ([`create`] と同じ理由)
 pub async fn update<'e>(
     executor: impl PgExecutor<'e>,
     guild_id: &str,
@@ -217,7 +249,8 @@ pub async fn update<'e>(
         UPDATE events
         SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9
         WHERE id = $1 AND guild_id = $2
-        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
+        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at,
+                  NULL::text AS "discord_scheduled_event_id?"
         "#,
         id,
         guild_id,
@@ -263,6 +296,7 @@ mod tests {
             is_all_day: false,
             start_at: "2026-08-22T10:00:00".parse().unwrap(),
             end_at: "2026-08-22T11:00:00".parse().unwrap(),
+            discord_scheduled_event: false,
         }
     }
 
@@ -304,6 +338,18 @@ mod tests {
         // 同時刻は許可 (終日予定など)
         i.end_at = i.start_at;
         assert!(i.validate().is_ok());
+    }
+
+    #[test]
+    fn discord_flag_requires_future_start() {
+        let now = "2026-08-22T10:00:00".parse().unwrap();
+        let mut i = input();
+        // フラグが無効なら過去開始でも通る
+        assert!(validate_discord_flag(&i, now).is_ok());
+        i.discord_scheduled_event = true;
+        // 開始が現在以前なら拒否 (Discord は未来の開始時刻を必須とする)
+        assert!(validate_discord_flag(&i, now).is_err());
+        assert!(validate_discord_flag(&i, "2026-08-22T09:59:59".parse().unwrap()).is_ok());
     }
 
     #[test]

@@ -113,6 +113,8 @@ interface Props {
   canEdit: boolean;
   /** 予定の取得元。管理コンソール (#35) からは admin 用 API に差し替える */
   eventsSource?: EventsSource;
+  /** ダイアログの「Discord のイベントとしても作成する」(#94)。未指定なら出さない */
+  discordSync?: { botManageEvents: boolean };
 }
 
 interface PopoverState {
@@ -124,6 +126,7 @@ export function EventCalendar({
   guildId,
   canEdit,
   eventsSource = dashboardEventsSource,
+  discordSync,
 }: Props) {
   const calendarRef = useRef<CalendarRef>(null);
   const [range, setRange] = useState<EventRange | null>(null);
@@ -366,6 +369,7 @@ export function EventCalendar({
         onClose={() => setDialog(null)}
         onSubmit={submitDialog}
         onDelete={setDeleteTarget}
+        discordSync={discordSync}
       />
       <AlertDialog
         open={deleteTarget !== null}

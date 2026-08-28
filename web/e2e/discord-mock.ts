@@ -2,7 +2,9 @@ import { createServer, type Server } from "node:http";
 import { DISCORD_MOCK_URL } from "./env";
 import {
   E2E_ALL_GUILDS,
+  E2E_BOT_ROLE_ID,
   E2E_BOT_TOKEN,
+  E2E_BOT_USER_ID,
   E2E_USER,
   type E2EGuild,
   OTHER_OWNER_ID,
@@ -10,9 +12,11 @@ import {
 
 // Discord API (https://discord.com/api/v10) のモック。web と api の DISCORD_API_BASE_URL をここに向ける。
 // 実装しているのは DisCalendar が呼ぶエンドポイントだけ:
-// - GET /users/@me/guilds            web (lib/discord.ts、ユーザーのトークン) と api の管理コンソール (Bot トークン)
-// - GET /guilds/{id}                 api (ギルド情報とロール一覧、権限計算)
-// - GET /guilds/{id}/members/{uid}   api (メンバー確認と所持ロール)
+// - GET /users/@me                              api (Bot 自身のユーザー ID、#94)
+// - GET /users/@me/guilds                       web (lib/discord.ts、ユーザーのトークン) と api の管理コンソール (Bot トークン)
+// - GET /guilds/{id}                            api (ギルド情報とロール一覧、権限計算)
+// - GET /guilds/{id}/members/{uid}              api (メンバー確認と所持ロール。Bot 自身も含む)
+// - POST/PATCH/DELETE /guilds/{id}/scheduled-events(/{sid})  api (スケジュールイベントの同期、#94)
 // それ以外と未知のギルドは Discord と同じく 404 の JSON を返す。
 // テストから Bot の参加状況を変える PUT / DELETE /_test/guilds/{id} (setBotJoined) だけは Discord に無い追加
 
@@ -58,12 +62,30 @@ function botGuild(guild: E2EGuild) {
     name: guild.name,
     icon: null,
     owner_id: guild.owner ? E2E_USER.discordId : OTHER_OWNER_ID,
-    roles: [{ id: guild.id, name: "@everyone", permissions: "1024" }],
+    roles: [
+      { id: guild.id, name: "@everyone", permissions: "1024" },
+      // botManageEvents のギルドでは Bot に「イベントの管理」(1<<33) のロールが付いている
+      ...(guild.botManageEvents
+        ? [
+            {
+              id: E2E_BOT_ROLE_ID,
+              name: "DisCalendar",
+              permissions: "8589934592",
+            },
+          ]
+        : []),
+    ],
   };
 }
 
+/** Bot が作ったスケジュールイベント (scheduled_event_id → ギルド)。テスト実行中だけ持つ */
+const scheduledEvents = new Map<string, string>();
+let nextScheduledEventId = 1;
+
 export function startDiscordMock(port: number): Promise<Server> {
   const server = createServer((req, res) => {
+    // リクエストボディは使わないので読み捨てる (未読のままだと接続の後始末で詰まることがある)
+    req.resume();
     const url = new URL(req.url ?? "/", "http://discord.local");
     const auth = req.headers.authorization ?? "";
     const json = (status: number, body: unknown) => {
@@ -88,8 +110,53 @@ export function startDiscordMock(port: number): Promise<Server> {
       return json(200, { joined: joinedGuilds.has(guild.id) });
     }
 
+    // スケジュールイベント (#94)。Bot トークン + 「イベントの管理」権限が必要
+    const scheduledMatch =
+      /^\/guilds\/(\d+)\/scheduled-events(?:\/(\d+))?$/.exec(url.pathname);
+    if (scheduledMatch) {
+      if (auth !== `Bot ${E2E_BOT_TOKEN}`) {
+        return json(401, { message: "401: Unauthorized", code: 0 });
+      }
+      const [, guildId, scheduledEventId] = scheduledMatch;
+      const guild = joinedGuilds.get(guildId);
+      if (!guild) {
+        return notFound("Unknown Guild", 10004);
+      }
+      if (!guild.botManageEvents) {
+        return json(403, { message: "Missing Permissions", code: 50013 });
+      }
+      if (req.method === "POST" && scheduledEventId === undefined) {
+        const id = `900000000000000${String(nextScheduledEventId++).padStart(3, "0")}`;
+        scheduledEvents.set(id, guildId);
+        return json(200, { id, guild_id: guildId });
+      }
+      if (
+        (req.method === "PATCH" || req.method === "DELETE") &&
+        scheduledEventId !== undefined
+      ) {
+        if (scheduledEvents.get(scheduledEventId) !== guildId) {
+          return notFound("Unknown Guild Scheduled Event", 180000);
+        }
+        if (req.method === "DELETE") {
+          scheduledEvents.delete(scheduledEventId);
+          res.writeHead(204);
+          return res.end();
+        }
+        return json(200, { id: scheduledEventId, guild_id: guildId });
+      }
+      return json(405, { message: "Method Not Allowed", code: 0 });
+    }
+
     if (req.method !== "GET") {
       return json(405, { message: "Method Not Allowed", code: 0 });
+    }
+
+    // Bot 自身のユーザー情報 (#94。api が Bot の権限計算に使う)
+    if (url.pathname === "/users/@me") {
+      if (auth === `Bot ${E2E_BOT_TOKEN}`) {
+        return json(200, { id: E2E_BOT_USER_ID, username: "DisCalendar" });
+      }
+      return json(401, { message: "401: Unauthorized", code: 0 });
     }
 
     if (url.pathname === "/users/@me/guilds") {
@@ -123,6 +190,13 @@ export function startDiscordMock(port: number): Promise<Server> {
       }
       if (userId === undefined) {
         return json(200, botGuild(guild));
+      }
+      // Bot 自身のメンバー情報 (#94。api の bot_manage_events が読む)
+      if (userId === E2E_BOT_USER_ID) {
+        return json(200, {
+          user: { id: E2E_BOT_USER_ID, username: "DisCalendar" },
+          roles: guild.botManageEvents ? [E2E_BOT_ROLE_ID] : [],
+        });
       }
       if (userId !== E2E_USER.discordId) {
         return notFound("Unknown Member", 10007);

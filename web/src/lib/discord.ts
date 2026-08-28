@@ -60,9 +60,10 @@ export function canInviteBot(guild: DiscordGuild): boolean {
   return (permissions & (ADMINISTRATOR | MANAGE_GUILD)) !== BigInt(0);
 }
 
-// 旧 Bot の通知投稿に必要な権限: チャンネルを見る / メッセージを送信 / 埋め込みリンク /
-// メッセージ履歴を読む / アプリコマンドを使う
-const DEFAULT_BOT_PERMISSIONS = "2147568640";
+// Bot に必要な権限: チャンネルを見る / メッセージを送信 / 埋め込みリンク /
+// メッセージ履歴を読む / アプリコマンドを使う / イベントの管理 (#94)。
+// bot/src/commands/invite.rs の required_bot_permissions() と揃える (向こうのテストが一致を確認する)
+const DEFAULT_BOT_PERMISSIONS = "10737503232";
 
 /**
  * Bot の招待 URL。DISCORD_BOT_INVITE_URL (旧実装の INVITATION_URL 相当) があればそれを使い、

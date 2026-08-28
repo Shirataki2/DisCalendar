@@ -3,8 +3,14 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { isBefore } from "date-fns";
 import { PlusIcon, XIcon } from "lucide-react";
-import { useState } from "react";
-import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
+import { useEffect, useState } from "react";
+import {
+  type Control,
+  Controller,
+  useFieldArray,
+  useForm,
+  useWatch,
+} from "react-hook-form";
 import { ColorPicker } from "@/components/form/color-picker";
 import { DatePicker } from "@/components/form/date-picker";
 import { Button } from "@/components/ui/button";
@@ -19,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Field,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldGroup,
@@ -42,6 +49,7 @@ import {
   eventFormSchema,
   eventFormToApiInput,
   eventToFormValues,
+  formStartAt,
   NAME_MAX_CHARS,
   NOTIFICATION_NUM_MAX,
   NOTIFICATION_NUM_MIN,
@@ -61,12 +69,26 @@ interface Props {
   onSubmit: (input: ApiEventInput) => Promise<unknown>;
   /** 編集中の予定の削除ボタン (確認ダイアログは呼び出し側が出す) */
   onDelete: (event: ApiEvent) => void;
+  /**
+   * 「Discord のイベントとしても作成する」(#94) の表示設定。
+   * 未指定 (管理コンソールなど連携を扱わない画面) ならチェックボックス自体を出さない
+   */
+  discordSync?: {
+    /** Bot 自身が「イベントの管理」権限を持つか。false なら無効化して案内を出す */
+    botManageEvents: boolean;
+  };
 }
 
 const NAME_INPUT_ID = "event-form-name";
 
 /** 予定の作成・編集ダイアログ (旧 NewEvent.vue 相当) */
-export function EventFormDialog({ state, onClose, onSubmit, onDelete }: Props) {
+export function EventFormDialog({
+  state,
+  onClose,
+  onSubmit,
+  onDelete,
+  discordSync,
+}: Props) {
   // 閉じるアニメーションの間も直前の内容を出しておく
   const shown = useLastValue(state);
   return (
@@ -88,6 +110,7 @@ export function EventFormDialog({ state, onClose, onSubmit, onDelete }: Props) {
             onClose={onClose}
             onSubmit={onSubmit}
             onDelete={onDelete}
+            discordSync={discordSync}
           />
         )}
       </DialogContent>
@@ -101,7 +124,13 @@ interface FormProps extends Omit<Props, "state"> {
 
 // ダイアログが開くたびにマウントされる (Base UI の Dialog は閉じると Popup を unmount する) ので、
 // useForm の defaultValues で初期値が決まる
-function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
+function EventForm({
+  state,
+  onClose,
+  onSubmit,
+  onDelete,
+  discordSync,
+}: FormProps) {
   const isEdit = state.mode === "edit";
   const {
     control,
@@ -115,11 +144,34 @@ function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
     defaultValues: isEdit ? eventToFormValues(state.event) : state.values,
   });
   const notifications = useFieldArray({ control, name: "notifications" });
-  const [isAllDay, name, description] = useWatch({
-    control,
-    name: ["isAllDay", "name", "description"],
-  });
+  const [isAllDay, name, description, startDate, startTime, discordEvent] =
+    useWatch({
+      control,
+      name: [
+        "isAllDay",
+        "name",
+        "description",
+        "startDate",
+        "startTime",
+        "discordEvent",
+      ],
+    });
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Discord 連携 (#94): 開始が過去 (現在を含む) だと Discord はイベントを作れない。
+  // api 側の validate_discord_flag と同じ条件でチェックを無効化する
+  const startAt =
+    startDate instanceof Date
+      ? formStartAt({ isAllDay, startDate, startTime })
+      : null;
+  const discordStartsInPast =
+    startAt !== null && startAt.getTime() <= Date.now();
+  useEffect(() => {
+    // 無効化したら値も落とす (表示と送信値を一致させる)。連携済みの予定なら保存時に解除される
+    if (discordStartsInPast && getValues("discordEvent")) {
+      setValue("discordEvent", false, { shouldDirty: true });
+    }
+  }, [discordStartsInPast, getValues, setValue]);
 
   // 開始日を終了日より後にしたら終了日も合わせる (旧フォームの onStartDateChanged)
   const handleStartDateChange = (date: Date) => {
@@ -359,6 +411,15 @@ function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
             </FieldDescription>
           </div>
         </Field>
+
+        {discordSync && (
+          <DiscordEventField
+            control={control}
+            checked={discordEvent}
+            botManageEvents={discordSync.botManageEvents}
+            startsInPast={discordStartsInPast}
+          />
+        )}
       </FieldGroup>
 
       {submitError && (
@@ -397,6 +458,71 @@ function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
     </form>
   );
 }
+
+/**
+ * 「Discord のイベントとしても作成する」(#94)。
+ * Bot に権限が無いときは新たに有効にはできないが、連携済み (チェック済み) なら
+ * 外すことはできる (解除まで塞ぐと連携をやめる手段が無くなるため)
+ */
+function DiscordEventField({
+  control,
+  checked,
+  botManageEvents,
+  startsInPast,
+}: {
+  control: Control<EventFormValues>;
+  checked: boolean;
+  botManageEvents: boolean;
+  startsInPast: boolean;
+}) {
+  const locked = startsInPast || (!checked && !botManageEvents);
+  return (
+    <Field orientation="horizontal" data-disabled={locked || undefined}>
+      <Controller
+        control={control}
+        name="discordEvent"
+        render={({ field }) => (
+          <Checkbox
+            id="event-form-discord-event"
+            checked={field.value}
+            disabled={locked}
+            onCheckedChange={(value) => field.onChange(value)}
+          />
+        )}
+      />
+      <FieldContent>
+        <FieldLabel htmlFor="event-form-discord-event" className="font-normal">
+          Discord のイベントとしても作成する
+        </FieldLabel>
+        <FieldDescription>
+          {startsInPast
+            ? "開始日時が過去の予定は Discord のイベントにできません (連携済みの予定は保存すると連携が解除されます)"
+            : !botManageEvents && !checked
+              ? discordPermissionHint
+              : !botManageEvents
+                ? "Bot に「イベントの管理」権限がないため、変更は Discord に反映できません。チェックを外すと連携を解除します"
+                : "予定の作成・変更・削除を Discord のスケジュールイベントにも反映します"}
+        </FieldDescription>
+      </FieldContent>
+    </Field>
+  );
+}
+
+/** 権限がないときの案内 (再招待への導線つき) */
+const discordPermissionHint = (
+  <>
+    Bot に「イベントの管理」権限がないため利用できません。
+    <a
+      href="/docs/invite"
+      target="_blank"
+      rel="noreferrer"
+      className="underline underline-offset-2"
+    >
+      Bot を招待し直す
+    </a>
+    と利用できます
+  </>
+);
 
 /** API (Rust の chars().count()) と同じくコードポイント単位で数える */
 function charCount(value: string | undefined): number {

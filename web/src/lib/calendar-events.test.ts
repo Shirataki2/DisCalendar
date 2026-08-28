@@ -25,6 +25,7 @@ const event: ApiEvent = {
   start_at: "2026-08-23T10:00:00",
   end_at: "2026-08-23T11:30:00",
   created_at: "2026-08-01T00:00:00",
+  discord_scheduled_event_id: null,
 };
 
 /** FullCalendar の EventApi のうち、変換に使う部分だけを持つ偽物 */
@@ -167,7 +168,20 @@ describe("toApiEventInput", () => {
       is_all_day: false,
       start_at: "2026-08-24T13:00:00",
       end_at: "2026-08-24T14:30:00",
+      discord_scheduled_event: false,
     });
+  });
+
+  it("Discord 連携済みの予定はドラッグしても連携を引き継ぐ", () => {
+    const moved = fakeEventApi({
+      start: day(24, 13),
+      end: day(24, 14, 30),
+      allDay: false,
+    });
+    expect(
+      toApiEventInput(moved, { ...event, discord_scheduled_event_id: "9001" })
+        .discord_scheduled_event,
+    ).toBe(true);
   });
 
   it("終日へドラッグすると終日の表現 (終了日を含む) になる", () => {

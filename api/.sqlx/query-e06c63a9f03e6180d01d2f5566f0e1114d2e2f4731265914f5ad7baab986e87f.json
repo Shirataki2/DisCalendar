@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE event_discord_links SET scheduled_event_id = $3\n        WHERE event_id = $1 AND guild_id = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e06c63a9f03e6180d01d2f5566f0e1114d2e2f4731265914f5ad7baab986e87f"
+}

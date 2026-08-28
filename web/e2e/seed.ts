@@ -121,9 +121,10 @@ export async function seedDatabase(databaseUrl: string): Promise<string> {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      // 前回の実行で残ったものを消す (旧 Bot と共有するスキーマでも、ここは E2E 専用 DB)
+      // 前回の実行で残ったものを消す (旧 Bot と共有するスキーマでも、ここは E2E 専用 DB)。
+      // CASCADE は events を参照する子テーブル (event_discord_links #94 など) も一緒に空にするため
       await client.query(
-        "TRUNCATE events, guild_config, guilds RESTART IDENTITY",
+        "TRUNCATE events, guild_config, guilds RESTART IDENTITY CASCADE",
       );
       await client.query('DELETE FROM "session"');
       await client.query('DELETE FROM "account"');

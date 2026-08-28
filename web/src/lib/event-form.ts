@@ -114,6 +114,8 @@ export const eventFormSchema = z
         DESCRIPTION_MAX_CHARS,
         `説明は${DESCRIPTION_MAX_CHARS}文字以内で入力してください`,
       ),
+    /** Discord のスケジュールイベントとしても作成・同期する (#94) */
+    discordEvent: z.boolean(),
   })
   .superRefine((values, ctx) => {
     if (!values.isAllDay) {
@@ -159,6 +161,18 @@ function combine(date: Date, time: string): Date {
 }
 
 /**
+ * フォームの開始日時。時刻が未入力・不正なら null。
+ * Discord 連携 (#94) の「開始が過去なら連携できない」の判定に使う (api 側の検証と同じ条件)
+ */
+export function formStartAt(
+  values: Pick<EventFormValues, "isAllDay" | "startDate" | "startTime">,
+): Date | null {
+  if (values.isAllDay) return startOfDay(values.startDate);
+  if (!TIME_PATTERN.test(values.startTime)) return null;
+  return combine(values.startDate, values.startTime);
+}
+
+/**
  * フォームの値 → 実際の開始/終了日時。
  * 終日予定は両端とも 0:00 で、終了日は「含む」(DB の表現と同じ)
  */
@@ -186,10 +200,15 @@ export function eventFormToApiInput(values: EventFormValues): ApiEventInput {
     is_all_day: values.isAllDay,
     start_at: toApiDateTime(start),
     end_at: toApiDateTime(end),
+    discord_scheduled_event: values.discordEvent,
   };
 }
 
-/** 既存の予定を編集フォームに読み込む */
+/**
+ * 既存の予定を編集フォームに読み込む。
+ * 複製 (#91) もここを通るので、連携済み予定を複製するとチェックが入った状態で始まり、
+ * 作成時に新しい Discord イベントも作られる
+ */
 export function eventToFormValues(event: ApiEvent): EventFormValues {
   const start = parseApiDateTime(event.start_at);
   const end = parseApiDateTime(event.end_at);
@@ -203,6 +222,7 @@ export function eventToFormValues(event: ApiEvent): EventFormValues {
     endDate: startOfDay(end),
     endTime: format(end, "HH:mm"),
     notifications: event.notifications.map(({ num, unit }) => ({ num, unit })),
+    discordEvent: event.discord_scheduled_event_id !== null,
   };
 }
 
@@ -221,6 +241,7 @@ export function newEventFormValues(
     color: DEFAULT_COLOR,
     notifications: DEFAULT_NOTIFICATIONS.map((n) => ({ ...n })),
     isAllDay: allDay,
+    discordEvent: false,
   };
   if (allDay) {
     const first = startOfDay(start);

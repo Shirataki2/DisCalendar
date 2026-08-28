@@ -21,6 +21,8 @@ export interface ApiEvent {
   start_at: string;
   end_at: string;
   created_at: string;
+  /** 連携している Discord スケジュールイベントの ID。未連携なら null */
+  discord_scheduled_event_id: string | null;
 }
 
 /** 予定の作成・更新リクエスト (更新は全フィールド置き換え) */
@@ -32,6 +34,8 @@ export interface ApiEventInput {
   is_all_day: boolean;
   start_at: string;
   end_at: string;
+  /** Discord のスケジュールイベントとしても作成・同期する (#94) */
+  discord_scheduled_event: boolean;
 }
 
 export interface Guild {
@@ -352,6 +356,11 @@ export interface MyPermissions {
   manage_roles: boolean;
   /** 上記 4 つのいずれか */
   can_manage_server: boolean;
+  /**
+   * Bot 自身が「イベントの管理」権限を持つか (#94)。
+   * 予定ダイアログの「Discord のイベントとしても作成する」の出し分けに使う
+   */
+  bot_manage_events: boolean;
 }
 
 // 分析情報 (#79。api/src/routes/admin_analytics.rs, api/src/models/admin_analytics.rs)

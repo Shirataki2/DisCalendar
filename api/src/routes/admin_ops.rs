@@ -14,8 +14,9 @@ use crate::{
     error::{ApiError, ErrorBody},
     models::{
         admin_audit::{self, AuditEntry},
-        admin_ops,
+        admin_ops, event_links,
         events::Event,
+        now_jst,
     },
     state::AppState,
 };
@@ -67,6 +68,10 @@ pub async fn delete_guild_events(
     let guild_id = validated_guild_id(&body.guild_id)?;
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
+    // 連携している Discord スケジュールイベントのうち開始前のものを控えておく (#94)。
+    // 対応付けの行自体は events の削除に CASCADE で追随する
+    let scheduled_event_ids =
+        event_links::list_scheduled_event_ids(&mut *tx, guild_id, now_jst()).await?;
     let (snapshot_rows, count) = admin_ops::delete_guild_events(&mut tx, guild_id).await?;
     // スナップショットは API 形式 (Event) に加えて notifications の生データも残す
     // (壊れた要素は Event への変換で捨てられるため、削除した実データを復元・調査できるように)
@@ -98,6 +103,16 @@ pub async fn delete_guild_events(
     )
     .await?;
     tx.commit().await?;
+    // Discord 側の後始末 (#94)。管理コンソールの削除は Discord 側の失敗で止めない (ベストエフォート)
+    for scheduled_event_id in &scheduled_event_ids {
+        if let Err(err) = state
+            .discord
+            .delete_scheduled_event(guild_id, scheduled_event_id)
+            .await
+        {
+            tracing::warn!(guild_id, scheduled_event_id, error = %err, "failed to delete a linked scheduled event");
+        }
+    }
     tracing::info!(guild_id, deleted = count, admin = %admin.discord_user_id, "all events of a guild deleted by admin");
     Ok(web::Json(OpsResult { deleted: count }))
 }

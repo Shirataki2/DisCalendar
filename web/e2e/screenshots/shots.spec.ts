@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { calendarToday, eventOn } from "../calendar";
+import { calendarToday, dayCell, eventOn } from "../calendar";
 import { WEB_DIR } from "../env";
 import { E2E_GUILDS } from "../fixtures";
 import {
@@ -98,14 +98,25 @@ test.describe("ダイアログ", () => {
 
   test("docs/create-dialog.png (予定の作成)", async ({ page }) => {
     await openCalendar(page);
-    await page.getByRole("button", { name: "新規作成" }).click();
+    // 「新規作成」の既定の開始 (今の HH:00) は過去なので Discord 連携 (#94) のチェックが
+    // 無効の注意書きつきで写ってしまう。翌日のセルから開いて未来の日時にする
+    const tomorrow = new Date(await calendarToday(page));
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const cell = await dayCell(page, tomorrow).boundingBox();
+    if (!cell) throw new Error("翌日のセルが表示されていません");
+    await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height - 10);
 
     const dialog = page.getByRole("dialog", { name: "予定を作成" });
     await expect(dialog).toBeVisible();
     await dialog.getByLabel("タイトル").fill(CREATE_SAMPLE.name);
+    // セルから開くと終日になるので、時刻付きの入力例に戻す
+    await dialog.getByRole("checkbox", { name: "終日" }).uncheck();
     await dialog.getByLabel("開始時刻").fill(CREATE_SAMPLE.startTime);
     await dialog.getByLabel("終了時刻").fill(CREATE_SAMPLE.endTime);
     await dialog.getByLabel("説明").fill(CREATE_SAMPLE.description);
+    await dialog
+      .getByRole("checkbox", { name: "Discord のイベントとしても作成する" })
+      .check();
     await blur(dialog);
     await settle(page);
     // 保存はしない (カレンダーの画像に写らないようにするため)

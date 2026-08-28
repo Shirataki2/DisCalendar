@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT l.scheduled_event_id\n        FROM event_discord_links l\n        JOIN events e ON e.id = l.event_id\n        WHERE l.guild_id = $1 AND e.start_at > $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scheduled_event_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "event_discord_links",
+            "name": "scheduled_event_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c64d3dc5789e8632cf6c1c6ef08b6f1a06ba83a6c0f6048b87011d729a481ecf"
+}

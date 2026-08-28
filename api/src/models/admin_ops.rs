@@ -21,13 +21,15 @@ pub async fn delete_guild_events(
     let snapshot = sqlx::query_as!(
         EventRow,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day,
-               start_at, end_at, created_at
-        FROM events
-        WHERE guild_id = $1
-        ORDER BY id
+        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
+               e.start_at, e.end_at, e.created_at,
+               l.scheduled_event_id AS "discord_scheduled_event_id?"
+        FROM events e
+        LEFT JOIN event_discord_links l ON l.event_id = e.id
+        WHERE e.guild_id = $1
+        ORDER BY e.id
         LIMIT $2
-        FOR UPDATE
+        FOR UPDATE OF e
         "#,
         guild_id,
         DELETE_SNAPSHOT_LIMIT

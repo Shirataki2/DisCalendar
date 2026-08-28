@@ -28,6 +28,12 @@ export const E2E_USER = {
 /** api が Discord モックを呼ぶときの Bot トークン (DISCORD_BOT_TOKEN) */
 export const E2E_BOT_TOKEN = "e2e-discord-bot-token";
 
+/** Bot 自身の Discord ユーザー ID (`GET /users/@me`。api が Bot の権限計算に使う) */
+export const E2E_BOT_USER_ID = "100000000000000050";
+
+/** botManageEvents のギルドで Bot に付いているロール (「イベントの管理」を持つ) */
+export const E2E_BOT_ROLE_ID = "300000000000000001";
+
 /** テストに出てくるギルド (Discord モックの応答と guilds テーブルの行のもと) */
 export interface E2EGuild {
   /** Discord のギルド ID (Snowflake。API 境界では必ず文字列) */
@@ -39,6 +45,8 @@ export interface E2EGuild {
   owner: boolean;
   /** Bot が参加しているか (guilds テーブルに行が入る) */
   botJoined: boolean;
+  /** Bot 自身が「イベントの管理」権限を持つか (#94。Discord モックのロール応答に反映される) */
+  botManageEvents: boolean;
 }
 
 /**
@@ -46,6 +54,7 @@ export interface E2EGuild {
  * - admin: ユーザーがオーナー (can_manage_server) で Bot 参加済み。予定の CRUD とサーバー設定の切替に使う
  * - member: ユーザーは一般メンバー (権限なし) で Bot 参加済み、restricted 設定済み。非管理者の表示に使う
  * - invitable: ユーザーに「サーバー管理」権限があるが Bot 未参加。サーバー選択画面の「Bot を招待できるサーバー」に出る
+ * - noEventsPerm: Bot 参加済みだが「イベントの管理」権限がない。Discord 連携 (#94) の無効化表示に使う
  */
 export const E2E_GUILDS = {
   admin: {
@@ -55,6 +64,7 @@ export const E2E_GUILDS = {
     permissions: "8",
     owner: true,
     botJoined: true,
+    botManageEvents: true,
   },
   member: {
     id: "200000000000000002",
@@ -63,6 +73,7 @@ export const E2E_GUILDS = {
     permissions: "1024",
     owner: false,
     botJoined: true,
+    botManageEvents: true,
   },
   invitable: {
     id: "200000000000000003",
@@ -71,6 +82,16 @@ export const E2E_GUILDS = {
     permissions: "32",
     owner: false,
     botJoined: false,
+    botManageEvents: false,
+  },
+  noEventsPerm: {
+    id: "200000000000000006",
+    name: displayName("E2E No Events Guild", "写真部"),
+    /** VIEW_CHANNEL のみ (restricted ではないので予定の編集はできる) */
+    permissions: "1024",
+    owner: false,
+    botJoined: true,
+    botManageEvents: false,
   },
 } satisfies Record<string, E2EGuild>;
 
@@ -86,6 +107,7 @@ const SCREENSHOT_GUILDS: E2EGuild[] = SCREENSHOT
         permissions: "1024",
         owner: false,
         botJoined: true,
+        botManageEvents: true,
       },
       {
         id: "200000000000000005",
@@ -93,6 +115,7 @@ const SCREENSHOT_GUILDS: E2EGuild[] = SCREENSHOT
         permissions: "32",
         owner: false,
         botJoined: false,
+        botManageEvents: false,
       },
     ]
   : [];

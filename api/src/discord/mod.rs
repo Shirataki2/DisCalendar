@@ -5,8 +5,13 @@
 //! メンバー情報を短時間キャッシュして 0〜2 回に抑える。
 
 pub mod permissions;
+pub mod scheduled_events;
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use anyhow::Context as _;
 use moka::future::Cache;
@@ -94,6 +99,8 @@ pub struct DiscordClient {
     members: Cache<(String, String), Option<Arc<Vec<String>>>>,
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
+    /// Bot 自身のユーザー ID (`GET /users/@me`)。トークンが変わらない限り不変なのでプロセス中ずっと持つ
+    bot_user_id: Arc<OnceLock<String>>,
 }
 
 #[derive(Deserialize)]
@@ -115,6 +122,12 @@ struct ApiRole {
 #[derive(Deserialize)]
 struct ApiMember {
     roles: Vec<String>,
+}
+
+/// `GET /users/@me` が返すユーザー情報のうち使う部分
+#[derive(Deserialize)]
+struct ApiUser {
+    id: String,
 }
 
 /// `GET /users/@me/guilds` が返す部分的なギルド情報
@@ -157,7 +170,33 @@ impl DiscordClient {
                 .max_capacity(1)
                 .time_to_live(BOT_GUILDS_TTL)
                 .build(),
+            bot_user_id: Arc::new(OnceLock::new()),
         })
+    }
+
+    /// Bot 自身のユーザー ID (`GET /users/@me`)。初回だけ Discord に問い合わせ、以後はキャッシュを返す
+    async fn bot_user_id(&self) -> Result<String, DiscordError> {
+        if let Some(id) = self.bot_user_id.get() {
+            return Ok(id.clone());
+        }
+        let user: ApiUser = self
+            .get_json("/users/@me")
+            .await?
+            // Bot トークンがあれば 403 / 404 にはならない
+            .ok_or(DiscordError::Unexpected("cannot fetch the bot user"))?;
+        // 競合してもトークンが同じなら同じ ID なので、先に入った値をそのまま使う
+        Ok(self.bot_user_id.get_or_init(|| user.id).clone())
+    }
+
+    /// Bot 自身がギルドで「イベントの管理」権限を持つか (#94)。
+    /// Bot が未参加なら `false`。ギルド・メンバーのキャッシュに乗るため、
+    /// 再招待などの権限変更が反映されるまで最大で数分の遅れがある
+    pub async fn bot_manage_events(&self, guild_id: &str) -> Result<bool, DiscordError> {
+        let bot_user_id = self.bot_user_id().await?;
+        Ok(self
+            .member_access(guild_id, &bot_user_id)
+            .await?
+            .is_some_and(|access| access.permissions.manage_events()))
     }
 
     /// Bot が参加している全ギルド (`GET /users/@me/guilds` を 200 件ずつ辿る)。
@@ -286,6 +325,55 @@ impl DiscordClient {
             }
             if status == StatusCode::NOT_FOUND || status == StatusCode::FORBIDDEN {
                 tracing::debug!(%path, %status, "discord resource not accessible");
+                return Ok(None);
+            }
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                let retry_after = res
+                    .headers()
+                    .get(header::RETRY_AFTER)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(1.0);
+                if !retried && retry_after <= 2.0 {
+                    tracing::warn!(%path, retry_after, "discord rate limited, retrying once");
+                    retried = true;
+                    tokio::time::sleep(Duration::from_secs_f64(retry_after)).await;
+                    continue;
+                }
+                tracing::warn!(%path, retry_after, "discord rate limited");
+                return Err(DiscordError::RateLimited);
+            }
+            let body = res.text().await.unwrap_or_default();
+            tracing::warn!(%path, %status, %body, "discord api error");
+            return Err(DiscordError::Status { status, body });
+        }
+    }
+
+    /// 書き込みリクエスト (POST / PATCH / DELETE) を送り、成功したらレスポンスボディを文字列で返す
+    /// (204 なら空文字列)。404 (対象が既に無い) は `Ok(None)`。
+    /// GET ([`Self::get_json`]) と違い **403 はエラーのまま返す** (書き込みの 403 は Bot の
+    /// 「イベントの管理」権限の不足で、呼び出し元が利用者に案内を返すため)。
+    /// 429 は Retry-After が短ければ 1 回だけ待って再試行する
+    async fn send(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> Result<Option<String>, DiscordError> {
+        let url = format!("{}{path}", self.api_base);
+        let mut retried = false;
+        loop {
+            let mut req = self.http.request(method.clone(), &url);
+            if let Some(body) = body {
+                req = req.json(body);
+            }
+            let res = req.send().await?;
+            let status = res.status();
+            if status.is_success() {
+                return Ok(Some(res.text().await?));
+            }
+            if status == StatusCode::NOT_FOUND {
+                tracing::debug!(%path, %status, "discord resource not found");
                 return Ok(None);
             }
             if status == StatusCode::TOO_MANY_REQUESTS {

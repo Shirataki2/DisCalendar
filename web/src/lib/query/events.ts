@@ -120,10 +120,13 @@ export function useUpdateEvent(
       const previous: CachedLists = queryClient.getQueriesData<ApiEvent[]>({
         queryKey: listsKey,
       });
+      // discord_scheduled_event はリクエスト専用のフラグで ApiEvent には無いので剥がす
+      // (連携 ID の変化は onSettled の invalidate で追いつく)
+      const { discord_scheduled_event: _flag, ...rest } = input;
       queryClient.setQueriesData<ApiEvent[]>({ queryKey: listsKey }, (events) =>
         events?.map((event) =>
           event.id === id
-            ? { ...event, ...input, description: input.description ?? null }
+            ? { ...event, ...rest, description: input.description ?? null }
             : event,
         ),
       );

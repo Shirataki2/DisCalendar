@@ -115,6 +115,8 @@ export function toApiEventInput(
     notifications: source.notifications,
     color: source.color,
     is_all_day: event.allDay,
+    // Discord 連携 (#94) も引き継ぐ (落とすとドラッグしただけで連携が外れてしまう)
+    discord_scheduled_event: source.discord_scheduled_event_id !== null,
     ...toApiRange(start, event.end, event.allDay),
   };
 }

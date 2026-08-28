@@ -29,6 +29,7 @@ const valid: EventFormValues = {
   color: "#f44336",
   notifications: [{ num: 1, unit: "days" }],
   description: "",
+  discordEvent: false,
 };
 
 /** 検証エラーを path ("a.b") → message の一覧にする */
@@ -168,7 +169,15 @@ describe("eventFormToApiInput", () => {
       is_all_day: false,
       start_at: "2026-08-23T10:00:00",
       end_at: "2026-08-23T11:30:00",
+      discord_scheduled_event: false,
     });
+  });
+
+  it("Discord 連携のチェックはフラグとして送る", () => {
+    expect(
+      eventFormToApiInput({ ...valid, discordEvent: true })
+        .discord_scheduled_event,
+    ).toBe(true);
   });
 
   it("説明は前後の空白を除く", () => {
@@ -200,6 +209,7 @@ const apiEvent: ApiEvent = {
   start_at: "2026-08-23T10:00:00",
   end_at: "2026-08-24T11:30:00",
   created_at: "2026-08-01T00:00:00",
+  discord_scheduled_event_id: null,
 };
 
 describe("eventToFormValues", () => {
@@ -214,7 +224,17 @@ describe("eventToFormValues", () => {
       endDate: day(24),
       endTime: "11:30",
       notifications: [{ num: 30, unit: "minutes" }],
+      discordEvent: false,
     });
+  });
+
+  it("Discord 連携済みの予定はチェックが入った状態で読み込む", () => {
+    expect(
+      eventToFormValues({
+        ...apiEvent,
+        discord_scheduled_event_id: "9001",
+      }).discordEvent,
+    ).toBe(true);
   });
 
   it("フォーム → API → フォームで値が保たれる", () => {
