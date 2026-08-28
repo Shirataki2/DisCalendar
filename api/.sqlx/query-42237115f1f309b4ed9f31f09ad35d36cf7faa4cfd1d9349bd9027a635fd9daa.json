@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            min(day) AS \"since\",\n            count(DISTINCT user_id) FILTER (WHERE day = $1) AS \"day!\",\n            count(DISTINCT user_id) FILTER (WHERE day = $1::date - 1) AS \"day_prev!\",\n            count(DISTINCT user_id) FILTER (WHERE day > $1::date - 7) AS \"week!\",\n            count(DISTINCT user_id) FILTER (\n                WHERE day > $1::date - 14 AND day <= $1::date - 7) AS \"week_prev!\",\n            count(DISTINCT user_id) FILTER (WHERE day > $1::date - 30) AS \"month!\",\n            count(DISTINCT user_id) FILTER (\n                WHERE day > $1::date - 60 AND day <= $1::date - 30) AS \"month_prev!\"\n        FROM user_daily_activity\n        WHERE day <= $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "since",
+        "type_info": "Date",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "day!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "day_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "week!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "week_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "month!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "month_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "42237115f1f309b4ed9f31f09ad35d36cf7faa4cfd1d9349bd9027a635fd9daa"
+}

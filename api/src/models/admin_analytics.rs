@@ -1,8 +1,12 @@
 //! 管理コンソールの分析情報 (`GET /admin/analytics`、#79) の集計。
 //!
 //! 概要 (`admin_stats`) が「今この瞬間の件数」なのに対して、ここは**時間軸の指標**を出す。
-//! DisCalendar には行動ログのテーブルが無いので、集計は既存のテーブルから読み取れる痕跡だけで行う。
-//! スキーマは変更しない (AGENTS.md の P0)。正確な指標を取る仕組みは #81 で検討する。
+//! 集計は 2 系統ある:
+//!
+//! - **実測** (#81): `user_daily_activity` (認証済みリクエストを 1 人 1 日 1 行で積み上げた記録。
+//!   [`crate::models::user_activity`]) から数える正確なアクティブユーザー。記録を入れた日からしか無い
+//! - **推定** (#79): 既存のテーブルから読み取れる痕跡だけで出す従来の指標。実測が積み上がる前の
+//!   期間や、行動記録を持たない指標 (予定の作成数など) はこちらで見る
 //!
 //! # 何を「利用」とみなすか
 //!
@@ -26,7 +30,7 @@
 //! - **セッションの `updatedAt` を更新するのは Better Auth (web のページ表示) だけ**で、
 //!   api の認証 (`crate::auth`) は `session` を読むだけで更新しない。そのためダッシュボードを開いたまま
 //!   予定の作成・カレンダーの再取得だけを続けている利用者は、最初の表示から 24 時間を過ぎると
-//!   アクティブから漏れる。ここを正確にするには行動の記録が要る (#81)
+//!   アクティブから漏れる。実測 (#81) にはこの問題がない (api の認証そのものを記録している)
 //! - `guilds` に参加・退出の日時が無いため、ギルド数の推移は出せない (`admin_stats` と同じ制約)
 //! - `updatedAt` の更新間隔は最短 1 日なので、日単位より細かい粒度は出せない
 //! - 推移の右端 (今日 / 当月) は期間の途中までしか含まない。画面ではその旨を注記する
@@ -107,6 +111,22 @@ pub struct ActiveUsers {
     pub monthly: Trend,
 }
 
+/// 実測のアクティブユーザー数 (#81)。`user_daily_activity` から数える。
+/// 推定 ([`ActiveUsers`]) が「今」からの 24 時間刻みなのに対して、こちらは JST の日付で区切る
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MeasuredActiveUsers {
+    /// 記録が始まった日 (一番古い行の日付)。まだ 1 行も無ければ null。
+    /// これより前の期間は実測では数えられない (推定で見る)
+    #[schema(example = "2026-08-28")]
+    pub since: Option<NaiveDate>,
+    /// 今日 (JST。まだ途中)。前は昨日
+    pub daily: Trend,
+    /// 今日までの 7 日間。前はその前の 7 日間
+    pub weekly: Trend,
+    /// 今日までの 30 日間。前はその前の 30 日間
+    pub monthly: Trend,
+}
+
 /// 日別の 1 点 (JST の日付)
 #[derive(Debug, Serialize, ToSchema, sqlx::FromRow)]
 pub struct DailyPoint {
@@ -118,6 +138,8 @@ pub struct DailyPoint {
     pub new_users: i64,
     /// その日に作られたセッション (ログイン)
     pub logins: i64,
+    /// その日に使った利用者 (実測、#81)。記録開始 ([`MeasuredActiveUsers::since`]) 前の日は 0
+    pub measured_active_users: i64,
 }
 
 /// 月別の 1 点 (JST の月初)
@@ -241,6 +263,42 @@ pub async fn active_users<'e>(
     })
 }
 
+/// 実測の DAU / WAU / MAU (#81)。`today` は JST の今日 (今日はまだ途中)。
+///
+/// 期間は JST の日付で区切る (記録が日単位なので)。`today` より未来の日付の行は、
+/// 他の集計と同じ考え方でどの期間にも入れない (時計のずれや手動投入で入りうる)
+pub async fn measured_active_users<'e>(
+    executor: impl PgExecutor<'e>,
+    today: NaiveDate,
+) -> sqlx::Result<MeasuredActiveUsers> {
+    let row = sqlx::query!(
+        r#"
+        SELECT
+            min(day) AS "since",
+            count(DISTINCT user_id) FILTER (WHERE day = $1) AS "day!",
+            count(DISTINCT user_id) FILTER (WHERE day = $1::date - 1) AS "day_prev!",
+            count(DISTINCT user_id) FILTER (WHERE day > $1::date - 7) AS "week!",
+            count(DISTINCT user_id) FILTER (
+                WHERE day > $1::date - 14 AND day <= $1::date - 7) AS "week_prev!",
+            count(DISTINCT user_id) FILTER (WHERE day > $1::date - 30) AS "month!",
+            count(DISTINCT user_id) FILTER (
+                WHERE day > $1::date - 60 AND day <= $1::date - 30) AS "month_prev!"
+        FROM user_daily_activity
+        WHERE day <= $1
+        "#,
+        today,
+    )
+    .fetch_one(executor)
+    .await?;
+
+    Ok(MeasuredActiveUsers {
+        since: row.since,
+        daily: Trend::new(row.day, row.day_prev),
+        weekly: Trend::new(row.week, row.week_prev),
+        monthly: Trend::new(row.month, row.month_prev),
+    })
+}
+
 /// 日別の推移 ([`DAILY_DAYS`] 日ぶん、古い順)。`today` は JST の今日。
 ///
 /// 各テーブルを期間で絞って 1 回だけ集計し、生成した日付の列に突き合わせる
@@ -278,16 +336,27 @@ pub async fn daily<'e>(
             WHERE "createdAt" >= ($1::timestamp::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'
               AND "createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
             GROUP BY 1
+        ),
+        -- 実測のアクティブユーザー (#81)。主キーが (user_id, day) なので count(*) が人数になる。
+        -- 右端 (今日) は日付単位の記録なので、集計時刻ではなく日付そのもので切る
+        ma AS (
+            SELECT day, count(*) AS n
+            FROM user_daily_activity
+            WHERE day >= ($1::timestamp::date - ($2::int - 1))
+              AND day <= $1::timestamp::date
+            GROUP BY 1
         )
         SELECT
             d.day AS "date!",
             COALESCE(ev.n, 0) AS "events!",
             COALESCE(nu.n, 0) AS "new_users!",
-            COALESCE(lg.n, 0) AS "logins!"
+            COALESCE(lg.n, 0) AS "logins!",
+            COALESCE(ma.n, 0) AS "measured_active_users!"
         FROM days d
         LEFT JOIN ev ON ev.day = d.day
         LEFT JOIN nu ON nu.day = d.day
         LEFT JOIN lg ON lg.day = d.day
+        LEFT JOIN ma ON ma.day = d.day
         ORDER BY d.day
         "#,
         now,

@@ -57,6 +57,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         admin: AdminConfig {
             discord_user_ids: config.admin_discord_user_ids.iter().cloned().collect(),
         },
+        // 日付が変わったかは値 (記録済みの日付) の比較で見るので、TTL は使わなくなった
+        // エントリを捨ててメモリを抑えるためだけ
+        activity_days: moka::future::Cache::builder()
+            .max_capacity(100_000)
+            .time_to_live(std::time::Duration::from_secs(48 * 3600))
+            .build(),
         started_at: chrono::Utc::now(),
     });
     if config.admin_discord_user_ids.is_empty() {
@@ -174,7 +180,13 @@ async fn run_startup_migrations(pool: &sqlx::PgPool) -> anyhow::Result<()> {
             .set_locking(false)
             .run(&mut conn)
             .await
-            .context("failed to run migrations")
+            .context("failed to run migrations")?;
+        // user_daily_activity の "user" への外部キー (#81)。マイグレーション適用時に
+        // Better Auth のテーブルがまだ無い環境 (新規 compose 環境では api が web より先に起動する)
+        // では migration 内の DO ブロックが張れないため、起動のたびに確かめて張り直す
+        models::user_activity::ensure_user_fk(&mut conn)
+            .await
+            .context("failed to ensure the user_daily_activity foreign key")
     }
     .await;
 

@@ -16,7 +16,7 @@ use crate::{
     models::{
         admin_analytics::{
             self, ActiveUsers, Breakdown, DAILY_DAYS, DailyPoint, EventCreation, GuildActivity,
-            MONTHLY_MONTHS, MonthlyPoint, RECENT_DAYS,
+            MONTHLY_MONTHS, MeasuredActiveUsers, MonthlyPoint, RECENT_DAYS,
         },
         now_jst,
     },
@@ -38,7 +38,10 @@ pub struct AdminAnalytics {
     /// 「アクティブ」「直近」の基準にした日数
     #[schema(example = 30)]
     pub recent_days: i64,
+    /// セッションからの推定のアクティブユーザー (#79)
     pub active_users: ActiveUsers,
+    /// 利用の記録 (`user_daily_activity`、#81) から数えた実測のアクティブユーザー
+    pub measured_active_users: MeasuredActiveUsers,
     pub event_creation: EventCreation,
     pub breakdown: Breakdown,
     pub guilds: GuildActivity,
@@ -82,6 +85,8 @@ pub async fn analytics(
         .await?;
 
     let active_users = admin_analytics::active_users(&mut *tx, now_utc).await?;
+    let measured_active_users =
+        admin_analytics::measured_active_users(&mut *tx, now.date()).await?;
     let daily = admin_analytics::daily(&mut *tx, now).await?;
     let monthly = admin_analytics::monthly(&mut *tx, now).await?;
     let (event_creation, all_day_events) = admin_analytics::event_creation(&mut *tx, now).await?;
@@ -107,6 +112,7 @@ pub async fn analytics(
         monthly_months: MONTHLY_MONTHS,
         recent_days: RECENT_DAYS,
         active_users,
+        measured_active_users,
         event_creation,
         breakdown: Breakdown {
             all_day_events,

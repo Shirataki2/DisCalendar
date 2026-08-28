@@ -25,9 +25,11 @@ export const metadata: Metadata = {
 /**
  * 分析情報 (#79)。概要 (`/admin`) が「今の件数」なのに対して、こちらは時間軸の指標を出す。
  *
- * DisCalendar には行動ログのテーブルが無いので、指標はすべて既存データからの推定になる。
- * 定義と精度の限界は api 側 (`api/src/models/admin_analytics.rs`) に書いてあり、
- * 運用者が数字を誤読しないようこのページにも同じ内容を注記する
+ * アクティブユーザーは利用の記録 (#81) から数えた実測と、セッションからの推定の 2 系統を併記する
+ * (実測は記録を入れた日からしか無いので、それ以前の期間は推定で見る)。それ以外の指標は
+ * 既存データからの推定・集計のまま。定義と精度の限界は api 側
+ * (`api/src/models/admin_analytics.rs`) に書いてあり、運用者が数字を誤読しないよう
+ * このページにも同じ内容を注記する
  */
 export default async function AdminAnalyticsPage() {
   let analytics: AdminAnalytics;
@@ -48,8 +50,15 @@ export default async function AdminAnalyticsPage() {
     );
   }
 
-  const { active_users, event_creation, breakdown, guilds, daily, monthly } =
-    analytics;
+  const {
+    active_users,
+    measured_active_users: measured,
+    event_creation,
+    breakdown,
+    guilds,
+    daily,
+    monthly,
+  } = analytics;
   const dailyLabel = (date: string) => formatMonthDay(date);
   const monthlyLabel = (month: string) => formatYearMonth(month);
   // 日別は週の区切り、月別は四半期の区切りでラベルを出す
@@ -62,6 +71,10 @@ export default async function AdminAnalyticsPage() {
     ? `右端の ${monthlyLabel(lastMonth.month)} は当月の途中まで`
     : undefined;
 
+  const dailyMeasuredActive: ChartPoint[] = daily.map((point) => ({
+    label: dailyLabel(point.date),
+    value: point.measured_active_users,
+  }));
   const dailyEvents: ChartPoint[] = daily.map((point) => ({
     label: dailyLabel(point.date),
     value: point.events,
@@ -98,7 +111,7 @@ export default async function AdminAnalyticsPage() {
     <main className="flex-1 overflow-y-auto p-8">
       <h1 className="mb-2 text-xl font-bold">分析情報</h1>
       <p className="mb-6 text-sm text-neutral-400">
-        {`${formatMonthDay(analytics.today)} (JST) 時点。DisCalendar は利用状況を記録していないため、ここの数字はすべてセッションと予定の作成日時からの推定になる。読み方は`}
+        {`${formatMonthDay(analytics.today)} (JST) 時点。アクティブユーザーは利用の記録からの実測 (#81。記録を入れた日から) と、セッションからの推定を併記している。それ以外の数字はセッションと予定の作成日時からの推定・集計になる。読み方は`}
         <a href="#notes" className="mx-1 underline">
           ページ下の注記
         </a>
@@ -107,42 +120,100 @@ export default async function AdminAnalyticsPage() {
       <div className="flex flex-col gap-10">
         <Section
           title="アクティブユーザー"
-          description="セッションが生きていた期間をその利用者が使っていた期間とみなして数える。Discord のサーバー参加者ではなく、web にログインした人の数"
+          description="Discord のサーバー参加者ではなく、web にログインして使った人の数。実測は利用の記録 (1 人 1 日 1 行) から数えた正確な値、推定はセッションが生きていた期間を使っていた期間とみなしたおおよその値"
         >
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <li>
-              <TrendStat
-                label="DAU (直近 1 日)"
-                trend={active_users.daily}
-                unit="人"
-                previousLabel="その前の 1 日は"
-              />
-            </li>
-            <li>
-              <TrendStat
-                label="WAU (直近 7 日)"
-                trend={active_users.weekly}
-                unit="人"
-                previousLabel="その前の 7 日は"
-              />
-            </li>
-            <li>
-              <TrendStat
-                label={`MAU (直近 ${analytics.recent_days} 日)`}
-                trend={active_users.monthly}
-                unit="人"
-                previousLabel={`その前の ${analytics.recent_days} 日は`}
-              />
-            </li>
-          </ul>
-          <BarChart
-            title="月別のアクティブユーザー"
-            unit="人"
-            points={monthlyActiveUsers}
-            labelStride={MONTHLY_STRIDE}
-            summary={`直近 ${analytics.monthly_months} ヶ月 (暦月)`}
-            partialLast={PARTIAL_MONTH}
-          />
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-medium">
+              実測
+              <span className="ml-2 font-normal text-neutral-400 text-xs">
+                {measured.since
+                  ? `${formatMonthDay(measured.since)} から積み上げた利用の記録による。期間は JST の日付で区切り、今日 (まだ途中) を含む`
+                  : "利用の記録はまだ無い (記録を入れた日から積み上がる)"}
+              </span>
+            </h3>
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <li>
+                <TrendStat
+                  label="DAU (今日)"
+                  trend={measured.daily}
+                  unit="人"
+                  previousLabel="昨日は"
+                />
+              </li>
+              <li>
+                <TrendStat
+                  label="WAU (今日までの 7 日)"
+                  trend={measured.weekly}
+                  unit="人"
+                  previousLabel="その前の 7 日は"
+                />
+              </li>
+              <li>
+                <TrendStat
+                  label={`MAU (今日までの ${analytics.recent_days} 日)`}
+                  trend={measured.monthly}
+                  unit="人"
+                  previousLabel={`その前の ${analytics.recent_days} 日は`}
+                />
+              </li>
+            </ul>
+          </div>
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-medium">
+              推定
+              <span className="ml-2 font-normal text-neutral-400 text-xs">
+                セッションから計算し直した値。実測の記録開始より前の期間と比べるときに見る
+              </span>
+            </h3>
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <li>
+                <TrendStat
+                  label="DAU (直近 1 日)"
+                  trend={active_users.daily}
+                  unit="人"
+                  previousLabel="その前の 1 日は"
+                />
+              </li>
+              <li>
+                <TrendStat
+                  label="WAU (直近 7 日)"
+                  trend={active_users.weekly}
+                  unit="人"
+                  previousLabel="その前の 7 日は"
+                />
+              </li>
+              <li>
+                <TrendStat
+                  label={`MAU (直近 ${analytics.recent_days} 日)`}
+                  trend={active_users.monthly}
+                  unit="人"
+                  previousLabel={`その前の ${analytics.recent_days} 日は`}
+                />
+              </li>
+            </ul>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <BarChart
+              title="日別のアクティブユーザー (実測)"
+              unit="人"
+              points={dailyMeasuredActive}
+              labelStride={DAILY_STRIDE}
+              summary={
+                measured.since
+                  ? `記録は ${formatMonthDay(measured.since)} から`
+                  : undefined
+              }
+              partialLast={PARTIAL_DAY}
+            />
+            <BarChart
+              title="月別のアクティブユーザー (推定)"
+              unit="人"
+              points={monthlyActiveUsers}
+              labelStride={MONTHLY_STRIDE}
+              summary={`直近 ${analytics.monthly_months} ヶ月 (暦月)`}
+              partialLast={PARTIAL_MONTH}
+            />
+          </div>
         </Section>
 
         <Section
@@ -395,15 +466,24 @@ export default async function AdminAnalyticsPage() {
           <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-sm text-neutral-400">
             <li>
               <strong className="font-medium text-neutral-300">
+                実測のアクティブユーザーは、記録を入れた日からしか無い。
+              </strong>
+              ログイン済みの利用者からのリクエストを api が受けた日を 1 人 1 日
+              1 行で積み上げた値で、それより前にさかのぼっては取れない。
+              記録開始より前の期間や、記録開始をまたぐ「前の期間との比較」は推定で見る。
+              運営者による管理コンソールの閲覧は実測に数えない
+            </li>
+            <li>
+              <strong className="font-medium text-neutral-300">
                 削除されたデータは数えられない。
               </strong>
               予定は削除すると行ごと消えるので、過去の作成数は実際より少なく出る
             </li>
             <li>
               <strong className="font-medium text-neutral-300">
-                セッションを消すと、過去のアクティブユーザーとログイン回数がさかのぼって減る。
+                セッションを消すと、推定のアクティブユーザーとログイン回数がさかのぼって減る。
               </strong>
-              アクティブユーザーもログインも、保存された履歴ではなく今残っているセッションから
+              推定もログインも、保存された履歴ではなく今残っているセッションから
               計算し直している。
               <Link href={ROUTES.adminSql} className="mx-1 underline">
                 定型操作
@@ -414,23 +494,20 @@ export default async function AdminAnalyticsPage() {
               </Link>
               の「強制ログアウト」(期限内のセッションも消える)
               でも減るので、実行した時期より前の値は信用できない
+              (実測はセッションを消しても減らない)
             </li>
             <li>
-              アクティブユーザーはセッションの生存期間で判定している。ログインしたまま使っていない場合も
-              「使っている」と数えるため、実際よりやや多く出る
+              推定のアクティブユーザーはセッションの生存期間で判定している。ログインしたまま使っていない場合も
+              「使っている」と数えるため、実際よりやや多く出る。逆に、セッションの最終利用日時を更新するのは
+              web
+              のページ表示だけなので、画面を開いたまま予定の作成やカレンダーの再取得だけを続けている利用者は
+              翌日以降 DAU から漏れる。実測にはどちらの問題もない
             </li>
             <li>
-              <strong className="font-medium text-neutral-300">
-                逆に、予定の作成やカレンダーの再取得だけを続けている利用者は漏れる。
-              </strong>
-              セッションの最終利用日時を更新するのは web のページ表示だけで、api
-              を呼ぶだけの操作では更新されないため、
-              画面を開いたまま翌日以降も使っている場合は DAU
-              から外れる。正確に数えるには利用の記録が要る (#81)
-            </li>
-            <li>
-              セッションの更新間隔は最短で 1
-              日なので、日より細かい粒度は出せない。DAU は同じ日の再訪を数えない
+              推定はセッションの更新間隔 (最短 1 日)
+              より細かい粒度が出せず、同じ日の再訪も数えない。実測と推定で期間の区切りも違う
+              (実測は JST の日付、推定は集計時点からの 24 時間刻み) ため、DAU
+              どうしは一致しないことがある
             </li>
             <li>
               推移の右端 (今日・当月)
