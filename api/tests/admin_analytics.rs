@@ -185,6 +185,67 @@ async fn seed_duplicate_notifications(pool: &PgPool) {
     .unwrap();
 }
 
+/// 利用の記録 (#81) を入れる。基準日 (JST の 2026-08-25) から見て各期間に散らす:
+///
+/// | 利用者 | 日付 | 入る期間 |
+/// |---|---|---|
+/// | u1 | 08-25, 08-24 | 今日・昨日・直近 7 日・直近 30 日 |
+/// | u2 | 08-25 | 今日・直近 7 日・直近 30 日 |
+/// | u3 | 08-15 | その前の 7 日 (08-12〜08-18)・直近 30 日 |
+/// | u4 | 07-01 | その前の 30 日 (06-27〜07-26) だけ |
+/// | u5 | 08-26 | 基準日より未来 (どの期間にも入れない) |
+async fn seed_activity(pool: &PgPool) {
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO user_daily_activity (user_id, day) VALUES
+            ('u1', '2026-08-25'), ('u1', '2026-08-24'),
+            ('u2', '2026-08-25'),
+            ('u3', '2026-08-15'),
+            ('u4', '2026-07-01'),
+            ('u5', '2026-08-26');
+        "#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn measured_active_users_count_recorded_days_in_each_window(pool: PgPool) {
+    seed_activity(&pool).await;
+
+    let measured = admin_analytics::measured_active_users(&pool, date("2026-08-25"))
+        .await
+        .unwrap();
+
+    // 記録が始まった日は一番古い行。基準日より未来の行 (u5) はどの集計にも入らない
+    assert_eq!(measured.since, Some(date("2026-07-01")));
+    // 今日は u1 / u2、昨日は u1 だけ
+    assert_eq!(measured.daily.current, 2);
+    assert_eq!(measured.daily.previous, 1);
+    // 直近 7 日 (08-19〜08-25) は u1 / u2、その前の 7 日 (08-12〜08-18) は u3
+    assert_eq!(measured.weekly.current, 2);
+    assert_eq!(measured.weekly.previous, 1);
+    // 直近 30 日 (07-27〜08-25) は u1 / u2 / u3、その前の 30 日 (06-27〜07-26) は u4
+    assert_eq!(measured.monthly.current, 3);
+    assert_eq!(measured.monthly.previous, 1);
+    assert_eq!(measured.monthly.delta, 2);
+    assert_eq!(measured.monthly.change_percent, Some(200.0));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn measured_active_users_are_empty_before_any_record(pool: PgPool) {
+    let measured = admin_analytics::measured_active_users(&pool, date("2026-08-25"))
+        .await
+        .unwrap();
+
+    // 記録が始まる前は「実測なし」と分かる形で返す (0 と null。増減率も出さない)
+    assert_eq!(measured.since, None);
+    assert_eq!(measured.daily.current, 0);
+    assert_eq!(measured.monthly.current, 0);
+    assert_eq!(measured.monthly.change_percent, None);
+}
+
 #[sqlx::test(migrations = "./migrations")]
 async fn active_users_count_sessions_overlapping_each_window(pool: PgPool) {
     seed_auth(&pool).await;
@@ -338,6 +399,7 @@ async fn notification_stats_count_only_settings_that_actually_notify(pool: PgPoo
 async fn daily_series_covers_every_day_including_empty_ones(pool: PgPool) {
     seed_auth(&pool).await;
     seed_guilds(&pool).await;
+    seed_activity(&pool).await;
 
     let daily = admin_analytics::daily(&pool, now_jst()).await.unwrap();
 
@@ -360,6 +422,17 @@ async fn daily_series_covers_every_day_including_empty_ones(pool: PgPool) {
     // s2 (08-24 19:00 JST) と s5 (08-24 20:00 JST) の 2 回
     assert_eq!(on("2026-08-24").logins, 2);
     assert_eq!(daily.iter().map(|p| p.logins).sum::<i64>(), 4);
+
+    // 実測のアクティブユーザー (#81)。記録が無い日は 0 で、
+    // 窓から外れた u4 (07-01) と今日 (右端) より未来の u5 (08-26) は入らない
+    assert_eq!(on("2026-08-25").measured_active_users, 2); // u1 / u2
+    assert_eq!(on("2026-08-24").measured_active_users, 1); // u1
+    assert_eq!(on("2026-08-15").measured_active_users, 1); // u3
+    assert_eq!(on("2026-08-23").measured_active_users, 0);
+    assert_eq!(
+        daily.iter().map(|p| p.measured_active_users).sum::<i64>(),
+        4
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]

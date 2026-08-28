@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH days AS (\n            SELECT ($1::timestamp::date - g)::date AS day\n            FROM generate_series($2::int - 1, 0, -1) AS g\n        ),\n        -- 右端 (今日) は $1 (集計時刻) で切る。翌 0 時まで読むと、スナップショット確定までに\n        -- 作られた行や未来日時の行が入り、同じ上限を持つ直近 24 時間などの件数と食い違う\n        ev AS (\n            SELECT created_at::date AS day, count(*) AS n\n            FROM events\n            WHERE created_at >= ($1::timestamp::date - ($2::int - 1))::timestamp\n              AND created_at <= $1\n            GROUP BY 1\n        ),\n        nu AS (\n            SELECT (\"createdAt\" AT TIME ZONE 'Asia/Tokyo')::date AS day, count(*) AS n\n            FROM \"user\"\n            WHERE \"createdAt\" >= ($1::timestamp::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'\n              AND \"createdAt\" <= $1 AT TIME ZONE 'Asia/Tokyo'\n            GROUP BY 1\n        ),\n        lg AS (\n            SELECT (\"createdAt\" AT TIME ZONE 'Asia/Tokyo')::date AS day, count(*) AS n\n            FROM \"session\"\n            WHERE \"createdAt\" >= ($1::timestamp::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'\n              AND \"createdAt\" <= $1 AT TIME ZONE 'Asia/Tokyo'\n            GROUP BY 1\n        ),\n        -- 実測のアクティブユーザー (#81)。主キーが (user_id, day) なので count(*) が人数になる。\n        -- 右端 (今日) は日付単位の記録なので、集計時刻ではなく日付そのもので切る\n        ma AS (\n            SELECT day, count(*) AS n\n            FROM user_daily_activity\n            WHERE day >= ($1::timestamp::date - ($2::int - 1))\n              AND day <= $1::timestamp::date\n            GROUP BY 1\n        )\n        SELECT\n            d.day AS \"date!\",\n            COALESCE(ev.n, 0) AS \"events!\",\n            COALESCE(nu.n, 0) AS \"new_users!\",\n            COALESCE(lg.n, 0) AS \"logins!\",\n            COALESCE(ma.n, 0) AS \"measured_active_users!\"\n        FROM days d\n        LEFT JOIN ev ON ev.day = d.day\n        LEFT JOIN nu ON nu.day = d.day\n        LEFT JOIN lg ON lg.day = d.day\n        LEFT JOIN ma ON ma.day = d.day\n        ORDER BY d.day\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "date!",
+        "type_info": "Date",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "events!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "new_users!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "logins!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "measured_active_users!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "50009fa74c9daae0970553acc2bb9e63ebf29f0718fa218184c5a3b4b3c5a94a"
+}

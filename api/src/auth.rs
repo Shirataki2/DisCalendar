@@ -56,8 +56,26 @@ impl FromRequest for AuthUser {
                 .await?
                 .ok_or(ApiError::Unauthorized)?;
             req.extensions_mut().insert(user.clone());
+            // 利用の記録 (#81)。運営者の閲覧が指標に混ざらないよう管理コンソールは数えない
+            if !req.path().starts_with("/admin") {
+                record_daily_activity(state.get_ref(), &user.id).await;
+            }
             Ok(user)
         })
+    }
+}
+
+/// 日次アクティビティ (#81) を記録する。1 人 1 日 1 行で、同じ日の 2 回目以降は
+/// キャッシュで DB への往復ごとスキップする。記録は本来のリクエストの付随処理なので、
+/// 失敗しても警告ログだけ残してリクエスト自体は通す
+async fn record_daily_activity(state: &AppState, user_id: &str) {
+    let day = crate::models::now_jst().date();
+    if state.activity_days.get(user_id).await == Some(day) {
+        return;
+    }
+    match crate::models::user_activity::record(&state.pool, user_id, day).await {
+        Ok(()) => state.activity_days.insert(user_id.to_owned(), day).await,
+        Err(error) => tracing::warn!(%error, "failed to record daily user activity"),
     }
 }
 

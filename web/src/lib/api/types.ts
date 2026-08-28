@@ -367,13 +367,28 @@ export interface AdminTrend {
   change_percent: number | null;
 }
 
-/** アクティブユーザー (セッションの生存期間がその期間に重なる利用者の数) */
+/** アクティブユーザー (セッションの生存期間がその期間に重なる利用者の数。推定) */
 export interface AdminActiveUsers {
   /** 直近 1 日 (DAU) */
   daily: AdminTrend;
   /** 直近 7 日 (WAU) */
   weekly: AdminTrend;
   /** 直近 30 日 (MAU) */
+  monthly: AdminTrend;
+}
+
+/**
+ * 実測のアクティブユーザー (#81)。利用の記録 (1 人 1 日 1 行) から数える。
+ * 推定 (AdminActiveUsers) が「今」からの 24 時間刻みなのに対して、こちらは JST の日付で区切る
+ */
+export interface AdminMeasuredActiveUsers {
+  /** 記録が始まった日 (`2026-08-28`)。まだ 1 行も無ければ null */
+  since: string | null;
+  /** 今日 (まだ途中)。前は昨日 */
+  daily: AdminTrend;
+  /** 今日までの 7 日間。前はその前の 7 日間 */
+  weekly: AdminTrend;
+  /** 今日までの 30 日間。前はその前の 30 日間 */
   monthly: AdminTrend;
 }
 
@@ -384,6 +399,8 @@ export interface AdminDailyPoint {
   new_users: number;
   /** その日に作られたセッション (ログイン) の数 */
   logins: number;
+  /** その日に使った利用者 (実測、#81)。記録開始前の日は 0 */
+  measured_active_users: number;
 }
 
 /** 月別の 1 点。month は JST の月初 (`2026-08-01`) */
@@ -451,7 +468,10 @@ export interface AdminAnalytics {
   monthly_months: number;
   /** 「アクティブ」「直近」の基準にした日数 */
   recent_days: number;
+  /** セッションからの推定 (#79) */
   active_users: AdminActiveUsers;
+  /** 利用の記録から数えた実測 (#81) */
+  measured_active_users: AdminMeasuredActiveUsers;
   event_creation: AdminEventCreation;
   breakdown: AdminAnalyticsBreakdown;
   guilds: AdminGuildActivity;

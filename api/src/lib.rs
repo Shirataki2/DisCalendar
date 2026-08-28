@@ -57,6 +57,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         admin: AdminConfig {
             discord_user_ids: config.admin_discord_user_ids.iter().cloned().collect(),
         },
+        // 日付が変わったかは値 (記録済みの日付) の比較で見るので、TTL は使わなくなった
+        // エントリを捨ててメモリを抑えるためだけ
+        activity_days: moka::future::Cache::builder()
+            .max_capacity(100_000)
+            .time_to_live(std::time::Duration::from_secs(48 * 3600))
+            .build(),
         started_at: chrono::Utc::now(),
     });
     if config.admin_discord_user_ids.is_empty() {
