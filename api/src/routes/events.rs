@@ -258,7 +258,10 @@ pub async fn update(
                     if modified {
                         (Some(current.clone()), None)
                     } else {
-                        // Discord 側で手動削除されていた: フラグが有効 = あるべき状態なので作り直す
+                        // Discord 側で手動削除されていた: フラグが有効 = あるべき状態なので作り直す。
+                        // 作り直しも Discord にイベントを作る操作なので、新規連携と同じ権限を要る
+                        // (対応付けが残っているだけで権限チェックを免れると、Bot 経由で作れてしまう)
+                        ensure_can_create_events(&member)?;
                         let id = state
                             .discord
                             .create_scheduled_event(guild_id, &payload)

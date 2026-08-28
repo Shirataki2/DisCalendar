@@ -121,7 +121,7 @@ export function useUpdateEvent(
         queryKey: listsKey,
       });
       // discord_scheduled_event はリクエスト専用のフラグで ApiEvent には無いので剥がす
-      // (連携 ID の変化は onSettled の invalidate で追いつく)
+      // (連携 ID の変化は成功後に onSuccess でレスポンスを反映する)
       const { discord_scheduled_event: _flag, ...rest } = input;
       queryClient.setQueriesData<ApiEvent[]>({ queryKey: listsKey }, (events) =>
         events?.map((event) =>
@@ -131,6 +131,14 @@ export function useUpdateEvent(
         ),
       );
       return { previous };
+    },
+    // サーバーが返した内容でキャッシュを揃える。とくに Discord の連携 ID (#94) は
+    // 楽観的更新では分からないので、ここで入れておかないと再取得が失敗したときに
+    // 古い ID が残り、次の編集で連携を意図せず解除・作り直ししてしまう
+    onSuccess: (updated) => {
+      queryClient.setQueriesData<ApiEvent[]>({ queryKey: listsKey }, (events) =>
+        events?.map((event) => (event.id === updated.id ? updated : event)),
+      );
     },
     onError: (_error, _variables, context) => {
       for (const [key, data] of context?.previous ?? []) {
