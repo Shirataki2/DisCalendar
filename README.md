@@ -464,7 +464,7 @@ DB を変えるマイグレーションを追加する PR では、対になる�
 ## 開発の進め方 (GitHub)
 
 - 作業は Issue に登録する (`.github/ISSUE_TEMPLATE/` のフォーム: 不具合報告 / 機能要望 / 開発タスク)。
-  マイルストーン「v3 リリース」と `area:*` ラベルを付けて進捗を追う
+  マイルストーン (テーマ単位。現在の一覧は `gh api repos/{owner}/{repo}/milestones` で確認) と `area:*` ラベルを付けて進捗を追う
 - `main` への直接 push は禁止 (ルールセット)。ブランチを切って PR を作り、本文の `Closes #N` で Issue と紐付ける
   (`gh issue develop N --checkout` でブランチを作れる)。マージは squash のみで、マージ後のブランチは自動削除される
 - PR では CI (`.github/workflows/ci.yml`: web は Biome / tsc / Vitest / next build、rust (api / bot) は rustfmt / clippy / test、

@@ -13,7 +13,8 @@ description: DisCalendar の GitHub Issue を起点にした開発フロー (Iss
 
 - `main` は直接 push 禁止。必ず ブランチ → PR → 必須チェック `ci` 成功 → **squash マージ** (マージ後リモートブランチは自動削除)
 - Issue はテンプレートに沿う: タイトル接頭辞 `[task]` / `[bug]` / `[feature]`、ラベルは種類 (`task` / `bug` / `enhancement` / `refactor`) + 対象 (`area:web` / `area:api` / `area:bot` / `area:infra`)、必要なら `priority:high`。
-  マイルストーンは **「v3 リリース」1 本だけ** (ステップ単位には分けない)
+  マイルストーンはテーマ単位で運用していて増減する。名前を決め打ちせず、
+  `gh api repos/{owner}/{repo}/milestones --jq '.[].title'` で現在の一覧を確認し、内容に合うものを指定する
 - PR のタイトルは squash 後のコミットメッセージになるので「変更内容が分かる一文」。本文は `.github/PULL_REQUEST_TEMPLATE.md` の構成で、`Closes #N` を入れる
 - 実装規約は [AGENTS.md](../../../AGENTS.md) (+ `web/AGENTS.md`, `api/README.md`, `bot/README.md`)。
   Code Review Rules の P0 (DB スキーマ互換・認可の迂回・秘密情報) はレビューで必ず弾かれるので最初から守る
@@ -46,8 +47,9 @@ description: DisCalendar の GitHub Issue を起点にした開発フロー (Iss
   本文の形は [references/templates.md](references/templates.md) を見る。例:
 
   ```bash
+  gh api repos/{owner}/{repo}/milestones --jq '.[].title'   # 現在のマイルストーンを確認
   gh issue create --title "[task] 予定一覧の CSV エクスポートを追加する" \
-    --label task --label area:web --label area:api --milestone "v3 リリース" --body-file body.md
+    --label task --label area:web --label area:api --milestone "<内容に合うもの>" --body-file body.md
   ```
 
   Issue 作成は外向きの操作なので、タイトル・本文をユーザーに見せてから実行する (ユーザーが「Issue にして」と言っている場合はそのまま作ってよい)
@@ -114,7 +116,7 @@ worktree 内で気をつけること:
 git add -A && git commit -m "<日本語の要約>"
 git push -u origin "$(git rev-parse --abbrev-ref HEAD)"
 gh pr create --title "<squash 後のコミットメッセージになる一文>" \
-  --milestone "v3 リリース" --label area:<対象> --body-file pr-body.md
+  --milestone "<Issue と同じマイルストーン>" --label area:<対象> --body-file pr-body.md
 ```
 
 - PR 本文は `.github/PULL_REQUEST_TEMPLATE.md` の見出し (概要 / 関連 Issue / 変更内容 / 動作確認 / チェックリスト) を守る。
