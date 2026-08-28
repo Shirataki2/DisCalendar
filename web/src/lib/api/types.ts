@@ -34,7 +34,10 @@ export interface ApiEventInput {
   is_all_day: boolean;
   start_at: string;
   end_at: string;
-  /** Discord のスケジュールイベントとしても作成・同期する (#94) */
+  /**
+   * Discord のスケジュールイベントとしても作成・同期する (#94)。
+   * api 側は省略も受け付ける (更新では現在の連携状態を保持) が、web は常に明示して送る
+   */
   discord_scheduled_event: boolean;
 }
 
@@ -495,6 +498,7 @@ export type ApiErrorKind =
   | "forbidden"
   | "not_found"
   | "bad_request"
+  | "conflict"
   | "rate_limited"
   | "unavailable"
   | "discord_error"

@@ -92,9 +92,11 @@ pub struct EventInput {
     #[schema(example = "2026-08-22T11:00:00")]
     pub end_at: NaiveDateTime,
     /// Discord のスケジュールイベントとしても作成・同期するか (#94)。
-    /// 通常 API (web のダイアログ) だけが見るフラグで、管理コンソールのルートでは無視される
+    /// 通常 API (web のダイアログ) だけが見るフラグで、管理コンソールのルートでは無視される。
+    /// 省略時 (`None`) は、作成では「作らない」、更新では「現在の連携状態を保持」として扱う
+    /// (このフラグを知らない古いクライアントからの更新で、既存の連携が意図せず外れないため)
     #[serde(default)]
-    pub discord_scheduled_event: bool,
+    pub discord_scheduled_event: Option<bool>,
 }
 
 impl EventInput {
@@ -141,9 +143,14 @@ fn is_hex_color(s: &str) -> bool {
 /// Discord は開始時刻が未来のイベントしか作れないため、過去 (現在を含む) 開始でフラグ有効は拒否する。
 /// また Discord の外部イベントは終了が開始より後である必要があるため、時刻指定の予定では
 /// 通常の検証が許している「同時刻」も拒否する (終日予定は終了に +1 日するので同時刻でよい)。
-/// web 側も同じ条件でチェックボックスを制御する。管理コンソールはフラグを無視するのでこの検証を通さない
-pub fn validate_discord_flag(input: &EventInput, now: NaiveDateTime) -> Result<(), ApiError> {
-    if !input.discord_scheduled_event {
+/// web 側も同じ条件でチェックボックスを制御する。管理コンソールはフラグを無視するのでこの検証を通さない。
+/// `discord_scheduled_event` は省略時の解決を済ませた実効値 (呼び出し側が更新では現在の連携状態で補う)
+pub fn validate_discord_flag(
+    input: &EventInput,
+    discord_scheduled_event: bool,
+    now: NaiveDateTime,
+) -> Result<(), ApiError> {
+    if !discord_scheduled_event {
         return Ok(());
     }
     if input.start_at <= now {
@@ -343,7 +350,7 @@ mod tests {
             is_all_day: false,
             start_at: "2026-08-22T10:00:00".parse().unwrap(),
             end_at: "2026-08-22T11:00:00".parse().unwrap(),
-            discord_scheduled_event: false,
+            discord_scheduled_event: None,
         }
     }
 
@@ -390,31 +397,28 @@ mod tests {
     #[test]
     fn discord_flag_requires_future_start() {
         let now = "2026-08-22T10:00:00".parse().unwrap();
-        let mut i = input();
+        let i = input();
         // フラグが無効なら過去開始でも通る
-        assert!(validate_discord_flag(&i, now).is_ok());
-        i.discord_scheduled_event = true;
+        assert!(validate_discord_flag(&i, false, now).is_ok());
         // 開始が現在以前なら拒否 (Discord は未来の開始時刻を必須とする)
-        assert!(validate_discord_flag(&i, now).is_err());
-        assert!(validate_discord_flag(&i, "2026-08-22T09:59:59".parse().unwrap()).is_ok());
+        assert!(validate_discord_flag(&i, true, now).is_err());
+        assert!(validate_discord_flag(&i, true, "2026-08-22T09:59:59".parse().unwrap()).is_ok());
     }
 
     #[test]
     fn discord_flag_requires_end_after_start_for_timed_events() {
         let now = "2026-08-01T00:00:00".parse().unwrap();
         let mut i = input();
-        i.discord_scheduled_event = true;
         i.end_at = i.start_at;
         // 時刻指定の同時刻は通常の検証は許すが、Discord の外部イベントは作れないので拒否
         assert!(i.validate().is_ok());
-        assert!(validate_discord_flag(&i, now).is_err());
+        assert!(validate_discord_flag(&i, true, now).is_err());
         // 終日予定は終了に +1 日するので同時刻でよい
         i.is_all_day = true;
-        assert!(validate_discord_flag(&i, now).is_ok());
+        assert!(validate_discord_flag(&i, true, now).is_ok());
         // フラグが無効なら関知しない
         i.is_all_day = false;
-        i.discord_scheduled_event = false;
-        assert!(validate_discord_flag(&i, now).is_ok());
+        assert!(validate_discord_flag(&i, false, now).is_ok());
     }
 
     #[test]
@@ -422,11 +426,10 @@ mod tests {
         // chrono の上限日は「翌日 0:00」が作れず変換が panic するので、検証で弾く
         let now = "2026-08-01T00:00:00".parse().unwrap();
         let mut i = input();
-        i.discord_scheduled_event = true;
         i.is_all_day = true;
         i.end_at = chrono::NaiveDate::MAX.and_hms_opt(0, 0, 0).unwrap();
         assert!(i.validate().is_ok());
-        assert!(validate_discord_flag(&i, now).is_err());
+        assert!(validate_discord_flag(&i, true, now).is_err());
     }
 
     #[test]

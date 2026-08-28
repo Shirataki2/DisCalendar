@@ -19,10 +19,11 @@ use crate::{
 /// 一度に取得できる期間の上限 (FullCalendar の月表示は最大 6 週間)
 const MAX_RANGE_DAYS: i64 = 400;
 
-/// 予定の更新で、同じ予定への並行更新に割り込まれたときにやり直す回数 (#94)。
-/// Discord への反映をトランザクションの外で行うため、その間に対応付けが変わっていたら
-/// 最初から読み直す。何度も割り込まれるのは考えにくいので少なめでよい
-const UPDATE_SYNC_ATTEMPTS: u32 = 3;
+/// 予定の更新で、状態を読み直してやり直す回数の上限 (#94)。
+/// 連携が絡む更新は予定単位のロック取得後に 1 回読み直すのと、
+/// 別プロセス経由などロックの外から対応付けが変わっていたときのやり直しに使う。
+/// 何度も割り込まれるのは考えにくいので少なめでよい
+const UPDATE_SYNC_ATTEMPTS: u32 = 4;
 
 #[derive(Deserialize, IntoParams)]
 pub struct ListQuery {
@@ -100,10 +101,12 @@ pub async fn create(
 ) -> Result<HttpResponse, ApiError> {
     ensure_can_edit(&state.pool, &member).await?;
     body.validate()?;
-    events::validate_discord_flag(&body, now_jst())?;
+    // 作成では省略 (フラグを知らない古いクライアント) は「作らない」として扱う
+    let discord_scheduled_event = body.discord_scheduled_event.unwrap_or(false);
+    events::validate_discord_flag(&body, discord_scheduled_event, now_jst())?;
     let guild_id = member.guild_id();
 
-    if !body.discord_scheduled_event {
+    if !discord_scheduled_event {
         let row = events::create(&state.pool, guild_id, &body, now_jst()).await?;
         tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event created");
         return Ok(HttpResponse::Created().json(Event::from(row)));
@@ -167,7 +170,6 @@ pub async fn update(
 ) -> Result<web::Json<Event>, ApiError> {
     ensure_can_edit(&state.pool, &member).await?;
     body.validate()?;
-    events::validate_discord_flag(&body, now_jst())?;
     let guild_id = member.guild_id();
 
     // 変更前の状態をロックせずに読み、Discord への反映を分岐する (#94)。
@@ -175,14 +177,22 @@ pub async fn update(
     // トランザクションの外で先に済ませ、書き込み時にロックを取り直して実際の対応付けと
     // 突き合わせる。突き合わせがずれていたら (同じ予定への並行更新)、割り込んだ側の
     // commit 後の後始末がこの更新の対応先を消しうるので、書き込まずに最初からやり直す
+    let mut event_lock = None;
     for _ in 0..UPDATE_SYNC_ATTEMPTS {
         let old = events::find_by_id(&state.pool, guild_id, path.event_id)
             .await?
             .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
 
+        // 更新では省略 (フラグを知らない古いクライアント) は「現在の連携状態を保持」として扱う
+        // (既定 false にすると、古いタブからの編集・ドラッグで既存の連携が意図せず外れてしまう)
+        let discord_scheduled_event = body
+            .discord_scheduled_event
+            .unwrap_or(old.discord_scheduled_event_id.is_some());
+        events::validate_discord_flag(&body, discord_scheduled_event, now_jst())?;
+
         // 連携なしの通常更新 (最頻パス) は 1 文で済ませる。直前に別リクエストが連携を
         // 足していた場合は、その連携への値の反映が次の編集まで遅れるだけ
-        if old.discord_scheduled_event_id.is_none() && !body.discord_scheduled_event {
+        if old.discord_scheduled_event_id.is_none() && !discord_scheduled_event {
             let row = events::update(&state.pool, guild_id, path.event_id, &body)
                 .await?
                 .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
@@ -190,47 +200,54 @@ pub async fn update(
             return Ok(web::Json(Event::from(row)));
         }
 
+        // 連携が絡む更新は予定単位で直列化する (同じ予定への並行更新では、突き合わせだけだと
+        // 双方が同じ連携を維持したまま Discord への反映順と commit 順が食い違い、
+        // どちらの内容とも言えない状態で成功してしまう)。ロックは api のプロセス内のもの
+        // (`AppState::event_update_locks`)。待っている間に状態が変わりうるので、取れたら読み直す
+        if event_lock.is_none() {
+            event_lock = Some(state.event_update_locks.lock(path.event_id).await);
+            continue;
+        }
+
         // Discord 側を先に「あるべき状態」にする。失敗したら予定には一切触れず全体を失敗にする。
         // desired = この更新後に紐付いているべき scheduled_event_id (None = 連携なし)、
         // created_now = この更新で新しく作った Discord イベント (DB 失敗・やり直し時の後始末対象)
-        let (desired, created_now): (Option<String>, Option<String>) = match (
-            &old.discord_scheduled_event_id,
-            body.discord_scheduled_event,
-        ) {
-            (None, true) => {
-                let id = state
-                    .discord
-                    .create_scheduled_event(
-                        guild_id,
-                        &payload_for(&state.site_base_url, guild_id, &body),
-                    )
-                    .await
-                    .map_err(describe_scheduled_event_error)?;
-                (Some(id.clone()), Some(id))
-            }
-            (Some(current), true) => {
-                let payload = payload_for(&state.site_base_url, guild_id, &body);
-                let modified = state
-                    .discord
-                    .modify_scheduled_event(guild_id, current, &payload)
-                    .await
-                    .map_err(describe_scheduled_event_error)?;
-                if modified {
-                    (Some(current.clone()), None)
-                } else {
-                    // Discord 側で手動削除されていた: フラグが有効 = あるべき状態なので作り直す
+        let (desired, created_now): (Option<String>, Option<String>) =
+            match (&old.discord_scheduled_event_id, discord_scheduled_event) {
+                (None, true) => {
                     let id = state
                         .discord
-                        .create_scheduled_event(guild_id, &payload)
+                        .create_scheduled_event(
+                            guild_id,
+                            &payload_for(&state.site_base_url, guild_id, &body),
+                        )
                         .await
                         .map_err(describe_scheduled_event_error)?;
                     (Some(id.clone()), Some(id))
                 }
-            }
-            // 連携を外す。Discord 側の削除は commit 後にベストエフォートで行う
-            (Some(_), false) => (None, None),
-            (None, false) => unreachable!("handled above"),
-        };
+                (Some(current), true) => {
+                    let payload = payload_for(&state.site_base_url, guild_id, &body);
+                    let modified = state
+                        .discord
+                        .modify_scheduled_event(guild_id, current, &payload)
+                        .await
+                        .map_err(describe_scheduled_event_error)?;
+                    if modified {
+                        (Some(current.clone()), None)
+                    } else {
+                        // Discord 側で手動削除されていた: フラグが有効 = あるべき状態なので作り直す
+                        let id = state
+                            .discord
+                            .create_scheduled_event(guild_id, &payload)
+                            .await
+                            .map_err(describe_scheduled_event_error)?;
+                        (Some(id.clone()), Some(id))
+                    }
+                }
+                // 連携を外す。Discord 側の削除は commit 後にベストエフォートで行う
+                (Some(_), false) => (None, None),
+                (None, false) => unreachable!("handled above"),
+            };
 
         // 短いトランザクションで、対応付けが分岐の起点から変わっていないことを確かめてから
         // (変わっていたら `None` = やり直し)、値を更新して対応付けを desired に合わせる

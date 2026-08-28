@@ -29,7 +29,7 @@ fn input(name: &str, start: &str, end: &str) -> EventInput {
         is_all_day: false,
         start_at: dt(start),
         end_at: dt(end),
-        discord_scheduled_event: false,
+        discord_scheduled_event: None,
     }
 }
 
