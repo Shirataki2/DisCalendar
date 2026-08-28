@@ -224,6 +224,27 @@ pub async fn create<'e>(
     .await
 }
 
+/// ギルドに属する予定を 1 件、ロックせずに読む (対応付け込み)。該当なしなら `None`。
+/// Discord 連携 (#94) の更新で、外部呼び出しの間 DB 接続を占有しないための分岐の起点に使う
+/// (実際の書き込みは [`find_by_id_for_update`] でロックを取り直し、ここで読んだ状態と突き合わせる)
+pub async fn find_by_id(pool: &PgPool, guild_id: &str, id: i32) -> sqlx::Result<Option<EventRow>> {
+    sqlx::query_as!(
+        EventRow,
+        r#"
+        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
+               e.start_at, e.end_at, e.created_at,
+               l.scheduled_event_id AS "discord_scheduled_event_id?"
+        FROM events e
+        LEFT JOIN event_discord_links l ON l.event_id = e.id
+        WHERE e.id = $1 AND e.guild_id = $2
+        "#,
+        id,
+        guild_id
+    )
+    .fetch_optional(pool)
+    .await
+}
+
 /// ギルドに属する予定を 1 件取得し、トランザクションの終わりまで行をロックする (`FOR UPDATE`)。
 /// 管理コンソールが監査ログの「変更前」として読むのと、Discord 連携 (#94) の分岐の起点に使う。
 /// 更新・削除までの間に別トランザクションが同じ行を書き換えて、before と実際の直前の値が
