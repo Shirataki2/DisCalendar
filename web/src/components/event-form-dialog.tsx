@@ -56,6 +56,7 @@ import {
   NOTIFICATION_UNITS,
   NOTIFICATIONS_MAX,
   nowInJst,
+  withCheckedDiscordEvent,
 } from "@/lib/event-form";
 
 export type EventDialogState =
@@ -192,7 +193,8 @@ function EventForm({
   const submit = handleSubmit(async (values) => {
     setSubmitError(null);
     try {
-      await onSubmit(eventFormToApiInput(values));
+      // 開いたまま開始時刻をまたぐことがあるので、連携の可否は送信直前にも確かめる
+      await onSubmit(eventFormToApiInput(withCheckedDiscordEvent(values)));
       onClose();
     } catch (error) {
       setSubmitError(describeApiError(error));

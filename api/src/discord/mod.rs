@@ -55,21 +55,27 @@ pub enum DiscordError {
     InvalidId,
 }
 
-/// Discord の Snowflake ID (数字のみ、20 桁以下) か。
-/// URL のパスに埋め込む値は必ずこれを通す: 数字だけなら `/` や `..`、クエリの区切りが
-/// 入り込まないので、組み立てた URL が別のエンドポイントを指すことはない
+/// Discord の Snowflake ID (数字のみ、20 桁以下) か。リクエストの入り口で形式を確かめるのに使う
+/// (URL に埋め込む値は、さらに [`checked_id`] で組み立て直す)
 pub fn is_snowflake(s: &str) -> bool {
     !s.is_empty() && s.len() <= 20 && s.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// URL のパスに埋め込む前に ID を確認する
-fn checked_id(id: &str) -> Result<&str, DiscordError> {
-    if is_snowflake(id) {
-        Ok(id)
-    } else {
-        tracing::warn!("refused to build a discord url with a non-snowflake id");
-        Err(DiscordError::InvalidId)
+/// URL のパスに埋め込む ID を、**数値として解釈し直した文字列**にする。
+///
+/// 受け取った文字列をそのまま URL に載せず、`u64` を経由して組み立て直すので、
+/// `/` や `..`、クエリの区切りといったパスの意味を変える文字が入り込む余地がない
+/// (呼び出し元も検証済みの値しか渡さないが、URL を作る境界でも断ち切る多層防御)。
+/// 先頭ゼロなどで元の文字列と一致しない値は、別の ID を指すことになるので拒否する
+fn checked_id(id: &str) -> Result<String, DiscordError> {
+    if let Ok(parsed) = id.parse::<u64>() {
+        let normalized = parsed.to_string();
+        if normalized == id {
+            return Ok(normalized);
+        }
     }
+    tracing::warn!("refused to build a discord url with a non-snowflake id");
+    Err(DiscordError::InvalidId)
 }
 
 /// 権限計算に必要な最小限のギルド情報
@@ -421,5 +427,49 @@ impl DiscordClient {
             tracing::warn!(%path, %status, %body, "discord api error");
             return Err(DiscordError::Status { status, body });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{checked_id, is_snowflake};
+
+    #[test]
+    fn checked_id_accepts_snowflakes() {
+        assert_eq!(
+            checked_id("782502586817314816").unwrap(),
+            "782502586817314816"
+        );
+        assert_eq!(checked_id("0").unwrap(), "0");
+    }
+
+    #[test]
+    fn checked_id_rejects_values_that_would_change_the_url() {
+        // パスの意味を変えうる文字は、URL に載る前に弾く
+        for id in [
+            "",
+            "abc",
+            "1/2",
+            "..",
+            "../../users/@me",
+            "1?query=x",
+            "1#frag",
+            "1%2F2",
+            "1 2",
+            " 1",
+            "+1",
+            "-1",
+            // u64 に収まらない (Discord の Snowflake は 64bit)
+            "99999999999999999999",
+        ] {
+            assert!(checked_id(id).is_err(), "{id}");
+        }
+    }
+
+    #[test]
+    fn checked_id_rejects_ids_that_do_not_round_trip() {
+        // 先頭ゼロを落とすと別の ID を指してしまうので、数値としては読めても拒否する
+        assert!(checked_id("0123456789012345678").is_err());
+        assert!(!is_snowflake(""));
     }
 }

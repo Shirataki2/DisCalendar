@@ -14,6 +14,7 @@ import {
   newEventFormValues,
   nowInJst,
   toDateRange,
+  withCheckedDiscordEvent,
 } from "@/lib/event-form";
 
 // 日付はローカル時刻で組み立てる (API の JST 文字列はブラウザのローカル時刻をそのまま JST とみなすので、
@@ -155,6 +156,38 @@ describe("nowInJst", () => {
     const jst = nowInJst(new Date(Date.UTC(2026, 7, 23, 1, 30)));
     expect([jst.getHours(), jst.getMinutes()]).toEqual([10, 30]);
     expect(jst.getDate()).toBe(23);
+  });
+});
+
+describe("withCheckedDiscordEvent", () => {
+  // 予定の開始は 2026-08-23 10:00 (ローカル = JST とみなす)。
+  // 判定に渡す「今」は UTC で作る (nowInJst が JST の壁時計に読み替える)
+  const utc = (d: number, h: number, m = 0) =>
+    new Date(Date.UTC(2026, 7, d, h, m));
+  const linked: EventFormValues = { ...valid, discordEvent: true };
+
+  it("開始が未来ならそのまま (同じ参照を返す)", () => {
+    // UTC 00:59 = JST 09:59
+    expect(withCheckedDiscordEvent(linked, utc(23, 0, 59))).toBe(linked);
+  });
+
+  it("開始時刻をまたいでいたらチェックを落とす", () => {
+    // UTC 01:00 = JST 10:00 (開始と同時刻。api も「現在以前」は拒否する)
+    expect(withCheckedDiscordEvent(linked, utc(23, 1)).discordEvent).toBe(
+      false,
+    );
+    expect(withCheckedDiscordEvent(linked, utc(23, 2)).discordEvent).toBe(
+      false,
+    );
+  });
+
+  it("元から連携なしなら触らない", () => {
+    expect(withCheckedDiscordEvent(valid, utc(23, 2))).toBe(valid);
+  });
+
+  it("時刻が不正で開始が決まらないときは触らない (フォームの検証に任せる)", () => {
+    const broken = { ...linked, startTime: "" };
+    expect(withCheckedDiscordEvent(broken, utc(23, 2))).toBe(broken);
   });
 });
 

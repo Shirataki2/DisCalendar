@@ -195,6 +195,26 @@ export function formStartAt(
 }
 
 /**
+ * 送信直前に Discord 連携 (#94) の可否をもう一度確かめ、連携できない開始日時なら
+ * チェックを落とした値を返す。
+ *
+ * チェックボックスの無効化は開いた時点の時刻で決まるので、ダイアログを開いたまま
+ * 開始時刻をまたぐと、有効なまま送信されて api の検証 (`validate_discord_flag`) で
+ * 400 になってしまう。案内どおり「過去開始なら連携しない (連携済みなら解除)」に倒す
+ */
+export function withCheckedDiscordEvent(
+  values: EventFormValues,
+  now = new Date(),
+): EventFormValues {
+  if (!values.discordEvent) return values;
+  const startAt = formStartAt(values);
+  if (startAt === null || startAt.getTime() > nowInJst(now).getTime()) {
+    return values;
+  }
+  return { ...values, discordEvent: false };
+}
+
+/**
  * フォームの値 → 実際の開始/終了日時。
  * 終日予定は両端とも 0:00 で、終了日は「含む」(DB の表現と同じ)
  */
