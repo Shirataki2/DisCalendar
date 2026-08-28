@@ -198,14 +198,29 @@ pub async fn update(
             ensure_can_create_events(&member)?;
         }
 
-        // 連携なしの通常更新 (最頻パス) は 1 文で済ませる。直前に別リクエストが連携を
-        // 足していた場合は、その連携への値の反映が次の編集まで遅れるだけ
+        // 連携なしの通常更新 (最頻パス) は 1 文で済ませる。読んでから書くまでに別リクエストが
+        // 連携を足していたら更新は起きない (`update_if_unlinked` が `None`) ので、
+        // 連携ありの経路でやり直す (そのまま書くと、連携先に反映されない値が入ってしまう)
         if old.discord_scheduled_event_id.is_none() && !discord_scheduled_event {
-            let row = events::update(&state.pool, guild_id, path.event_id, &body)
+            if let Some(row) =
+                events::update_if_unlinked(&state.pool, guild_id, path.event_id, &body).await?
+            {
+                tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event updated");
+                return Ok(web::Json(Event::from(row)));
+            }
+            // 予定自体が消えていたなら 404、連携が増えていたならやり直し
+            if events::find_by_id(&state.pool, guild_id, path.event_id)
                 .await?
-                .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-            tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event updated");
-            return Ok(web::Json(Event::from(row)));
+                .is_none()
+            {
+                return Err(ApiError::NotFound("event not found".into()));
+            }
+            tracing::info!(
+                guild_id,
+                event_id = path.event_id,
+                "retrying an event update: a discord link appeared"
+            );
+            continue;
         }
 
         // 連携が絡む更新は予定単位で直列化する (同じ予定への並行更新では、突き合わせだけだと
@@ -306,11 +321,9 @@ pub async fn update(
                 tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event updated");
                 return Ok(web::Json(Event::from(row)));
             }
-            // 並行更新に割り込まれた: この試行で作った Discord イベントを片付けてやり直す
+            // 並行更新に割り込まれた: Discord への反映を取り消してやり直す
             Ok(None) => {
-                if let Some(sid) = &created_now {
-                    cleanup_scheduled_event(&state.discord, guild_id, sid).await;
-                }
+                undo_scheduled_event_changes(&state, guild_id, &created_now, &desired, &old).await;
                 tracing::info!(
                     guild_id,
                     event_id = path.event_id,
@@ -318,11 +331,7 @@ pub async fn update(
                 );
             }
             Err(err) => {
-                // この更新で新しく作った Discord イベントは後始末する
-                // (変更 (PATCH) は戻せないので、値のずれは次の編集の反映に任せる)
-                if let Some(sid) = &created_now {
-                    cleanup_scheduled_event(&state.discord, guild_id, sid).await;
-                }
+                undo_scheduled_event_changes(&state, guild_id, &created_now, &desired, &old).await;
                 return Err(err);
             }
         }
@@ -419,12 +428,60 @@ fn payload_for(site_base_url: &str, guild_id: &str, input: &EventInput) -> Sched
 fn describe_scheduled_event_error(err: DiscordError) -> ApiError {
     match &err {
         DiscordError::Status { status, .. } if *status == reqwest::StatusCode::FORBIDDEN => {
-            ApiError::Forbidden("the bot lacks the Create Events permission in this guild".into())
+            // 利用者自身の権限不足 (Forbidden) と区別する: 直すには Bot の再招待が要る。
+            // 権限のキャッシュが古いと、UI で有効なまま保存時にここへ来ることがある
+            ApiError::BotPermission(
+                "the bot lacks the Create Events permission in this guild".into(),
+            )
         }
         DiscordError::Status { status, .. } if *status == reqwest::StatusCode::BAD_REQUEST => {
             ApiError::BadRequest("Discord did not accept the scheduled event".into())
         }
         _ => err.into(),
+    }
+}
+
+/// 予定を保存できなかったときに、先に済ませた Discord への反映を取り消す (#94。すべてベストエフォート)。
+///
+/// - `created_now` (この試行で作ったイベント) は削除する
+/// - 既存のイベントに変更 (PATCH) を送っていたなら、変更前の値で PATCH し直す
+///   (これをしないと、予定は元の値のまま Discord だけ新しい内容になって食い違う)
+///
+/// 取り消し自体が失敗したときは warn ログだけ残す (次の編集で改めて反映される)
+async fn undo_scheduled_event_changes(
+    state: &AppState,
+    guild_id: &str,
+    created_now: &Option<String>,
+    desired: &Option<String>,
+    before: &events::EventRow,
+) {
+    if let Some(sid) = created_now {
+        cleanup_scheduled_event(&state.discord, guild_id, sid).await;
+        return;
+    }
+    // 作っていないのに desired があるのは、既存のイベントを変更 (PATCH) した場合だけ
+    let Some(sid) = desired else { return };
+    // 終日予定は終了日の翌日を送るので、翌日が無い値は組み立てられない
+    // (`validate_discord_flag` が弾いた値が管理コンソール経由などで残っていた場合の保険)
+    if before.is_all_day && before.end_at.date().succ_opt().is_none() {
+        tracing::warn!(guild_id, scheduled_event_id = %sid, "skipped restoring a scheduled event: the end date cannot be converted");
+        return;
+    }
+    let payload = ScheduledEventPayload::new(
+        &state.site_base_url,
+        guild_id,
+        &before.name,
+        before.description.as_deref(),
+        before.is_all_day,
+        before.start_at,
+        before.end_at,
+    );
+    if let Err(err) = state
+        .discord
+        .modify_scheduled_event(guild_id, sid, &payload)
+        .await
+    {
+        tracing::warn!(guild_id, scheduled_event_id = %sid, error = %err, "failed to restore a scheduled event to its previous values");
     }
 }
 

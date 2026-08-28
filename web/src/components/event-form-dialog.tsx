@@ -150,18 +150,10 @@ function EventForm({
     defaultValues: isEdit ? eventToFormValues(state.event) : state.values,
   });
   const notifications = useFieldArray({ control, name: "notifications" });
-  const [isAllDay, name, description, startDate, startTime, discordEvent] =
-    useWatch({
-      control,
-      name: [
-        "isAllDay",
-        "name",
-        "description",
-        "startDate",
-        "startTime",
-        "discordEvent",
-      ],
-    });
+  const [isAllDay, name, description, startDate, startTime] = useWatch({
+    control,
+    name: ["isAllDay", "name", "description", "startDate", "startTime"],
+  });
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Discord 連携 (#94): 開始が過去 (現在を含む) だと Discord はイベントを作れない。
@@ -172,12 +164,22 @@ function EventForm({
       : null;
   const discordStartsInPast =
     startAt !== null && startAt.getTime() <= nowInJst().getTime();
+  // 連携を**新しく作る**には Bot と本人の両方に権限が要る。
+  // 既に連携済みの予定を編集しているときだけは、権限が無くてもチェックを外せる
+  // (解除の出口まで塞がないため)。複製は連携済みの値を引き継いだ「新規作成」なので、
+  // ここには含めない (含めると権限のない人が送信できてしまい、保存時に 403 になる)
+  const isLinkedEdit =
+    state.mode === "edit" && state.event.discord_scheduled_event_id !== null;
+  const discordLocked =
+    !isLinkedEdit &&
+    discordSync !== undefined &&
+    (!discordSync.botCreateEvents || !discordSync.canCreateEvents);
   useEffect(() => {
     // 無効化したら値も落とす (表示と送信値を一致させる)。連携済みの予定なら保存時に解除される
-    if (discordStartsInPast && getValues("discordEvent")) {
+    if ((discordStartsInPast || discordLocked) && getValues("discordEvent")) {
       setValue("discordEvent", false, { shouldDirty: true });
     }
-  }, [discordStartsInPast, getValues, setValue]);
+  }, [discordStartsInPast, discordLocked, getValues, setValue]);
 
   // 開始日を終了日より後にしたら終了日も合わせる (旧フォームの onStartDateChanged)
   const handleStartDateChange = (date: Date) => {
@@ -421,7 +423,7 @@ function EventForm({
         {discordSync && (
           <DiscordEventField
             control={control}
-            checked={discordEvent}
+            isLinkedEdit={isLinkedEdit}
             botCreateEvents={discordSync.botCreateEvents}
             canCreateEvents={discordSync.canCreateEvents}
             startsInPast={discordStartsInPast}
@@ -469,24 +471,25 @@ function EventForm({
 /**
  * 「Discord のイベントとしても作成する」(#94)。
  * Bot か自分に「イベントの作成」権限が無いときは新たに有効にはできないが、
- * 連携済み (チェック済み) なら外すことはできる
- * (解除まで塞ぐと連携をやめる手段が無くなるため)
+ * **連携済みの予定を編集しているとき**は外すことができる
+ * (解除まで塞ぐと連携をやめる手段が無くなるため)。
+ * 連携済みの予定の複製は「チェック済みの新規作成」なので、この例外には当たらない
  */
 function DiscordEventField({
   control,
-  checked,
+  isLinkedEdit,
   botCreateEvents,
   canCreateEvents,
   startsInPast,
 }: {
   control: Control<EventFormValues>;
-  checked: boolean;
+  isLinkedEdit: boolean;
   botCreateEvents: boolean;
   canCreateEvents: boolean;
   startsInPast: boolean;
 }) {
   const locked =
-    startsInPast || (!checked && (!botCreateEvents || !canCreateEvents));
+    startsInPast || (!isLinkedEdit && (!botCreateEvents || !canCreateEvents));
   return (
     <Field orientation="horizontal" data-disabled={locked || undefined}>
       <Controller
@@ -507,7 +510,7 @@ function DiscordEventField({
         </FieldLabel>
         <FieldDescription>
           {discordEventHint({
-            checked,
+            isLinkedEdit,
             botCreateEvents,
             canCreateEvents,
             startsInPast,
@@ -520,12 +523,12 @@ function DiscordEventField({
 
 /** チェックボックスの下に出す案内。無効化の理由 (過去開始 / 権限不足) を伝える */
 function discordEventHint({
-  checked,
+  isLinkedEdit,
   botCreateEvents,
   canCreateEvents,
   startsInPast,
 }: {
-  checked: boolean;
+  isLinkedEdit: boolean;
   botCreateEvents: boolean;
   canCreateEvents: boolean;
   startsInPast: boolean;
@@ -535,12 +538,12 @@ function discordEventHint({
   }
   // 自分の権限不足は Discord 側の設定次第なので、Bot の再招待を案内しても直らない
   if (!canCreateEvents) {
-    return checked
-      ? "あなたに Discord の「イベントの作成」権限がないため、この連携を新たに作ることはできません。チェックを外すと連携を解除します"
+    return isLinkedEdit
+      ? "あなたに Discord の「イベントの作成」権限がないため、この連携を作り直すことはできません。チェックを外すと連携を解除します"
       : "Discord の「イベントの作成」権限を持つ人だけが利用できます。サーバーの管理者にロールの権限を確認してください";
   }
   if (!botCreateEvents) {
-    return checked
+    return isLinkedEdit
       ? "Bot に「イベントの作成」権限がないため、変更は Discord に反映できません。チェックを外すと連携を解除します"
       : botPermissionHint;
   }

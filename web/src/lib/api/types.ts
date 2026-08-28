@@ -501,6 +501,8 @@ export interface AdminAnalytics {
 export type ApiErrorKind =
   | "unauthorized"
   | "forbidden"
+  /** Bot の権限不足 (#94)。利用者自身の権限不足と違い、Bot の再招待で直る */
+  | "bot_permission"
   | "not_found"
   | "bad_request"
   | "conflict"

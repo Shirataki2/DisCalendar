@@ -287,6 +287,42 @@ pub async fn find_by_id_for_update(
     Ok(Some(row))
 }
 
+/// 対応付け (`event_discord_links`) が無いときだけ更新する (#94)。
+/// 連携も解除も伴わない通常の更新 (ドラッグ移動など) の速い経路で使い、
+/// 直前に別リクエストが連携を足していた場合は更新せずに `None` を返す
+/// (呼び出し側は連携ありの経路で処理をやり直す)。
+/// 予定が存在しないときも `None` なので、区別が要る呼び出し側は別途確認する
+pub async fn update_if_unlinked<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+    id: i32,
+    input: &EventInput,
+) -> sqlx::Result<Option<EventRow>> {
+    let notifications = Notification::encode_all(&input.notifications);
+    sqlx::query_as!(
+        EventRow,
+        r#"
+        UPDATE events
+        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9
+        WHERE id = $1 AND guild_id = $2
+          AND NOT EXISTS (SELECT 1 FROM event_discord_links l WHERE l.event_id = events.id)
+        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at,
+                  NULL::text AS "discord_scheduled_event_id?"
+        "#,
+        id,
+        guild_id,
+        input.name,
+        input.description,
+        notifications,
+        input.color,
+        input.is_all_day,
+        input.start_at,
+        input.end_at
+    )
+    .fetch_optional(executor)
+    .await
+}
+
 /// ギルドに属する予定だけを更新する (他ギルドの ID を指定しても更新されない)。該当なしなら `None`。
 /// 書き込み関数は executor を受け取るので、管理コンソールからは監査ログと同じトランザクションで呼べる。
 /// 返る行の `discord_scheduled_event_id` は常に `None` ([`create`] と同じ理由)
