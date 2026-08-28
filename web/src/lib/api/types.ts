@@ -360,6 +360,11 @@ export interface MyPermissions {
   /** 上記 4 つのいずれか */
   can_manage_server: boolean;
   /**
+   * このユーザー自身が Discord の「イベントの作成」権限を持つか (#94)。
+   * 連携は Bot が代行するので、これが false のユーザーは予定を新たに連携させられない
+   */
+  create_events: boolean;
+  /**
    * Bot 自身が「イベントの作成」権限を持つか (#94)。
    * 予定ダイアログの「Discord のイベントとしても作成する」の出し分けに使う
    */

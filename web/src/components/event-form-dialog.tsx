@@ -77,6 +77,11 @@ interface Props {
   discordSync?: {
     /** Bot 自身が「イベントの作成」権限を持つか。false なら無効化して案内を出す */
     botCreateEvents: boolean;
+    /**
+     * このユーザー自身が Discord の「イベントの作成」権限を持つか。
+     * false なら新たな連携はできない (api も 403 で拒否する)
+     */
+    canCreateEvents: boolean;
   };
 }
 
@@ -418,6 +423,7 @@ function EventForm({
             control={control}
             checked={discordEvent}
             botCreateEvents={discordSync.botCreateEvents}
+            canCreateEvents={discordSync.canCreateEvents}
             startsInPast={discordStartsInPast}
           />
         )}
@@ -462,21 +468,25 @@ function EventForm({
 
 /**
  * 「Discord のイベントとしても作成する」(#94)。
- * Bot に権限が無いときは新たに有効にはできないが、連携済み (チェック済み) なら
- * 外すことはできる (解除まで塞ぐと連携をやめる手段が無くなるため)
+ * Bot か自分に「イベントの作成」権限が無いときは新たに有効にはできないが、
+ * 連携済み (チェック済み) なら外すことはできる
+ * (解除まで塞ぐと連携をやめる手段が無くなるため)
  */
 function DiscordEventField({
   control,
   checked,
   botCreateEvents,
+  canCreateEvents,
   startsInPast,
 }: {
   control: Control<EventFormValues>;
   checked: boolean;
   botCreateEvents: boolean;
+  canCreateEvents: boolean;
   startsInPast: boolean;
 }) {
-  const locked = startsInPast || (!checked && !botCreateEvents);
+  const locked =
+    startsInPast || (!checked && (!botCreateEvents || !canCreateEvents));
   return (
     <Field orientation="horizontal" data-disabled={locked || undefined}>
       <Controller
@@ -496,21 +506,49 @@ function DiscordEventField({
           Discord のイベントとしても作成する
         </FieldLabel>
         <FieldDescription>
-          {startsInPast
-            ? "開始日時が過去の予定は Discord のイベントにできません (連携済みの予定は保存すると連携が解除されます)"
-            : !botCreateEvents && !checked
-              ? discordPermissionHint
-              : !botCreateEvents
-                ? "Bot に「イベントの作成」権限がないため、変更は Discord に反映できません。チェックを外すと連携を解除します"
-                : "予定の作成・変更・削除を Discord のスケジュールイベントにも反映します"}
+          {discordEventHint({
+            checked,
+            botCreateEvents,
+            canCreateEvents,
+            startsInPast,
+          })}
         </FieldDescription>
       </FieldContent>
     </Field>
   );
 }
 
-/** 権限がないときの案内 (再招待への導線つき) */
-const discordPermissionHint = (
+/** チェックボックスの下に出す案内。無効化の理由 (過去開始 / 権限不足) を伝える */
+function discordEventHint({
+  checked,
+  botCreateEvents,
+  canCreateEvents,
+  startsInPast,
+}: {
+  checked: boolean;
+  botCreateEvents: boolean;
+  canCreateEvents: boolean;
+  startsInPast: boolean;
+}) {
+  if (startsInPast) {
+    return "開始日時が過去の予定は Discord のイベントにできません (連携済みの予定は保存すると連携が解除されます)";
+  }
+  // 自分の権限不足は Discord 側の設定次第なので、Bot の再招待を案内しても直らない
+  if (!canCreateEvents) {
+    return checked
+      ? "あなたに Discord の「イベントの作成」権限がないため、この連携を新たに作ることはできません。チェックを外すと連携を解除します"
+      : "Discord の「イベントの作成」権限を持つ人だけが利用できます。サーバーの管理者にロールの権限を確認してください";
+  }
+  if (!botCreateEvents) {
+    return checked
+      ? "Bot に「イベントの作成」権限がないため、変更は Discord に反映できません。チェックを外すと連携を解除します"
+      : botPermissionHint;
+  }
+  return "予定の作成・変更・削除を Discord のスケジュールイベントにも反映します";
+}
+
+/** Bot に権限がないときの案内 (再招待への導線つき) */
+const botPermissionHint = (
   <>
     Bot に「イベントの作成」権限がないため利用できません。
     <a

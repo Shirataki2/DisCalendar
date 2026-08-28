@@ -95,6 +95,10 @@ pub struct MyPermissions {
     pub manage_roles: bool,
     /// 上記 4 つのいずれか。restricted モードでの編集可否とサーバー設定の変更可否に使う
     pub can_manage_server: bool,
+    /// **このユーザー自身**が Discord の「イベントの作成」権限を持つか (#94)。
+    /// 連携は Bot が代行するので、これを見ないと本人の権限では作れないイベントを
+    /// web 経由で作れてしまう (権限昇格)。予定を連携させる操作の条件
+    pub create_events: bool,
     /// **Bot 自身**が「イベントの作成」権限を持つか (#94)。
     /// 予定ダイアログの「Discord のイベントとしても作成する」を出し分けるのに使う。
     /// Bot 側のキャッシュにより、再招待などの変更が反映されるまで最大で数分の遅れがある
@@ -134,6 +138,7 @@ pub async fn my_permissions(
         manage_messages: p.manage_messages(),
         manage_roles: p.manage_roles(),
         can_manage_server: p.can_manage_server(),
+        create_events: p.create_events(),
         bot_create_events,
     }))
 }

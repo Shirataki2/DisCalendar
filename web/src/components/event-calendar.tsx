@@ -114,7 +114,7 @@ interface Props {
   /** 予定の取得元。管理コンソール (#35) からは admin 用 API に差し替える */
   eventsSource?: EventsSource;
   /** ダイアログの「Discord のイベントとしても作成する」(#94)。未指定なら出さない */
-  discordSync?: { botCreateEvents: boolean };
+  discordSync?: { botCreateEvents: boolean; canCreateEvents: boolean };
 }
 
 interface PopoverState {

@@ -104,6 +104,9 @@ pub async fn create(
     // 作成では省略 (フラグを知らない古いクライアント) は「作らない」として扱う
     let discord_scheduled_event = body.discord_scheduled_event.unwrap_or(false);
     events::validate_discord_flag(&body, discord_scheduled_event, now_jst())?;
+    if discord_scheduled_event {
+        ensure_can_create_events(&member)?;
+    }
     let guild_id = member.guild_id();
 
     if !discord_scheduled_event {
@@ -189,6 +192,11 @@ pub async fn update(
             .discord_scheduled_event
             .unwrap_or(old.discord_scheduled_event_id.is_some());
         events::validate_discord_flag(&body, discord_scheduled_event, now_jst())?;
+        // 連携を**増やす**操作だけ本人の権限を要求する (既存の連携予定の値の編集や
+        // 連携の解除は、共有カレンダーとして誰でも編集できるという方針のまま制限しない)
+        if discord_scheduled_event && old.discord_scheduled_event_id.is_none() {
+            ensure_can_create_events(&member)?;
+        }
 
         // 連携なしの通常更新 (最頻パス) は 1 文で済ませる。直前に別リクエストが連携を
         // 足していた場合は、その連携への値の反映が次の編集まで遅れるだけ
@@ -371,6 +379,21 @@ async fn ensure_can_edit(pool: &PgPool, member: &GuildMember) -> Result<(), ApiE
     if config.restricted && !member.permissions().can_manage_server() {
         return Err(ApiError::Forbidden(
             "this guild restricts editing events to users with manage permissions".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// 予定を Discord のスケジュールイベントと連携させるには、**操作するユーザー自身**が
+/// Discord の「イベントの作成」権限を持っていることを要求する (#94)。
+/// 連携の実行は Bot が代行するため、これを見ないと本人の権限では作れないイベントを
+/// web 経由で作れてしまう (権限昇格)。restricted モードとは独立した判定で、
+/// restricted が off のギルドでも Discord 側の権限設定はそのまま効く。
+/// 既存の連携予定の編集や連携の解除には要求しない (共有カレンダーとしての編集は誰でもできる方針)
+fn ensure_can_create_events(member: &GuildMember) -> Result<(), ApiError> {
+    if !member.permissions().create_events() {
+        return Err(ApiError::Forbidden(
+            "the Create Events permission is required to link an event to Discord".into(),
         ));
     }
     Ok(())

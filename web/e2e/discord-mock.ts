@@ -6,6 +6,7 @@ import {
   E2E_BOT_TOKEN,
   E2E_BOT_USER_ID,
   E2E_USER,
+  E2E_USER_ROLE_ID,
   type E2EGuild,
   OTHER_OWNER_ID,
 } from "./fixtures";
@@ -64,12 +65,21 @@ function botGuild(guild: E2EGuild) {
     owner_id: guild.owner ? E2E_USER.discordId : OTHER_OWNER_ID,
     roles: [
       { id: guild.id, name: "@everyone", permissions: "1024" },
-      // botCreateEvents のギルドでは Bot に「イベントの作成」(1<<44) のロールが付いている
+      // botCreateEvents / userCreateEvents のギルドでは「イベントの作成」(1<<44) のロールが付いている
       ...(guild.botCreateEvents
         ? [
             {
               id: E2E_BOT_ROLE_ID,
               name: "DisCalendar",
+              permissions: "17592186044416",
+            },
+          ]
+        : []),
+      ...(guild.userCreateEvents
+        ? [
+            {
+              id: E2E_USER_ROLE_ID,
+              name: "イベント担当",
               permissions: "17592186044416",
             },
           ]
@@ -203,7 +213,7 @@ export function startDiscordMock(port: number): Promise<Server> {
       }
       return json(200, {
         user: { id: E2E_USER.discordId, username: E2E_USER.name },
-        roles: [],
+        roles: guild.userCreateEvents ? [E2E_USER_ROLE_ID] : [],
       });
     }
 

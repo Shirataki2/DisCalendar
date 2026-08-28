@@ -3,8 +3,11 @@ import { addDays, calendarToday, dayCell, eventOn } from "./calendar";
 import { E2E_GUILDS } from "./fixtures";
 
 // 予定を Discord のスケジュールイベントとしても作成する (#94)。
-// Discord 側はモック (discord-mock.ts) で、admin ギルドは「イベントの作成」あり、
-// noEventsPerm ギルドはなしに設定してある
+// Discord 側はモック (discord-mock.ts)。連携には Bot とユーザー本人の両方に
+// 「イベントの作成」権限が要るので、ギルドごとに組み合わせを変えてある:
+// - admin: 両方あり (ユーザーはオーナー = ADMINISTRATOR)
+// - noEventsPerm: ユーザーにはあるが Bot にない
+// - noUserEventsPerm: Bot にはあるがユーザーにない
 
 const guildId = E2E_GUILDS.admin.id;
 const eventsApi = new RegExp(`/local/api/events/${guildId}(/|\\?|$)`);
@@ -110,6 +113,30 @@ test("Bot に「イベントの作成」権限がないサーバーではチェ�
   await expect(dialog).toBeHidden();
 });
 
+test("自分に「イベントの作成」権限がないサーバーではチェックできず、案内が出る", async ({
+  page,
+}) => {
+  await page.goto(`/dashboard/${E2E_GUILDS.noUserEventsPerm.id}`);
+  await expect(page.getByRole("grid")).toBeVisible();
+  const tomorrow = addDays(await calendarToday(page), 1);
+  await clickDayCell(page, tomorrow);
+  const dialog = page.getByRole("dialog", { name: "予定を作成" });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByRole("checkbox", {
+      name: "Discord のイベントとしても作成する",
+    }),
+  ).toBeDisabled();
+  // Bot 権限の不足とは案内が違う (再招待では直らないので、ロールの確認を促す)
+  await expect(
+    dialog.getByText(
+      "Discord の「イベントの作成」権限を持つ人だけが利用できます",
+    ),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "キャンセル" }).click();
+  await expect(dialog).toBeHidden();
+});
+
 // 表示だけの制御ではないことの確認 (settings.spec.ts と同じ流儀で API を直接叩く)
 
 test("開始が過去の予定は API 側でも連携を拒否する (400)", async ({ page }) => {
@@ -127,7 +154,7 @@ test("開始が過去の予定は API 側でも連携を拒否する (400)", asy
   expect(res.status()).toBe(400);
 });
 
-test("権限のないサーバーへの連携作成は API 側でも拒否される (403)", async ({
+test("Bot に権限のないサーバーへの連携作成は API 側でも拒否される (403)", async ({
   page,
 }) => {
   const res = await page.request.post(
@@ -154,4 +181,51 @@ test("権限のないサーバーへの連携作成は API 側でも拒否され
       (e) => e.name === "権限なし",
     ),
   ).toBe(false);
+});
+
+// 連携は Bot が代行するので、本人の権限を見ないと web 経由で権限昇格できてしまう (#94)
+test("自分に権限のないサーバーへの連携作成は API 側でも拒否される (403)", async ({
+  page,
+}) => {
+  const guild = E2E_GUILDS.noUserEventsPerm.id;
+  const res = await page.request.post(`/local/api/events/${guild}`, {
+    data: {
+      name: "本人権限なし",
+      notifications: [],
+      color: "#2196F3",
+      is_all_day: false,
+      start_at: "2030-01-01T10:00:00",
+      end_at: "2030-01-01T11:00:00",
+      discord_scheduled_event: true,
+    },
+  });
+  expect(res.status()).toBe(403);
+  const list = await page.request.get(
+    `/local/api/events/${guild}?start=2030-01-01T00:00:00&end=2030-01-02T00:00:00`,
+  );
+  expect(
+    ((await list.json()) as { name: string }[]).some(
+      (e) => e.name === "本人権限なし",
+    ),
+  ).toBe(false);
+
+  // 連携なしの予定は今までどおり作れる (制限するのは連携だけ)
+  const plain = await page.request.post(`/local/api/events/${guild}`, {
+    data: {
+      name: "本人権限なし (連携なし)",
+      notifications: [],
+      color: "#2196F3",
+      is_all_day: false,
+      start_at: "2030-01-01T10:00:00",
+      end_at: "2030-01-01T11:00:00",
+      discord_scheduled_event: false,
+    },
+  });
+  expect(plain.status()).toBe(201);
+  const created = (await plain.json()) as { id: number };
+  expect(
+    (
+      await page.request.delete(`/local/api/events/${guild}/${created.id}`)
+    ).status(),
+  ).toBe(204);
 });
