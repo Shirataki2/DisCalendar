@@ -68,7 +68,13 @@ impl ScheduledEventPayload {
         };
         Self {
             name: name.to_owned(),
-            description: description.map(str::to_owned),
+            // Discord は説明を送るなら 1 文字以上でないと 400 にする。予定側は空の説明を
+            // 許しているので (web は空欄を null にするが、API を直接叩けば空文字が来る)、
+            // 中身が無ければ「説明なし」に揃える
+            description: description
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(str::to_owned),
             scheduled_start_time: to_iso8601_jst(start),
             scheduled_end_time: to_iso8601_jst(end),
             privacy_level: PRIVACY_LEVEL_GUILD_ONLY,
@@ -183,6 +189,35 @@ mod tests {
             p.entity_metadata.location,
             "https://discalendar.app/dashboard/123"
         );
+    }
+
+    #[test]
+    fn blank_description_is_sent_as_none() {
+        // 予定側は空の説明を許すが、Discord は説明を送るなら 1 文字以上を要求する。
+        // 空文字や空白だけの説明で 400 にならないよう「説明なし」に揃える
+        for description in ["", "   ", " \n "] {
+            let p = ScheduledEventPayload::new(
+                "https://discalendar.app",
+                "123",
+                "定例",
+                Some(description),
+                false,
+                "2026-08-22T10:00:00".parse().unwrap(),
+                "2026-08-22T11:30:00".parse().unwrap(),
+            );
+            assert_eq!(p.description, None, "{description:?}");
+        }
+        // 前後の空白は落とすが、中身があればそのまま送る
+        let p = ScheduledEventPayload::new(
+            "https://discalendar.app",
+            "123",
+            "定例",
+            Some("  メモ  "),
+            false,
+            "2026-08-22T10:00:00".parse().unwrap(),
+            "2026-08-22T11:30:00".parse().unwrap(),
+        );
+        assert_eq!(p.description.as_deref(), Some("メモ"));
     }
 
     #[test]

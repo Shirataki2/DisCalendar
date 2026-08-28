@@ -126,7 +126,7 @@ pub async fn create(
             &payload_for(&state.site_base_url, guild_id, &body),
         )
         .await
-        .map_err(describe_scheduled_event_error)?;
+        .map_err(|err| describe_create_error(guild_id, &body.name, err))?;
     let result: Result<events::EventRow, ApiError> = async {
         let mut tx = state.pool.begin().await?;
         // 管理コンソールの全予定削除と排他する (新しい行は行ロックでは待たせられないため、
@@ -243,16 +243,31 @@ pub async fn update(
                             &payload_for(&state.site_base_url, guild_id, &body),
                         )
                         .await
-                        .map_err(describe_scheduled_event_error)?;
+                        .map_err(|err| describe_create_error(guild_id, &body.name, err))?;
                     (Some(id.clone()), Some(id))
                 }
                 (Some(current), true) => {
                     let payload = payload_for(&state.site_base_url, guild_id, &body);
-                    let modified = state
+                    let modified = match state
                         .discord
                         .modify_scheduled_event(guild_id, current, &payload)
                         .await
-                        .map_err(describe_scheduled_event_error)?;
+                    {
+                        Ok(modified) => modified,
+                        Err(err) => {
+                            // 応答を受け取れなかっただけで Discord 側には適用済みかもしれないので、
+                            // 変更前の値に戻しておく (適用されていなければ同じ値を書くだけで無害)
+                            undo_scheduled_event_changes(
+                                &state,
+                                guild_id,
+                                &None,
+                                &Some(current.clone()),
+                                &old,
+                            )
+                            .await;
+                            return Err(describe_scheduled_event_error(err));
+                        }
+                    };
                     if modified {
                         (Some(current.clone()), None)
                     } else {
@@ -264,7 +279,7 @@ pub async fn update(
                             .discord
                             .create_scheduled_event(guild_id, &payload)
                             .await
-                            .map_err(describe_scheduled_event_error)?;
+                            .map_err(|err| describe_create_error(guild_id, &body.name, err))?;
                         (Some(id.clone()), Some(id))
                     }
                 }
@@ -439,6 +454,19 @@ fn describe_scheduled_event_error(err: DiscordError) -> ApiError {
         }
         _ => err.into(),
     }
+}
+
+/// スケジュールイベントの**作成**が失敗したときのエラー変換 (#94)。
+///
+/// Discord から応答を受け取れなかった場合 (接続の切断・タイムアウト)、要求自体は受理されていて
+/// イベントだけが残っている可能性がある。採番された ID が分からないので api からは消せず、
+/// 利用者には失敗として返すしかないため、後から手作業で片付けられるようログに残す
+/// (HTTP のステータスが返ってきた失敗は結果が確定しているので、この扱いはしない)
+fn describe_create_error(guild_id: &str, name: &str, err: DiscordError) -> ApiError {
+    if matches!(err, DiscordError::Http(_)) {
+        tracing::warn!(guild_id, name, error = %err, "could not confirm whether a scheduled event was created: it may be left in discord");
+    }
+    describe_scheduled_event_error(err)
 }
 
 /// 予定を保存できなかったときに、先に済ませた Discord への反映を取り消す (#94。すべてベストエフォート)。
