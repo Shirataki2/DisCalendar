@@ -11,6 +11,7 @@ import Calendar, {
 } from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/react/daygrid";
 import interactionPlugin from "@fullcalendar/react/interaction";
+import listPlugin from "@fullcalendar/react/list";
 import jaLocale from "@fullcalendar/react/locales/ja";
 import classicThemePlugin from "@fullcalendar/react/themes/classic";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
@@ -97,6 +98,14 @@ const weekdayFormat = new Intl.DateTimeFormat("ja-JP", {
 /** 週 / 4日 / 日ビューの日付ヘッダ ("23(日)")。既定は ja だと "23日(日)" / "23日日曜日" */
 const dayHeaderFormat: FormatterInput = (info) =>
   `${info.date.day}(${weekdayFormat.format(info.date.marker)})`;
+
+/**
+ * リストビューの日付見出し ("8/23")。既定は ja だと "2026年8月23日"。
+ * 曜日は右側の副見出し (listDayAltFormat の既定 "日曜日") が出すので、ここには入れない。
+ * 月は 0 始まり (JS の Date と同じ) なので +1 する
+ */
+const listDayFormat: FormatterInput = (info) =>
+  `${info.date.month + 1}/${info.date.day}`;
 
 interface Props {
   guildId: string;
@@ -285,13 +294,15 @@ export function EventCalendar({
           </span>
         )}
       </div>
-      <div className="min-h-0 flex-1">
+      {/* calendar-shell は globals.css の微調整の起点 (FullCalendar のクラス名はハッシュで指せない) */}
+      <div className="calendar-shell min-h-0 flex-1">
         {mounted && (
           <Calendar
             ref={calendarRef}
             plugins={[
               dayGridPlugin,
               timeGridPlugin,
+              listPlugin,
               interactionPlugin,
               classicThemePlugin,
             ]}
@@ -303,7 +314,7 @@ export function EventCalendar({
             headerToolbar={{
               start: "prev,next today",
               center: "title",
-              end: "dayGridMonth,timeGridWeek,timeGridFourDay,timeGridDay",
+              end: "dayGridMonth,timeGridWeek,timeGridFourDay,timeGridDay,listMonth",
             }}
             views={{
               // 日付ヘッダに日付を出すのは timeGrid 系だけ (月ビューは曜日だけでよい)。
@@ -313,8 +324,13 @@ export function EventCalendar({
                 type: "timeGrid",
                 duration: { days: 4 },
               },
+              list: { listDayFormat },
             }}
-            buttons={{ timeGridFourDay: { text: "4日" } }}
+            buttons={{
+              timeGridFourDay: { text: "4日" },
+              // ja ロケールの既定は "予定リスト" で、スマートフォンではボタンの並びが折り返す
+              listMonth: { text: "リスト" },
+            }}
             events={events}
             editable={canEdit}
             selectable={canEdit}
