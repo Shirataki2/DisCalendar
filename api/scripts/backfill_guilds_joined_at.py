@@ -35,19 +35,21 @@ def main() -> None:
         print(__doc__, file=sys.stderr)
         sys.exit(2)
 
-    latest: dict[str, str] = {}
+    latest: dict[str, datetime] = {}
     # 旧ログ由来の CSV は BOM 付きのことがあるので utf-8-sig で読む
     with open(sys.argv[1], encoding="utf-8-sig", newline="") as f:
         for row in csv.DictReader(f):
-            # 想定外の値はそのまま SQL に入れず、ここで落とす
-            datetime.strptime(row["created_at_jst"], "%Y-%m-%d %H:%M:%S")
+            # 想定外の値はそのまま SQL に入れず、ここで落とす。
+            # 比較と出力には解析済みの datetime を使う (ゼロ埋めされていない日時が
+            # 混ざっていても、文字列の辞書順比較で新旧を取り違えないように)
+            dt = datetime.strptime(row["created_at_jst"], "%Y-%m-%d %H:%M:%S")
             if not row["server_id"].isdigit():
                 raise ValueError(f"server_id が数値でない: {row['server_id']!r}")
             if row["kind"] != "ENTER":
                 continue
             gid = row["server_id"]
-            if gid not in latest or row["created_at_jst"] > latest[gid]:
-                latest[gid] = row["created_at_jst"]
+            if gid not in latest or dt > latest[gid]:
+                latest[gid] = dt
 
     if not latest:
         raise ValueError("ENTER の行が 1 件もない")
@@ -58,7 +60,7 @@ def main() -> None:
     print("FROM (")
     print("    VALUES")
     rows = sorted(latest.items())
-    body = ",\n".join(f"    ('{gid}', '{ts}')" for gid, ts in rows)
+    body = ",\n".join(f"    ('{gid}', '{ts:%Y-%m-%d %H:%M:%S}')" for gid, ts in rows)
     print(body)
     print(") AS v (guild_id, joined_at)")
     print("WHERE guilds.guild_id = v.guild_id AND guilds.joined_at IS NULL;")

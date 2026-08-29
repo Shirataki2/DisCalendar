@@ -11,9 +11,12 @@
 -- フォワードしてもカラムが空で戻るだけなので、backfill は
 -- `api/scripts/backfill_guilds_joined_at.py` で改めて流し直す。
 --
--- 手順 (compose の環境。README「マイグレーションが入った版から戻す」と同じ要領):
+-- 手順 (compose の環境。README「マイグレーションが入った版から戻す」と同じ要領)。
+-- 現行 bot は参加・更新のたびに joined_at へ書き込むので、api だけでなく bot も止めてから
+-- カラムを落とす (動かしたままだと旧イメージに置き換わるまで GuildCreate/GuildUpdate の
+-- クエリが失敗し続ける):
 --
---   1. api を止める:       docker compose stop api
+--   1. api / bot を止める: docker compose stop api bot
 --   2. 先にダンプを取る:   docker compose exec -T db pg_dump -U discalendar -d discalendar -Fc > 戻す前.dump
 --   3. このファイルを流す: docker compose exec -T db psql -U discalendar -d discalendar -v ON_ERROR_STOP=1 -1 < この.sql
 --   4. 前の版のイメージでデプロイし直す (Actions の "Deploy production" に前のタグ)
