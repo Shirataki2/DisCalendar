@@ -75,6 +75,14 @@ export function createApi(request: ApiFetcher) {
         }),
       myPermissions: (guildId: string) =>
         request<MyPermissions>(`/guilds/${guildId}/@me/permissions`),
+      /**
+       * 権限のキャッシュを捨てて取り直す (#122)。Bot を招待し直したりロールを付けてもらった直後に、
+       * api 側のキャッシュ (最大 5 分) の期限を待たずに反映させる
+       */
+      refreshMyPermissions: (guildId: string) =>
+        request<MyPermissions>(`/guilds/${guildId}/@me/permissions/refresh`, {
+          method: "POST",
+        }),
     },
     events: createEventsClient(request, (guildId) => `/events/${guildId}`),
     /** 管理コンソール (api/src/routes/admin*.rs)。管理者以外は 403 */

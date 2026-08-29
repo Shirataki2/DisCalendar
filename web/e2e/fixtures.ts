@@ -64,6 +64,8 @@ export interface E2EGuild {
  * - invitable: ユーザーに「サーバー管理」権限があるが Bot 未参加。サーバー選択画面の「Bot を招待できるサーバー」に出る
  * - noEventsPerm: Bot 参加済みだが Bot に「イベントの作成」権限がない。Discord 連携 (#94) の無効化表示に使う
  * - noUserEventsPerm: Bot には権限があるが、ユーザー自身に「イベントの作成」権限がない (#94)
+ * - reinvited: 「権限を再確認」(#122) 専用。テスト中に Bot の権限を付け替えるので、
+ *   他のテストからは参照しない (api の権限キャッシュが変わったまま残るため)
  */
 export const E2E_GUILDS = {
   admin: {
@@ -115,6 +117,17 @@ export const E2E_GUILDS = {
     botJoined: true,
     botCreateEvents: true,
     userCreateEvents: false,
+  },
+  reinvited: {
+    id: "200000000000000008",
+    name: displayName("E2E Reinvite Guild", "映画部"),
+    /** VIEW_CHANNEL のみ (restricted ではないので予定の編集はできる) */
+    permissions: "1024",
+    owner: false,
+    botJoined: true,
+    // 招待し直す前の状態から始める (テストの途中で setGuildEventPermissions が付ける)
+    botCreateEvents: false,
+    userCreateEvents: true,
   },
 } satisfies Record<string, E2EGuild>;
 

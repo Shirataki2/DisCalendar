@@ -481,6 +481,11 @@ fn payload_for(site_base_url: &str, guild_id: &str, input: &EventInput) -> Sched
 /// それ以外は既存の変換のまま (429 → 503、他 → 502)
 fn describe_scheduled_event_error(err: DiscordError) -> ApiError {
     match &err {
+        // Bot が退出・追放されている (#122)。直し方は権限不足と同じ「招待し直す」なので
+        // 同じ種別で返す (web はこの種別で権限を取り直し、チェックボックスを無効にする)
+        DiscordError::GuildGone => {
+            ApiError::BotPermission("the bot is no longer in this guild".into())
+        }
         DiscordError::Status { status, .. } if *status == reqwest::StatusCode::FORBIDDEN => {
             // 利用者自身の権限不足 (Forbidden) と区別する: 直すには Bot の再招待が要る。
             // 権限のキャッシュが古いと、UI で有効なまま保存時にここへ来ることがある

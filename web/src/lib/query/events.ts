@@ -6,9 +6,9 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import type { EventsClient } from "@/lib/api/endpoints";
-import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
+import type { ApiEvent, ApiEventInput, MyPermissions } from "@/lib/api/types";
 import { revalidateAdminPagesQuietly } from "./admin-cache";
 import { type EventsQueryKeys, queryKeys } from "./keys";
 
@@ -88,6 +88,72 @@ export function invalidateEvents(
   );
 }
 
+/**
+ * 自分の権限を取り直す (#122)。api は Discord から 403 を返された時点で権限キャッシュを
+ * 捨てているので、取り直すと今の状態になる。これをしないと、開いたままのダイアログは
+ * `bot_create_events: true` のままでチェックボックスが有効に見え、「権限を再確認」も出ない
+ */
+function refetchPermissions(
+  queryClient: ReturnType<typeof useQueryClient>,
+  guildId: string,
+) {
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.guild.myPermissions(guildId),
+  });
+}
+
+/** Bot の権限不足 (403 `bot_permission`) で失敗したときに取り直す */
+function refetchPermissionsOnBotError(
+  queryClient: ReturnType<typeof useQueryClient>,
+  guildId: string,
+  error: unknown,
+) {
+  if (error instanceof ApiError && error.kind === "bot_permission") {
+    // Bot が操作できないことはこの応答で分かっているので、取り直しを待たずに落としておく。
+    // Bot がサーバーから外れている場合は取り直し自体が 403 になり、そのままでは
+    // 直前に成功した「権限あり」が残ってしまう
+    queryClient.setQueryData<MyPermissions>(
+      queryKeys.guild.myPermissions(guildId),
+      (permissions) =>
+        permissions && { ...permissions, bot_create_events: false },
+    );
+    refetchPermissions(queryClient, guildId);
+  }
+}
+
+/**
+ * 連携していた予定の連携が外れた (解除・作り直し・削除) ときにも取り直す (#122)。
+ *
+ * 不要になった Discord イベントの後始末は api ではベストエフォートで、権限不足で消せなくても
+ * 予定の操作自体は成功として返る。つまりブラウザには 403 が伝わらないので、
+ * {@link refetchPermissionsOnBotError} だけでは古い「権限あり」が残ってしまう
+ */
+function refetchPermissionsIfUnlinked(
+  queryClient: ReturnType<typeof useQueryClient>,
+  guildId: string,
+  linkedIdBefore: string | null,
+  linkedIdAfter: string | null,
+) {
+  if (linkedIdBefore !== null && linkedIdBefore !== linkedIdAfter) {
+    refetchPermissions(queryClient, guildId);
+  }
+}
+
+/** キャッシュ上のこの予定が指している Discord イベントの ID (連携していなければ null) */
+function linkedIdOf(
+  queryClient: ReturnType<typeof useQueryClient>,
+  listsKey: QueryKey,
+  id: number,
+): string | null {
+  for (const [, events] of queryClient.getQueriesData<ApiEvent[]>({
+    queryKey: listsKey,
+  })) {
+    const found = events?.find((event) => event.id === id);
+    if (found) return found.discord_scheduled_event_id;
+  }
+  return null;
+}
+
 export function useCreateEvent(
   guildId: string,
   source: EventsSource = dashboardEventsSource,
@@ -96,6 +162,8 @@ export function useCreateEvent(
   return useMutation({
     mutationFn: (input: ApiEventInput) => source.client.create(guildId, input),
     onSuccess: () => invalidateEvents(queryClient, source, guildId, true),
+    onError: (error) =>
+      refetchPermissionsOnBotError(queryClient, guildId, error),
   });
 }
 
@@ -117,6 +185,7 @@ export function useUpdateEvent(
     onMutate: async ({ id, input }) => {
       // 進行中の取得が古い状態で上書きしないよう止める
       await queryClient.cancelQueries({ queryKey: listsKey });
+      const linkedIdBefore = linkedIdOf(queryClient, listsKey, id);
       const previous: CachedLists = queryClient.getQueriesData<ApiEvent[]>({
         queryKey: listsKey,
       });
@@ -130,20 +199,27 @@ export function useUpdateEvent(
             : event,
         ),
       );
-      return { previous };
+      return { previous, linkedIdBefore };
     },
     // サーバーが返した内容でキャッシュを揃える。とくに Discord の連携 ID (#94) は
     // 楽観的更新では分からないので、ここで入れておかないと再取得が失敗したときに
     // 古い ID が残り、次の編集で連携を意図せず解除・作り直ししてしまう
-    onSuccess: (updated) => {
+    onSuccess: (updated, _variables, context) => {
       queryClient.setQueriesData<ApiEvent[]>({ queryKey: listsKey }, (events) =>
         events?.map((event) => (event.id === updated.id ? updated : event)),
       );
+      refetchPermissionsIfUnlinked(
+        queryClient,
+        guildId,
+        context?.linkedIdBefore ?? null,
+        updated.discord_scheduled_event_id,
+      );
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       for (const [key, data] of context?.previous ?? []) {
         queryClient.setQueryData(key, data);
       }
+      refetchPermissionsOnBotError(queryClient, guildId, error);
     },
     onSettled: () => invalidateEvents(queryClient, source, guildId, false),
   });
@@ -159,18 +235,28 @@ export function useDeleteEvent(
     mutationFn: (id: number) => source.client.remove(guildId, id),
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: listsKey });
+      const linkedIdBefore = linkedIdOf(queryClient, listsKey, id);
       const previous: CachedLists = queryClient.getQueriesData<ApiEvent[]>({
         queryKey: listsKey,
       });
       queryClient.setQueriesData<ApiEvent[]>({ queryKey: listsKey }, (events) =>
         events?.filter((event) => event.id !== id),
       );
-      return { previous };
+      return { previous, linkedIdBefore };
     },
-    onError: (_error, _id, context) => {
+    // 消した予定が連携していたなら、Discord 側の後始末が権限不足で失敗していることがある
+    onSuccess: (_data, _id, context) =>
+      refetchPermissionsIfUnlinked(
+        queryClient,
+        guildId,
+        context?.linkedIdBefore ?? null,
+        null,
+      ),
+    onError: (error, _id, context) => {
       for (const [key, data] of context?.previous ?? []) {
         queryClient.setQueryData(key, data);
       }
+      refetchPermissionsOnBotError(queryClient, guildId, error);
     },
     onSettled: () => invalidateEvents(queryClient, source, guildId, true),
   });

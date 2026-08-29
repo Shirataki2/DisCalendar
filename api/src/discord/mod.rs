@@ -9,6 +9,7 @@ pub mod scheduled_events;
 
 use std::{
     collections::HashMap,
+    hash::{Hash as _, Hasher as _},
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -34,6 +35,9 @@ const GUILD_TTL: Duration = Duration::from_secs(300);
 const MEMBER_TTL: Duration = Duration::from_secs(60);
 /// Bot の参加ギルド一覧 ([`DiscordClient::bot_guilds`]) のキャッシュ期間
 const BOT_GUILDS_TTL: Duration = Duration::from_secs(60);
+/// 利用者の操作でキャッシュを捨てられる間隔 ([`DiscordClient::refresh_permissions`]、#122)。
+/// 連打されても、ギルドごとの Discord への問い合わせがこの間隔より細かくならないようにする
+const REFRESH_THROTTLE: Duration = Duration::from_secs(10);
 /// `GET /users/@me/guilds` の 1 ページの件数 (Discord の上限は 200)
 const BOT_GUILDS_PAGE_SIZE: usize = 200;
 /// 辿るページ数の上限 (200 件 × 100 ページ = 20,000 ギルド)。無限ループにしないための安全網
@@ -53,6 +57,10 @@ pub enum DiscordError {
     /// 通常は起きないが、URL の組み立て時に必ず確認する (パスの意味が変わるのを防ぐ多層防御)
     #[error("invalid discord id")]
     InvalidId,
+    /// 操作しようとしたギルドが Discord から見えない (Bot が退出・追放された、#122)。
+    /// 権限のキャッシュが残っている間は、UI から操作できてしまうのでここに来る
+    #[error("the bot is not in this guild")]
+    GuildGone,
 }
 
 /// Discord の Snowflake ID (数字のみ、20 桁以下) か。リクエストの入り口で形式を確かめるのに使う
@@ -76,6 +84,46 @@ fn checked_id(id: &str) -> Result<String, DiscordError> {
     }
     tracing::warn!("refused to build a discord url with a non-snowflake id");
     Err(DiscordError::InvalidId)
+}
+
+/// 権限の取り直し ([`DiscordClient::refresh_permissions`]) をギルドごとに直列化するロック (#122)。
+///
+/// ギルド ID のハッシュで固定本数から引く (ストライプ方式)。別のギルドが同じロックに当たることが
+/// あるが、待ちが増えるだけで結果は変わらない。固定本数なのでギルドが増えてもメモリは増えない
+struct RefreshLocks {
+    stripes: [tokio::sync::Mutex<()>; Self::STRIPES],
+}
+
+impl Default for RefreshLocks {
+    fn default() -> Self {
+        Self {
+            stripes: std::array::from_fn(|_| tokio::sync::Mutex::new(())),
+        }
+    }
+}
+
+impl RefreshLocks {
+    const STRIPES: usize = 32;
+
+    async fn lock(&self, guild_id: &str) -> tokio::sync::MutexGuard<'_, ()> {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        guild_id.hash(&mut hasher);
+        self.stripes[hasher.finish() as usize % Self::STRIPES]
+            .lock()
+            .await
+    }
+}
+
+/// スロットルの印を立て、**この呼び出しが実際に捨てる担当か**を返す (#122)。
+///
+/// 判定と登録を別々に行うと、並行して来たリクエストが全部「まだ印が無い」と見て通り抜け、
+/// そろって Discord を呼んでしまう。moka の entry API は同じキーの初期化を 1 つに絞るので、
+/// 印が新しく入った (`is_fresh`) 呼び出しだけが `true` になる
+async fn claim_refresh<K>(cache: &Cache<K, ()>, key: K) -> bool
+where
+    K: std::hash::Hash + Eq + Send + Sync + Clone + 'static,
+{
+    cache.entry(key).or_insert(()).await.is_fresh()
 }
 
 /// 権限計算に必要な最小限のギルド情報
@@ -126,6 +174,15 @@ pub struct DiscordClient {
     members: Cache<(String, String), Option<Arc<Vec<String>>>>,
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
+    /// 直近に [`DiscordClient::refresh_permissions`] でギルド共通の情報を捨てたギルド (#122)。
+    /// 値は使わず、[`REFRESH_THROTTLE`] の間だけ「捨てた印」として置いておく
+    refreshed_guilds: Cache<String, ()>,
+    /// 同じく、直近にメンバー情報を捨てた `(guild_id, user_id)` (#122)。
+    /// 押した人のロールはギルド共通の情報と別に絞る ([`DiscordClient::refresh_permissions`])
+    refreshed_members: Cache<(String, String), ()>,
+    /// 権限の取り直しをギルドごとに直列化するロック (#122)。
+    /// クローンしても同じロックを共有する必要があるので [`Arc`] で持つ
+    refresh_locks: Arc<RefreshLocks>,
     /// Bot 自身のユーザー ID (`GET /users/@me`)。トークンが変わらない限り不変なのでプロセス中ずっと持つ
     bot_user_id: Arc<OnceLock<String>>,
 }
@@ -197,6 +254,15 @@ impl DiscordClient {
                 .max_capacity(1)
                 .time_to_live(BOT_GUILDS_TTL)
                 .build(),
+            refreshed_guilds: Cache::builder()
+                .max_capacity(10_000)
+                .time_to_live(REFRESH_THROTTLE)
+                .build(),
+            refreshed_members: Cache::builder()
+                .max_capacity(100_000)
+                .time_to_live(REFRESH_THROTTLE)
+                .build(),
+            refresh_locks: Arc::new(RefreshLocks::default()),
             bot_user_id: Arc::new(OnceLock::new()),
         })
     }
@@ -224,6 +290,107 @@ impl DiscordClient {
             .member_access(guild_id, &bot_user_id)
             .await?
             .is_some_and(|access| access.permissions.create_events()))
+    }
+
+    /// Discord 側で権限を直した直後に反映させるため、権限キャッシュを取り直す (#122)。
+    ///
+    /// 取り直すのはギルド情報 (ロールごとの権限) と、`user_id` および Bot 自身のメンバー情報。
+    /// Bot を招待し直すと変わるのは Bot の管理ロールの**権限ビット**なので、効くのは主にギルド情報の方。
+    /// 戻り値は取り直した `(呼び出し元の権限, Bot が「イベントの作成」を持つか)` で、
+    /// 呼び出し元がメンバーでなくなっていたら `None`。
+    ///
+    /// 利用者が押せる操作なので、Discord への問い合わせが増えないよう 3 段構えで抑える。
+    ///
+    /// 1. **キャッシュを空にせず上書きする**。捨ててから取り直すと、空いている間に来た
+    ///    リクエスト (このハンドラの外側で走る [`crate::routes::GuildMember`] の抽出も含む) が
+    ///    そろって miss を見て、Discord へ重複して問い合わせてしまう
+    /// 2. **ギルドごとのロックで直列化する**。同じギルドに並行して来ても、待っている間に
+    ///    先の呼び出しが取り直し終わるので、後続は問い合わせずに済む
+    /// 3. [`REFRESH_THROTTLE`] の間は 1 回だけ実際に取り直す。見送った場合も、キャッシュの中身は
+    ///    数秒以内に取り直したものになっている
+    ///
+    /// 絞る単位は 2 つに分けてある。ギルド共通の情報 (ロールごとの権限と Bot のロール) はギルド単位、
+    /// 呼び出し元自身のロールは `(guild_id, user_id)` 単位。ギルド単位だけで絞ると、
+    /// 直前に別の人が押したときにこの人のロールが古いまま (最大 [`MEMBER_TTL`]) になる
+    pub async fn refresh_permissions(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<Option<(MemberAccess, bool)>, DiscordError> {
+        let _lock = self.refresh_locks.lock(guild_id).await;
+        let member_key = (guild_id.to_owned(), user_id.to_owned());
+        // 取り直しに失敗したら印を取り消す。残すと、エラーを見てすぐ押し直した人が取り直しを
+        // 飛ばされ、古い値のまま「まだ変わっていません」と言われてしまう
+        if claim_refresh(&self.refreshed_members, member_key.clone()).await
+            && let Err(err) = self.recache_member(member_key.clone()).await
+        {
+            self.refreshed_members.invalidate(&member_key).await;
+            return Err(err);
+        }
+        if claim_refresh(&self.refreshed_guilds, guild_id.to_owned()).await
+            && let Err(err) = self.recache_guild_permissions(guild_id).await
+        {
+            self.refreshed_guilds.invalidate(guild_id).await;
+            return Err(err);
+        }
+        // ここから先は取り直したキャッシュを読むだけ (Discord は呼ばない)
+        let Some(access) = self.member_access(guild_id, user_id).await? else {
+            return Ok(None);
+        };
+        Ok(Some((access, self.bot_create_events(guild_id).await?)))
+    }
+
+    /// メンバーの所持ロールを取り直してキャッシュを差し替える (#122)
+    async fn recache_member(&self, key: (String, String)) -> Result<(), DiscordError> {
+        let roles = self.fetch_member_roles(&key.0, &key.1).await?;
+        self.members.insert(key, roles).await;
+        Ok(())
+    }
+
+    /// ギルド情報と Bot 自身のメンバー情報を取り直してキャッシュを差し替える (#122)
+    async fn recache_guild_permissions(&self, guild_id: &str) -> Result<(), DiscordError> {
+        let guild = self.fetch_guild(guild_id).await?;
+        // Bot 自身のロールも取り直す (招待し直しで Bot に別のロールが付くことがある)
+        let bot_user_id = self.bot_user_id().await?;
+        let bot_roles = self.fetch_member_roles(guild_id, &bot_user_id).await?;
+        self.guilds.insert(guild_id.to_owned(), guild).await;
+        self.members
+            .insert((guild_id.to_owned(), bot_user_id), bot_roles)
+            .await;
+        Ok(())
+    }
+
+    /// このギルドの権限キャッシュ (ギルド情報と Bot 自身のメンバー情報) を捨てる (#122)。
+    ///
+    /// Discord から 403 を返されたとき (キャッシュ上の「権限あり」が誤りだと分かったとき) に呼ぶ。
+    /// 利用者の操作で取り直す [`Self::refresh_permissions`] と違い、ここは書き込みの失敗時なので
+    /// その場で取りに行かず、次に必要になったときに取り直させる
+    pub async fn invalidate_guild_permissions(&self, guild_id: &str) {
+        self.guilds.invalidate(guild_id).await;
+        match self.bot_user_id().await {
+            Ok(bot_user_id) => {
+                self.members
+                    .invalidate(&(guild_id.to_owned(), bot_user_id))
+                    .await;
+            }
+            // Bot の ID が引けないときは諦める (TTL 切れで直る)。ギルド情報は既に捨ててある
+            Err(err) => {
+                tracing::warn!(guild_id, error = %err, "could not invalidate the bot's member cache");
+            }
+        }
+    }
+
+    /// 書き込みの結果が 403 (権限不足) なら、このギルドの権限キャッシュを捨てる (#122)。
+    ///
+    /// キャッシュが古くて「Bot に権限あり」と表示していたことが Discord の応答で分かった場合に、
+    /// 次の取得で正しい表示 (チェックボックスの無効化と案内) に戻すため
+    async fn invalidate_on_forbidden<T>(&self, guild_id: &str, result: &Result<T, DiscordError>) {
+        if matches!(
+            result,
+            Err(DiscordError::Status { status, .. }) if *status == StatusCode::FORBIDDEN
+        ) {
+            self.invalidate_guild_permissions(guild_id).await;
+        }
     }
 
     /// Bot が参加している全ギルド (`GET /users/@me/guilds` を 200 件ずつ辿る)。
@@ -277,7 +444,17 @@ impl DiscordClient {
         if let Some(cached) = self.guilds.get(guild_id).await {
             return Ok(cached);
         }
-        let guild = self
+        let guild = self.fetch_guild(guild_id).await?;
+        self.guilds.insert(guild_id.to_owned(), guild.clone()).await;
+        Ok(guild)
+    }
+
+    /// ギルド情報を Discord から取る (キャッシュを見ない)。未参加なら `Ok(None)`
+    async fn fetch_guild(
+        &self,
+        guild_id: &str,
+    ) -> Result<Option<Arc<GuildSnapshot>>, DiscordError> {
+        Ok(self
             .get_json::<ApiGuild>(&format!("/guilds/{}", checked_id(guild_id)?))
             .await?
             .map(|g| {
@@ -292,9 +469,23 @@ impl DiscordClient {
                         .map(|r| (r.id, r.permissions.parse::<u64>().unwrap_or(0)))
                         .collect(),
                 })
-            });
-        self.guilds.insert(guild_id.to_owned(), guild.clone()).await;
-        Ok(guild)
+            }))
+    }
+
+    /// メンバーの所持ロールを Discord から取る (キャッシュを見ない)。非メンバーなら `Ok(None)`
+    async fn fetch_member_roles(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<Option<Arc<Vec<String>>>, DiscordError> {
+        Ok(self
+            .get_json::<ApiMember>(&format!(
+                "/guilds/{}/members/{}",
+                checked_id(guild_id)?,
+                checked_id(user_id)?
+            ))
+            .await?
+            .map(|m| Arc::new(m.roles)))
     }
 
     /// ユーザーがギルドのメンバーなら権限付きで返す。Bot 未参加または非メンバーなら `Ok(None)`
@@ -311,14 +502,7 @@ impl DiscordClient {
         let roles = match self.members.get(&key).await {
             Some(cached) => cached,
             None => {
-                let fetched = self
-                    .get_json::<ApiMember>(&format!(
-                        "/guilds/{}/members/{}",
-                        checked_id(guild_id)?,
-                        checked_id(user_id)?
-                    ))
-                    .await?
-                    .map(|m| Arc::new(m.roles));
+                let fetched = self.fetch_member_roles(guild_id, user_id).await?;
                 self.members.insert(key, fetched.clone()).await;
                 fetched
             }

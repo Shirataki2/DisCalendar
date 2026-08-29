@@ -109,17 +109,21 @@ impl DiscordClient {
         guild_id: &str,
         payload: &ScheduledEventPayload,
     ) -> Result<String, DiscordError> {
-        let text = self
+        let sent = self
             .send(
                 reqwest::Method::POST,
                 &format!("/guilds/{}/scheduled-events", checked_id(guild_id)?),
                 Some(&payload.to_json()),
             )
-            .await?
-            // ギルドが無い (Bot が退出済みなど)。作成対象が消えているのは呼び出し元の前提が崩れている
-            .ok_or(DiscordError::Unexpected(
-                "guild not found when creating a scheduled event",
-            ))?;
+            .await;
+        self.invalidate_on_forbidden(guild_id, &sent).await;
+        let Some(text) = sent? else {
+            // 作成先のギルドが無い = Bot が退出・追放されている (#122)。
+            // 権限のキャッシュが「参加中」のままだと同じ失敗を繰り返すので捨てておく
+            // (次の取得で Bot 未参加になり、チェックボックスは案内つきで無効になる)
+            self.invalidate_guild_permissions(guild_id).await;
+            return Err(DiscordError::GuildGone);
+        };
         let created: ScheduledEventResponse = serde_json::from_str(&text)
             .map_err(|_| DiscordError::Unexpected("unexpected scheduled event response"))?;
         Ok(created.id)
@@ -132,7 +136,7 @@ impl DiscordClient {
         scheduled_event_id: &str,
         payload: &ScheduledEventPayload,
     ) -> Result<bool, DiscordError> {
-        Ok(self
+        let sent = self
             .send(
                 reqwest::Method::PATCH,
                 &format!(
@@ -142,17 +146,25 @@ impl DiscordClient {
                 ),
                 Some(&payload.to_json()),
             )
-            .await?
-            .is_some())
+            .await;
+        self.invalidate_on_forbidden(guild_id, &sent).await;
+        Ok(sent?.is_some())
     }
 
-    /// スケジュールイベントを削除する。Discord 側で既に削除されていたら `Ok(false)`
+    /// スケジュールイベントを削除する。Discord 側で既に削除されていたら `Ok(false)`。
+    ///
+    /// 404 だったときは権限キャッシュも捨てる (#122)。イベントが既に消えているだけのことも多いが、
+    /// **Bot が退出してギルドごと見えない**場合も同じ 404 で返る (Discord のエラーコードは
+    /// [`DiscordClient::send`] が 404 を `Ok(None)` に畳む時点で失われる)。
+    /// 削除はベストエフォートでこの先の処理が無いので、ここで捨てておかないと
+    /// キャッシュ上の「参加中・権限あり」が最大 5 分残り、次の連携も同じように失敗する。
+    /// 捨てても余分な問い合わせは次に権限が要るときの 1 回だけで済む
     pub async fn delete_scheduled_event(
         &self,
         guild_id: &str,
         scheduled_event_id: &str,
     ) -> Result<bool, DiscordError> {
-        Ok(self
+        let sent = self
             .send(
                 reqwest::Method::DELETE,
                 &format!(
@@ -162,8 +174,13 @@ impl DiscordClient {
                 ),
                 None,
             )
-            .await?
-            .is_some())
+            .await;
+        self.invalidate_on_forbidden(guild_id, &sent).await;
+        let deleted = sent?.is_some();
+        if !deleted {
+            self.invalidate_guild_permissions(guild_id).await;
+        }
+        Ok(deleted)
     }
 }
 
