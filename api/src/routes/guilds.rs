@@ -107,22 +107,9 @@ pub struct MyPermissions {
     pub bot_create_events: bool,
 }
 
-/// 応答を組み立てる。Bot 権限は付加情報なので、取得に失敗してもユーザー自身の権限の応答は返す
-/// (ここで全体を失敗させると、連携チェックボックスの可否が不明なだけでカレンダーが開けなくなる)。
-/// false 側に倒れるとチェックボックスは案内つきで無効になる
-async fn my_permissions_body(
-    state: &AppState,
-    guild_id: &str,
-    user_id: &str,
-    p: Permissions,
-) -> MyPermissions {
-    let bot_create_events = match state.discord.bot_create_events(guild_id).await {
-        Ok(value) => value,
-        Err(err) => {
-            tracing::warn!(guild_id, error = %err, "failed to check the bot's create events permission");
-            false
-        }
-    };
+/// 応答を組み立てる。`bot_create_events` の求め方は呼び出し側で変える
+/// (通常の取得は取れなくても false に倒し、明示的な再確認 (#122) はエラーを返す)
+fn build_my_permissions(user_id: &str, p: Permissions, bot_create_events: bool) -> MyPermissions {
     MyPermissions {
         user_id: user_id.to_owned(),
         permissions: p.bits().to_string(),
@@ -150,15 +137,21 @@ pub async fn my_permissions(
     member: GuildMember,
     state: web::Data<AppState>,
 ) -> Result<web::Json<MyPermissions>, ApiError> {
-    Ok(web::Json(
-        my_permissions_body(
-            &state,
-            member.guild_id(),
-            &member.user.discord_user_id,
-            member.permissions(),
-        )
-        .await,
-    ))
+    // Bot 権限は付加情報なので、取得に失敗してもユーザー自身の権限の応答は返す
+    // (ここで全体を失敗させると、連携チェックボックスの可否が不明なだけでカレンダーが開けなくなる)。
+    // false 側に倒れるとチェックボックスは案内つきで無効になる
+    let bot_create_events = match state.discord.bot_create_events(member.guild_id()).await {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(guild_id = member.guild_id(), error = %err, "failed to check the bot's create events permission");
+            false
+        }
+    };
+    Ok(web::Json(build_my_permissions(
+        &member.user.discord_user_id,
+        member.permissions(),
+        bot_create_events,
+    )))
 }
 
 /// 権限のキャッシュを捨てて取り直す (#122)。
@@ -181,6 +174,7 @@ pub async fn my_permissions(
         (status = 200, body = MyPermissions),
         (status = 401, body = ErrorBody),
         (status = 403, description = "非メンバー / Bot 未参加", body = ErrorBody),
+        (status = 502, description = "Discord に問い合わせられなかった", body = ErrorBody),
     )
 )]
 #[post("/{guild_id}/@me/permissions/refresh")]
@@ -202,9 +196,15 @@ pub async fn refresh_my_permissions(
                 "you are not a member of this guild, or the bot has not joined it".into(),
             )
         })?;
-    Ok(web::Json(
-        my_permissions_body(&state, &guild_id, &user_id, access.permissions).await,
-    ))
+    // 利用者が明示的に押した操作なので、Bot 権限を確かめられなかったらエラーを返す。
+    // 通常の取得 ([`my_permissions`]) のように false へ倒すと、確認できていないのに
+    // 「まだ変わっていません」と伝えたうえで、web のキャッシュまで false で上書きしてしまう
+    let bot_create_events = state.discord.bot_create_events(&guild_id).await?;
+    Ok(web::Json(build_my_permissions(
+        &user_id,
+        access.permissions,
+        bot_create_events,
+    )))
 }
 
 /// ギルド設定 (未設定なら既定値)

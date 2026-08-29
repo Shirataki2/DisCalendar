@@ -6,7 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import type { EventsClient } from "@/lib/api/endpoints";
 import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
 import { revalidateAdminPagesQuietly } from "./admin-cache";
@@ -88,6 +88,25 @@ export function invalidateEvents(
   );
 }
 
+/**
+ * Bot の権限不足 (403 `bot_permission`) で失敗したら、自分の権限も取り直す (#122)。
+ *
+ * api は 403 を受けた時点で権限キャッシュを捨てているので、取り直すと今の状態になる。
+ * これをしないと、開いたままのダイアログは `bot_create_events: true` のままで
+ * チェックボックスが有効に見え、「権限を再確認」ボタンも出ない
+ */
+function refetchPermissionsOnBotError(
+  queryClient: ReturnType<typeof useQueryClient>,
+  guildId: string,
+  error: unknown,
+) {
+  if (error instanceof ApiError && error.kind === "bot_permission") {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.guild.myPermissions(guildId),
+    });
+  }
+}
+
 export function useCreateEvent(
   guildId: string,
   source: EventsSource = dashboardEventsSource,
@@ -96,6 +115,8 @@ export function useCreateEvent(
   return useMutation({
     mutationFn: (input: ApiEventInput) => source.client.create(guildId, input),
     onSuccess: () => invalidateEvents(queryClient, source, guildId, true),
+    onError: (error) =>
+      refetchPermissionsOnBotError(queryClient, guildId, error),
   });
 }
 
@@ -140,10 +161,11 @@ export function useUpdateEvent(
         events?.map((event) => (event.id === updated.id ? updated : event)),
       );
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       for (const [key, data] of context?.previous ?? []) {
         queryClient.setQueryData(key, data);
       }
+      refetchPermissionsOnBotError(queryClient, guildId, error);
     },
     onSettled: () => invalidateEvents(queryClient, source, guildId, false),
   });
@@ -167,10 +189,11 @@ export function useDeleteEvent(
       );
       return { previous };
     },
-    onError: (_error, _id, context) => {
+    onError: (error, _id, context) => {
       for (const [key, data] of context?.previous ?? []) {
         queryClient.setQueryData(key, data);
       }
+      refetchPermissionsOnBotError(queryClient, guildId, error);
     },
     onSettled: () => invalidateEvents(queryClient, source, guildId, true),
   });

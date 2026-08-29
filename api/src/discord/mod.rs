@@ -81,6 +81,18 @@ fn checked_id(id: &str) -> Result<String, DiscordError> {
     Err(DiscordError::InvalidId)
 }
 
+/// スロットルの印を立て、**この呼び出しが実際に捨てる担当か**を返す (#122)。
+///
+/// 判定と登録を別々に行うと、並行して来たリクエストが全部「まだ印が無い」と見て通り抜け、
+/// そろって Discord を呼んでしまう。moka の entry API は同じキーの初期化を 1 つに絞るので、
+/// 印が新しく入った (`is_fresh`) 呼び出しだけが `true` になる
+async fn claim_refresh<K>(cache: &Cache<K, ()>, key: K) -> bool
+where
+    K: std::hash::Hash + Eq + Send + Sync + Clone + 'static,
+{
+    cache.entry(key).or_insert(()).await.is_fresh()
+}
+
 /// 権限計算に必要な最小限のギルド情報
 #[derive(Debug, Clone)]
 pub struct GuildSnapshot {
@@ -129,9 +141,12 @@ pub struct DiscordClient {
     members: Cache<(String, String), Option<Arc<Vec<String>>>>,
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
-    /// 直近に [`DiscordClient::refresh_permissions`] でキャッシュを捨てたギルド (#122)。
+    /// 直近に [`DiscordClient::refresh_permissions`] でギルド共通の情報を捨てたギルド (#122)。
     /// 値は使わず、[`REFRESH_THROTTLE`] の間だけ「捨てた印」として置いておく
     refreshed_guilds: Cache<String, ()>,
+    /// 同じく、直近にメンバー情報を捨てた `(guild_id, user_id)` (#122)。
+    /// 押した人のロールはギルド共通の情報と別に絞る ([`DiscordClient::refresh_permissions`])
+    refreshed_members: Cache<(String, String), ()>,
     /// Bot 自身のユーザー ID (`GET /users/@me`)。トークンが変わらない限り不変なのでプロセス中ずっと持つ
     bot_user_id: Arc<OnceLock<String>>,
 }
@@ -207,6 +222,10 @@ impl DiscordClient {
                 .max_capacity(10_000)
                 .time_to_live(REFRESH_THROTTLE)
                 .build(),
+            refreshed_members: Cache::builder()
+                .max_capacity(100_000)
+                .time_to_live(REFRESH_THROTTLE)
+                .build(),
             bot_user_id: Arc::new(OnceLock::new()),
         })
     }
@@ -242,19 +261,21 @@ impl DiscordClient {
     /// Bot を招待し直すと変わるのは Bot の管理ロールの**権限ビット**なので、効くのは主にギルド情報の方。
     /// 次の [`Self::member_access`] は Discord から取り直す。
     ///
-    /// 利用者が押せる操作から呼ばれるので、ギルドごとに [`REFRESH_THROTTLE`] の間は 1 回だけ実際に捨てる
-    /// (連打で Discord のレート制限に当たらないようにする)。捨てたら `true`、
-    /// 直前に捨てたばかりで見送ったら `false` (どちらでもキャッシュの中身は数秒以内に取り直したもの)
-    pub async fn refresh_permissions(&self, guild_id: &str, user_id: &str) -> bool {
-        if self.refreshed_guilds.get(guild_id).await.is_some() {
-            return false;
+    /// 利用者が押せる操作から呼ばれるので、[`REFRESH_THROTTLE`] の間は 1 回だけ実際に捨てる
+    /// (連打で Discord のレート制限に当たらないようにする)。見送った場合も、キャッシュの中身は
+    /// 数秒以内に取り直したものになっている。
+    ///
+    /// 絞る単位は 2 つに分けてある。ギルド共通の情報 (ロールごとの権限と Bot のロール) はギルド単位、
+    /// 呼び出し元自身のロールは `(guild_id, user_id)` 単位。ギルド単位だけで絞ると、
+    /// 直前に別の人が押したときにこの人のロールが古いまま (最大 [`MEMBER_TTL`]) になる
+    pub async fn refresh_permissions(&self, guild_id: &str, user_id: &str) {
+        let member_key = (guild_id.to_owned(), user_id.to_owned());
+        if claim_refresh(&self.refreshed_members, member_key.clone()).await {
+            self.members.invalidate(&member_key).await;
         }
-        self.refreshed_guilds.insert(guild_id.to_owned(), ()).await;
-        self.invalidate_guild_permissions(guild_id).await;
-        self.members
-            .invalidate(&(guild_id.to_owned(), user_id.to_owned()))
-            .await;
-        true
+        if claim_refresh(&self.refreshed_guilds, guild_id.to_owned()).await {
+            self.invalidate_guild_permissions(guild_id).await;
+        }
     }
 
     /// このギルドの権限キャッシュ (ギルド情報と Bot 自身のメンバー情報) を捨てる (#122)。

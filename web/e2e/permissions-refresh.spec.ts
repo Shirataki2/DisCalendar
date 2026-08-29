@@ -76,6 +76,39 @@ test("権限が変わっていなければ、再確認しても使えないま�
   await expect(dialog).toBeHidden();
 });
 
+// 上のテストで権限が付いた (api のキャッシュも「あり」になっている) 状態から続ける
+test("保存が権限不足で失敗したら、その場でチェックボックスが無効になる", async ({
+  page,
+}) => {
+  const guild = E2E_GUILDS.reinvited;
+  // Discord 側で権限を外す。api のキャッシュはまだ「あり」なので、画面上はチェックできる
+  await setGuildEventPermissions(guild.id, {
+    botCreateEvents: false,
+    userCreateEvents: true,
+  });
+  await page.goto(`/dashboard/${guild.id}`);
+  await expect(page.getByRole("grid")).toBeVisible();
+  const dialog = await openCreateDialog(page);
+  const checkbox = dialog.getByRole("checkbox", {
+    name: "Discord のイベントとしても作成する",
+  });
+  await expect(checkbox).toBeEnabled();
+  await checkbox.check();
+  await dialog.getByLabel("タイトル").fill("E2E 権限が外れた予定");
+  await dialog.getByRole("button", { name: "作成" }).click();
+
+  // 保存は失敗し、権限を取り直した結果チェックできなくなる (再確認の導線も出る)
+  await expect(dialog.getByRole("alert")).toContainText(
+    "Bot に「イベントの作成」権限がない",
+  );
+  await expect(checkbox).toBeDisabled();
+  await expect(
+    dialog.getByRole("button", { name: "権限を再確認" }),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "キャンセル" }).click();
+  await expect(dialog).toBeHidden();
+});
+
 test.afterAll(async () => {
   // モック側は元に戻す (api のキャッシュは戻せないので、このギルドは他のテストで使わない)
   await setGuildEventPermissions(E2E_GUILDS.reinvited.id, null);
