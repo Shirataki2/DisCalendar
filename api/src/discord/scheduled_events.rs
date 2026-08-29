@@ -109,13 +109,15 @@ impl DiscordClient {
         guild_id: &str,
         payload: &ScheduledEventPayload,
     ) -> Result<String, DiscordError> {
-        let text = self
+        let sent = self
             .send(
                 reqwest::Method::POST,
                 &format!("/guilds/{}/scheduled-events", checked_id(guild_id)?),
                 Some(&payload.to_json()),
             )
-            .await?
+            .await;
+        self.invalidate_on_forbidden(guild_id, &sent).await;
+        let text = sent?
             // ギルドが無い (Bot が退出済みなど)。作成対象が消えているのは呼び出し元の前提が崩れている
             .ok_or(DiscordError::Unexpected(
                 "guild not found when creating a scheduled event",
@@ -132,7 +134,7 @@ impl DiscordClient {
         scheduled_event_id: &str,
         payload: &ScheduledEventPayload,
     ) -> Result<bool, DiscordError> {
-        Ok(self
+        let sent = self
             .send(
                 reqwest::Method::PATCH,
                 &format!(
@@ -142,8 +144,9 @@ impl DiscordClient {
                 ),
                 Some(&payload.to_json()),
             )
-            .await?
-            .is_some())
+            .await;
+        self.invalidate_on_forbidden(guild_id, &sent).await;
+        Ok(sent?.is_some())
     }
 
     /// スケジュールイベントを削除する。Discord 側で既に削除されていたら `Ok(false)`
@@ -152,7 +155,7 @@ impl DiscordClient {
         guild_id: &str,
         scheduled_event_id: &str,
     ) -> Result<bool, DiscordError> {
-        Ok(self
+        let sent = self
             .send(
                 reqwest::Method::DELETE,
                 &format!(
@@ -162,8 +165,9 @@ impl DiscordClient {
                 ),
                 None,
             )
-            .await?
-            .is_some())
+            .await;
+        self.invalidate_on_forbidden(guild_id, &sent).await;
+        Ok(sent?.is_some())
     }
 }
 

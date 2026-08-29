@@ -19,12 +19,56 @@ import {
 // - GET /guilds/{id}/members/{uid}              api (メンバー確認と所持ロール。Bot 自身も含む)
 // - POST/PATCH/DELETE /guilds/{id}/scheduled-events(/{sid})  api (スケジュールイベントの同期、#94)
 // それ以外と未知のギルドは Discord と同じく 404 の JSON を返す。
-// テストから Bot の参加状況を変える PUT / DELETE /_test/guilds/{id} (setBotJoined) だけは Discord に無い追加
+// テスト用に Discord には無い経路を 2 つ足してある (モックは globalSetup のプロセスで動いていて
+// テストからは直接触れないので、HTTP で伝える):
+// - PUT / DELETE /_test/guilds/{id}              Bot の参加状況 (setBotJoined)
+// - PUT / DELETE /_test/guilds/{id}/permissions  「イベントの作成」権限 (setGuildEventPermissions、#122)
 
 /** Bot が参加しているギルド。テスト中に setBotJoined で増減する */
 const joinedGuilds = new Map<string, E2EGuild>(
   E2E_ALL_GUILDS.filter((g) => g.botJoined).map((g) => [g.id, g]),
 );
+
+/** 「イベントの作成」権限の差し替え (#122)。fixtures の値は書き換えず、ここで上書きする */
+type EventPermissions = Pick<E2EGuild, "botCreateEvents" | "userCreateEvents">;
+const permissionOverrides = new Map<string, EventPermissions>();
+
+/** モックが今返すべきギルド (差し替えを反映したもの) */
+function currentGuild(guildId: string): E2EGuild | undefined {
+  const guild = joinedGuilds.get(guildId);
+  const override = guild && permissionOverrides.get(guildId);
+  return override ? { ...guild, ...override } : guild;
+}
+
+/**
+ * テスト中にギルドの「イベントの作成」権限を変える (Bot の招待し直しやロール付与の再現、#122)。
+ * `null` で差し替えを取り消す。
+ *
+ * api は権限を数分キャッシュするので、これを呼んだだけでは api から見た権限は変わらない
+ * (変えたあと `POST /guilds/{id}/@me/permissions/refresh` を通ると反映される)
+ */
+export async function setGuildEventPermissions(
+  guildId: string,
+  permissions: EventPermissions | null,
+): Promise<void> {
+  const query = new URLSearchParams(
+    permissions
+      ? {
+          bot: String(permissions.botCreateEvents),
+          user: String(permissions.userCreateEvents),
+        }
+      : {},
+  );
+  const res = await fetch(
+    `${DISCORD_MOCK_URL}/_test/guilds/${guildId}/permissions?${query}`,
+    { method: permissions ? "PUT" : "DELETE" },
+  );
+  if (!res.ok) {
+    throw new Error(
+      `Discord モックの権限を変更できませんでした (${guildId}): ${res.status}`,
+    );
+  }
+}
 
 /**
  * テスト中に Bot がギルドに参加した / 退出した状態にする (招待の再現)。
@@ -105,6 +149,26 @@ export function startDiscordMock(port: number): Promise<Server> {
     const notFound = (message: string, code: number) =>
       json(404, { message, code });
 
+    // テスト専用 (Discord には無い): 「イベントの作成」権限を差し替える (#122)
+    const permissionsMatch = /^\/_test\/guilds\/(\d+)\/permissions$/.exec(
+      url.pathname,
+    );
+    if (permissionsMatch && (req.method === "PUT" || req.method === "DELETE")) {
+      const guildId = permissionsMatch[1];
+      if (!E2E_ALL_GUILDS.some((g) => g.id === guildId)) {
+        return notFound("Unknown Guild", 10004);
+      }
+      if (req.method === "PUT") {
+        permissionOverrides.set(guildId, {
+          botCreateEvents: url.searchParams.get("bot") === "true",
+          userCreateEvents: url.searchParams.get("user") === "true",
+        });
+      } else {
+        permissionOverrides.delete(guildId);
+      }
+      return json(200, permissionOverrides.get(guildId) ?? null);
+    }
+
     // テスト専用 (Discord には無い): Bot の参加状況を変える
     const testMatch = /^\/_test\/guilds\/(\d+)$/.exec(url.pathname);
     if (testMatch && (req.method === "PUT" || req.method === "DELETE")) {
@@ -128,7 +192,7 @@ export function startDiscordMock(port: number): Promise<Server> {
         return json(401, { message: "401: Unauthorized", code: 0 });
       }
       const [, guildId, scheduledEventId] = scheduledMatch;
-      const guild = joinedGuilds.get(guildId);
+      const guild = currentGuild(guildId);
       if (!guild) {
         return notFound("Unknown Guild", 10004);
       }
@@ -194,7 +258,7 @@ export function startDiscordMock(port: number): Promise<Server> {
         return json(401, { message: "401: Unauthorized", code: 0 });
       }
       const [, guildId, userId] = guildMatch;
-      const guild = joinedGuilds.get(guildId);
+      const guild = currentGuild(guildId);
       if (!guild) {
         return notFound("Unknown Guild", 10004);
       }

@@ -18,11 +18,30 @@ export function useGuildConfigQuery(guildId: string) {
 /**
  * 自分のギルド内権限。API 側で Discord のメンバー情報を短時間キャッシュしているので、
  * Discord でロールを変えた直後に再取得しても反映まで少し遅れることがある
+ * (待てないときは {@link useRefreshMyPermissions})
  */
 export function useMyPermissionsQuery(guildId: string) {
   return useQuery({
     queryKey: queryKeys.guild.myPermissions(guildId),
     queryFn: () => api.guilds.myPermissions(guildId),
+  });
+}
+
+/**
+ * 権限を取り直す (#122)。Bot を招待し直したりロールを付けてもらった直後は API 側の
+ * キャッシュが古いままなので、利用者の操作で捨てて取り直せるようにする。
+ * 結果はそのままキャッシュに入れるので、連携チェックボックスの可否がその場で切り替わる
+ */
+export function useRefreshMyPermissions(guildId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.guilds.refreshMyPermissions(guildId),
+    onSuccess: (permissions) => {
+      queryClient.setQueryData<MyPermissions>(
+        queryKeys.guild.myPermissions(guildId),
+        permissions,
+      );
+    },
   });
 }
 

@@ -10,6 +10,7 @@ import {
   canEditEvents,
   useGuildConfigQuery,
   useMyPermissionsQuery,
+  useRefreshMyPermissions,
 } from "@/lib/query/guild";
 
 interface Props {
@@ -25,6 +26,7 @@ export function GuildDashboard({ guild }: Props) {
   const guildId = guild.guild_id;
   const configQuery = useGuildConfigQuery(guildId);
   const permissionsQuery = useMyPermissionsQuery(guildId);
+  const refreshPermissions = useRefreshMyPermissions(guildId);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const canEdit = canEditEvents(configQuery.data, permissionsQuery.data);
@@ -70,6 +72,8 @@ export function GuildDashboard({ guild }: Props) {
         discordSync={{
           botCreateEvents: permissionsQuery.data?.bot_create_events ?? false,
           canCreateEvents: permissionsQuery.data?.create_events ?? false,
+          // Bot の招待し直しやロール付与の直後でも待たずに反映できるようにする (#122)
+          onRefresh: () => refreshPermissions.mutateAsync(),
         }}
       />
       <GuildSettingsDialog

@@ -34,6 +34,9 @@ const GUILD_TTL: Duration = Duration::from_secs(300);
 const MEMBER_TTL: Duration = Duration::from_secs(60);
 /// Bot の参加ギルド一覧 ([`DiscordClient::bot_guilds`]) のキャッシュ期間
 const BOT_GUILDS_TTL: Duration = Duration::from_secs(60);
+/// 利用者の操作でキャッシュを捨てられる間隔 ([`DiscordClient::refresh_permissions`]、#122)。
+/// 連打されても、ギルドごとの Discord への問い合わせがこの間隔より細かくならないようにする
+const REFRESH_THROTTLE: Duration = Duration::from_secs(10);
 /// `GET /users/@me/guilds` の 1 ページの件数 (Discord の上限は 200)
 const BOT_GUILDS_PAGE_SIZE: usize = 200;
 /// 辿るページ数の上限 (200 件 × 100 ページ = 20,000 ギルド)。無限ループにしないための安全網
@@ -126,6 +129,9 @@ pub struct DiscordClient {
     members: Cache<(String, String), Option<Arc<Vec<String>>>>,
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
+    /// 直近に [`DiscordClient::refresh_permissions`] でキャッシュを捨てたギルド (#122)。
+    /// 値は使わず、[`REFRESH_THROTTLE`] の間だけ「捨てた印」として置いておく
+    refreshed_guilds: Cache<String, ()>,
     /// Bot 自身のユーザー ID (`GET /users/@me`)。トークンが変わらない限り不変なのでプロセス中ずっと持つ
     bot_user_id: Arc<OnceLock<String>>,
 }
@@ -197,6 +203,10 @@ impl DiscordClient {
                 .max_capacity(1)
                 .time_to_live(BOT_GUILDS_TTL)
                 .build(),
+            refreshed_guilds: Cache::builder()
+                .max_capacity(10_000)
+                .time_to_live(REFRESH_THROTTLE)
+                .build(),
             bot_user_id: Arc::new(OnceLock::new()),
         })
     }
@@ -224,6 +234,58 @@ impl DiscordClient {
             .member_access(guild_id, &bot_user_id)
             .await?
             .is_some_and(|access| access.permissions.create_events()))
+    }
+
+    /// Discord 側で権限を直した直後に反映させるため、このギルドの権限キャッシュを捨てる (#122)。
+    ///
+    /// 捨てるのはギルド情報 (ロールごとの権限) と、`user_id` および Bot 自身のメンバー情報。
+    /// Bot を招待し直すと変わるのは Bot の管理ロールの**権限ビット**なので、効くのは主にギルド情報の方。
+    /// 次の [`Self::member_access`] は Discord から取り直す。
+    ///
+    /// 利用者が押せる操作から呼ばれるので、ギルドごとに [`REFRESH_THROTTLE`] の間は 1 回だけ実際に捨てる
+    /// (連打で Discord のレート制限に当たらないようにする)。捨てたら `true`、
+    /// 直前に捨てたばかりで見送ったら `false` (どちらでもキャッシュの中身は数秒以内に取り直したもの)
+    pub async fn refresh_permissions(&self, guild_id: &str, user_id: &str) -> bool {
+        if self.refreshed_guilds.get(guild_id).await.is_some() {
+            return false;
+        }
+        self.refreshed_guilds.insert(guild_id.to_owned(), ()).await;
+        self.invalidate_guild_permissions(guild_id).await;
+        self.members
+            .invalidate(&(guild_id.to_owned(), user_id.to_owned()))
+            .await;
+        true
+    }
+
+    /// このギルドの権限キャッシュ (ギルド情報と Bot 自身のメンバー情報) を捨てる (#122)。
+    /// [`Self::refresh_permissions`] と、Discord から 403 を返されたとき
+    /// (キャッシュ上の「権限あり」が誤りだと分かったとき) に呼ぶ
+    pub async fn invalidate_guild_permissions(&self, guild_id: &str) {
+        self.guilds.invalidate(guild_id).await;
+        match self.bot_user_id().await {
+            Ok(bot_user_id) => {
+                self.members
+                    .invalidate(&(guild_id.to_owned(), bot_user_id))
+                    .await;
+            }
+            // Bot の ID が引けないときは諦める (TTL 切れで直る)。ギルド情報は既に捨ててある
+            Err(err) => {
+                tracing::warn!(guild_id, error = %err, "could not invalidate the bot's member cache");
+            }
+        }
+    }
+
+    /// 書き込みの結果が 403 (権限不足) なら、このギルドの権限キャッシュを捨てる (#122)。
+    ///
+    /// キャッシュが古くて「Bot に権限あり」と表示していたことが Discord の応答で分かった場合に、
+    /// 次の取得で正しい表示 (チェックボックスの無効化と案内) に戻すため
+    async fn invalidate_on_forbidden<T>(&self, guild_id: &str, result: &Result<T, DiscordError>) {
+        if matches!(
+            result,
+            Err(DiscordError::Status { status, .. }) if *status == StatusCode::FORBIDDEN
+        ) {
+            self.invalidate_guild_permissions(guild_id).await;
+        }
     }
 
     /// Bot が参加している全ギルド (`GET /users/@me/guilds` を 200 件ずつ辿る)。

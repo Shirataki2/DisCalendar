@@ -1,10 +1,11 @@
-use actix_web::{get, put, web};
+use actix_web::{get, post, put, web};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use super::GuildMember;
 use crate::{
     auth::AuthUser,
+    discord::Permissions,
     error::{ApiError, ErrorBody},
     models::guilds::{self, Guild, GuildConfig},
     state::AppState,
@@ -101,8 +102,38 @@ pub struct MyPermissions {
     pub create_events: bool,
     /// **Bot 自身**が「イベントの作成」権限を持つか (#94)。
     /// 予定ダイアログの「Discord のイベントとしても作成する」を出し分けるのに使う。
-    /// Bot 側のキャッシュにより、再招待などの変更が反映されるまで最大で数分の遅れがある
+    /// api 側のキャッシュにより、再招待などの変更が反映されるまで最大で数分の遅れがある
+    /// (待てないときは `POST /guilds/{guild_id}/@me/permissions/refresh`、#122)
     pub bot_create_events: bool,
+}
+
+/// 応答を組み立てる。Bot 権限は付加情報なので、取得に失敗してもユーザー自身の権限の応答は返す
+/// (ここで全体を失敗させると、連携チェックボックスの可否が不明なだけでカレンダーが開けなくなる)。
+/// false 側に倒れるとチェックボックスは案内つきで無効になる
+async fn my_permissions_body(
+    state: &AppState,
+    guild_id: &str,
+    user_id: &str,
+    p: Permissions,
+) -> MyPermissions {
+    let bot_create_events = match state.discord.bot_create_events(guild_id).await {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(guild_id, error = %err, "failed to check the bot's create events permission");
+            false
+        }
+    };
+    MyPermissions {
+        user_id: user_id.to_owned(),
+        permissions: p.bits().to_string(),
+        administrator: p.administrator(),
+        manage_guild: p.manage_guild(),
+        manage_messages: p.manage_messages(),
+        manage_roles: p.manage_roles(),
+        can_manage_server: p.can_manage_server(),
+        create_events: p.create_events(),
+        bot_create_events,
+    }
 }
 
 #[utoipa::path(
@@ -119,28 +150,61 @@ pub async fn my_permissions(
     member: GuildMember,
     state: web::Data<AppState>,
 ) -> Result<web::Json<MyPermissions>, ApiError> {
-    let p = member.permissions();
-    // Bot 権限は付加情報なので、取得に失敗してもユーザー自身の権限の応答は返す
-    // (ここで全体を失敗させると、連携チェックボックスの可否が不明なだけでカレンダーが開けなくなる)。
-    // false 側に倒れるとチェックボックスは案内つきで無効になる
-    let bot_create_events = match state.discord.bot_create_events(member.guild_id()).await {
-        Ok(value) => value,
-        Err(err) => {
-            tracing::warn!(guild_id = member.guild_id(), error = %err, "failed to check the bot's create events permission");
-            false
-        }
-    };
-    Ok(web::Json(MyPermissions {
-        user_id: member.user.discord_user_id.clone(),
-        permissions: p.bits().to_string(),
-        administrator: p.administrator(),
-        manage_guild: p.manage_guild(),
-        manage_messages: p.manage_messages(),
-        manage_roles: p.manage_roles(),
-        can_manage_server: p.can_manage_server(),
-        create_events: p.create_events(),
-        bot_create_events,
-    }))
+    Ok(web::Json(
+        my_permissions_body(
+            &state,
+            member.guild_id(),
+            &member.user.discord_user_id,
+            member.permissions(),
+        )
+        .await,
+    ))
+}
+
+/// 権限のキャッシュを捨てて取り直す (#122)。
+///
+/// Bot を招待し直したり、ロールを付けてもらった直後に、キャッシュの期限 (最大 5 分) を待たずに
+/// 反映させるための操作。応答は [`my_permissions`] と同じで、**捨てたあとに Discord から
+/// 取り直した値**で作る。
+///
+/// 認可は [`GuildMember`] のまま (そのギルドのメンバーであること以外に権限は要らない)。
+/// キャッシュを捨てても判定に使うのは常に Discord の最新の値なので、これで権限が緩むことはない。
+/// 連打への備えは [`crate::discord::DiscordClient::refresh_permissions`] のスロットル。
+///
+/// なお **Bot 自体が未参加**のときは extractor の時点で 403 になるので、この操作では直せない
+/// (ギルドの負のキャッシュが切れるのを待つ)。誰でも任意のギルド ID のキャッシュを捨てられる形にして
+/// Discord への問い合わせを起こせるようにするより、直せる範囲が狭い方を選んでいる
+#[utoipa::path(
+    tag = "guilds",
+    params(("guild_id" = String, Path, description = "ギルド ID")),
+    responses(
+        (status = 200, body = MyPermissions),
+        (status = 401, body = ErrorBody),
+        (status = 403, description = "非メンバー / Bot 未参加", body = ErrorBody),
+    )
+)]
+#[post("/{guild_id}/@me/permissions/refresh")]
+pub async fn refresh_my_permissions(
+    member: GuildMember,
+    state: web::Data<AppState>,
+) -> Result<web::Json<MyPermissions>, ApiError> {
+    let guild_id = member.guild_id().to_owned();
+    let user_id = member.user.discord_user_id.clone();
+    state.discord.refresh_permissions(&guild_id, &user_id).await;
+    // extractor が取った権限はキャッシュを捨てる前のものなので、取り直した値で作り直す。
+    // 取り直した結果メンバーでなくなっていたら (退出・Bot の追放) extractor と同じ 403
+    let access = state
+        .discord
+        .member_access(&guild_id, &user_id)
+        .await?
+        .ok_or_else(|| {
+            ApiError::Forbidden(
+                "you are not a member of this guild, or the bot has not joined it".into(),
+            )
+        })?;
+    Ok(web::Json(
+        my_permissions_body(&state, &guild_id, &user_id, access.permissions).await,
+    ))
 }
 
 /// ギルド設定 (未設定なら既定値)

@@ -25,6 +25,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(guilds::joined)
                 .service(guilds::get_guild)
                 .service(guilds::my_permissions)
+                .service(guilds::refresh_my_permissions)
                 .service(guilds::get_config)
                 .service(guilds::put_config),
         )

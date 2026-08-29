@@ -83,6 +83,12 @@ interface Props {
      * false なら新たな連携はできない (api も 403 で拒否する)
      */
     canCreateEvents: boolean;
+    /**
+     * 権限を取り直す (#122)。api 側は権限を数分キャッシュするので、Bot を招待し直したり
+     * ロールを付けてもらった直後は上の 2 つが古いままになる。
+     * 渡すと、権限不足で使えないときに「権限を再確認」ボタンを出す
+     */
+    onRefresh?: () => Promise<unknown>;
   };
 }
 
@@ -435,6 +441,7 @@ function EventForm({
             botCreateEvents={discordSync.botCreateEvents}
             canCreateEvents={discordSync.canCreateEvents}
             startsInPast={discordStartsInPast}
+            onRefresh={discordSync.onRefresh}
           />
         )}
       </FieldGroup>
@@ -489,15 +496,19 @@ function DiscordEventField({
   botCreateEvents,
   canCreateEvents,
   startsInPast,
+  onRefresh,
 }: {
   control: Control<EventFormValues>;
   isLinkedEdit: boolean;
   botCreateEvents: boolean;
   canCreateEvents: boolean;
   startsInPast: boolean;
+  onRefresh?: () => Promise<unknown>;
 }) {
   const locked =
     startsInPast || (!isLinkedEdit && (!botCreateEvents || !canCreateEvents));
+  // 権限が足りないときだけ取り直せるようにする (#122)。過去開始は待っても変わらないので出さない
+  const missingPermission = !botCreateEvents || !canCreateEvents;
   return (
     <Field orientation="horizontal" data-disabled={locked || undefined}>
       <Controller
@@ -524,8 +535,62 @@ function DiscordEventField({
             startsInPast,
           })}
         </FieldDescription>
+        {onRefresh && missingPermission && !startsInPast && (
+          <RefreshPermissionsButton onRefresh={onRefresh} />
+        )}
       </FieldContent>
     </Field>
+  );
+}
+
+/**
+ * 「権限を再確認」ボタン (#122)。
+ *
+ * api は Discord の権限を数分キャッシュするので、案内どおりに Bot を招待し直したり
+ * ロールを付けてもらっても、そのままでは反映されるまで待たされる。
+ * 押すとキャッシュを捨てて取り直し、権限が付いていればチェックボックスがその場で使えるようになる
+ * (使えるようになるとこのボタン自体が消える)
+ */
+function RefreshPermissionsButton({
+  onRefresh,
+}: {
+  onRefresh: () => Promise<unknown>;
+}) {
+  const [state, setState] = useState<
+    "idle" | "pending" | "unchanged" | "error"
+  >("idle");
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={state === "pending"}
+        onClick={async () => {
+          setState("pending");
+          try {
+            await onRefresh();
+            // 権限が付いていれば呼び出し元の再描画でこのボタンは消える。
+            // 残っているということは Discord 側がまだ変わっていない
+            setState("unchanged");
+          } catch {
+            setState("error");
+          }
+        }}
+      >
+        {state === "pending" ? "確認中…" : "権限を再確認"}
+      </Button>
+      {state === "unchanged" && (
+        <span className="text-sm text-muted-foreground">
+          Discord 側の権限はまだ変わっていません
+        </span>
+      )}
+      {state === "error" && (
+        <span className="text-sm text-destructive">
+          確認できませんでした。時間をおいて試してください
+        </span>
+      )}
+    </div>
   );
 }
 

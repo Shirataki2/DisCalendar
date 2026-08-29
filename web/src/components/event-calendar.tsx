@@ -114,7 +114,12 @@ interface Props {
   /** 予定の取得元。管理コンソール (#35) からは admin 用 API に差し替える */
   eventsSource?: EventsSource;
   /** ダイアログの「Discord のイベントとしても作成する」(#94)。未指定なら出さない */
-  discordSync?: { botCreateEvents: boolean; canCreateEvents: boolean };
+  discordSync?: {
+    botCreateEvents: boolean;
+    canCreateEvents: boolean;
+    /** 権限を取り直す (#122)。渡すと権限不足のときに「権限を再確認」ボタンを出す */
+    onRefresh?: () => Promise<unknown>;
+  };
 }
 
 interface PopoverState {
