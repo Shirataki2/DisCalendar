@@ -151,7 +151,14 @@ impl DiscordClient {
         Ok(sent?.is_some())
     }
 
-    /// スケジュールイベントを削除する。Discord 側で既に削除されていたら `Ok(false)`
+    /// スケジュールイベントを削除する。Discord 側で既に削除されていたら `Ok(false)`。
+    ///
+    /// 404 だったときは権限キャッシュも捨てる (#122)。イベントが既に消えているだけのことも多いが、
+    /// **Bot が退出してギルドごと見えない**場合も同じ 404 で返る (Discord のエラーコードは
+    /// [`DiscordClient::send`] が 404 を `Ok(None)` に畳む時点で失われる)。
+    /// 削除はベストエフォートでこの先の処理が無いので、ここで捨てておかないと
+    /// キャッシュ上の「参加中・権限あり」が最大 5 分残り、次の連携も同じように失敗する。
+    /// 捨てても余分な問い合わせは次に権限が要るときの 1 回だけで済む
     pub async fn delete_scheduled_event(
         &self,
         guild_id: &str,
@@ -169,7 +176,11 @@ impl DiscordClient {
             )
             .await;
         self.invalidate_on_forbidden(guild_id, &sent).await;
-        Ok(sent?.is_some())
+        let deleted = sent?.is_some();
+        if !deleted {
+            self.invalidate_guild_permissions(guild_id).await;
+        }
+        Ok(deleted)
     }
 }
 
