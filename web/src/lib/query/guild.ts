@@ -36,6 +36,12 @@ export function useRefreshMyPermissions(guildId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => api.guilds.refreshMyPermissions(guildId),
+    // 実行中の通常の取得 (ウィンドウのフォーカス復帰など) を止める。放っておくと、
+    // 取り直す前の値を読んだ応答があとから届いて、下の setQueryData を古い値で上書きしうる
+    onMutate: () =>
+      queryClient.cancelQueries({
+        queryKey: queryKeys.guild.myPermissions(guildId),
+      }),
     onSuccess: (permissions) => {
       queryClient.setQueryData<MyPermissions>(
         queryKeys.guild.myPermissions(guildId),
