@@ -30,6 +30,12 @@ export function GuildDashboard({ guild }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const canEdit = canEditEvents(configQuery.data, permissionsQuery.data);
+  // 連携の可否は、取得できていないときだけでなく**取得に失敗したとき**も無効側に倒す (#122)。
+  // Bot がサーバーから外れているとこのクエリ自体が 403 になり、TanStack Query は
+  // 直前に成功した「権限あり」を持ち続けるため、そのままだと操作できるように見えてしまう
+  const discordPermissions = permissionsQuery.isError
+    ? undefined
+    : permissionsQuery.data;
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-2 p-4">
@@ -70,8 +76,8 @@ export function GuildDashboard({ guild }: Props) {
         canEdit={canEdit}
         // 権限を取得できるまでは無効 (disabled + 案内) 側に倒す
         discordSync={{
-          botCreateEvents: permissionsQuery.data?.bot_create_events ?? false,
-          canCreateEvents: permissionsQuery.data?.create_events ?? false,
+          botCreateEvents: discordPermissions?.bot_create_events ?? false,
+          canCreateEvents: discordPermissions?.create_events ?? false,
           // Bot の招待し直しやロール付与の直後でも待たずに反映できるようにする (#122)
           onRefresh: () => refreshPermissions.mutateAsync(),
         }}

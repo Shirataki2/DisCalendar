@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { ApiError, api } from "@/lib/api";
 import type { EventsClient } from "@/lib/api/endpoints";
-import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
+import type { ApiEvent, ApiEventInput, MyPermissions } from "@/lib/api/types";
 import { revalidateAdminPagesQuietly } from "./admin-cache";
 import { type EventsQueryKeys, queryKeys } from "./keys";
 
@@ -109,6 +109,14 @@ function refetchPermissionsOnBotError(
   error: unknown,
 ) {
   if (error instanceof ApiError && error.kind === "bot_permission") {
+    // Bot が操作できないことはこの応答で分かっているので、取り直しを待たずに落としておく。
+    // Bot がサーバーから外れている場合は取り直し自体が 403 になり、そのままでは
+    // 直前に成功した「権限あり」が残ってしまう
+    queryClient.setQueryData<MyPermissions>(
+      queryKeys.guild.myPermissions(guildId),
+      (permissions) =>
+        permissions && { ...permissions, bot_create_events: false },
+    );
     refetchPermissions(queryClient, guildId);
   }
 }
