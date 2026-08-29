@@ -57,6 +57,10 @@ pub enum DiscordError {
     /// 通常は起きないが、URL の組み立て時に必ず確認する (パスの意味が変わるのを防ぐ多層防御)
     #[error("invalid discord id")]
     InvalidId,
+    /// 操作しようとしたギルドが Discord から見えない (Bot が退出・追放された、#122)。
+    /// 権限のキャッシュが残っている間は、UI から操作できてしまうのでここに来る
+    #[error("the bot is not in this guild")]
+    GuildGone,
 }
 
 /// Discord の Snowflake ID (数字のみ、20 桁以下) か。リクエストの入り口で形式を確かめるのに使う
@@ -315,25 +319,45 @@ impl DiscordClient {
     ) -> Result<Option<(MemberAccess, bool)>, DiscordError> {
         let _lock = self.refresh_locks.lock(guild_id).await;
         let member_key = (guild_id.to_owned(), user_id.to_owned());
-        if claim_refresh(&self.refreshed_members, member_key.clone()).await {
-            let roles = self.fetch_member_roles(guild_id, user_id).await?;
-            self.members.insert(member_key, roles).await;
+        // 取り直しに失敗したら印を取り消す。残すと、エラーを見てすぐ押し直した人が取り直しを
+        // 飛ばされ、古い値のまま「まだ変わっていません」と言われてしまう
+        if claim_refresh(&self.refreshed_members, member_key.clone()).await
+            && let Err(err) = self.recache_member(member_key.clone()).await
+        {
+            self.refreshed_members.invalidate(&member_key).await;
+            return Err(err);
         }
-        if claim_refresh(&self.refreshed_guilds, guild_id.to_owned()).await {
-            let guild = self.fetch_guild(guild_id).await?;
-            self.guilds.insert(guild_id.to_owned(), guild).await;
-            // Bot 自身のロールも取り直す (招待し直しで Bot に別のロールが付くことがある)
-            let bot_user_id = self.bot_user_id().await?;
-            let bot_roles = self.fetch_member_roles(guild_id, &bot_user_id).await?;
-            self.members
-                .insert((guild_id.to_owned(), bot_user_id), bot_roles)
-                .await;
+        if claim_refresh(&self.refreshed_guilds, guild_id.to_owned()).await
+            && let Err(err) = self.recache_guild_permissions(guild_id).await
+        {
+            self.refreshed_guilds.invalidate(guild_id).await;
+            return Err(err);
         }
         // ここから先は取り直したキャッシュを読むだけ (Discord は呼ばない)
         let Some(access) = self.member_access(guild_id, user_id).await? else {
             return Ok(None);
         };
         Ok(Some((access, self.bot_create_events(guild_id).await?)))
+    }
+
+    /// メンバーの所持ロールを取り直してキャッシュを差し替える (#122)
+    async fn recache_member(&self, key: (String, String)) -> Result<(), DiscordError> {
+        let roles = self.fetch_member_roles(&key.0, &key.1).await?;
+        self.members.insert(key, roles).await;
+        Ok(())
+    }
+
+    /// ギルド情報と Bot 自身のメンバー情報を取り直してキャッシュを差し替える (#122)
+    async fn recache_guild_permissions(&self, guild_id: &str) -> Result<(), DiscordError> {
+        let guild = self.fetch_guild(guild_id).await?;
+        // Bot 自身のロールも取り直す (招待し直しで Bot に別のロールが付くことがある)
+        let bot_user_id = self.bot_user_id().await?;
+        let bot_roles = self.fetch_member_roles(guild_id, &bot_user_id).await?;
+        self.guilds.insert(guild_id.to_owned(), guild).await;
+        self.members
+            .insert((guild_id.to_owned(), bot_user_id), bot_roles)
+            .await;
+        Ok(())
     }
 
     /// このギルドの権限キャッシュ (ギルド情報と Bot 自身のメンバー情報) を捨てる (#122)。

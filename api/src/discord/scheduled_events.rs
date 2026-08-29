@@ -117,11 +117,13 @@ impl DiscordClient {
             )
             .await;
         self.invalidate_on_forbidden(guild_id, &sent).await;
-        let text = sent?
-            // ギルドが無い (Bot が退出済みなど)。作成対象が消えているのは呼び出し元の前提が崩れている
-            .ok_or(DiscordError::Unexpected(
-                "guild not found when creating a scheduled event",
-            ))?;
+        let Some(text) = sent? else {
+            // 作成先のギルドが無い = Bot が退出・追放されている (#122)。
+            // 権限のキャッシュが「参加中」のままだと同じ失敗を繰り返すので捨てておく
+            // (次の取得で Bot 未参加になり、チェックボックスは案内つきで無効になる)
+            self.invalidate_guild_permissions(guild_id).await;
+            return Err(DiscordError::GuildGone);
+        };
         let created: ScheduledEventResponse = serde_json::from_str(&text)
             .map_err(|_| DiscordError::Unexpected("unexpected scheduled event response"))?;
         Ok(created.id)
