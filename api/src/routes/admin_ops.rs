@@ -5,6 +5,7 @@
 //! 予定 1 件の編集・削除と restricted の切替は `/admin/guilds/*` (#35) にある。
 
 use actix_web::{post, web};
+use futures_util::{StreamExt as _, stream};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -14,7 +15,7 @@ use crate::{
     error::{ApiError, ErrorBody},
     models::{
         admin_audit::{self, AuditEntry},
-        admin_ops,
+        admin_ops, event_links,
         events::Event,
     },
     state::AppState,
@@ -67,6 +68,14 @@ pub async fn delete_guild_events(
     let guild_id = validated_guild_id(&body.guild_id)?;
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
+    // 連携している Discord スケジュールイベントを控えておく (#94)。
+    // 控えてから削除するまでに連携が増えて取り残さないよう、まずギルド単位の勧告ロックで
+    // 連携付きの新規作成 (新しい行は行ロックでは待たせられない) と排他し、
+    // 次に既存の予定行をロックして連携の追加・変更・解除を待たせる。
+    // 対応付けの行自体は events の削除に CASCADE で追随する
+    event_links::lock_guild(&mut *tx, guild_id).await?;
+    admin_ops::lock_guild_events(&mut *tx, guild_id).await?;
+    let scheduled_event_ids = event_links::list_scheduled_event_ids(&mut *tx, guild_id).await?;
     let (snapshot_rows, count) = admin_ops::delete_guild_events(&mut tx, guild_id).await?;
     // スナップショットは API 形式 (Event) に加えて notifications の生データも残す
     // (壊れた要素は Event への変換で捨てられるため、削除した実データを復元・調査できるように)
@@ -97,9 +106,42 @@ pub async fn delete_guild_events(
         },
     )
     .await?;
-    tx.commit().await?;
+    if let Err(err) = tx.commit().await {
+        // COMMIT の応答だけ失われて実際には消えていることがある。何もしないと Discord の
+        // イベントだけ残り、対応付けも消えているので後から ID を回収できない。
+        // 別の接続で対応付けが空になったことを確かめられたときだけ Discord 側も片付ける
+        if matches!(
+            event_links::list_scheduled_event_ids(&state.pool, guild_id).await,
+            Ok(ref remaining) if remaining.is_empty()
+        ) {
+            tracing::warn!(
+                guild_id,
+                "the events were deleted after all (the commit result was lost): cleaning up the scheduled events"
+            );
+            delete_scheduled_events(&state, guild_id, &scheduled_event_ids).await;
+        }
+        return Err(err.into());
+    }
+    delete_scheduled_events(&state, guild_id, &scheduled_event_ids).await;
     tracing::info!(guild_id, deleted = count, admin = %admin.discord_user_id, "all events of a guild deleted by admin");
     Ok(web::Json(OpsResult { deleted: count }))
+}
+
+/// 一括削除に伴う Discord 側の後始末 (#94)。管理コンソールの削除は Discord 側の失敗で
+/// 止めない (ベストエフォート)。1 件ずつ直列に待つと件数に比例して応答が遅くなるので、
+/// 数件ずつ並行で呼ぶ (レート制限に当たりにくい程度の並行数に抑える)
+async fn delete_scheduled_events(state: &AppState, guild_id: &str, scheduled_event_ids: &[String]) {
+    let discord = &state.discord;
+    stream::iter(scheduled_event_ids)
+        .for_each_concurrent(4, |scheduled_event_id| async move {
+            if let Err(err) = discord
+                .delete_scheduled_event(guild_id, scheduled_event_id)
+                .await
+            {
+                tracing::warn!(guild_id, scheduled_event_id, error = %err, "failed to delete a linked scheduled event");
+            }
+        })
+        .await;
 }
 
 /// Better Auth の期限切れセッション (`session."expiresAt" < now()`) を削除する。

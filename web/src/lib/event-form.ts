@@ -16,7 +16,11 @@ import type {
   Notification,
   NotificationUnit,
 } from "@/lib/api/types";
-import { parseApiDateTime, toApiDateTime } from "@/lib/calendar-events";
+import {
+  nowInJst,
+  parseApiDateTime,
+  toApiDateTime,
+} from "@/lib/calendar-events";
 
 // 予定の作成・編集フォーム (旧 NewEvent.vue) のスキーマと API との相互変換。
 // 上限値は api/src/models/events.rs の validate() と揃えている
@@ -114,6 +118,8 @@ export const eventFormSchema = z
         DESCRIPTION_MAX_CHARS,
         `説明は${DESCRIPTION_MAX_CHARS}文字以内で入力してください`,
       ),
+    /** Discord のスケジュールイベントとしても作成・同期する (#94) */
+    discordEvent: z.boolean(),
   })
   .superRefine((values, ctx) => {
     if (!values.isAllDay) {
@@ -143,6 +149,17 @@ export const eventFormSchema = z
         path: [values.isAllDay ? "endDate" : "endTime"],
         message: "終了日時を開始日時より前にすることはできません",
       });
+    } else if (
+      values.discordEvent &&
+      !values.isAllDay &&
+      end.getTime() === start.getTime()
+    ) {
+      // Discord の外部イベントは終了が開始より後である必要がある (api の validate_discord_flag と同じ条件)
+      ctx.addIssue({
+        code: "custom",
+        path: ["endTime"],
+        message: "Discord のイベントにするには終了を開始より後にしてください",
+      });
     }
   });
 
@@ -156,6 +173,38 @@ type FormRange = Pick<
 function combine(date: Date, time: string): Date {
   const [hours, minutes] = time.split(":").map(Number);
   return set(startOfDay(date), { hours, minutes });
+}
+
+/**
+ * フォームの開始日時。時刻が未入力・不正なら null。
+ * Discord 連携 (#94) の「開始が過去なら連携できない」の判定に使う (api 側の検証と同じ条件)
+ */
+export function formStartAt(
+  values: Pick<EventFormValues, "isAllDay" | "startDate" | "startTime">,
+): Date | null {
+  if (values.isAllDay) return startOfDay(values.startDate);
+  if (!TIME_PATTERN.test(values.startTime)) return null;
+  return combine(values.startDate, values.startTime);
+}
+
+/**
+ * 送信直前に Discord 連携 (#94) の可否をもう一度確かめ、連携できない開始日時なら
+ * チェックを落とした値を返す。
+ *
+ * チェックボックスの無効化は開いた時点の時刻で決まるので、ダイアログを開いたまま
+ * 開始時刻をまたぐと、有効なまま送信されて api の検証 (`validate_discord_flag`) で
+ * 400 になってしまう。案内どおり「過去開始なら連携しない (連携済みなら解除)」に倒す
+ */
+export function withCheckedDiscordEvent(
+  values: EventFormValues,
+  now = new Date(),
+): EventFormValues {
+  if (!values.discordEvent) return values;
+  const startAt = formStartAt(values);
+  if (startAt === null || startAt.getTime() > nowInJst(now).getTime()) {
+    return values;
+  }
+  return { ...values, discordEvent: false };
 }
 
 /**
@@ -186,10 +235,15 @@ export function eventFormToApiInput(values: EventFormValues): ApiEventInput {
     is_all_day: values.isAllDay,
     start_at: toApiDateTime(start),
     end_at: toApiDateTime(end),
+    discord_scheduled_event: values.discordEvent,
   };
 }
 
-/** 既存の予定を編集フォームに読み込む */
+/**
+ * 既存の予定を編集フォームに読み込む。
+ * 複製 (#91) もここを通るので、連携済み予定を複製するとチェックが入った状態で始まり、
+ * 作成時に新しい Discord イベントも作られる
+ */
 export function eventToFormValues(event: ApiEvent): EventFormValues {
   const start = parseApiDateTime(event.start_at);
   const end = parseApiDateTime(event.end_at);
@@ -203,6 +257,7 @@ export function eventToFormValues(event: ApiEvent): EventFormValues {
     endDate: startOfDay(end),
     endTime: format(end, "HH:mm"),
     notifications: event.notifications.map(({ num, unit }) => ({ num, unit })),
+    discordEvent: event.discord_scheduled_event_id !== null,
   };
 }
 
@@ -221,6 +276,7 @@ export function newEventFormValues(
     color: DEFAULT_COLOR,
     notifications: DEFAULT_NOTIFICATIONS.map((n) => ({ ...n })),
     isAllDay: allDay,
+    discordEvent: false,
   };
   if (allDay) {
     const first = startOfDay(start);

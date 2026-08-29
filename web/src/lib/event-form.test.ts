@@ -13,6 +13,7 @@ import {
   NOTIFICATIONS_MAX,
   newEventFormValues,
   toDateRange,
+  withCheckedDiscordEvent,
 } from "@/lib/event-form";
 
 // 日付はローカル時刻で組み立てる (API の JST 文字列はブラウザのローカル時刻をそのまま JST とみなすので、
@@ -29,6 +30,7 @@ const valid: EventFormValues = {
   color: "#f44336",
   notifications: [{ num: 1, unit: "days" }],
   description: "",
+  discordEvent: false,
 };
 
 /** 検証エラーを path ("a.b") → message の一覧にする */
@@ -121,6 +123,15 @@ describe("eventFormSchema", () => {
     });
     // 同時刻は許可 (isBefore は厳密)
     expect(issuesOf({ ...valid, endTime: "10:00" })).toEqual({});
+    // ただし Discord 連携 (#94) を有効にした時刻指定の予定は、終了が開始より後でないと
+    // Discord 側が受け付けない (api の validate_discord_flag と同じ条件)
+    expect(
+      issuesOf({ ...valid, endTime: "10:00", discordEvent: true }),
+    ).toHaveProperty("endTime");
+    // 終日は終了に +1 日されるので同日でよい
+    expect(issuesOf({ ...valid, isAllDay: true, discordEvent: true })).toEqual(
+      {},
+    );
     expect(
       issuesOf({ ...valid, isAllDay: true, endDate: day(22) }),
     ).toHaveProperty("endDate");
@@ -134,6 +145,38 @@ describe("eventFormSchema", () => {
         endTime: "08:00",
       }),
     ).toEqual({});
+  });
+});
+
+describe("withCheckedDiscordEvent", () => {
+  // 予定の開始は 2026-08-23 10:00 (ローカル = JST とみなす)。
+  // 判定に渡す「今」は UTC で作る (nowInJst が JST の壁時計に読み替える)
+  const utc = (d: number, h: number, m = 0) =>
+    new Date(Date.UTC(2026, 7, d, h, m));
+  const linked: EventFormValues = { ...valid, discordEvent: true };
+
+  it("開始が未来ならそのまま (同じ参照を返す)", () => {
+    // UTC 00:59 = JST 09:59
+    expect(withCheckedDiscordEvent(linked, utc(23, 0, 59))).toBe(linked);
+  });
+
+  it("開始時刻をまたいでいたらチェックを落とす", () => {
+    // UTC 01:00 = JST 10:00 (開始と同時刻。api も「現在以前」は拒否する)
+    expect(withCheckedDiscordEvent(linked, utc(23, 1)).discordEvent).toBe(
+      false,
+    );
+    expect(withCheckedDiscordEvent(linked, utc(23, 2)).discordEvent).toBe(
+      false,
+    );
+  });
+
+  it("元から連携なしなら触らない", () => {
+    expect(withCheckedDiscordEvent(valid, utc(23, 2))).toBe(valid);
+  });
+
+  it("時刻が不正で開始が決まらないときは触らない (フォームの検証に任せる)", () => {
+    const broken = { ...linked, startTime: "" };
+    expect(withCheckedDiscordEvent(broken, utc(23, 2))).toBe(broken);
   });
 });
 
@@ -168,7 +211,15 @@ describe("eventFormToApiInput", () => {
       is_all_day: false,
       start_at: "2026-08-23T10:00:00",
       end_at: "2026-08-23T11:30:00",
+      discord_scheduled_event: false,
     });
+  });
+
+  it("Discord 連携のチェックはフラグとして送る", () => {
+    expect(
+      eventFormToApiInput({ ...valid, discordEvent: true })
+        .discord_scheduled_event,
+    ).toBe(true);
   });
 
   it("説明は前後の空白を除く", () => {
@@ -200,6 +251,7 @@ const apiEvent: ApiEvent = {
   start_at: "2026-08-23T10:00:00",
   end_at: "2026-08-24T11:30:00",
   created_at: "2026-08-01T00:00:00",
+  discord_scheduled_event_id: null,
 };
 
 describe("eventToFormValues", () => {
@@ -214,7 +266,17 @@ describe("eventToFormValues", () => {
       endDate: day(24),
       endTime: "11:30",
       notifications: [{ num: 30, unit: "minutes" }],
+      discordEvent: false,
     });
+  });
+
+  it("Discord 連携済みの予定はチェックが入った状態で読み込む", () => {
+    expect(
+      eventToFormValues({
+        ...apiEvent,
+        discord_scheduled_event_id: "9001",
+      }).discordEvent,
+    ).toBe(true);
   });
 
   it("フォーム → API → フォームで値が保たれる", () => {

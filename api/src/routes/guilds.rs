@@ -95,6 +95,14 @@ pub struct MyPermissions {
     pub manage_roles: bool,
     /// 上記 4 つのいずれか。restricted モードでの編集可否とサーバー設定の変更可否に使う
     pub can_manage_server: bool,
+    /// **このユーザー自身**が Discord の「イベントの作成」権限を持つか (#94)。
+    /// 連携は Bot が代行するので、これを見ないと本人の権限では作れないイベントを
+    /// web 経由で作れてしまう (権限昇格)。予定を連携させる操作の条件
+    pub create_events: bool,
+    /// **Bot 自身**が「イベントの作成」権限を持つか (#94)。
+    /// 予定ダイアログの「Discord のイベントとしても作成する」を出し分けるのに使う。
+    /// Bot 側のキャッシュにより、再招待などの変更が反映されるまで最大で数分の遅れがある
+    pub bot_create_events: bool,
 }
 
 #[utoipa::path(
@@ -107,9 +115,22 @@ pub struct MyPermissions {
     )
 )]
 #[get("/{guild_id}/@me/permissions")]
-pub async fn my_permissions(member: GuildMember) -> web::Json<MyPermissions> {
+pub async fn my_permissions(
+    member: GuildMember,
+    state: web::Data<AppState>,
+) -> Result<web::Json<MyPermissions>, ApiError> {
     let p = member.permissions();
-    web::Json(MyPermissions {
+    // Bot 権限は付加情報なので、取得に失敗してもユーザー自身の権限の応答は返す
+    // (ここで全体を失敗させると、連携チェックボックスの可否が不明なだけでカレンダーが開けなくなる)。
+    // false 側に倒れるとチェックボックスは案内つきで無効になる
+    let bot_create_events = match state.discord.bot_create_events(member.guild_id()).await {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(guild_id = member.guild_id(), error = %err, "failed to check the bot's create events permission");
+            false
+        }
+    };
+    Ok(web::Json(MyPermissions {
         user_id: member.user.discord_user_id.clone(),
         permissions: p.bits().to_string(),
         administrator: p.administrator(),
@@ -117,7 +138,9 @@ pub async fn my_permissions(member: GuildMember) -> web::Json<MyPermissions> {
         manage_messages: p.manage_messages(),
         manage_roles: p.manage_roles(),
         can_manage_server: p.can_manage_server(),
-    })
+        create_events: p.create_events(),
+        bot_create_events,
+    }))
 }
 
 /// ギルド設定 (未設定なら既定値)

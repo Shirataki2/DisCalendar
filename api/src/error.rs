@@ -11,10 +11,18 @@ pub enum ApiError {
     Unauthorized,
     #[error("{0}")]
     Forbidden(String),
+    /// **Bot** の権限が足りず Discord の操作ができない (#94)。利用者自身の権限不足 ([`Self::Forbidden`]) と
+    /// 区別する: 直すには Bot の再招待が要るので、web は別の案内を出す。
+    /// 権限のキャッシュ (最大 5 分) が古いと、UI で有効なまま保存時にここへ来ることがある
+    #[error("{0}")]
+    BotPermission(String),
     #[error("{0}")]
     NotFound(String),
     #[error("{0}")]
     BadRequest(String),
+    /// 同じ資源への並行更新とぶつかって完了できなかった (やり直せば通る)
+    #[error("{0}")]
+    Conflict(String),
     #[error("Discord API is rate limited, retry later")]
     RateLimited,
     /// 機能が設定不備などで使えない (SQL コンソール用の DB ロールが無い等)。メッセージは利用者に見せる
@@ -44,8 +52,10 @@ impl ApiError {
         match self {
             Self::Unauthorized => "unauthorized",
             Self::Forbidden(_) => "forbidden",
+            Self::BotPermission(_) => "bot_permission",
             Self::NotFound(_) => "not_found",
             Self::BadRequest(_) => "bad_request",
+            Self::Conflict(_) => "conflict",
             Self::RateLimited => "rate_limited",
             Self::Unavailable(_) => "unavailable",
             Self::Discord(_) => "discord_error",
@@ -59,6 +69,9 @@ impl From<DiscordError> for ApiError {
     fn from(err: DiscordError) -> Self {
         match err {
             DiscordError::RateLimited => Self::RateLimited,
+            // 呼び出し元が検証済みの値だけを渡すので通常は起きないが、
+            // 万一 URL に使えない ID が来ていたら入力の誤りとして返す (502 にはしない)
+            DiscordError::InvalidId => Self::BadRequest("invalid discord id".into()),
             other => Self::Discord(other),
         }
     }
@@ -68,9 +81,10 @@ impl ResponseError for ApiError {
     fn status_code(&self) -> StatusCode {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::Forbidden(_) => StatusCode::FORBIDDEN,
+            Self::Forbidden(_) | Self::BotPermission(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::RateLimited | Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Discord(_) => StatusCode::BAD_GATEWAY,
             Self::Database(_) | Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,

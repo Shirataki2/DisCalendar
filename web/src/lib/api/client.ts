@@ -85,10 +85,14 @@ export function describeApiError(error: unknown): string {
       return "ログインの有効期限が切れました。再度ログインしてください";
     case "forbidden":
       return "この操作を行う権限がありません";
+    case "bot_permission":
+      return "Bot に「イベントの作成」権限がないため Discord に反映できませんでした。Bot を招待し直すと利用できます (使い方の「サーバーに導入する」)";
     case "not_found":
       return "対象が見つかりません (他のユーザーが削除した可能性があります)";
     case "bad_request":
       return `入力内容が正しくありません (${error.message})`;
+    case "conflict":
+      return "他の更新と同時に行われたため保存できませんでした。もう一度お試しください";
     case "rate_limited":
       return "Discord API の制限中です。しばらく待ってから再度お試しください";
     case "unavailable":

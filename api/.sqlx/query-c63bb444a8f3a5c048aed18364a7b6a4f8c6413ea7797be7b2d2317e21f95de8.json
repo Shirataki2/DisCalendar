@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pg_advisory_xact_lock(hashtext('event_discord_links'), hashtext($1)) AS \"lock\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lock",
+        "type_info": "Void",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c63bb444a8f3a5c048aed18364a7b6a4f8c6413ea7797be7b2d2317e21f95de8"
+}

@@ -16,6 +16,7 @@ impl Permissions {
     pub const MANAGE_GUILD: u64 = 1 << 5;
     pub const MANAGE_MESSAGES: u64 = 1 << 13;
     pub const MANAGE_ROLES: u64 = 1 << 28;
+    pub const CREATE_EVENTS: u64 = 1 << 44;
 
     pub const fn from_bits(bits: u64) -> Self {
         Self(bits)
@@ -44,6 +45,13 @@ impl Permissions {
 
     pub const fn manage_roles(self) -> bool {
         self.has(Self::MANAGE_ROLES)
+    }
+
+    /// Discord スケジュールイベントの作成に必要な「イベントの作成」(#94)。Bot 自身の権限判定に使う。
+    /// 自分が作ったイベントの変更・削除もこの権限でできる (「イベントの管理」(1 << 33) は
+    /// 他人が作ったイベントの操作用で、この用途には要らない)
+    pub const fn create_events(self) -> bool {
+        self.has(Self::CREATE_EVENTS)
     }
 
     /// 旧実装と同じ「サーバー管理」判定: 管理者 / サーバー管理 / メッセージの管理 / ロールの管理 のいずれか。
@@ -134,6 +142,13 @@ mod tests {
     #[test]
     fn administrator_implies_everything() {
         let p = Permissions::from_bits(Permissions::ADMINISTRATOR);
-        assert!(p.manage_guild() && p.manage_messages() && p.manage_roles());
+        assert!(p.manage_guild() && p.manage_messages() && p.manage_roles() && p.create_events());
+    }
+
+    #[test]
+    fn create_events_bit() {
+        assert!(Permissions::from_bits(Permissions::CREATE_EVENTS).create_events());
+        // 「イベントの管理」(1 << 33) では作成できない (#94 の実機確認より)
+        assert!(!Permissions::from_bits(1 << 33).create_events());
     }
 }

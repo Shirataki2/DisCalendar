@@ -241,14 +241,18 @@ pub async fn update_event(
     let guild_id = validated_guild_id(&path.guild_id)?;
     body.validate()?;
     let mut tx = state.pool.begin().await?;
-    let before = events::find_by_id_for_update(&mut *tx, guild_id, path.event_id)
+    let before = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-    let after = events::update(&mut *tx, guild_id, path.event_id, &body)
+    let mut after = events::update(&mut *tx, guild_id, path.event_id, &body)
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+    // 管理コンソールの更新は Discord 連携 (#94) に触れず対応付けも変えないので、
+    // 変更前の値を引き継ぐ (`events::update` の戻り値は常に None のため、そのままだと
+    // レスポンスと監査ログの after が「連携解除」に見えてしまう)
+    after.discord_scheduled_event_id = before.discord_scheduled_event_id.clone();
     admin_audit::record(
         &mut *tx,
         &admin,
@@ -287,7 +291,7 @@ pub async fn delete_event(
 ) -> Result<HttpResponse, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
     let mut tx = state.pool.begin().await?;
-    let before = events::find_by_id_for_update(&mut *tx, guild_id, path.event_id)
+    let before = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
@@ -307,7 +311,31 @@ pub async fn delete_event(
         },
     )
     .await?;
-    tx.commit().await?;
+    if let Err(err) = tx.commit().await {
+        // COMMIT の応答だけ失われて実際には消えていることがある。何もしないと Discord の
+        // イベントだけ残り、再試行しても 404 で ID を回収できない (通常の削除と同じ扱い)
+        if let Some(scheduled_event_id) = &before.discord_scheduled_event_id
+            && matches!(
+                events::find_by_id(&state.pool, guild_id, path.event_id).await,
+                Ok(None)
+            )
+        {
+            tracing::warn!(
+                guild_id,
+                event_id = path.event_id,
+                "the event was deleted after all (the commit result was lost): cleaning up the scheduled event"
+            );
+            delete_scheduled_event_best_effort(&state, guild_id, path.event_id, scheduled_event_id)
+                .await;
+        }
+        return Err(err.into());
+    }
+    // 連携している Discord スケジュールイベントの後始末 (#94)。
+    // 管理コンソールの削除は Discord 側の失敗で止めない (ベストエフォート)
+    if let Some(scheduled_event_id) = &before.discord_scheduled_event_id {
+        delete_scheduled_event_best_effort(&state, guild_id, path.event_id, scheduled_event_id)
+            .await;
+    }
     tracing::info!(guild_id, event_id = path.event_id, admin = %admin.discord_user_id, "event deleted by admin");
     Ok(HttpResponse::NoContent().finish())
 }
@@ -355,6 +383,23 @@ pub async fn put_config(
     tx.commit().await?;
     tracing::info!(guild_id, restricted = after.restricted, admin = %admin.discord_user_id, "guild config updated by admin");
     Ok(web::Json(after))
+}
+
+/// 連携している Discord スケジュールイベントを消す (#94)。管理コンソールの削除は
+/// Discord 側の失敗で止めない (失敗は warn ログだけ残す)
+async fn delete_scheduled_event_best_effort(
+    state: &AppState,
+    guild_id: &str,
+    event_id: i32,
+    scheduled_event_id: &str,
+) {
+    if let Err(err) = state
+        .discord
+        .delete_scheduled_event(guild_id, scheduled_event_id)
+        .await
+    {
+        tracing::warn!(guild_id, event_id, scheduled_event_id, error = %err, "failed to delete the linked scheduled event");
+    }
 }
 
 /// 書き込み前に、現在または過去に存在したギルドであることを確認する (無ければ 404)

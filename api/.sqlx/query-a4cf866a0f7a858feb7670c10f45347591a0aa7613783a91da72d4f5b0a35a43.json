@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM event_discord_links WHERE event_id = $1 AND guild_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a4cf866a0f7a858feb7670c10f45347591a0aa7613783a91da72d4f5b0a35a43"
+}

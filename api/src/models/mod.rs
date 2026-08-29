@@ -12,6 +12,7 @@ pub mod admin_sql;
 pub mod admin_stats;
 pub mod admin_status;
 pub mod admin_users;
+pub mod event_links;
 pub mod events;
 pub mod guilds;
 pub mod notifications;

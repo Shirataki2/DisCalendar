@@ -3,8 +3,14 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { isBefore } from "date-fns";
 import { PlusIcon, XIcon } from "lucide-react";
-import { useState } from "react";
-import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
+import { useEffect, useState } from "react";
+import {
+  type Control,
+  Controller,
+  useFieldArray,
+  useForm,
+  useWatch,
+} from "react-hook-form";
 import { ColorPicker } from "@/components/form/color-picker";
 import { DatePicker } from "@/components/form/date-picker";
 import { Button } from "@/components/ui/button";
@@ -19,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Field,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldGroup,
@@ -36,17 +43,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { useLastValue } from "@/hooks/use-last-value";
 import { describeApiError } from "@/lib/api";
 import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
+import { nowInJst } from "@/lib/calendar-events";
 import {
   DESCRIPTION_MAX_CHARS,
   type EventFormValues,
   eventFormSchema,
   eventFormToApiInput,
   eventToFormValues,
+  formStartAt,
   NAME_MAX_CHARS,
   NOTIFICATION_NUM_MAX,
   NOTIFICATION_NUM_MIN,
   NOTIFICATION_UNITS,
   NOTIFICATIONS_MAX,
+  withCheckedDiscordEvent,
 } from "@/lib/event-form";
 
 export type EventDialogState =
@@ -61,12 +71,31 @@ interface Props {
   onSubmit: (input: ApiEventInput) => Promise<unknown>;
   /** 編集中の予定の削除ボタン (確認ダイアログは呼び出し側が出す) */
   onDelete: (event: ApiEvent) => void;
+  /**
+   * 「Discord のイベントとしても作成する」(#94) の表示設定。
+   * 未指定 (管理コンソールなど連携を扱わない画面) ならチェックボックス自体を出さない
+   */
+  discordSync?: {
+    /** Bot 自身が「イベントの作成」権限を持つか。false なら無効化して案内を出す */
+    botCreateEvents: boolean;
+    /**
+     * このユーザー自身が Discord の「イベントの作成」権限を持つか。
+     * false なら新たな連携はできない (api も 403 で拒否する)
+     */
+    canCreateEvents: boolean;
+  };
 }
 
 const NAME_INPUT_ID = "event-form-name";
 
 /** 予定の作成・編集ダイアログ (旧 NewEvent.vue 相当) */
-export function EventFormDialog({ state, onClose, onSubmit, onDelete }: Props) {
+export function EventFormDialog({
+  state,
+  onClose,
+  onSubmit,
+  onDelete,
+  discordSync,
+}: Props) {
   // 閉じるアニメーションの間も直前の内容を出しておく
   const shown = useLastValue(state);
   return (
@@ -88,6 +117,7 @@ export function EventFormDialog({ state, onClose, onSubmit, onDelete }: Props) {
             onClose={onClose}
             onSubmit={onSubmit}
             onDelete={onDelete}
+            discordSync={discordSync}
           />
         )}
       </DialogContent>
@@ -101,8 +131,15 @@ interface FormProps extends Omit<Props, "state"> {
 
 // ダイアログが開くたびにマウントされる (Base UI の Dialog は閉じると Popup を unmount する) ので、
 // useForm の defaultValues で初期値が決まる
-function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
+function EventForm({
+  state,
+  onClose,
+  onSubmit,
+  onDelete,
+  discordSync,
+}: FormProps) {
   const isEdit = state.mode === "edit";
+  const initialValues = isEdit ? eventToFormValues(state.event) : state.values;
   const {
     control,
     register,
@@ -112,14 +149,44 @@ function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
     formState: { errors, isSubmitting },
   } = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
-    defaultValues: isEdit ? eventToFormValues(state.event) : state.values,
+    // 連携を扱わない画面 (管理コンソール) ではチェックボックスを出さないので、値も落とす。
+    // 連携済みの予定を開くと `eventToFormValues` が true にするが、そのままだと
+    // 見えないフラグで Discord 向けの検証だけが効いて保存できなくなる
+    defaultValues: discordSync
+      ? initialValues
+      : { ...initialValues, discordEvent: false },
   });
   const notifications = useFieldArray({ control, name: "notifications" });
-  const [isAllDay, name, description] = useWatch({
+  const [isAllDay, name, description, startDate, startTime] = useWatch({
     control,
-    name: ["isAllDay", "name", "description"],
+    name: ["isAllDay", "name", "description", "startDate", "startTime"],
   });
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Discord 連携 (#94): 開始が過去 (現在を含む) だと Discord はイベントを作れない。
+  // api 側の validate_discord_flag と同じ条件・同じ JST の現在時刻でチェックを無効化する
+  const startAt =
+    startDate instanceof Date
+      ? formStartAt({ isAllDay, startDate, startTime })
+      : null;
+  const discordStartsInPast =
+    startAt !== null && startAt.getTime() <= nowInJst().getTime();
+  // 連携を**新しく作る**には Bot と本人の両方に権限が要る。
+  // 既に連携済みの予定を編集しているときだけは、権限が無くてもチェックを外せる
+  // (解除の出口まで塞がないため)。複製は連携済みの値を引き継いだ「新規作成」なので、
+  // ここには含めない (含めると権限のない人が送信できてしまい、保存時に 403 になる)
+  const isLinkedEdit =
+    state.mode === "edit" && state.event.discord_scheduled_event_id !== null;
+  const discordLocked =
+    !isLinkedEdit &&
+    discordSync !== undefined &&
+    (!discordSync.botCreateEvents || !discordSync.canCreateEvents);
+  useEffect(() => {
+    // 無効化したら値も落とす (表示と送信値を一致させる)。連携済みの予定なら保存時に解除される
+    if ((discordStartsInPast || discordLocked) && getValues("discordEvent")) {
+      setValue("discordEvent", false, { shouldDirty: true });
+    }
+  }, [discordStartsInPast, discordLocked, getValues, setValue]);
 
   // 開始日を終了日より後にしたら終了日も合わせる (旧フォームの onStartDateChanged)
   const handleStartDateChange = (date: Date) => {
@@ -132,7 +199,8 @@ function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
   const submit = handleSubmit(async (values) => {
     setSubmitError(null);
     try {
-      await onSubmit(eventFormToApiInput(values));
+      // 開いたまま開始時刻をまたぐことがあるので、連携の可否は送信直前にも確かめる
+      await onSubmit(eventFormToApiInput(withCheckedDiscordEvent(values)));
       onClose();
     } catch (error) {
       setSubmitError(describeApiError(error));
@@ -359,6 +427,16 @@ function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
             </FieldDescription>
           </div>
         </Field>
+
+        {discordSync && (
+          <DiscordEventField
+            control={control}
+            isLinkedEdit={isLinkedEdit}
+            botCreateEvents={discordSync.botCreateEvents}
+            canCreateEvents={discordSync.canCreateEvents}
+            startsInPast={discordStartsInPast}
+          />
+        )}
       </FieldGroup>
 
       {submitError && (
@@ -397,6 +475,104 @@ function EventForm({ state, onClose, onSubmit, onDelete }: FormProps) {
     </form>
   );
 }
+
+/**
+ * 「Discord のイベントとしても作成する」(#94)。
+ * Bot か自分に「イベントの作成」権限が無いときは新たに有効にはできないが、
+ * **連携済みの予定を編集しているとき**は外すことができる
+ * (解除まで塞ぐと連携をやめる手段が無くなるため)。
+ * 連携済みの予定の複製は「チェック済みの新規作成」なので、この例外には当たらない
+ */
+function DiscordEventField({
+  control,
+  isLinkedEdit,
+  botCreateEvents,
+  canCreateEvents,
+  startsInPast,
+}: {
+  control: Control<EventFormValues>;
+  isLinkedEdit: boolean;
+  botCreateEvents: boolean;
+  canCreateEvents: boolean;
+  startsInPast: boolean;
+}) {
+  const locked =
+    startsInPast || (!isLinkedEdit && (!botCreateEvents || !canCreateEvents));
+  return (
+    <Field orientation="horizontal" data-disabled={locked || undefined}>
+      <Controller
+        control={control}
+        name="discordEvent"
+        render={({ field }) => (
+          <Checkbox
+            id="event-form-discord-event"
+            checked={field.value}
+            disabled={locked}
+            onCheckedChange={(value) => field.onChange(value)}
+          />
+        )}
+      />
+      <FieldContent>
+        <FieldLabel htmlFor="event-form-discord-event" className="font-normal">
+          Discord のイベントとしても作成する
+        </FieldLabel>
+        <FieldDescription>
+          {discordEventHint({
+            isLinkedEdit,
+            botCreateEvents,
+            canCreateEvents,
+            startsInPast,
+          })}
+        </FieldDescription>
+      </FieldContent>
+    </Field>
+  );
+}
+
+/** チェックボックスの下に出す案内。無効化の理由 (過去開始 / 権限不足) を伝える */
+function discordEventHint({
+  isLinkedEdit,
+  botCreateEvents,
+  canCreateEvents,
+  startsInPast,
+}: {
+  isLinkedEdit: boolean;
+  botCreateEvents: boolean;
+  canCreateEvents: boolean;
+  startsInPast: boolean;
+}) {
+  if (startsInPast) {
+    return "開始日時が過去の予定は Discord のイベントにできません (連携済みの予定は保存すると連携が解除されます)";
+  }
+  // 自分の権限不足は Discord 側の設定次第なので、Bot の再招待を案内しても直らない
+  if (!canCreateEvents) {
+    return isLinkedEdit
+      ? "あなたに Discord の「イベントの作成」権限がないため、この連携を作り直すことはできません。チェックを外すと連携を解除します"
+      : "Discord の「イベントの作成」権限を持つ人だけが利用できます。サーバーの管理者にロールの権限を確認してください";
+  }
+  if (!botCreateEvents) {
+    return isLinkedEdit
+      ? "Bot に「イベントの作成」権限がないため、変更は Discord に反映できません。チェックを外すと連携を解除します"
+      : botPermissionHint;
+  }
+  return "予定の作成・変更・削除を Discord のスケジュールイベントにも反映します";
+}
+
+/** Bot に権限がないときの案内 (再招待への導線つき) */
+const botPermissionHint = (
+  <>
+    Bot に「イベントの作成」権限がないため利用できません。
+    <a
+      href="/docs/invite"
+      target="_blank"
+      rel="noreferrer"
+      className="underline underline-offset-2"
+    >
+      Bot を招待し直す
+    </a>
+    と利用できます
+  </>
+);
 
 /** API (Rust の chars().count()) と同じくコードポイント単位で数える */
 function charCount(value: string | undefined): number {

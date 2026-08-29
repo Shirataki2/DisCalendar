@@ -3,6 +3,7 @@
 
 use chrono::NaiveDateTime;
 use discalendar_api::models::{
+    event_links,
     events::{self, EventInput},
     guilds,
     notifications::{Notification, NotificationUnit},
@@ -28,6 +29,7 @@ fn input(name: &str, start: &str, end: &str) -> EventInput {
         is_all_day: false,
         start_at: dt(start),
         end_at: dt(end),
+        discord_scheduled_event: None,
     }
 }
 
@@ -136,6 +138,134 @@ async fn list_returns_events_overlapping_range(pool: PgPool) {
     .unwrap();
     let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
     assert_eq!(names, vec!["spans-into", "inside"]);
+}
+
+/// Discord スケジュールイベントとの対応付け (`event_discord_links`、#94)
+#[sqlx::test(migrations = "./migrations")]
+async fn event_links_are_scoped_and_cascade(pool: PgPool) {
+    let now = dt("2026-08-01T00:00:00");
+    let event = events::create(
+        &pool,
+        GUILD,
+        &input("linked", "2026-09-10T10:00:00", "2026-09-10T11:00:00"),
+        now,
+    )
+    .await
+    .unwrap();
+    // 作成直後は未連携
+    assert_eq!(event.discord_scheduled_event_id, None);
+
+    event_links::insert(&pool, GUILD, event.id, "9001", now)
+        .await
+        .unwrap();
+
+    // 一覧・単体取得に JOIN で載る
+    let rows = events::list_between(
+        &pool,
+        GUILD,
+        dt("2026-09-01T00:00:00"),
+        dt("2026-10-01T00:00:00"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rows[0].discord_scheduled_event_id.as_deref(), Some("9001"));
+    let mut tx = pool.begin().await.unwrap();
+    let found = events::find_by_id_for_update(&mut tx, GUILD, event.id)
+        .await
+        .unwrap()
+        .expect("event exists");
+    assert_eq!(found.discord_scheduled_event_id.as_deref(), Some("9001"));
+    tx.commit().await.unwrap();
+
+    // 他ギルドからは読めない・消せない・差し替えられない
+    assert_eq!(
+        event_links::get(&pool, OTHER_GUILD, event.id)
+            .await
+            .unwrap(),
+        None
+    );
+    assert!(
+        !event_links::delete(&pool, OTHER_GUILD, event.id)
+            .await
+            .unwrap()
+    );
+    event_links::set_scheduled_event_id(&pool, OTHER_GUILD, event.id, "9002")
+        .await
+        .unwrap();
+    assert_eq!(
+        event_links::get(&pool, GUILD, event.id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("9001")
+    );
+
+    // 差し替え (Discord 側で手動削除されたイベントの作り直し)
+    event_links::set_scheduled_event_id(&pool, GUILD, event.id, "9003")
+        .await
+        .unwrap();
+    assert_eq!(
+        event_links::get(&pool, GUILD, event.id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("9003")
+    );
+
+    // 予定の削除に CASCADE で追随する
+    assert!(events::delete(&pool, GUILD, event.id).await.unwrap());
+    assert_eq!(
+        event_links::get(&pool, GUILD, event.id).await.unwrap(),
+        None
+    );
+}
+
+/// 一括削除用の一覧はギルドで絞る (#94)。開始日時では絞らない:
+/// DB の `start_at` は Discord に同期していない変更 (管理コンソールの編集) でずれることがあり、
+/// 「開始前だけ消す」判定に使うと Discord 側に未来のイベントを取り残してしまう
+#[sqlx::test(migrations = "./migrations")]
+async fn scheduled_event_ids_are_filtered_by_guild(pool: PgPool) {
+    let now = dt("2026-08-01T00:00:00");
+    let future = events::create(
+        &pool,
+        GUILD,
+        &input("future", "2026-09-10T10:00:00", "2026-09-10T11:00:00"),
+        now,
+    )
+    .await
+    .unwrap();
+    let past = events::create(
+        &pool,
+        GUILD,
+        &input("past", "2026-07-10T10:00:00", "2026-07-10T11:00:00"),
+        now,
+    )
+    .await
+    .unwrap();
+    let other = events::create(
+        &pool,
+        OTHER_GUILD,
+        &input("other", "2026-09-10T10:00:00", "2026-09-10T11:00:00"),
+        now,
+    )
+    .await
+    .unwrap();
+    event_links::insert(&pool, GUILD, future.id, "1", now)
+        .await
+        .unwrap();
+    event_links::insert(&pool, GUILD, past.id, "2", now)
+        .await
+        .unwrap();
+    event_links::insert(&pool, OTHER_GUILD, other.id, "3", now)
+        .await
+        .unwrap();
+
+    let mut ids = event_links::list_scheduled_event_ids(&pool, GUILD)
+        .await
+        .unwrap();
+    ids.sort();
+    // 開始が過去の予定 ("2") も含む。他ギルドの予定 ("3") は含まない
+    assert_eq!(ids, vec!["1".to_owned(), "2".to_owned()]);
 }
 
 /// `notifications` の中身は DB では検証していない (CHECK は配列であることだけ) ので、
@@ -421,13 +551,13 @@ async fn event_writes_work_inside_a_transaction(pool: PgPool) {
     )
     .await
     .unwrap();
-    let found = events::find_by_id_for_update(&mut *tx, GUILD, created.id)
+    let found = events::find_by_id_for_update(&mut tx, GUILD, created.id)
         .await
         .unwrap();
     assert_eq!(found.map(|e| e.name).as_deref(), Some("tx"));
     // 他ギルドの ID では見えない
     assert!(
-        events::find_by_id_for_update(&mut *tx, OTHER_GUILD, created.id)
+        events::find_by_id_for_update(&mut tx, OTHER_GUILD, created.id)
             .await
             .unwrap()
             .is_none()
@@ -435,8 +565,9 @@ async fn event_writes_work_inside_a_transaction(pool: PgPool) {
     tx.rollback().await.unwrap();
 
     // ロールバックしたので残っていない
+    let mut conn = pool.acquire().await.unwrap();
     assert!(
-        events::find_by_id_for_update(&pool, GUILD, created.id)
+        events::find_by_id_for_update(&mut conn, GUILD, created.id)
             .await
             .unwrap()
             .is_none()

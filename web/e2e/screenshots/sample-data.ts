@@ -11,6 +11,8 @@ export interface SampleEvent {
   is_all_day: boolean;
   start_at: string;
   end_at: string;
+  /** Discord のイベントとしても作成する (#94。編集ダイアログの画像にチェック済みの状態を写す) */
+  discord_scheduled_event?: boolean;
 }
 
 /** 編集ダイアログ (lp/dialog.png) を開く予定 */
@@ -70,6 +72,12 @@ export function sampleEvents(today: Date): SampleEvent[] {
     end_at: at(to, "00:00"),
   });
 
+  // 編集ダイアログ (lp/dialog.png) に Discord 連携のチェックが入った状態を写すため、
+  // この予定だけ撮影日の 2 日後に置く (開始が過去だと連携できないので、未来の日付が要る)。
+  // 月末の撮影で翌々日が翌月になるときだけ月内に収め、連携は諦める (作成が 400 で落ちないように)
+  const editDay = Math.min(today.getDate() + 2, lastDay);
+  const editIsFuture = editDay > today.getDate();
+
   const events: SampleEvent[] = [
     // 毎週の定例。曜日で並ぶので、どの月に撮っても縦にきれいに揃う
     ...mondays(year, month).map((day) =>
@@ -77,12 +85,13 @@ export function sampleEvents(today: Date): SampleEvent[] {
     ),
     // 深夜の予定 (時刻が "2:00" と出ることの確認も兼ねる)
     timed(5, "メンテナンス", "02:00", "04:00", "#95a5a6"),
-    timed(8, EDIT_TARGET, "20:00", "23:30", "#e91e63", {
+    timed(editDay, EDIT_TARGET, "20:00", "23:30", "#e91e63", {
       description: "参加者はボイスチャンネルに集合。賞品あり",
       notifications: [
         { num: 30, unit: "minutes" },
         { num: 1, unit: "days" },
       ],
+      discord_scheduled_event: editIsFuture,
     }),
     allDay(13, 15, "合宿", "#009688"),
     timed(20, "配信: 新作レビュー", "20:00", "22:00", "#9b59b6"),

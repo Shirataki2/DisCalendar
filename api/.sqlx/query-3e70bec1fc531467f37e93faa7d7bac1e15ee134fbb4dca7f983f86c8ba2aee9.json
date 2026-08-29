@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at\n        FROM events\n        WHERE id = $1 AND guild_id = $2\n        FOR UPDATE\n        ",
+  "query": "\n        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,\n               e.start_at, e.end_at, e.created_at,\n               l.scheduled_event_id AS \"discord_scheduled_event_id?\"\n        FROM events e\n        LEFT JOIN event_discord_links l ON l.event_id = e.id\n        WHERE e.id = $1 AND e.guild_id = $2\n        ",
   "describe": {
     "columns": [
       {
@@ -112,6 +112,17 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 10,
+        "name": "discord_scheduled_event_id?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "event_discord_links",
+            "name": "scheduled_event_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -130,8 +141,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "b34864a6a177b66bd21541914e2ef5f616d12080e52e48f1baa5a9d351ed548b"
+  "hash": "3e70bec1fc531467f37e93faa7d7bac1e15ee134fbb4dca7f983f86c8ba2aee9"
 }

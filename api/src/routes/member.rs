@@ -65,10 +65,9 @@ impl FromRequest for GuildMember {
     }
 }
 
-/// Discord の Snowflake ID (数字のみ、20 桁以下) か
-pub(crate) fn is_snowflake(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 20 && s.bytes().all(|b| b.is_ascii_digit())
-}
+/// Discord の Snowflake ID (数字のみ、20 桁以下) か。
+/// 実体は `discord` 側 (URL の組み立てでも同じ基準で確認する) にある
+pub(crate) use crate::discord::is_snowflake;
 
 #[cfg(test)]
 mod tests {
@@ -81,5 +80,21 @@ mod tests {
         assert!(!is_snowflake("abc"));
         assert!(!is_snowflake("123456789012345678901"));
         assert!(!is_snowflake("-1"));
+    }
+
+    #[test]
+    fn snowflake_validation_rejects_url_control_characters() {
+        // Discord API の URL に埋め込む値なので、パスの意味を変えうる文字は通さない
+        for id in [
+            "1/2",
+            "..",
+            "../../users/@me",
+            "1?query=x",
+            "1#frag",
+            "1%2F2",
+            "1 2",
+        ] {
+            assert!(!is_snowflake(id), "{id}");
+        }
     }
 }

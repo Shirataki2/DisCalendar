@@ -12,6 +12,10 @@ pub struct Config {
     /// Discord API のベース URL (`DISCORD_API_BASE_URL`)。既定は本物の Discord で、
     /// E2E テスト (web/e2e) だけモックサーバーに向ける
     pub discord_api_base_url: String,
+    /// web の公開 URL (`SITE_BASE_URL`、末尾スラッシュなし)。Discord スケジュールイベントの
+    /// 「場所」に入れるダッシュボードのリンク (#94) に使う。staging のように別ドメインで
+    /// 出す環境だけ設定する (web 側の `NEXT_PUBLIC_SITE_URL` と同じ値)
+    pub site_base_url: String,
     /// web 側と同じ値。Better Auth のセッション cookie の署名検証に使う
     pub better_auth_secret: String,
     /// Better Auth の cookie プレフィックス (既定 `better-auth`)
@@ -38,6 +42,9 @@ impl Config {
                 .context("DATABASE_MAX_CONNECTIONS must be a number")?,
             discord_bot_token: required("DISCORD_BOT_TOKEN")?,
             discord_api_base_url: env_or("DISCORD_API_BASE_URL", crate::discord::DEFAULT_API_BASE),
+            site_base_url: env_or("SITE_BASE_URL", "https://discalendar.app")
+                .trim_end_matches('/')
+                .to_owned(),
             better_auth_secret: required("BETTER_AUTH_SECRET")?,
             auth_cookie_prefix: env_or("AUTH_COOKIE_PREFIX", "better-auth"),
             admin_discord_user_ids: parse_admin_discord_user_ids(&env_or(

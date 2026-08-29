@@ -50,6 +50,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         sql_console_pool,
         sql_known_words: tokio::sync::Mutex::new(None),
         discord: DiscordClient::new(&config.discord_bot_token, &config.discord_api_base_url)?,
+        site_base_url: config.site_base_url.clone(),
+        event_update_locks: Default::default(),
         auth: AuthConfig {
             secret: config.better_auth_secret.clone(),
             cookie_names: config.session_cookie_names().to_vec(),

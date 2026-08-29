@@ -5,8 +5,13 @@
 //! メンバー情報を短時間キャッシュして 0〜2 回に抑える。
 
 pub mod permissions;
+pub mod scheduled_events;
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use anyhow::Context as _;
 use moka::future::Cache;
@@ -44,6 +49,33 @@ pub enum DiscordError {
     RateLimited,
     #[error("unexpected response from Discord API: {0}")]
     Unexpected(&'static str),
+    /// URL に埋め込む ID が Snowflake ではない。呼び出し元が検証済みの値だけを渡すので
+    /// 通常は起きないが、URL の組み立て時に必ず確認する (パスの意味が変わるのを防ぐ多層防御)
+    #[error("invalid discord id")]
+    InvalidId,
+}
+
+/// Discord の Snowflake ID (数字のみ、20 桁以下) か。リクエストの入り口で形式を確かめるのに使う
+/// (URL に埋め込む値は、さらに [`checked_id`] で組み立て直す)
+pub fn is_snowflake(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 20 && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// URL のパスに埋め込む ID を、**数値として解釈し直した文字列**にする。
+///
+/// 受け取った文字列をそのまま URL に載せず、`u64` を経由して組み立て直すので、
+/// `/` や `..`、クエリの区切りといったパスの意味を変える文字が入り込む余地がない
+/// (呼び出し元も検証済みの値しか渡さないが、URL を作る境界でも断ち切る多層防御)。
+/// 先頭ゼロなどで元の文字列と一致しない値は、別の ID を指すことになるので拒否する
+fn checked_id(id: &str) -> Result<String, DiscordError> {
+    if let Ok(parsed) = id.parse::<u64>() {
+        let normalized = parsed.to_string();
+        if normalized == id {
+            return Ok(normalized);
+        }
+    }
+    tracing::warn!("refused to build a discord url with a non-snowflake id");
+    Err(DiscordError::InvalidId)
 }
 
 /// 権限計算に必要な最小限のギルド情報
@@ -94,6 +126,8 @@ pub struct DiscordClient {
     members: Cache<(String, String), Option<Arc<Vec<String>>>>,
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
+    /// Bot 自身のユーザー ID (`GET /users/@me`)。トークンが変わらない限り不変なのでプロセス中ずっと持つ
+    bot_user_id: Arc<OnceLock<String>>,
 }
 
 #[derive(Deserialize)]
@@ -115,6 +149,12 @@ struct ApiRole {
 #[derive(Deserialize)]
 struct ApiMember {
     roles: Vec<String>,
+}
+
+/// `GET /users/@me` が返すユーザー情報のうち使う部分
+#[derive(Deserialize)]
+struct ApiUser {
+    id: String,
 }
 
 /// `GET /users/@me/guilds` が返す部分的なギルド情報
@@ -157,7 +197,33 @@ impl DiscordClient {
                 .max_capacity(1)
                 .time_to_live(BOT_GUILDS_TTL)
                 .build(),
+            bot_user_id: Arc::new(OnceLock::new()),
         })
+    }
+
+    /// Bot 自身のユーザー ID (`GET /users/@me`)。初回だけ Discord に問い合わせ、以後はキャッシュを返す
+    async fn bot_user_id(&self) -> Result<String, DiscordError> {
+        if let Some(id) = self.bot_user_id.get() {
+            return Ok(id.clone());
+        }
+        let user: ApiUser = self
+            .get_json("/users/@me")
+            .await?
+            // Bot トークンがあれば 403 / 404 にはならない
+            .ok_or(DiscordError::Unexpected("cannot fetch the bot user"))?;
+        // 競合してもトークンが同じなら同じ ID なので、先に入った値をそのまま使う
+        Ok(self.bot_user_id.get_or_init(|| user.id).clone())
+    }
+
+    /// Bot 自身がギルドで「イベントの作成」権限を持つか (#94)。
+    /// Bot が未参加なら `false`。ギルド・メンバーのキャッシュに乗るため、
+    /// 再招待などの権限変更が反映されるまで最大で数分の遅れがある
+    pub async fn bot_create_events(&self, guild_id: &str) -> Result<bool, DiscordError> {
+        let bot_user_id = self.bot_user_id().await?;
+        Ok(self
+            .member_access(guild_id, &bot_user_id)
+            .await?
+            .is_some_and(|access| access.permissions.create_events()))
     }
 
     /// Bot が参加している全ギルド (`GET /users/@me/guilds` を 200 件ずつ辿る)。
@@ -212,7 +278,7 @@ impl DiscordClient {
             return Ok(cached);
         }
         let guild = self
-            .get_json::<ApiGuild>(&format!("/guilds/{guild_id}"))
+            .get_json::<ApiGuild>(&format!("/guilds/{}", checked_id(guild_id)?))
             .await?
             .map(|g| {
                 Arc::new(GuildSnapshot {
@@ -246,7 +312,11 @@ impl DiscordClient {
             Some(cached) => cached,
             None => {
                 let fetched = self
-                    .get_json::<ApiMember>(&format!("/guilds/{guild_id}/members/{user_id}"))
+                    .get_json::<ApiMember>(&format!(
+                        "/guilds/{}/members/{}",
+                        checked_id(guild_id)?,
+                        checked_id(user_id)?
+                    ))
                     .await?
                     .map(|m| Arc::new(m.roles));
                 self.members.insert(key, fetched.clone()).await;
@@ -308,5 +378,98 @@ impl DiscordClient {
             tracing::warn!(%path, %status, %body, "discord api error");
             return Err(DiscordError::Status { status, body });
         }
+    }
+
+    /// 書き込みリクエスト (POST / PATCH / DELETE) を送り、成功したらレスポンスボディを文字列で返す
+    /// (204 なら空文字列)。404 (対象が既に無い) は `Ok(None)`。
+    /// GET ([`Self::get_json`]) と違い **403 はエラーのまま返す** (書き込みの 403 は Bot の
+    /// 「イベントの管理」権限の不足で、呼び出し元が利用者に案内を返すため)。
+    /// 429 は Retry-After が短ければ 1 回だけ待って再試行する
+    async fn send(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> Result<Option<String>, DiscordError> {
+        let url = format!("{}{path}", self.api_base);
+        let mut retried = false;
+        loop {
+            let mut req = self.http.request(method.clone(), &url);
+            if let Some(body) = body {
+                req = req.json(body);
+            }
+            let res = req.send().await?;
+            let status = res.status();
+            if status.is_success() {
+                return Ok(Some(res.text().await?));
+            }
+            if status == StatusCode::NOT_FOUND {
+                tracing::debug!(%path, %status, "discord resource not found");
+                return Ok(None);
+            }
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                let retry_after = res
+                    .headers()
+                    .get(header::RETRY_AFTER)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(1.0);
+                if !retried && retry_after <= 2.0 {
+                    tracing::warn!(%path, retry_after, "discord rate limited, retrying once");
+                    retried = true;
+                    tokio::time::sleep(Duration::from_secs_f64(retry_after)).await;
+                    continue;
+                }
+                tracing::warn!(%path, retry_after, "discord rate limited");
+                return Err(DiscordError::RateLimited);
+            }
+            let body = res.text().await.unwrap_or_default();
+            tracing::warn!(%path, %status, %body, "discord api error");
+            return Err(DiscordError::Status { status, body });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{checked_id, is_snowflake};
+
+    #[test]
+    fn checked_id_accepts_snowflakes() {
+        assert_eq!(
+            checked_id("782502586817314816").unwrap(),
+            "782502586817314816"
+        );
+        assert_eq!(checked_id("0").unwrap(), "0");
+    }
+
+    #[test]
+    fn checked_id_rejects_values_that_would_change_the_url() {
+        // パスの意味を変えうる文字は、URL に載る前に弾く
+        for id in [
+            "",
+            "abc",
+            "1/2",
+            "..",
+            "../../users/@me",
+            "1?query=x",
+            "1#frag",
+            "1%2F2",
+            "1 2",
+            " 1",
+            "+1",
+            "-1",
+            // u64 に収まらない (Discord の Snowflake は 64bit)
+            "99999999999999999999",
+        ] {
+            assert!(checked_id(id).is_err(), "{id}");
+        }
+    }
+
+    #[test]
+    fn checked_id_rejects_ids_that_do_not_round_trip() {
+        // 先頭ゼロを落とすと別の ID を指してしまうので、数値としては読めても拒否する
+        assert!(checked_id("0123456789012345678").is_err());
+        assert!(!is_snowflake(""));
     }
 }

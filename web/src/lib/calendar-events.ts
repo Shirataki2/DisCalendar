@@ -37,6 +37,41 @@ export interface ApiDateRange {
  * 終日予定は FullCalendar では end が「翌日 0:00 (含まない)」、DB では「終了日 (含む)」なので 1 日ずらす。
  * end が null (単日の終日予定 / 終了未指定) の場合も扱う
  */
+/**
+ * 現在時刻を「JST の壁時計」として読み替えたローカル Date (#94)。
+ * このモジュールの日時はブラウザのローカル時刻を JST とみなして API へ送るため、
+ * 「開始が過去か」の判定もローカルの現在時刻ではなく JST の現在時刻と比べないと、
+ * JST 以外のタイムゾーンのブラウザで api の検証 (`now_jst`) と食い違う
+ */
+export function nowInJst(now = new Date()): Date {
+  // Asia/Tokyo での壁時計の各要素を取り出し、そのままローカルの Date として組み立てる。
+  // 「ローカルのオフセットぶん足す」計算にすると、足した先が夏時間の切り替えを跨ぐ
+  // タイムゾーン (America/New_York など) で 1 時間ずれる
+  const parts = JST_PARTS.formatToParts(now);
+  const at = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  return new Date(
+    at("year"),
+    at("month") - 1,
+    at("day"),
+    at("hour"),
+    at("minute"),
+    at("second"),
+  );
+}
+
+/** [`nowInJst`] 用。生成が重いので使い回す (hourCycle は 0〜23 にする) */
+const JST_PARTS = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Tokyo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
 export function toApiRange(
   start: Date,
   end: Date | null,
@@ -107,15 +142,25 @@ function isApiEvent(value: unknown): value is ApiEvent {
 export function toApiEventInput(
   event: EventApi,
   source: ApiEvent,
+  now = new Date(),
 ): ApiEventInput {
   const start = event.start ?? parseApiDateTime(source.start_at);
+  const range = toApiRange(start, event.end, event.allDay);
+  // Discord 連携 (#94) は引き継ぐ (落とすとドラッグしただけで連携が外れてしまう)。
+  // ただし移動先の開始が過去だと Discord はイベントを持てないので、ダイアログの送信時
+  // (`withCheckedDiscordEvent`) と同じように連携を落とす。そうしないと api の検証で 400 になり、
+  // 過去へ動かしただけで移動そのものが取り消される
+  const linked =
+    source.discord_scheduled_event_id !== null &&
+    parseApiDateTime(range.start_at).getTime() > nowInJst(now).getTime();
   return {
     name: source.name,
     description: source.description,
     notifications: source.notifications,
     color: source.color,
     is_all_day: event.allDay,
-    ...toApiRange(start, event.end, event.allDay),
+    discord_scheduled_event: linked,
+    ...range,
   };
 }
 

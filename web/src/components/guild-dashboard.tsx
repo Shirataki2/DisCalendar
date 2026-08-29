@@ -63,7 +63,15 @@ export function GuildDashboard({ guild }: Props) {
           </Button>
         </div>
       </div>
-      <EventCalendar guildId={guildId} canEdit={canEdit} />
+      <EventCalendar
+        guildId={guildId}
+        canEdit={canEdit}
+        // 権限を取得できるまでは無効 (disabled + 案内) 側に倒す
+        discordSync={{
+          botCreateEvents: permissionsQuery.data?.bot_create_events ?? false,
+          canCreateEvents: permissionsQuery.data?.create_events ?? false,
+        }}
+      />
       <GuildSettingsDialog
         guildId={guildId}
         open={settingsOpen}

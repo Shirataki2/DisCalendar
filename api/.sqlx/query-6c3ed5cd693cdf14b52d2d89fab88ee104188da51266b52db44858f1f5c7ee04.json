@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT scheduled_event_id FROM event_discord_links WHERE guild_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scheduled_event_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "event_discord_links",
+            "name": "scheduled_event_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6c3ed5cd693cdf14b52d2d89fab88ee104188da51266b52db44858f1f5c7ee04"
+}
