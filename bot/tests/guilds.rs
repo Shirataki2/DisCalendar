@@ -21,12 +21,23 @@ async fn upsert_inserts_then_updates_without_touching_locale(pool: PgPool) {
             locale: "ja".to_owned(),
         })
     );
+    // INSERT 時に joined_at (現在時刻) が入る
+    assert!(joined_at(&pool, GUILD).await.is_some());
 
-    // 旧 Bot や運用で locale が変えられていても、名前・アイコンの更新で巻き戻さない
-    sqlx::query!("UPDATE guilds SET locale = 'en' WHERE guild_id = $1", GUILD)
-        .execute(&pool)
-        .await
+    // 旧 Bot や運用で locale が変えられていても、名前・アイコンの更新で巻き戻さない。
+    // joined_at も同様に、更新の upsert で上書きされない
+    let migrated = chrono::NaiveDate::from_ymd_opt(2021, 1, 5)
+        .unwrap()
+        .and_hms_opt(11, 5, 46)
         .unwrap();
+    sqlx::query!(
+        "UPDATE guilds SET locale = 'en', joined_at = $1 WHERE guild_id = $2",
+        migrated,
+        GUILD
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     guilds::upsert(
         &pool,
         GUILD,
@@ -44,6 +55,14 @@ async fn upsert_inserts_then_updates_without_touching_locale(pool: PgPool) {
             locale: "en".to_owned(),
         })
     );
+    assert_eq!(joined_at(&pool, GUILD).await, Some(migrated));
+}
+
+async fn joined_at(pool: &PgPool, guild_id: &str) -> Option<chrono::NaiveDateTime> {
+    sqlx::query_scalar!("SELECT joined_at FROM guilds WHERE guild_id = $1", guild_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 #[sqlx::test(migrations = "../api/migrations")]

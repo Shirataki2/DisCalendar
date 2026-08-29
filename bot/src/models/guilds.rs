@@ -1,5 +1,7 @@
 use sqlx::PgPool;
 
+use crate::models::now_jst;
+
 /// Bot が参加しているギルド (`guilds` テーブル)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Guild {
@@ -20,7 +22,9 @@ pub async fn find_by_guild_id(pool: &PgPool, guild_id: &str) -> sqlx::Result<Opt
 }
 
 /// 参加時・更新時に名前とアイコンを反映する。
-/// `locale` は新規行だけ既定値 (`ja`) を入れ、既存行の値は上書きしない
+/// `locale` (既定値 `ja`) と `joined_at` (現在時刻) は新規行だけ値を入れ、既存行の値は上書きしない。
+/// 起動時の登録 (停止中に参加していたギルドの取りこぼし回復) で挿入される行は、
+/// 実際の参加日時が分からないため `joined_at` は登録時刻の近似になる
 pub async fn upsert(
     pool: &PgPool,
     guild_id: &str,
@@ -29,12 +33,13 @@ pub async fn upsert(
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"
-        INSERT INTO guilds (guild_id, name, avatar_url) VALUES ($1, $2, $3)
+        INSERT INTO guilds (guild_id, name, avatar_url, joined_at) VALUES ($1, $2, $3, $4)
         ON CONFLICT (guild_id) DO UPDATE SET name = EXCLUDED.name, avatar_url = EXCLUDED.avatar_url
         "#,
         guild_id,
         name,
-        avatar_url
+        avatar_url,
+        now_jst()
     )
     .execute(pool)
     .await?;
