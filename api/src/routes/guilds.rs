@@ -184,22 +184,21 @@ pub async fn refresh_my_permissions(
 ) -> Result<web::Json<MyPermissions>, ApiError> {
     let guild_id = member.guild_id().to_owned();
     let user_id = member.user.discord_user_id.clone();
-    state.discord.refresh_permissions(&guild_id, &user_id).await;
     // extractor が取った権限はキャッシュを捨てる前のものなので、取り直した値で作り直す。
+    //
+    // 利用者が明示的に押した操作なので、Bot 権限を確かめられなかったらエラーを返す
+    // (通常の取得 ([`my_permissions`]) のように false へ倒すと、確認できていないのに
+    // 「まだ変わっていません」と伝えたうえで、web のキャッシュまで false で上書きしてしまう)。
     // 取り直した結果メンバーでなくなっていたら (退出・Bot の追放) extractor と同じ 403
-    let access = state
+    let (access, bot_create_events) = state
         .discord
-        .member_access(&guild_id, &user_id)
+        .refresh_permissions(&guild_id, &user_id)
         .await?
         .ok_or_else(|| {
             ApiError::Forbidden(
                 "you are not a member of this guild, or the bot has not joined it".into(),
             )
         })?;
-    // 利用者が明示的に押した操作なので、Bot 権限を確かめられなかったらエラーを返す。
-    // 通常の取得 ([`my_permissions`]) のように false へ倒すと、確認できていないのに
-    // 「まだ変わっていません」と伝えたうえで、web のキャッシュまで false で上書きしてしまう
-    let bot_create_events = state.discord.bot_create_events(&guild_id).await?;
     Ok(web::Json(build_my_permissions(
         &user_id,
         access.permissions,

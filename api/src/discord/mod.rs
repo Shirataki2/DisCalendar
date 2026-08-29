@@ -9,6 +9,7 @@ pub mod scheduled_events;
 
 use std::{
     collections::HashMap,
+    hash::{Hash as _, Hasher as _},
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -81,6 +82,34 @@ fn checked_id(id: &str) -> Result<String, DiscordError> {
     Err(DiscordError::InvalidId)
 }
 
+/// 権限の取り直し ([`DiscordClient::refresh_permissions`]) をギルドごとに直列化するロック (#122)。
+///
+/// ギルド ID のハッシュで固定本数から引く (ストライプ方式)。別のギルドが同じロックに当たることが
+/// あるが、待ちが増えるだけで結果は変わらない。固定本数なのでギルドが増えてもメモリは増えない
+struct RefreshLocks {
+    stripes: [tokio::sync::Mutex<()>; Self::STRIPES],
+}
+
+impl Default for RefreshLocks {
+    fn default() -> Self {
+        Self {
+            stripes: std::array::from_fn(|_| tokio::sync::Mutex::new(())),
+        }
+    }
+}
+
+impl RefreshLocks {
+    const STRIPES: usize = 32;
+
+    async fn lock(&self, guild_id: &str) -> tokio::sync::MutexGuard<'_, ()> {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        guild_id.hash(&mut hasher);
+        self.stripes[hasher.finish() as usize % Self::STRIPES]
+            .lock()
+            .await
+    }
+}
+
 /// スロットルの印を立て、**この呼び出しが実際に捨てる担当か**を返す (#122)。
 ///
 /// 判定と登録を別々に行うと、並行して来たリクエストが全部「まだ印が無い」と見て通り抜け、
@@ -147,6 +176,9 @@ pub struct DiscordClient {
     /// 同じく、直近にメンバー情報を捨てた `(guild_id, user_id)` (#122)。
     /// 押した人のロールはギルド共通の情報と別に絞る ([`DiscordClient::refresh_permissions`])
     refreshed_members: Cache<(String, String), ()>,
+    /// 権限の取り直しをギルドごとに直列化するロック (#122)。
+    /// クローンしても同じロックを共有する必要があるので [`Arc`] で持つ
+    refresh_locks: Arc<RefreshLocks>,
     /// Bot 自身のユーザー ID (`GET /users/@me`)。トークンが変わらない限り不変なのでプロセス中ずっと持つ
     bot_user_id: Arc<OnceLock<String>>,
 }
@@ -226,6 +258,7 @@ impl DiscordClient {
                 .max_capacity(100_000)
                 .time_to_live(REFRESH_THROTTLE)
                 .build(),
+            refresh_locks: Arc::new(RefreshLocks::default()),
             bot_user_id: Arc::new(OnceLock::new()),
         })
     }
@@ -255,20 +288,30 @@ impl DiscordClient {
             .is_some_and(|access| access.permissions.create_events()))
     }
 
-    /// Discord 側で権限を直した直後に反映させるため、このギルドの権限キャッシュを捨てる (#122)。
+    /// Discord 側で権限を直した直後に反映させるため、権限キャッシュを捨てて取り直す (#122)。
     ///
     /// 捨てるのはギルド情報 (ロールごとの権限) と、`user_id` および Bot 自身のメンバー情報。
     /// Bot を招待し直すと変わるのは Bot の管理ロールの**権限ビット**なので、効くのは主にギルド情報の方。
-    /// 次の [`Self::member_access`] は Discord から取り直す。
+    /// 戻り値は取り直した `(呼び出し元の権限, Bot が「イベントの作成」を持つか)` で、
+    /// 呼び出し元がメンバーでなくなっていたら `None`。
     ///
-    /// 利用者が押せる操作から呼ばれるので、[`REFRESH_THROTTLE`] の間は 1 回だけ実際に捨てる
-    /// (連打で Discord のレート制限に当たらないようにする)。見送った場合も、キャッシュの中身は
-    /// 数秒以内に取り直したものになっている。
+    /// 利用者が押せる操作なので、Discord への問い合わせが増えないよう 2 段構えで抑える。
     ///
-    /// 絞る単位は 2 つに分けてある。ギルド共通の情報 (ロールごとの権限と Bot のロール) はギルド単位、
+    /// 1. **ギルドごとのロックで直列化する**。同じギルドに並行して来ても、待っている間に
+    ///    先の呼び出しがキャッシュを埋め終わるので、後続は問い合わせずに済む
+    ///    (捨てる担当を決めるだけでは、空になったキャッシュを全員が同時に見て重複して取りに行く)
+    /// 2. [`REFRESH_THROTTLE`] の間は 1 回だけ実際に捨てる。見送った場合も、キャッシュの中身は
+    ///    数秒以内に取り直したものになっている
+    ///
+    /// 捨てる単位は 2 つに分けてある。ギルド共通の情報 (ロールごとの権限と Bot のロール) はギルド単位、
     /// 呼び出し元自身のロールは `(guild_id, user_id)` 単位。ギルド単位だけで絞ると、
     /// 直前に別の人が押したときにこの人のロールが古いまま (最大 [`MEMBER_TTL`]) になる
-    pub async fn refresh_permissions(&self, guild_id: &str, user_id: &str) {
+    pub async fn refresh_permissions(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<Option<(MemberAccess, bool)>, DiscordError> {
+        let _lock = self.refresh_locks.lock(guild_id).await;
         let member_key = (guild_id.to_owned(), user_id.to_owned());
         if claim_refresh(&self.refreshed_members, member_key.clone()).await {
             self.members.invalidate(&member_key).await;
@@ -276,6 +319,11 @@ impl DiscordClient {
         if claim_refresh(&self.refreshed_guilds, guild_id.to_owned()).await {
             self.invalidate_guild_permissions(guild_id).await;
         }
+        // ロックを持ったまま取り直してキャッシュを埋める (待っている呼び出しはこれを使う)
+        let Some(access) = self.member_access(guild_id, user_id).await? else {
+            return Ok(None);
+        };
+        Ok(Some((access, self.bot_create_events(guild_id).await?)))
     }
 
     /// このギルドの権限キャッシュ (ギルド情報と Bot 自身のメンバー情報) を捨てる (#122)。
