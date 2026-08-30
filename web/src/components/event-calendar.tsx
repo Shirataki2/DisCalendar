@@ -132,6 +132,12 @@ const listDayFormat: FormatterInput = (info) =>
  */
 
 /**
+ * 月ビューの日付セル上部の器。既定は右寄せだが、祝日名の付くセルだけ数字の位置が
+ * 左へずれて見えるので、全セルを左上詰めに揃える
+ */
+const dayCellTopClass = "cal-day-top";
+
+/**
  * 月ビューの日付の数字。セル全体ではなく数字だけを色付けする。前後の月のセルは
  * 既定の減光をそのまま生かす (色を付けると当月と見分けにくくなる) ため塗らない。
  * 祝日はセル幅からあふれた祝日名を切り詰められるよう、flex の器 (cal-holiday-top) にする
@@ -389,6 +395,7 @@ export function EventCalendar({
             eventTimeFormat={eventTimeFormat}
             slotHeaderFormat={slotHeaderFormat}
             dayCellFormat={dayCellFormat}
+            dayCellTopClass={dayCellTopClass}
             dayCellTopInnerClass={dayCellTopInnerClass}
             dayCellTopContent={dayCellTopContent}
             dayHeaderClass={dayHeaderClass}
