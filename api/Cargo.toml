@@ -23,7 +23,10 @@ thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-tracing-actix-web = "0.7"
+# 既定機能の emit_event_on_error は切る (#110)。有効だと ApiError の 4xx / 5xx に対して
+# ミドルウェアがもう 1 行 WARN / ERROR を出し、5xx が ApiError::error_response のログと合わせて
+# ERROR 2 行 = Sentry のイベント 2 件になる (#17)。エラーの内容はリクエスト完了ログの error に載る
+tracing-actix-web = { version = "0.7", default-features = false }
 dotenvy.workspace = true
 sentry.workspace = true
 # ハンドラのエラー (500 系) を Sentry に送るミドルウェア。リクエストごとの Hub も張るので一番外側に wrap する

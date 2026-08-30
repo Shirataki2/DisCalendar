@@ -12,6 +12,7 @@ pub mod build_info;
 pub mod config;
 pub mod discord;
 pub mod error;
+pub mod logging;
 pub mod models;
 pub mod openapi;
 pub mod routes;
@@ -30,6 +31,7 @@ use crate::{
     config::Config,
     discord::DiscordClient,
     error::ApiError,
+    logging::RequestLogRootSpanBuilder,
     openapi::ApiDoc,
     state::{AdminConfig, AppState},
 };
@@ -84,7 +86,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             .into_utoipa_app()
             .openapi(ApiDoc::openapi())
             .map(|app| {
-                app.wrap(TracingLogger::default())
+                // リクエストごとに 1 行の完了ログを出す RootSpanBuilder (#110)。
+                // 既定 (TracingLogger::default()) は span を張るだけで完了時のログを出さない
+                app.wrap(TracingLogger::<RequestLogRootSpanBuilder>::new())
                     .wrap(middleware::Compress::default())
                     // リクエストごとの Sentry Hub を張り、イベントに URL・メソッドなどの情報を付ける (#17)。
                     // 一番外側 (最後に wrap) に置き、内側の TracingLogger のスパンやエラーが紐づくようにする。

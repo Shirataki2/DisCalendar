@@ -124,6 +124,7 @@ src/
   lib.rs            run(): DB 接続・マイグレーション・SQL コンソール用ロールとプールの用意・HttpServer 構築
   config.rs         環境変数
   error.rs          ApiError → JSON エラーレスポンス
+  logging.rs        リクエスト完了ログ (ステータス・メソッド・ルート・所要時間を 1 行で出す RootSpanBuilder)
   state.rs          AppState (pool / Discord client / auth 設定 / 管理者設定)
   auth.rs           AuthUser extractor (Better Auth の署名付き cookie を検証)
   admin.rs          AdminUser extractor (AuthUser + ADMIN_DISCORD_USER_IDS のホワイトリスト)

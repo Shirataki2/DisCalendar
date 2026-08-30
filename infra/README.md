@@ -172,6 +172,60 @@ Grafana の **Explore** で Loki を選び、次のようなクエリを使う�
 {env="production"} | json | line_format "{{.fields_message}}"   # JSON を読みやすく整形する
 ```
 
+### リクエスト単位のエラー率とレイテンシ
+
+api はリクエストが終わるたびに `request completed` の 1 行を出す (#110)。`LOG_FORMAT=json` (compose の既定)
+ならこの形で、`| json` を通すと `fields.status` が `fields_status` のように読める。
+
+```json
+{
+  "timestamp": "2026-08-30T12:34:56.789012Z",
+  "level": "INFO",
+  "fields": {
+    "message": "request completed",
+    "status": 200,
+    "method": "GET",
+    "route": "/guilds/{guild_id}/events",
+    "duration_ms": 12.345
+  },
+  "target": "discalendar_api::logging"
+}
+```
+
+この行には root span のフィールド (`span` / `spans` に `request_id`・`http.target`・`http.user_agent` など) も
+一緒に載る。ERROR 行と同じ `request_id` なので、5xx の完了ログとその原因のログを突き合わせられる。
+
+- `route` は `/guilds/{guild_id}/events` のようなルートのパターンで、予定 ID などの実際の値は入らない
+  (どのルートが遅いかを集計するため)。登録されていないパスへの 404 は `unmatched` になる
+- `status` と `duration_ms` は JSON の数値。`duration_ms` はミリ秒 (小数以下 3 桁) で、
+  応答のヘッダを組み立て終えるまでを測る (gzip 圧縮とボディの送出は含まない)
+- 5xx のときは `error` にエラーの内容が入る。原因の詳細は同じ `request_id` の ERROR 行と Sentry 側を見る
+- 10 秒おきに叩かれる `/healthz` は DEBUG なので本番のログには出ない
+  (見たいときはホストの `.env` で `API_RUST_LOG=info,discalendar_api=debug,sqlx=warn`)
+
+**ラベルは増やしていない**ので、集計は本文を `| json` で読む。ストリームを増やさないため、
+`fields_route` などをラベルに起こすことはしない。
+
+```logql
+# リクエスト完了ログだけを見る (行フィルタで絞ってから json を通すと軽い)
+{env="production", service="api"} |= "request completed" | json
+
+# 5 分あたりのエラー率 (5xx の割合)
+sum(count_over_time({env="production", service="api"} |= "request completed" | json | fields_status >= 500 [5m]))
+  / sum(count_over_time({env="production", service="api"} |= "request completed" [5m]))
+
+# ルート別のリクエスト数 (5 分)
+sum by (fields_route) (count_over_time({env="production", service="api"} |= "request completed" | json [5m]))
+
+# 遅いエンドポイント (5 分の p95 レイテンシ 上位 5 件、ミリ秒)
+topk(5, quantile_over_time(0.95,
+  {env="production", service="api"} |= "request completed" | json | unwrap fields_duration_ms [5m]
+) by (fields_route))
+
+# 直近の 5xx を新しい順に読む
+{env="production", service="api"} |= "request completed" | json | fields_status >= 500
+```
+
 ## DB のバックアップ (pg_dump → R2)
 
 本番 (と必要なら staging) の compose の `db` から `pg_dump -Fc` したダンプを日次で R2 に上げる。

@@ -371,7 +371,8 @@ DSN が未設定なら 3 サービスとも何も送らない (ローカル開�
   (個人トークンでも動くが、その場合は scope に `project:releases` が要る)。
   Organization Auth Token を使う場合も `SENTRY_ORG` / `SENTRY_PROJECT_WEB` の指定は必要
 - **同じ障害を二重に数えない**: api の 5xx は `ApiError::error_response` のログだけをイベントにし (`sentry-actix` の
-  `capture_server_errors` は無効。ミドルウェアはリクエスト情報の付与のために残している)、bot のコマンドの panic は
+  `capture_server_errors` と `tracing-actix-web` の `emit_event_on_error` はどちらも無効。ミドルウェアは
+  リクエスト情報の付与のために残している)、bot のコマンドの panic は
   panic 側だけをイベントにする (poise が拾ったあとのログはパンくず扱い)。どちらも無料枠を余分に消費しないため
 - **リリースとの紐付け**: api / bot はクレートのバージョン (`discalendar-api@3.x.y` など) を release として送る。
   バージョンは 3 サービス共通 (上記「リリース」) なので、どの版で出たエラーかは release タグで追える
@@ -387,6 +388,9 @@ Sentry が例外の中身を、こちらがログの流れと通知を受け持�
   ローカルで `docker compose logs` を人が読むときは `.env` に `LOG_FORMAT=text` を入れる
 - **ホスト側**: `.env` に `GRAFANA_CLOUD_LOKI_URL` / `_USER` / `_TOKEN` を入れ、`COMPOSE_PROFILES` に `logging` を足す。
   設定ファイル (`infra/alloy/config.alloy`) はデプロイのたびに compose.yaml と一緒に配られる
+- **リクエストごとの 1 行**: api はリクエストが終わるたびに `request completed` の行 (ステータス・メソッド・
+  ルート・所要時間) を INFO で出す (#110)。リクエスト単位のエラー率とレイテンシはこれを `| json` で集計する。
+  10 秒おきに叩かれる `/healthz` は DEBUG なので本番のログには出ない
 - **アラート**: 「api / bot の ERROR が 5 分で 10 件超」と「本番のログが 15 分途絶」の 2 本を Terraform
   (`infra/terraform/grafana/`) で管理し、Discord の Webhook に流す
 - 準備の手順 (スタック・トークン・Terraform の apply) と LogQL の例は [infra/README.md](infra/README.md) にまとめてある
