@@ -183,23 +183,28 @@ api はリクエストが終わるたびに `request completed` の 1 行を出�
   "level": "INFO",
   "fields": {
     "message": "request completed",
-    "status": 200,
+    "status": 404,
     "method": "GET",
     "route": "/guilds/{guild_id}/events",
-    "duration_ms": 12.345
+    "duration_ms": 12.345,
+    "request_id": "20d02d46-1d54-4b32-aa51-3d2b1e7052e6",
+    "error": "not_found"
   },
   "target": "discalendar_api::logging"
 }
 ```
 
-この行には root span のフィールド (`span` / `spans` に `request_id`・`http.target`・`http.user_agent` など) も
-一緒に載る。ERROR 行と同じ `request_id` なので、5xx の完了ログとその原因のログを突き合わせられる。
-
 - `route` は `/guilds/{guild_id}/events` のようなルートのパターンで、予定 ID などの実際の値は入らない
   (どのルートが遅いかを集計するため)。登録されていないパスへの 404 は `unmatched` になる
+- **この行には実際の URL もエラーメッセージも載せない**。リクエストごとに必ず出る行なので、
+  span (`http.target` などを持つ) から切り離してある。実際の URL が要る調査は Sentry か、
+  同じ `request_id` を持つ ERROR 行を見る
+- `error` はエラー応答のときだけ入る種別 (`not_found` / `bad_request` / `database_error` など。
+  レスポンスの `error` と同じ語彙)。メッセージ本文は載せない — Postgres は入力値をエラーに
+  埋め込むことがあり、SQL コンソールで貼り付けた値が残ってしまうため
 - `status` と `duration_ms` は JSON の数値。`duration_ms` はミリ秒 (小数以下 3 桁) で、
   応答のヘッダを組み立て終えるまでを測る (gzip 圧縮とボディの送出は含まない)
-- 5xx のときは `error` にエラーの内容が入る。原因の詳細は同じ `request_id` の ERROR 行と Sentry 側を見る
+- 5xx の原因の詳細は、同じ `request_id` を持つ ERROR 行 (`| json | span_request_id = "..."`) と Sentry 側を見る
 - 10 秒おきに叩かれる `/healthz` は DEBUG なので本番のログには出ない
   (見たいときはホストの `.env` で `API_RUST_LOG=info,discalendar_api=debug,sqlx=warn`)
 
@@ -224,6 +229,10 @@ topk(5, quantile_over_time(0.95,
 
 # 直近の 5xx を新しい順に読む
 {env="production", service="api"} |= "request completed" | json | fields_status >= 500
+
+# エラーの種別ごとの件数 (5 分)
+sum by (fields_error) (count_over_time(
+  {env="production", service="api"} |= "request completed" | json | fields_error != "" [5m]))
 ```
 
 ## DB のバックアップ (pg_dump → R2)

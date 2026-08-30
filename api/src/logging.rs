@@ -2,12 +2,16 @@
 //!
 //! `tracing_actix_web::TracingLogger` はリクエストごとに span を張るだけで完了時のイベントを出さず、
 //! `fmt` レイヤにも `FmtSpan` を設定していないため、そのままではリクエストのログが 1 行も出ない。
-//! `RootSpanBuilder` を差し替えて「1 リクエスト 1 行」を足し、リクエスト単位のエラー率と
-//! レイテンシを Loki 側で集計できるようにする。
+//! ここでリクエストが終わるたびに 1 行足し、リクエスト単位のエラー率とレイテンシを Loki 側で
+//! 集計できるようにする。
 //!
 //! ラベルは増やさない (`infra/alloy/config.alloy` は `level` しか起こさない)。集計は本文の JSON を
-//! `| json` で読む形にするので、フィールドは span ではなく**イベント**に載せる
+//! `| json` で読む形にするので、フィールドはイベントに載せる
 //! (`LOG_FORMAT=json` のとき `fields.status` → Loki の `fields_status`)。クエリ例は `infra/README.md`。
+//!
+//! 本文には実際の URL もエラーメッセージも載せない。ルートはパターン、エラーは
+//! [`ApiError::kind`] の固定語彙だけにして、リクエストごとに出るこの行に予定 ID や
+//! 貼り付けられた値が混ざらないようにする。
 
 use std::time::Instant;
 
@@ -15,9 +19,11 @@ use actix_web::{
     Error, HttpMessage as _,
     body::MessageBody,
     dev::{ServiceRequest, ServiceResponse},
+    middleware::Next,
 };
-use tracing::Span;
-use tracing_actix_web::{DefaultRootSpanBuilder, RootSpanBuilder};
+use tracing_actix_web::RequestId;
+
+use crate::error::ApiError;
 
 /// 完了ログを DEBUG に落とすパス。compose の healthcheck が 10 秒おきに `/healthz` を叩くので、
 /// これを INFO で出すと本番のログがヘルスチェックで埋まる (`RUST_LOG` の `discalendar_api=info` で消える)。
@@ -28,76 +34,97 @@ const QUIET_PATHS: [&str; 1] = ["/healthz"];
 /// 実際のパスを入れると予定 ID などが本文に載り、ルート別の集計もカーディナリティが爆発する
 const UNMATCHED_ROUTE: &str = "unmatched";
 
-/// 受信時刻。`ServiceRequest` と `ServiceResponse` は同じ `HttpRequest` (= 同じ extensions) を指すので、
-/// 開始時に入れておけば完了時に取り出せる
-#[derive(Clone, Copy)]
-struct ReceivedAt(Instant);
-
-/// リクエスト完了時に 1 行のログを出す [`RootSpanBuilder`]。
+/// リクエストが終わるたびに 1 行 (`request completed`) を出すミドルウェア。
 ///
-/// span 自体は [`DefaultRootSpanBuilder`] のままにして、`request_id` や `http.*` の記録は既定に任せる
-pub struct RequestLogRootSpanBuilder;
+/// **`TracingLogger` の外側**に置く (`lib.rs` の wrap 順を参照)。内側に置くと root span の中で
+/// イベントが起き、JSON 出力の `span` / `spans` に実 URI (`http.target`) や User-Agent が
+/// 毎リクエスト載ってしまう (`tracing::event!(parent: None, ..)` では消せない。fmt の JSON
+/// フォーマッタは親を持たないイベントでも現在の span を引く)。エラーの詳細を出す ERROR ログとの
+/// 突き合わせは `request_id` で足りる。
+///
+/// 圧縮 (`Compress`) より内側なので、`duration_ms` に gzip の時間は入らない
+pub async fn log_requests<B: MessageBody>(
+    request: ServiceRequest,
+    next: Next<B>,
+) -> Result<ServiceResponse<B>, Error> {
+    let started = Instant::now();
+    let method = request.method().clone();
+    // ルートのパターン (`/guilds/{guild_id}/events`)。`match_pattern` は resource map を自分で辿るので
+    // ルーティング前でも引ける (同じパスに複数のメソッドを登録していてもパターン文字列は同じ)。
+    // 未登録のパスだけ `None` になる
+    let route = request.match_pattern();
+    // クエリ文字列を含まないパスで判定する
+    let is_quiet = QUIET_PATHS.contains(&request.path());
 
-impl RootSpanBuilder for RequestLogRootSpanBuilder {
-    fn on_request_start(request: &ServiceRequest) -> Span {
-        // `RefMut` は文の終わりで落とす。このあと `DefaultRootSpanBuilder` が `connection_info()` 経由で
-        // `extensions_mut()` を取るので、借用を跨いで持つと `RefCell` がパニックする
-        request.extensions_mut().insert(ReceivedAt(Instant::now()));
-        DefaultRootSpanBuilder::on_request_start(request)
-    }
+    let outcome = next.call(request).await;
 
-    fn on_request_end<B: MessageBody>(span: Span, outcome: &Result<ServiceResponse<B>, Error>) {
-        match outcome {
-            Ok(response) => {
-                let request = response.request();
-                // `Ref` を握ったまま `request` の他のメソッドを呼ぶとパニックするので、すぐ値にする
-                let received_at = request.extensions().get::<ReceivedAt>().map(|at| at.0);
-                // ルーティング後なので、実際に選ばれたリソースのパターン (`/guilds/{guild_id}/events`) が返る。
-                // 未登録のパスだけ `None` になる (メソッド違いの 404 はパターンが返る)
-                let route = request.match_pattern();
-                emit(
-                    response.status().as_u16(),
-                    Some(request.method().as_str()),
-                    route.as_deref().unwrap_or(UNMATCHED_ROUTE),
-                    received_at.map(|at| at.elapsed().as_micros() as f64 / 1000.0),
-                    // クエリ文字列を含まないパスで判定する
-                    QUIET_PATHS.contains(&request.path()),
-                    response.response().error().map(|error| error.to_string()),
-                );
-            }
-            // 抽出エラーもハンドラのエラーも actix が `Ok(ServiceResponse)` に変換する (`HttpResponse::from_error`)
-            // ため、通常ここには来ない。`Err` では `ServiceResponse` がなく request にも触れられないので、
-            // 分かるのはステータスだけ。それでも 1 行残して「ログに出ないリクエスト」を作らない
-            Err(error) => {
-                let response_error = error.as_response_error();
-                emit(
-                    response_error.status_code().as_u16(),
-                    None,
-                    UNMATCHED_ROUTE,
-                    None,
-                    false,
-                    Some(response_error.to_string()),
-                );
-            }
-        }
-        // `http.status_code` などを root span に記録するのは既定の実装に任せる
-        DefaultRootSpanBuilder::on_request_end(span, outcome);
-    }
+    let (status, request_id, error) = match &outcome {
+        Ok(response) => (
+            response.status().as_u16(),
+            // 内側の TracingLogger が入れた ID。`ApiError` の ERROR ログは root span 経由で同じ値を持つ
+            response
+                .request()
+                .extensions()
+                .get::<RequestId>()
+                .map(ToString::to_string),
+            error_kind(response.response().error()),
+        ),
+        // 抽出エラーもハンドラのエラーも actix が `Ok(ServiceResponse)` に変換する
+        // (`HttpResponse::from_error`) ため、通常ここには来ない
+        Err(error) => (
+            error.as_response_error().status_code().as_u16(),
+            None,
+            error_kind(Some(error)),
+        ),
+    };
+
+    emit(
+        Completed {
+            status,
+            method: method.as_str(),
+            route: route.as_deref().unwrap_or(UNMATCHED_ROUTE),
+            // 小数以下 3 桁 (マイクロ秒) までにして行を短く保つ
+            duration_ms: started.elapsed().as_micros() as f64 / 1000.0,
+            request_id: request_id.as_deref(),
+            error,
+        },
+        is_quiet,
+    );
+
+    outcome
+}
+
+/// 完了ログ 1 行のフィールド
+struct Completed<'a> {
+    status: u16,
+    method: &'a str,
+    route: &'a str,
+    duration_ms: f64,
+    request_id: Option<&'a str>,
+    error: Option<&'static str>,
+}
+
+/// エラー応答の種別 ([`ApiError::kind`])。メッセージは載せない: Postgres は
+/// `invalid input syntax for type uuid: "<値>"` のように入力の値を埋め込むため、
+/// SQL コンソール (`POST /admin/sql`) で管理者が貼り付けた値がそのままログに残ってしまう
+/// (監査ログ側は `models::admin_sql::sanitize_error_for_audit` で伏せている)
+fn error_kind(error: Option<&Error>) -> Option<&'static str> {
+    error?.as_error::<ApiError>().map(ApiError::kind)
 }
 
 /// 完了ログを 1 行出す。
 ///
 /// レベルは INFO 固定にする。5xx を ERROR にすると `ApiError::error_response` のログと合わせて
 /// 同じ障害が Sentry に二重にイベント化されるため (#17)
-fn emit(
-    status: u16,
-    method: Option<&str>,
-    route: &str,
-    duration_ms: Option<f64>,
-    is_quiet: bool,
-    error: Option<String>,
-) {
-    let error = error.as_deref();
+fn emit(log: Completed<'_>, is_quiet: bool) {
+    let Completed {
+        status,
+        method,
+        route,
+        duration_ms,
+        request_id,
+        error,
+    } = log;
 
     // `tracing::event!` はレベルを `static` の初期化式に埋めるため、実行時に決まる `Level` を渡せない。
     // フィールドの並びを 1 か所に保ったままレベルだけ差し替えるためにローカルマクロにする
@@ -105,11 +132,12 @@ fn emit(
         ($level:expr) => {
             tracing::event!(
                 $level,
-                status, // u16 → JSON では数値 (`| json | fields_status >= 500` が効く)
-                method, // Option<&str> → None ならキーごと出ない
+                status,      // u16 → JSON では数値 (`| json | fields_status >= 500` が効く)
+                method,
                 route,
-                duration_ms, // Option<f64> → 同上。小数以下 3 桁 (マイクロ秒) まで
-                error,       // エラー応答のときだけ入る
+                duration_ms, // f64 → 同上
+                request_id,  // Option<&str> → None ならキーごと出ない
+                error,       // エラー応答のときだけ入る種別 (not_found / database_error など)
                 "request completed"
             )
         };
@@ -126,11 +154,11 @@ fn emit(
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use actix_web::{App, HttpResponse, http::StatusCode, test, web};
+    use actix_web::{App, HttpResponse, http::StatusCode, middleware::from_fn, test, web};
     use tracing_actix_web::TracingLogger;
     use tracing_subscriber::{EnvFilter, layer::SubscriberExt as _};
 
-    use super::RequestLogRootSpanBuilder;
+    use super::log_requests;
     use crate::error::ApiError;
 
     const GUILD: &str = "111111111111111111";
@@ -194,7 +222,8 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .wrap(TracingLogger::<RequestLogRootSpanBuilder>::new())
+                .wrap(TracingLogger::default())
+                .wrap(from_fn(log_requests))
                 .service(
                     web::resource("/guilds/{guild_id}/events")
                         .route(web::get().to(|| async { HttpResponse::Ok().finish() })),
@@ -214,10 +243,18 @@ mod tests {
         assert!(fields["duration_ms"].as_f64().is_some());
         // エラーではないので error は出ない
         assert!(fields["error"].is_null());
-        // ルートはパターンのまま。実 ID を入れない
-        let route = fields["route"].as_str().unwrap();
-        assert_eq!(route, "/guilds/{guild_id}/events");
-        assert!(!route.contains(GUILD));
+        // ERROR ログと突き合わせるための request_id は載せる
+        assert!(
+            fields["request_id"]
+                .as_str()
+                .is_some_and(|id| !id.is_empty())
+        );
+        // ルートはパターンのまま
+        assert_eq!(fields["route"], "/guilds/{guild_id}/events");
+        // 行のどこにも実 URI が出ない (root span の http.target が載らないこと)
+        assert!(!lines[0].to_string().contains(GUILD), "{}", lines[0]);
+        assert!(lines[0]["span"].is_null());
+        assert!(lines[0]["spans"].is_null());
     }
 
     #[actix_web::test]
@@ -227,7 +264,8 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .wrap(TracingLogger::<RequestLogRootSpanBuilder>::new())
+                .wrap(TracingLogger::default())
+                .wrap(from_fn(log_requests))
                 .service(web::resource("/events").route(web::get().to(|| async {
                     Err::<HttpResponse, ApiError>(ApiError::NotFound("event not found".into()))
                 }))),
@@ -241,7 +279,14 @@ mod tests {
         // 5xx を ERROR にすると ApiError::error_response のログと合わせて Sentry に二重に届く (#17)
         assert_eq!(lines[0]["level"], "INFO");
         assert_eq!(lines[0]["fields"]["status"].as_u64(), Some(404));
-        assert_eq!(lines[0]["fields"]["error"], "event not found");
+        // メッセージ本文ではなく ApiError::kind() の固定語彙を出す
+        // (Postgres のエラーには入力値が埋め込まれることがあるため)
+        assert_eq!(lines[0]["fields"]["error"], "not_found");
+        assert!(
+            !lines[0].to_string().contains("event not found"),
+            "{}",
+            lines[0]
+        );
     }
 
     #[actix_web::test]
@@ -249,9 +294,12 @@ mod tests {
         let buf = LogBuf::default();
         let _guard = tracing::subscriber::set_default(subscriber(&buf, "info"));
 
-        let app =
-            test::init_service(App::new().wrap(TracingLogger::<RequestLogRootSpanBuilder>::new()))
-                .await;
+        let app = test::init_service(
+            App::new()
+                .wrap(TracingLogger::default())
+                .wrap(from_fn(log_requests)),
+        )
+        .await;
         let response = call!(app, &format!("/guilds/{GUILD}/unknown"));
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
@@ -269,7 +317,8 @@ mod tests {
 
             let app = test::init_service(
                 App::new()
-                    .wrap(TracingLogger::<RequestLogRootSpanBuilder>::new())
+                    .wrap(TracingLogger::default())
+                    .wrap(from_fn(log_requests))
                     .service(
                         web::resource("/healthz")
                             .route(web::get().to(|| async { HttpResponse::Ok().finish() })),
