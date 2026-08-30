@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO guilds (guild_id, name, avatar_url, joined_at) VALUES ($1, $2, $3, $4)\n        ON CONFLICT (guild_id) DO UPDATE SET\n            name = EXCLUDED.name,\n            avatar_url = EXCLUDED.avatar_url,\n            joined_at = CASE WHEN $5 THEN EXCLUDED.joined_at ELSE guilds.joined_at END\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Timestamp",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "be3d3b434e9dd2a95313225027bb00626ea760c037acc887cb130e5f79698f37"
+}

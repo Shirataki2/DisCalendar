@@ -54,7 +54,9 @@ pub async fn handle_event(
         // 起動時の分も upsert して、停止中に変わった名前・アイコンや取りこぼしを取り戻す
         FullEvent::GuildCreate { guild, is_new } => {
             let guild_id = guild.id.to_string();
-            if !upsert_from_cache(ctx, data, guild.id).await? {
+            // 新規参加のときは joined_at を現在時刻にする。退出直後の再参加で行が残っていた
+            // (GuildDelete がキャッシュを見て削除を見送った) 場合も、参加し直した時刻で上書きする
+            if !upsert_from_cache(ctx, data, guild.id, *is_new == Some(true)).await? {
                 tracing::debug!(
                     guild_id,
                     "already left before handling GuildCreate, skipping"
@@ -78,7 +80,7 @@ pub async fn handle_event(
         }
         FullEvent::GuildUpdate { new_data, .. } => {
             let guild_id = new_data.id.to_string();
-            if !upsert_from_cache(ctx, data, new_data.id).await? {
+            if !upsert_from_cache(ctx, data, new_data.id, false).await? {
                 tracing::debug!(
                     guild_id,
                     "already left before handling GuildUpdate, skipping"
@@ -195,6 +197,7 @@ async fn upsert_from_cache(
     ctx: &serenity::Context,
     data: &Data,
     guild_id: serenity::GuildId,
+    refresh_joined_at: bool,
 ) -> Result<bool, BotError> {
     let _guard = data.guild_sync.lock().await;
     let Some((name, icon_url)) = ctx
@@ -209,6 +212,7 @@ async fn upsert_from_cache(
         &guild_id.to_string(),
         &name,
         icon_url.as_deref(),
+        refresh_joined_at,
     )
     .await?;
     Ok(true)

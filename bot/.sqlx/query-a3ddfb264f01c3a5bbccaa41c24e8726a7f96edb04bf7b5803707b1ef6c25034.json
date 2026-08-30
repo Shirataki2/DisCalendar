@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT joined_at FROM guilds WHERE guild_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "joined_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "guilds",
+            "name": "joined_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "a3ddfb264f01c3a5bbccaa41c24e8726a7f96edb04bf7b5803707b1ef6c25034"
+}

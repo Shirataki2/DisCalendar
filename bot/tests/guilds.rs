@@ -9,7 +9,7 @@ const OTHER_GUILD: &str = "222222222222222222";
 
 #[sqlx::test(migrations = "../api/migrations")]
 async fn upsert_inserts_then_updates_without_touching_locale(pool: PgPool) {
-    guilds::upsert(&pool, GUILD, "DisCalendar", None)
+    guilds::upsert(&pool, GUILD, "DisCalendar", None, true)
         .await
         .unwrap();
     assert_eq!(
@@ -21,17 +21,29 @@ async fn upsert_inserts_then_updates_without_touching_locale(pool: PgPool) {
             locale: "ja".to_owned(),
         })
     );
+    // INSERT 時に joined_at (現在時刻) が入る
+    assert!(joined_at(&pool, GUILD).await.is_some());
 
-    // 旧 Bot や運用で locale が変えられていても、名前・アイコンの更新で巻き戻さない
-    sqlx::query!("UPDATE guilds SET locale = 'en' WHERE guild_id = $1", GUILD)
-        .execute(&pool)
-        .await
+    // 旧 Bot や運用で locale が変えられていても、名前・アイコンの更新で巻き戻さない。
+    // joined_at も同様に、更新の upsert (refresh_joined_at = false) では上書きされない
+    let migrated = chrono::NaiveDate::from_ymd_opt(2021, 1, 5)
+        .unwrap()
+        .and_hms_opt(11, 5, 46)
         .unwrap();
+    sqlx::query!(
+        "UPDATE guilds SET locale = 'en', joined_at = $1 WHERE guild_id = $2",
+        migrated,
+        GUILD
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     guilds::upsert(
         &pool,
         GUILD,
         "DisCalendar (renamed)",
         Some("https://cdn.discordapp.com/icons/1/a.png"),
+        false,
     )
     .await
     .unwrap();
@@ -44,12 +56,30 @@ async fn upsert_inserts_then_updates_without_touching_locale(pool: PgPool) {
             locale: "en".to_owned(),
         })
     );
+    assert_eq!(joined_at(&pool, GUILD).await, Some(migrated));
+
+    // 退出直後の再参加 (行が残ったままの新規参加イベント) では joined_at を参加し直した時刻で上書きする
+    guilds::upsert(&pool, GUILD, "DisCalendar (renamed)", None, true)
+        .await
+        .unwrap();
+    let rejoined = joined_at(&pool, GUILD).await;
+    assert!(rejoined.is_some());
+    assert_ne!(rejoined, Some(migrated));
+}
+
+async fn joined_at(pool: &PgPool, guild_id: &str) -> Option<chrono::NaiveDateTime> {
+    sqlx::query_scalar!("SELECT joined_at FROM guilds WHERE guild_id = $1", guild_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 #[sqlx::test(migrations = "../api/migrations")]
 async fn delete_removes_only_that_guild(pool: PgPool) {
-    guilds::upsert(&pool, GUILD, "a", None).await.unwrap();
-    guilds::upsert(&pool, OTHER_GUILD, "b", None).await.unwrap();
+    guilds::upsert(&pool, GUILD, "a", None, true).await.unwrap();
+    guilds::upsert(&pool, OTHER_GUILD, "b", None, true)
+        .await
+        .unwrap();
 
     assert!(guilds::delete(&pool, GUILD).await.unwrap());
     assert!(
@@ -71,8 +101,10 @@ async fn delete_removes_only_that_guild(pool: PgPool) {
 
 #[sqlx::test(migrations = "../api/migrations")]
 async fn delete_many_removes_only_listed_guilds(pool: PgPool) {
-    guilds::upsert(&pool, GUILD, "a", None).await.unwrap();
-    guilds::upsert(&pool, OTHER_GUILD, "b", None).await.unwrap();
+    guilds::upsert(&pool, GUILD, "a", None, true).await.unwrap();
+    guilds::upsert(&pool, OTHER_GUILD, "b", None, true)
+        .await
+        .unwrap();
     let mut ids = guilds::list_ids(&pool).await.unwrap();
     ids.sort();
     assert_eq!(ids, vec![GUILD.to_owned(), OTHER_GUILD.to_owned()]);
