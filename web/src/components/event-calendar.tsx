@@ -34,6 +34,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  readCalendarSettings,
+  readLastCalendarView,
+  saveLastCalendarView,
+  useCalendarSettings,
+} from "@/hooks/use-calendar-settings";
 import { useLastValue } from "@/hooks/use-last-value";
 import { describeApiError } from "@/lib/api";
 import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
@@ -43,6 +49,11 @@ import {
   toApiEventInput,
   toCalendarEvent,
 } from "@/lib/calendar-events";
+import {
+  type CalendarView,
+  parseCalendarView,
+  resolveInitialView,
+} from "@/lib/calendar-settings";
 import {
   defaultEventFormValues,
   type EventFormValues,
@@ -145,9 +156,17 @@ export function EventCalendar({
   // FullCalendar は描画時の new Date() で「今日」を決めるため、サーバー (本番コンテナ・CI は UTC) と
   // ブラウザ (Asia/Tokyo) で日付がずれる時間帯は SSR の「今日」のセル (aria-current="date") が
   // hydration 後も残る (React は属性の差分を patch しない)。カレンダーはマウント後にだけ描画して
-  // ブラウザの日付で決める (#48)。予定はもともとクライアントで取得しており SSR で出す内容は無い
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // ブラウザの日付で決める (#48)。予定はもともとクライアントで取得しており SSR で出す内容は無い。
+  // 最初に表示するビュー (#96) もこの遅延を利用して、マウント時に localStorage の設定から決める
+  // (null の間は描画しない = 従来の mounted 相当)
+  const [initialView, setInitialView] = useState<CalendarView | null>(null);
+  useEffect(() => {
+    setInitialView(
+      resolveInitialView(readCalendarSettings(), readLastCalendarView()),
+    );
+  }, []);
+  // 週の開始曜日 (#96) は設定ダイアログでの変更を開いたまま反映できるよう購読する
+  const { settings } = useCalendarSettings();
 
   const eventsQuery = useEventsQuery(guildId, range, eventsSource);
   const createEvent = useCreateEvent(guildId, eventsSource);
@@ -171,6 +190,9 @@ export function EventCalendar({
   const deleteShown = useLastValue(deleteTarget);
 
   const handleDatesSet = (info: DatesSetInfo) => {
+    // 「前回開いていたビュー」(#96) のために、いま見ているビューを記録する
+    const view = parseCalendarView(info.view.type);
+    if (view) saveLastCalendarView(view);
     setRange({
       start: toApiDateTime(info.start),
       end: toApiDateTime(info.end),
@@ -304,7 +326,7 @@ export function EventCalendar({
       </div>
       {/* calendar-shell は globals.css の微調整の起点 (FullCalendar のクラス名はハッシュで指せない) */}
       <div className="calendar-shell min-h-0 flex-1">
-        {mounted && (
+        {initialView && (
           <Calendar
             ref={calendarRef}
             plugins={[
@@ -318,7 +340,8 @@ export function EventCalendar({
             eventTimeFormat={eventTimeFormat}
             slotHeaderFormat={slotHeaderFormat}
             dayCellFormat={dayCellFormat}
-            initialView="dayGridMonth"
+            initialView={initialView}
+            firstDay={settings.firstDay}
             headerToolbar={{
               start: "prev,next today",
               center: "title",

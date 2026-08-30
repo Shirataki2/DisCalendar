@@ -2,6 +2,7 @@
 
 import {
   BookOpenIcon,
+  CalendarCogIcon,
   CircleHelpIcon,
   CodeIcon,
   ExternalLinkIcon,
@@ -16,6 +17,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { CalendarSettingsDialog } from "@/components/calendar-settings-dialog";
 import { ThemeToggleContent, useThemeToggle } from "@/components/theme-toggle";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { GITHUB_URL, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
@@ -89,6 +92,7 @@ export function DashboardNav({ admin, onNavigate, className }: Props) {
   const pathname = usePathname();
   const signOut = useSignOut();
   const toggleTheme = useThemeToggle();
+  const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
 
   return (
     <nav
@@ -129,6 +133,20 @@ export function DashboardNav({ admin, onNavigate, className }: Props) {
           </li>
         ))}
         <li>
+          {/* ダイアログがドロワー (Sheet) と重ならないよう、開くときにドロワーは閉じる */}
+          <button
+            type="button"
+            className={itemClass}
+            onClick={() => {
+              onNavigate?.();
+              setCalendarSettingsOpen(true);
+            }}
+          >
+            <CalendarCogIcon className="size-5 shrink-0" aria-hidden />
+            <span className="flex-1 text-left">カレンダーの表示設定</span>
+          </button>
+        </li>
+        <li>
           <button
             type="button"
             className={itemClass}
@@ -151,6 +169,10 @@ export function DashboardNav({ admin, onNavigate, className }: Props) {
           </button>
         </li>
       </ul>
+      <CalendarSettingsDialog
+        open={calendarSettingsOpen}
+        onOpenChange={setCalendarSettingsOpen}
+      />
     </nav>
   );
 }
