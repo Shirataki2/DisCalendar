@@ -6,6 +6,7 @@ import {
   CircleHelpIcon,
   CodeIcon,
   ExternalLinkIcon,
+  HeartIcon,
   HistoryIcon,
   HouseIcon,
   LayoutGridIcon,
@@ -32,7 +33,7 @@ interface NavItem {
   adminOnly?: boolean;
 }
 
-// 旧実装 (components/header/NavDrawer.vue) と同じ並び (「更新履歴」は v3 で追加)。
+// 旧実装 (components/header/NavDrawer.vue) と同じ並び (「更新履歴」「支援」は v3 で追加)。
 // 旧版と同じくテーマ切替は一覧の最後 (旧版の bottomItems 相当) に置く。
 // 「今日へ移動」は FullCalendar のツールバーに「今日」があるため入れていない。
 // 「ダッシュボード」は新 web の他の導線 (SessionLink / 管理コンソール) に合わせて「サーバー一覧」と呼ぶ
@@ -47,6 +48,7 @@ const ITEMS: NavItem[] = [
   },
   { label: "使い方", icon: CircleHelpIcon, href: ROUTES.docs },
   { label: "更新履歴", icon: HistoryIcon, href: ROUTES.changelog },
+  { label: "支援", icon: HeartIcon, href: ROUTES.donation },
   { label: "利用規約", icon: BookOpenIcon, href: ROUTES.tos },
   {
     label: "プライバシーポリシー",
