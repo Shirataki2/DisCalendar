@@ -158,6 +158,53 @@
   }
 }
 
+/*
+ * 週末と日本の祝日の配色 (#97)。日曜・祝日は赤、土曜は青。
+ * クラスは event-calendar.tsx のフック (dayCellTopInnerClass / dayHeaderClass / listDayHeaderClass) が付ける
+ */
+.cal-day-red {
+  color: #d03535;
+}
+
+.cal-day-blue {
+  color: #2472c8;
+}
+
+.dark .cal-day-red {
+  color: #ef9a9a;
+}
+
+.dark .cal-day-blue {
+  color: #90caf9;
+}
+
+/* 月ビューの日付セル上部。classic テーマの既定は右寄せだが、祝日名の有無で数字の位置が
+   ずれないよう左上詰めに揃える (event-calendar.tsx の dayCellTopClass)。
+   テーマ側の指定 (同じ詳細度・後読み) に勝つため calendar-shell を付ける */
+.calendar-shell .cal-day-top {
+  justify-content: flex-start;
+}
+
+/*
+ * 月ビューの日付セルに出す祝日名。数字の右に小さく添える。
+ * セル上部は flex で、中身がセル幅より広くても縮まずあふれる (min-width: auto) ので、
+ * 祝日名が入るセルは器を flex にして祝日名側を切り詰める (スマートフォンの狭いセル対策)
+ */
+.cal-holiday-top {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.25rem;
+  overflow: hidden;
+}
+
+.cal-holiday-name {
+  overflow: hidden;
+  font-size: 0.75em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
