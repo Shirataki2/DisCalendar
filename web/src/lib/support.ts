@@ -28,6 +28,13 @@ export const SUPPORT_PAGES: readonly SupportPage[] = [
       "DisCalendar が取得する情報 (Discord アカウントの情報、サーバーと予定の情報) と、その利用目的・管理方法を定めたプライバシーポリシーです。",
     updatedAt: "2026-08-23",
   },
+  {
+    slug: "tokushoho",
+    title: "特定商取引法に基づく表記",
+    description:
+      "DisCalendar への支援 (ドネーション) の決済に関する特定商取引法に基づく表記です。",
+    updatedAt: "2026-08-31",
+  },
 ];
 
 export function findSupportPage(slug: string): SupportPage | undefined {

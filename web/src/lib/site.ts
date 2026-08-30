@@ -46,6 +46,10 @@ export const ROUTES = {
   adminAuditLogs: "/admin/audit-logs",
   /** Bot の招待 URL へリダイレクトする (app/invite/route.ts) */
   invite: "/invite",
+  /** 支援 (ドネーション) のお願いページ */
+  donation: "/donation",
+  /** Stripe Payment Links へリダイレクトする (app/donation/checkout/route.ts) */
+  donationCheckout: "/donation/checkout",
   docs: "/docs/gettingstarted",
   /** 更新履歴 (web/src/content/changelog.mdx) */
   changelog: "/changelog",
@@ -53,4 +57,6 @@ export const ROUTES = {
   tos: "/support/tos",
   /** プライバシーポリシー (web/src/content/support/privacy.mdx) */
   privacy: "/support/privacy",
+  /** 特定商取引法に基づく表記 (web/src/content/support/tokushoho.mdx) */
+  tokushoho: "/support/tokushoho",
 } as const;
