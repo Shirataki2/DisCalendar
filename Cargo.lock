@@ -792,7 +792,7 @@ dependencies = [
 
 [[package]]
 name = "discalendar-api"
-version = "3.2.1"
+version = "3.3.0"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -821,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "discalendar-bot"
-version = "3.2.1"
+version = "3.3.0"
 dependencies = [
  "anyhow",
  "chrono",
