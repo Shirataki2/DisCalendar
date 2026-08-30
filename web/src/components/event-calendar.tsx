@@ -5,6 +5,8 @@ import Calendar, {
   type DateClickInfo,
   type DateSelectInfo,
   type DatesSetInfo,
+  type DayCellInfo,
+  type DayHeaderInfo,
   type EventChangeInfo,
   type EventClickInfo,
   type FormatterInput,
@@ -61,6 +63,11 @@ import {
   newEventFormValues,
 } from "@/lib/event-form";
 import {
+  dayColorClass,
+  dowColorClass,
+  holidayNameOf,
+} from "@/lib/japanese-holidays";
+import {
   dashboardEventsSource,
   type EventRange,
   type EventsSource,
@@ -69,6 +76,7 @@ import {
   useEventsQuery,
   useUpdateEvent,
 } from "@/lib/query/events";
+import { cn } from "@/lib/utils";
 
 import "@fullcalendar/react/skeleton.css";
 import "@fullcalendar/react/themes/classic/theme.css";
@@ -117,6 +125,47 @@ const dayHeaderFormat: FormatterInput = (info) =>
  */
 const listDayFormat: FormatterInput = (info) =>
   `${info.date.month + 1}/${info.date.day}`;
+
+/*
+ * 週末と日本の祝日の配色 (#97)。日曜・祝日は赤、土曜は青 (色は globals.css の cal-day-*)。
+ * 月ビューは日付の数字 (dayCellTopInner)、週 / 4日 / 日ビューとリストビューは日付見出しに付ける
+ */
+
+/**
+ * 月ビューの日付の数字。セル全体ではなく数字だけを色付けする。前後の月のセルは
+ * 既定の減光をそのまま生かす (色を付けると当月と見分けにくくなる) ため塗らない。
+ * 祝日はセル幅からあふれた祝日名を切り詰められるよう、flex の器 (cal-holiday-top) にする
+ */
+const dayCellTopInnerClass = (info: DayCellInfo) =>
+  cn(
+    !info.isOther && dayColorClass(info),
+    holidayNameOf(info.date) && "cal-holiday-top",
+  );
+
+/**
+ * 日付ヘッダ。月ビューのヘッダは曜日だけで特定の日付を指さない
+ * (info.date には先頭週の日付が入っている) ので、祝日は見ずに曜日だけで塗る
+ */
+const dayHeaderClass = (info: DayHeaderInfo) =>
+  info.view.type === "dayGridMonth"
+    ? dowColorClass(info.dow)
+    : dayColorClass(info);
+
+/** リストビューの日付見出し (日付と曜日の行全体) */
+const listDayHeaderClass = (info: { date: Date; dow: number }) =>
+  dayColorClass(info);
+
+/** 月ビューの日付セルの上部。祝日は日付の数字に続けて祝日名を出す */
+const dayCellTopContent = (info: DayCellInfo) => {
+  const name = holidayNameOf(info.date);
+  if (!name) return true; // true = 既定の表示 (日付の数字だけ)。undefined だと空になる
+  return (
+    <>
+      {info.text}
+      <span className="cal-holiday-name">{name}</span>
+    </>
+  );
+};
 
 interface Props {
   guildId: string;
@@ -340,6 +389,10 @@ export function EventCalendar({
             eventTimeFormat={eventTimeFormat}
             slotHeaderFormat={slotHeaderFormat}
             dayCellFormat={dayCellFormat}
+            dayCellTopInnerClass={dayCellTopInnerClass}
+            dayCellTopContent={dayCellTopContent}
+            dayHeaderClass={dayHeaderClass}
+            listDayHeaderClass={listDayHeaderClass}
             initialView={initialView}
             firstDay={settings.firstDay}
             headerToolbar={{
