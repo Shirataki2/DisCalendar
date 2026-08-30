@@ -2,6 +2,7 @@
 
 import {
   BookOpenIcon,
+  CalendarCogIcon,
   CircleHelpIcon,
   CodeIcon,
   ExternalLinkIcon,
@@ -78,6 +79,11 @@ interface Props {
   admin: boolean;
   /** リンクを押したとき (スマホのドロワーを閉じるのに使う) */
   onNavigate?: () => void;
+  /**
+   * 「カレンダーの表示設定」を押したとき。ダイアログ本体は DashboardShell が持つ
+   * (ここに置くと、スマホのドロワー (Sheet) が閉じたときに一緒にアンマウントされて開けない)
+   */
+  onOpenCalendarSettings: () => void;
   className?: string;
 }
 
@@ -85,7 +91,12 @@ interface Props {
  * ダッシュボードのナビゲーションドロワーの中身 (旧実装の NavDrawer.vue 相当)。
  * PC の常設サイドバーとスマホのオーバーレイ (Sheet) の両方で使う
  */
-export function DashboardNav({ admin, onNavigate, className }: Props) {
+export function DashboardNav({
+  admin,
+  onNavigate,
+  onOpenCalendarSettings,
+  className,
+}: Props) {
   const pathname = usePathname();
   const signOut = useSignOut();
   const toggleTheme = useThemeToggle();
@@ -128,6 +139,20 @@ export function DashboardNav({ admin, onNavigate, className }: Props) {
             )}
           </li>
         ))}
+        <li>
+          {/* ダイアログがドロワー (Sheet) と重ならないよう、開くときにドロワーは閉じる */}
+          <button
+            type="button"
+            className={itemClass}
+            onClick={() => {
+              onNavigate?.();
+              onOpenCalendarSettings();
+            }}
+          >
+            <CalendarCogIcon className="size-5 shrink-0" aria-hidden />
+            <span className="flex-1 text-left">カレンダーの表示設定</span>
+          </button>
+        </li>
         <li>
           <button
             type="button"
