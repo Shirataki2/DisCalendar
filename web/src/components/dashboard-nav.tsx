@@ -17,8 +17,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-import { CalendarSettingsDialog } from "@/components/calendar-settings-dialog";
 import { ThemeToggleContent, useThemeToggle } from "@/components/theme-toggle";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { GITHUB_URL, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
@@ -81,6 +79,11 @@ interface Props {
   admin: boolean;
   /** リンクを押したとき (スマホのドロワーを閉じるのに使う) */
   onNavigate?: () => void;
+  /**
+   * 「カレンダーの表示設定」を押したとき。ダイアログ本体は DashboardShell が持つ
+   * (ここに置くと、スマホのドロワー (Sheet) が閉じたときに一緒にアンマウントされて開けない)
+   */
+  onOpenCalendarSettings: () => void;
   className?: string;
 }
 
@@ -88,11 +91,15 @@ interface Props {
  * ダッシュボードのナビゲーションドロワーの中身 (旧実装の NavDrawer.vue 相当)。
  * PC の常設サイドバーとスマホのオーバーレイ (Sheet) の両方で使う
  */
-export function DashboardNav({ admin, onNavigate, className }: Props) {
+export function DashboardNav({
+  admin,
+  onNavigate,
+  onOpenCalendarSettings,
+  className,
+}: Props) {
   const pathname = usePathname();
   const signOut = useSignOut();
   const toggleTheme = useThemeToggle();
-  const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
 
   return (
     <nav
@@ -139,7 +146,7 @@ export function DashboardNav({ admin, onNavigate, className }: Props) {
             className={itemClass}
             onClick={() => {
               onNavigate?.();
-              setCalendarSettingsOpen(true);
+              onOpenCalendarSettings();
             }}
           >
             <CalendarCogIcon className="size-5 shrink-0" aria-hidden />
@@ -169,10 +176,6 @@ export function DashboardNav({ admin, onNavigate, className }: Props) {
           </button>
         </li>
       </ul>
-      <CalendarSettingsDialog
-        open={calendarSettingsOpen}
-        onOpenChange={setCalendarSettingsOpen}
-      />
     </nav>
   );
 }

@@ -3,6 +3,7 @@
 import { MenuIcon } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useEffect, useState } from "react";
+import { CalendarSettingsDialog } from "@/components/calendar-settings-dialog";
 import { DashboardNav } from "@/components/dashboard-nav";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,9 @@ export function DashboardShell({
 }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(defaultSidebarOpen);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // カレンダーの表示設定 (#96)。ダイアログはここに置く (ドロワー (Sheet) の中に置くと、
+  // 項目を押してドロワーが閉じたときに一緒にアンマウントされて開けない)
+  const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
 
   const toggleSidebar = () => {
     const next = !sidebarOpen;
@@ -102,7 +106,10 @@ export function DashboardShell({
           className={sidebarOpen ? "hidden lg:block" : "hidden"}
         >
           <div className="h-full w-64 overflow-y-auto border-r border-border bg-surface">
-            <DashboardNav admin={admin} />
+            <DashboardNav
+              admin={admin}
+              onOpenCalendarSettings={() => setCalendarSettingsOpen(true)}
+            />
           </div>
         </aside>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
@@ -120,10 +127,15 @@ export function DashboardShell({
           <DashboardNav
             admin={admin}
             onNavigate={() => setDrawerOpen(false)}
+            onOpenCalendarSettings={() => setCalendarSettingsOpen(true)}
             className="overflow-y-auto"
           />
         </SheetContent>
       </Sheet>
+      <CalendarSettingsDialog
+        open={calendarSettingsOpen}
+        onOpenChange={setCalendarSettingsOpen}
+      />
     </>
   );
 }

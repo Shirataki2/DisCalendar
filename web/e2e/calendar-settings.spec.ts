@@ -100,3 +100,32 @@ test("サイドバーからも設定を開ける", async ({ page }) => {
     page.getByRole("dialog", { name: "カレンダーの表示設定" }),
   ).toBeVisible();
 });
+
+test.describe("スマートフォンの幅", () => {
+  test.use({ viewport: { width: 375, height: 812 }, hasTouch: true });
+
+  test("ドロワーから設定を開いて変更できる (ドロワーが閉じてもダイアログは残る)", async ({
+    page,
+  }) => {
+    await page.goto(`/dashboard/${guildId}`);
+    await expect(page.getByRole("grid")).toBeVisible();
+
+    // ハンバーガーでドロワー (Sheet) を開く。項目を押すとドロワーは閉じるが、
+    // ダイアログは DashboardShell 側にあるので開いたまま残る
+    // exact を付けないと「アカウントメニュー」にもマッチする (name は部分一致)
+    await page.getByRole("button", { name: "メニュー", exact: true }).click();
+    await page
+      .getByRole("navigation", { name: "サイト内メニュー" })
+      .getByRole("button", { name: "カレンダーの表示設定" })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "カレンダーの表示設定" });
+    await expect(dialog).toBeVisible();
+
+    // そのまま設定の変更もできる
+    await dialog.getByRole("combobox", { name: "週の開始曜日" }).click();
+    await page.getByRole("option", { name: "月曜日" }).click();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("columnheader").first()).toHaveText("月");
+  });
+});

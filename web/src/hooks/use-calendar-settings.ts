@@ -32,9 +32,14 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-// localStorage はプライベートブラウジングなどで例外になり得るので、読めなければ無い扱い、
-// 書ければ儲けものとする (保存できない環境では設定がタブ限りになるだけ)
+// localStorage はプライベートブラウジングや容量超過で例外になり得る。書けなかった値は
+// メモリに持って read で優先し、保存できない環境でも「このタブの間だけ効く設定」として使えるようにする
+// (メモリに無ければ localStorage の値のままなので、snapshot が古い値に戻ることはない)
+const unsaved = new Map<string, string>();
+
 function read(key: string): string | null {
+  const pending = unsaved.get(key);
+  if (pending !== undefined) return pending;
   try {
     return localStorage.getItem(key);
   } catch {
@@ -45,8 +50,9 @@ function read(key: string): string | null {
 function write(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
+    unsaved.delete(key);
   } catch {
-    // 保存できなくても表示への反映 (emit) は行う
+    unsaved.set(key, value);
   }
 }
 
