@@ -1,6 +1,6 @@
 [package]
 name = "discalendar-bot"
-version = "3.3.0"
+version = "3.4.0"
 description = "DisCalendar Discord Bot (guild registration / slash commands / notifications)"
 edition.workspace = true
 rust-version.workspace = true
