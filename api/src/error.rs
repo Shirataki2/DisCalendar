@@ -48,7 +48,9 @@ pub struct ErrorBody {
 }
 
 impl ApiError {
-    fn kind(&self) -> &'static str {
+    /// 機械可読なエラー種別。レスポンスの `error` とリクエスト完了ログ (#110) の両方で使う
+    /// (メッセージは Postgres が入力値を埋め込むことがあるので、ログにはこちらだけを載せる)
+    pub fn kind(&self) -> &'static str {
         match self {
             Self::Unauthorized => "unauthorized",
             Self::Forbidden(_) => "forbidden",
@@ -92,11 +94,17 @@ impl ResponseError for ApiError {
     }
 
     fn error_response(&self) -> HttpResponse {
-        // 5xx 系は原因をログに残す (レスポンスには内部情報を出さない)
+        // 5xx 系は原因をログに残す (レスポンスには内部情報を出さない)。
+        // ここが 5xx の唯一の ERROR ログ = Sentry のイベント 1 件で、リクエスト完了ログ (#110) は
+        // INFO なのでイベントにならない。5xx を増やすときはここにも足す
         match self {
             Self::Discord(e) => tracing::error!(error = %e, "discord api error"),
             Self::Database(e) => tracing::error!(error = %e, "database error"),
             Self::Internal(e) => tracing::error!(error = ?e, "internal error"),
+            // Discord クライアント側のログは WARN なので、503 を返すことはここで残す
+            Self::RateLimited => tracing::error!("discord api is rate limited"),
+            // Unavailable は唯一の生成元 (routes/admin_sql.rs) が理由付きで ERROR を出しているので、
+            // ここで出すと同じ障害が二重にイベント化される
             _ => {}
         }
         HttpResponse::build(self.status_code()).json(ErrorBody {

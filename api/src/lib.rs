@@ -12,6 +12,7 @@ pub mod build_info;
 pub mod config;
 pub mod discord;
 pub mod error;
+pub mod logging;
 pub mod models;
 pub mod openapi;
 pub mod routes;
@@ -85,6 +86,10 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             .openapi(ApiDoc::openapi())
             .map(|app| {
                 app.wrap(TracingLogger::default())
+                    // リクエストごとに 1 行の完了ログを出す (#110)。TracingLogger の外側に置いて
+                    // root span から切り離す (実 URI や User-Agent を毎リクエストの行に載せないため)。
+                    // Compress より内側なので所要時間に gzip の時間は入らない
+                    .wrap(middleware::from_fn(logging::log_requests))
                     .wrap(middleware::Compress::default())
                     // リクエストごとの Sentry Hub を張り、イベントに URL・メソッドなどの情報を付ける (#17)。
                     // 一番外側 (最後に wrap) に置き、内側の TracingLogger のスパンやエラーが紐づくようにする。
