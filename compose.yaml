@@ -118,6 +118,8 @@ services:
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?set DISCORD_CLIENT_ID in .env}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?set DISCORD_CLIENT_SECRET in .env}
       DISCORD_BOT_INVITE_URL: ${DISCORD_BOT_INVITE_URL:-}
+      # 支援ページの飛び先 (Stripe Payment Links)。未設定なら /donation/checkout は 503「準備中」
+      STRIPE_DONATION_PAYMENT_LINK_URL: ${STRIPE_DONATION_PAYMENT_LINK_URL:-}
       # 起動時に Better Auth のテーブルを作成・更新する (web/src/instrumentation.ts)
       AUTO_MIGRATE: "true"
       # Next.js サーバー側のエラー監視 (#17)。DSN 未設定なら何も送らない

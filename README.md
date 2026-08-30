@@ -116,6 +116,8 @@ cargo run              # 起動時にマイグレーション適用、http://127
 http://localhost:3000 でランディング、`/login` から Discord ログイン、
 `/dashboard` でサーバー選択 → 各サーバーのカレンダーが開く。
 LP の「BOT を導入する」は `/invite` (Route Handler) が `DISCORD_BOT_INVITE_URL` (未設定なら `DISCORD_CLIENT_ID` から組み立て) へリダイレクトする。
+支援ページ (`/donation`) の「支援する」も同じ方式で、`/donation/checkout` (Route Handler) が
+`STRIPE_DONATION_PAYMENT_LINK_URL` (Stripe Payment Links の URL。未設定なら 503「準備中」) へリダイレクトする。
 サイト名・説明・公開 URL・外部リンクなどの定数は `web/src/lib/site.ts` にまとめてある。
 
 Discord ログインを通すには [Discord Developer Portal](https://discord.com/developers/applications) のアプリで
