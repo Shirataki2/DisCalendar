@@ -140,6 +140,65 @@ async fn list_returns_events_overlapping_range(pool: PgPool) {
     assert_eq!(names, vec!["spans-into", "inside"]);
 }
 
+/// 横断カレンダー (#98) の複数ギルド版一覧。指定したギルドだけを跨いで返し、並びは開始日時順
+#[sqlx::test(migrations = "./migrations")]
+async fn list_between_guilds_spans_guilds_and_excludes_others(pool: PgPool) {
+    const THIRD_GUILD: &str = "333333333333333333";
+    let now = dt("2026-08-01T00:00:00");
+    for (guild, name, start, end) in [
+        (
+            OTHER_GUILD,
+            "other-first",
+            "2026-09-05T10:00:00",
+            "2026-09-05T11:00:00",
+        ),
+        (GUILD, "mine", "2026-09-10T10:00:00", "2026-09-10T11:00:00"),
+        (
+            THIRD_GUILD,
+            "third",
+            "2026-09-10T10:00:00",
+            "2026-09-10T11:00:00",
+        ),
+        (
+            GUILD,
+            "mine-outside",
+            "2026-10-10T10:00:00",
+            "2026-10-10T11:00:00",
+        ),
+    ] {
+        events::create(&pool, guild, &input(name, start, end), now)
+            .await
+            .unwrap();
+    }
+
+    let range = (dt("2026-09-01T00:00:00"), dt("2026-10-01T00:00:00"));
+    let rows = events::list_between_guilds(
+        &pool,
+        &[GUILD.to_owned(), OTHER_GUILD.to_owned()],
+        range.0,
+        range.1,
+    )
+    .await
+    .unwrap();
+    let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, vec!["other-first", "mine"]);
+    assert_eq!(rows[0].guild_id, OTHER_GUILD);
+    assert_eq!(rows[1].guild_id, GUILD);
+
+    // 指定していないギルドは 0 件、空指定も 0 件
+    let rows = events::list_between_guilds(&pool, &[THIRD_GUILD.to_owned()], range.0, range.1)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "third");
+    assert!(
+        events::list_between_guilds(&pool, &[], range.0, range.1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
 /// Discord スケジュールイベントとの対応付け (`event_discord_links`、#94)
 #[sqlx::test(migrations = "./migrations")]
 async fn event_links_are_scoped_and_cascade(pool: PgPool) {

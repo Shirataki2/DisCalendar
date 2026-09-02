@@ -1,12 +1,14 @@
 use actix_web::{HttpResponse, delete, get, post, put, web};
 use chrono::{Duration, NaiveDateTime};
+use futures_util::{StreamExt as _, TryStreamExt as _, stream};
 use serde::Deserialize;
 use sqlx::PgPool;
 use utoipa::IntoParams;
 
 use super::GuildMember;
 use crate::{
-    discord::{DiscordClient, DiscordError, scheduled_events::ScheduledEventPayload},
+    auth::AuthUser,
+    discord::{DiscordClient, DiscordError, is_snowflake, scheduled_events::ScheduledEventPayload},
     error::{ApiError, ErrorBody},
     models::{
         event_links,
@@ -18,6 +20,15 @@ use crate::{
 
 /// 一度に取得できる期間の上限 (FullCalendar の月表示は最大 6 週間)
 const MAX_RANGE_DAYS: i64 = 400;
+
+/// 横断カレンダー (#98) で一度に問い合わせられるギルド数の上限。
+/// `/guilds/joined` と同じ根拠 (Discord のユーザーあたり参加上限は 200)
+pub(crate) const JOINED_MAX_IDS: usize = 200;
+
+/// 横断カレンダー (#98) でメンバー確認のために同時に Discord へ問い合わせるギルド数。
+/// キャッシュが冷えていると 1 ギルドにつき最大 2 回 (ギルド情報 + メンバー情報) 呼ぶので、
+/// 参加ギルドが多い利用者でもレート制限に当たりにくいよう絞る (2 回目以降はキャッシュで済む)
+const MEMBER_ACCESS_CONCURRENCY: usize = 4;
 
 /// 予定の更新で、状態を読み直してやり直す回数の上限 (#94)。
 /// 同じ予定への更新は予定単位のロックで直列化しているので、やり直しが要るのは
@@ -38,16 +49,57 @@ pub struct ListQuery {
 impl ListQuery {
     /// 範囲の向きと長さを確認する (管理コンソールの一覧でも同じ条件を使う)
     pub fn validate(&self) -> Result<(), ApiError> {
-        if self.end <= self.start {
-            return Err(ApiError::BadRequest("end must be after start".into()));
-        }
-        if self.end - self.start > Duration::days(MAX_RANGE_DAYS) {
-            return Err(ApiError::BadRequest(format!(
-                "range must be at most {MAX_RANGE_DAYS} days"
-            )));
-        }
-        Ok(())
+        validate_range(self.start, self.end)
     }
+}
+
+/// 取得範囲の向きと長さの確認。横断カレンダー (#98) のクエリも同じ条件にする
+fn validate_range(start: NaiveDateTime, end: NaiveDateTime) -> Result<(), ApiError> {
+    if end <= start {
+        return Err(ApiError::BadRequest("end must be after start".into()));
+    }
+    if end - start > Duration::days(MAX_RANGE_DAYS) {
+        return Err(ApiError::BadRequest(format!(
+            "range must be at most {MAX_RANGE_DAYS} days"
+        )));
+    }
+    Ok(())
+}
+
+#[derive(Deserialize, IntoParams)]
+pub struct JoinedListQuery {
+    /// カンマ区切りのギルド ID (Bot 参加済みのもの。web が `/guilds/joined` で絞った結果を渡す)
+    #[param(example = "782502586817314816,123456789012345678")]
+    pub guild_ids: String,
+    /// 取得範囲の開始 (JST、この時刻を含む)
+    #[param(example = "2026-08-01T00:00:00")]
+    pub start: NaiveDateTime,
+    /// 取得範囲の終了 (JST、この時刻を含まない)
+    #[param(example = "2026-09-01T00:00:00")]
+    pub end: NaiveDateTime,
+}
+
+/// カンマ区切りのギルド ID を解析する (`/guilds/joined` と横断カレンダー #98 で共通)。
+/// 空要素は捨て、重複は最初の 1 つだけ残す (並びは保つ)。
+/// Snowflake でない値と [`JOINED_MAX_IDS`] を超える個数は 400
+pub(crate) fn parse_guild_ids(raw: &str) -> Result<Vec<String>, ApiError> {
+    let mut ids: Vec<String> = Vec::new();
+    for id in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        if !is_snowflake(id) {
+            return Err(ApiError::BadRequest(
+                "guild_ids must be comma-separated snowflakes".into(),
+            ));
+        }
+        if !ids.iter().any(|known| known == id) {
+            ids.push(id.to_owned());
+        }
+    }
+    if ids.len() > JOINED_MAX_IDS {
+        return Err(ApiError::BadRequest(format!(
+            "at most {JOINED_MAX_IDS} guild_ids are allowed"
+        )));
+    }
+    Ok(ids)
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -57,6 +109,68 @@ pub struct EventPath {
     pub guild_id: String,
     /// 予定 ID
     pub event_id: i32,
+}
+
+/// 参加している複数ギルドの予定をまとめて返す (横断カレンダー #98)。
+///
+/// 認可は単独カレンダー ([`GuildMember`]) と同じ「Bot が参加していて、かつ呼び出したユーザーがメンバー」を
+/// ギルドごとに確かめる。api は利用者の参加ギルド一覧を自力で取れない (利用者の OAuth トークンは web にしか無い)
+/// ので、候補の ID は web から受け取り、ここで 1 つずつ絞る。非メンバー / Bot 未参加のギルドは黙って除外する
+/// (単独カレンダーの 403 に相当。web が持つ参加状況が古いときに起きる)。
+/// restricted モードは編集だけを制限し閲覧には関わらないので、ここでは見ない。
+/// Discord への問い合わせが 1 つでも失敗したら全体を失敗にする (そのギルドだけ黙って抜くと
+/// 「予定が無い」ように見えてしまう。web は再試行を案内する)
+#[utoipa::path(
+    tag = "events",
+    params(JoinedListQuery),
+    responses(
+        (status = 200, body = Vec<Event>),
+        (status = 400, body = ErrorBody),
+        (status = 401, body = ErrorBody),
+        (status = 502, description = "Discord に問い合わせられなかった", body = ErrorBody),
+        (status = 503, description = "Discord のレート制限", body = ErrorBody),
+    )
+)]
+#[get("/@me")]
+pub async fn list_joined(
+    user: AuthUser,
+    query: web::Query<JoinedListQuery>,
+    state: web::Data<AppState>,
+) -> Result<web::Json<Vec<Event>>, ApiError> {
+    validate_range(query.start, query.end)?;
+    let candidates = parse_guild_ids(&query.guild_ids)?;
+    if candidates.is_empty() {
+        return Ok(web::Json(Vec::new()));
+    }
+
+    // メンバー確認を並列に行う (結果の順序は問わない。予定の並びは SQL 側で決まる)
+    let discord = &state.discord;
+    let user_id = &user.discord_user_id;
+    let checked: Vec<Option<String>> = stream::iter(candidates)
+        .map(|guild_id| async move {
+            discord
+                .member_access(&guild_id, user_id)
+                .await
+                .map(|access| access.map(|_| guild_id))
+        })
+        .buffer_unordered(MEMBER_ACCESS_CONCURRENCY)
+        .try_collect()
+        .await?;
+    let skipped = checked.iter().filter(|id| id.is_none()).count();
+    let allowed: Vec<String> = checked.into_iter().flatten().collect();
+    if skipped > 0 {
+        tracing::debug!(
+            user_id = %user.discord_user_id,
+            skipped,
+            "skipped guilds the user cannot view in the joined events list"
+        );
+    }
+    if allowed.is_empty() {
+        return Ok(web::Json(Vec::new()));
+    }
+
+    let rows = events::list_between_guilds(&state.pool, &allowed, query.start, query.end).await?;
+    Ok(web::Json(rows.into_iter().map(Event::from).collect()))
 }
 
 /// 期間に重なる予定の一覧
@@ -636,5 +750,51 @@ async fn cleanup_scheduled_event(
         .await
     {
         tracing::warn!(guild_id, scheduled_event_id, error = %err, "failed to clean up an orphan scheduled event");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{JOINED_MAX_IDS, parse_guild_ids};
+    use crate::error::ApiError;
+
+    #[test]
+    fn parse_guild_ids_trims_and_dedupes_in_order() {
+        let ids = parse_guild_ids(" 200000000000000002, 200000000000000001 ,,200000000000000002")
+            .unwrap();
+        assert_eq!(ids, ["200000000000000002", "200000000000000001"]);
+    }
+
+    #[test]
+    fn parse_guild_ids_accepts_empty() {
+        assert!(parse_guild_ids("").unwrap().is_empty());
+        assert!(parse_guild_ids(" , ").unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_guild_ids_rejects_non_snowflakes() {
+        for raw in ["abc", "200000000000000001,@me", "1/2", "-1"] {
+            assert!(
+                matches!(parse_guild_ids(raw), Err(ApiError::BadRequest(_))),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_guild_ids_rejects_too_many() {
+        let ok = (0..JOINED_MAX_IDS)
+            .map(|i| format!("2{i:017}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert_eq!(parse_guild_ids(&ok).unwrap().len(), JOINED_MAX_IDS);
+        // 重複は数に入れない
+        let dup = format!("{ok},200000000000000000");
+        assert_eq!(parse_guild_ids(&dup).unwrap().len(), JOINED_MAX_IDS);
+        let too_many = format!("{ok},300000000000000000");
+        assert!(matches!(
+            parse_guild_ids(&too_many),
+            Err(ApiError::BadRequest(_))
+        ));
     }
 }

@@ -212,6 +212,34 @@ pub async fn list_between(
     .await
 }
 
+/// 複数ギルドの、期間 `[start, end)` に重なる予定 (横断カレンダー #98)。
+/// `guild_ids` の認可 (Bot 参加済み かつ 呼び出したユーザーがメンバー) は呼び出し側が済ませていること。
+/// 並びは [`list_between`] と同じ (開始日時 → id) で、ギルドではまとめない
+pub async fn list_between_guilds(
+    pool: &PgPool,
+    guild_ids: &[String],
+    start: NaiveDateTime,
+    end: NaiveDateTime,
+) -> sqlx::Result<Vec<EventRow>> {
+    sqlx::query_as!(
+        EventRow,
+        r#"
+        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
+               e.start_at, e.end_at, e.created_at,
+               l.scheduled_event_id AS "discord_scheduled_event_id?"
+        FROM events e
+        LEFT JOIN event_discord_links l ON l.event_id = e.id
+        WHERE e.guild_id = ANY($1) AND e.start_at < $3 AND e.end_at >= $2
+        ORDER BY e.start_at, e.id
+        "#,
+        guild_ids,
+        start,
+        end
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// 返る行の `discord_scheduled_event_id` は常に `None` (対応付けは行を作った後にルート層が
 /// [`super::event_links`] へ書き、レスポンスへは呼び出し元が詰め直す)
 pub async fn create<'e>(

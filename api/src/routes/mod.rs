@@ -31,6 +31,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
         )
         .service(
             scope("/events")
+                // `/@me` (横断カレンダー #98) は `/{guild_id}` より先に登録しないと guild_id として解釈される
+                .service(events::list_joined)
                 .service(events::list)
                 .service(events::create)
                 .service(events::update)
