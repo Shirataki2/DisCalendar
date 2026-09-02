@@ -8,10 +8,10 @@ import { useEffect } from "react";
 
 export default function GlobalError({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     Sentry.captureException(error);
@@ -36,7 +36,7 @@ export default function GlobalError({
           </p>
           <button
             type="button"
-            onClick={() => reset()}
+            onClick={() => retry()}
             style={{
               marginTop: "1rem",
               padding: "0.5rem 1.5rem",
