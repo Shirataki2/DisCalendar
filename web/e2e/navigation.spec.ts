@@ -5,10 +5,11 @@ import { E2E_GUILDS, E2E_USER } from "./fixtures";
 // ダッシュボードのナビゲーションドロワーと固定フッタ (#51)。
 // PC 幅では常設サイドバー (ハンバーガーで開閉、状態は cookie に残る)、スマホ幅ではオーバーレイのドロワー
 
-/** ドロワー / サイドバーに並ぶリンク (旧版の NavDrawer.vue の並び + 更新履歴・支援)。管理コンソールは管理者でないので出ない */
+/** ドロワー / サイドバーに並ぶリンク (旧版の NavDrawer.vue の並び + すべての予定・更新履歴・支援)。管理コンソールは管理者でないので出ない */
 const NAV_LINKS = [
   { name: "ホーム", href: "/" },
   { name: "サーバー一覧", href: "/dashboard" },
+  { name: "すべての予定", href: "/dashboard/all" },
   { name: "サポートサーバー", href: /^https:\/\/discord\.gg\// },
   { name: "使い方", href: "/docs/gettingstarted" },
   { name: "更新履歴", href: "/changelog" },

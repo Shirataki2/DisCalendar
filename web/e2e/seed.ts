@@ -78,6 +78,56 @@ export async function addGuild(
   }
 }
 
+/** DB に直接入れる予定 (API を通さない最小限の項目。通知は無し、色は固定) */
+export interface SeedEvent {
+  name: string;
+  /** JST の naive 文字列 (`2026-09-01T10:00:00`) */
+  start_at: string;
+  end_at: string;
+  is_all_day?: boolean;
+}
+
+/**
+ * 予定を DB に直接入れる (bot/ や api の書き込みと同じ形)。
+ * restricted なギルドの予定など、テストユーザーでは API から作れないものを用意するのに使う。
+ * 他のテストと DB を共有しているので、使ったら deleteEventsNamed で消す
+ */
+export async function insertEvent(
+  databaseUrl: string,
+  guildId: string,
+  event: SeedEvent,
+): Promise<void> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    await pool.query(
+      `INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at)
+       VALUES ($1, $2, NULL, '[]'::jsonb, '#2196F3', $3, $4, $5, now())`,
+      [
+        guildId,
+        event.name,
+        event.is_all_day ?? false,
+        event.start_at,
+        event.end_at,
+      ],
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+/** 名前が一致する予定を (どのギルドのものでも) 消す。insertEvent や API で作った予定の後片付け用 */
+export async function deleteEventsNamed(
+  databaseUrl: string,
+  names: readonly string[],
+): Promise<void> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    await pool.query("DELETE FROM events WHERE name = ANY($1)", [names]);
+  } finally {
+    await pool.end();
+  }
+}
+
 /** addGuild で入れたギルドを消す (設定と予定ごと) */
 export async function removeGuild(
   databaseUrl: string,

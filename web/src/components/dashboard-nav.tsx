@@ -3,6 +3,7 @@
 import {
   BookOpenIcon,
   CalendarCogIcon,
+  CalendarDaysIcon,
   CircleHelpIcon,
   CodeIcon,
   ExternalLinkIcon,
@@ -36,10 +37,16 @@ interface NavItem {
 // 旧実装 (components/header/NavDrawer.vue) と同じ並び (「更新履歴」「支援」は v3 で追加)。
 // 旧版と同じくテーマ切替は一覧の最後 (旧版の bottomItems 相当) に置く。
 // 「今日へ移動」は FullCalendar のツールバーに「今日」があるため入れていない。
-// 「ダッシュボード」は新 web の他の導線 (SessionLink / 管理コンソール) に合わせて「サーバー一覧」と呼ぶ
+// 「ダッシュボード」は新 web の他の導線 (SessionLink / 管理コンソール) に合わせて「サーバー一覧」と呼ぶ。
+// 「すべての予定」(#98) は v3 で追加した横断カレンダー
 const ITEMS: NavItem[] = [
   { label: "ホーム", icon: HouseIcon, href: ROUTES.home },
   { label: "サーバー一覧", icon: LayoutGridIcon, href: ROUTES.dashboard },
+  {
+    label: "すべての予定",
+    icon: CalendarDaysIcon,
+    href: ROUTES.dashboardAll,
+  },
   {
     label: "サポートサーバー",
     icon: LifeBuoyIcon,
@@ -64,12 +71,30 @@ const ITEMS: NavItem[] = [
   },
 ];
 
-/** ホーム (/) は完全一致、それ以外は配下のページ (/dashboard/123、/docs/xxx など) も現在地扱い */
+/** リンク先の「配下」の基準。docs は /docs/gettingstarted へのリンクだが、他の docs ページでも現在地にする */
+function baseOf(href: string): string {
+  return href.startsWith("/docs/") ? "/docs" : href;
+}
+
+function isUnder(pathname: string, base: string): boolean {
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
+/**
+ * ホーム (/) は完全一致、それ以外は配下のページ (/dashboard/123、/docs/xxx など) も現在地扱い。
+ * ただし配下に別の項目がある場合 (/dashboard/all は「サーバー一覧」の配下でもある) は、
+ * 一番長く一致する項目だけを現在地にする
+ */
 function isCurrent(pathname: string, href: string): boolean {
   if (href === ROUTES.home) return pathname === href;
-  // docs は /docs/gettingstarted へのリンクだが、他の docs ページでも現在地にする
-  const base = href.startsWith("/docs/") ? "/docs" : href;
-  return pathname === base || pathname.startsWith(`${base}/`);
+  const base = baseOf(href);
+  if (!isUnder(pathname, base)) return false;
+  return !ITEMS.some((item) => {
+    const other = baseOf(item.href);
+    return (
+      other !== base && other.length > base.length && isUnder(pathname, other)
+    );
+  });
 }
 
 // 現在地の indigo は、ライトでは薄すぎて読めないので濃い側に振る

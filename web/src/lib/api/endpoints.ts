@@ -85,6 +85,27 @@ export function createApi(request: ApiFetcher) {
         }),
     },
     events: createEventsClient(request, (guildId) => `/events/${guildId}`),
+    /**
+     * 参加している複数サーバーの予定をまとめて取る (横断カレンダー #98)。閲覧専用で書き込みは無い。
+     * guildIds は Bot 参加済みのもの (`guilds.joined` の結果) を渡す。メンバーでないサーバーは api が除外する。
+     * 一度に渡せるのは JOINED_EVENTS_MAX_GUILDS 件まで
+     */
+    joinedEvents: {
+      /** `[start, end)` (JST 文字列) に重なる予定 */
+      list: (
+        guildIds: readonly string[],
+        start: string,
+        end: string,
+        signal?: AbortSignal,
+      ) => {
+        const query = new URLSearchParams({
+          guild_ids: guildIds.join(","),
+          start,
+          end,
+        });
+        return request<ApiEvent[]>(`/events/@me?${query}`, { signal });
+      },
+    },
     /** 管理コンソール (api/src/routes/admin*.rs)。管理者以外は 403 */
     admin: {
       me: () => request<AdminMe>("/admin/me"),

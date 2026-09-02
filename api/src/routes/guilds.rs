@@ -2,7 +2,7 @@ use actix_web::{get, post, put, web};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-use super::GuildMember;
+use super::{GuildMember, events::parse_guild_ids};
 use crate::{
     auth::AuthUser,
     discord::Permissions,
@@ -10,9 +10,6 @@ use crate::{
     models::guilds::{self, Guild, GuildConfig},
     state::AppState,
 };
-
-/// 一度に問い合わせられるギルド数の上限 (Discord のユーザーあたり参加上限は 200)
-const JOINED_MAX_IDS: usize = 200;
 
 #[derive(Deserialize, IntoParams)]
 pub struct JoinedQuery {
@@ -38,18 +35,8 @@ pub async fn joined(
     query: web::Query<JoinedQuery>,
     state: web::Data<AppState>,
 ) -> Result<web::Json<Vec<Guild>>, ApiError> {
-    let ids: Vec<String> = query
-        .guild_ids
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .collect();
-    if ids.len() > JOINED_MAX_IDS {
-        return Err(ApiError::BadRequest(format!(
-            "at most {JOINED_MAX_IDS} guild_ids are allowed"
-        )));
-    }
+    // 解析は横断カレンダー (#98) と共通 (Snowflake でない値は 400、上限は 200)
+    let ids = parse_guild_ids(&query.guild_ids)?;
     Ok(web::Json(guilds::find_joined(&state.pool, &ids).await?))
 }
 

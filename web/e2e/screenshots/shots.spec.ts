@@ -68,10 +68,10 @@ test.describe("カレンダー", () => {
     ).toBeVisible();
     await prepare(page);
     await settle(page);
-    // 下は空白なので、招待できるサーバーの行までで切る
+    // 下は空白なので、招待できるサーバーの行までで切る (「すべての予定」のカード (#98) の分だけ高い)
     await page.screenshot({
       path: assetPath("docs/serverselect.png"),
-      clip: { x: 0, y: 0, width: 1400, height: 430 },
+      clip: { x: 0, y: 0, width: 1400, height: 520 },
     });
   });
 });

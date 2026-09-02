@@ -68,6 +68,27 @@ export function useEventsQuery(
 }
 
 /**
+ * 横断カレンダー (#98) の予定。参加している複数ギルドの予定を 1 回の問い合わせでまとめて取る。
+ * guildIds はページ内で固定 (呼び出し側が useMemo で参照を保つ)。閲覧専用なので mutation は無い。
+ * 単独カレンダー / 管理コンソールでの変更は `keys.onChanged` 経由でこのキャッシュも無効化する
+ */
+export function useJoinedEventsQuery(
+  guildIds: readonly string[],
+  range: EventRange | null,
+) {
+  return useQuery({
+    queryKey: range
+      ? queryKeys.joinedEvents.range(guildIds, range.start, range.end)
+      : queryKeys.joinedEvents.all,
+    queryFn: range
+      ? ({ signal }) =>
+          api.joinedEvents.list(guildIds, range.start, range.end, signal)
+      : skipToken,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
  * 予定一覧と、同じ予定を見ている他のキャッシュ (`keys.onChanged`: もう一方の一覧、
  * `keys.onCountChanged`: 件数に依存するもの) をまとめて無効化する。
  * 管理コンソールの定型操作 (全予定削除、lib/query/admin-sql.ts) からも使う

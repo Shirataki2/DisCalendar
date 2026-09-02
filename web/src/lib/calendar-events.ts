@@ -93,13 +93,20 @@ export function toApiRange(
   };
 }
 
-/** API の予定 → FullCalendar の EventInput。元の予定は extendedProps.source に保持する */
-export function toCalendarEvent(event: ApiEvent): EventInput {
+/**
+ * API の予定 → FullCalendar の EventInput。元の予定は extendedProps.source に保持する。
+ * `color` を渡すと予定の色の代わりにその色で塗る (横断カレンダー #98 はサーバーごとの色にする)。
+ * source の予定は書き換えない
+ */
+export function toCalendarEvent(
+  event: ApiEvent,
+  color: string = event.color,
+): EventInput {
   const base: EventInput = {
     id: String(event.id),
     title: event.name,
-    color: event.color,
-    textColor: readableTextColor(event.color),
+    color,
+    textColor: readableTextColor(color),
     extendedProps: { source: event },
   };
   if (event.is_all_day) {

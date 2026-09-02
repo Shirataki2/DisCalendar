@@ -149,6 +149,16 @@ describe("toCalendarEvent", () => {
       toCalendarEvent({ ...allDay, end_at: "2026-08-23T00:00:00" }),
     ).toMatchObject({ start: "2026-08-23", end: "2026-08-24" });
   });
+
+  it("色を渡すと予定の色の代わりに塗り、元の予定は書き換えない (横断カレンダー)", () => {
+    const input = toCalendarEvent(event, "#112233");
+    expect(input).toMatchObject({
+      color: "#112233",
+      textColor: "#ffffff",
+      extendedProps: { source: event },
+    });
+    expect(event.color).toBe("#FFEB3B");
+  });
 });
 
 describe("sourceOf", () => {

@@ -6,9 +6,22 @@ export const queryKeys = {
     all: (guildId: string) => ["events", guildId] as const,
     range: (guildId: string, start: string, end: string) =>
       ["events", guildId, { start, end }] as const,
-    // 管理コンソールも同じ events 行を見ているので、こちらで変更したらあちらの一覧も古くなる
-    onChanged: (guildId: string) => [["admin", "events", guildId]],
+    // 管理コンソールも同じ events 行を見ているので、こちらで変更したらあちらの一覧も古くなる。
+    // 横断カレンダー (#98) は全ギルドの予定をまとめて持つので、どのギルドの変更でも捨てる
+    onChanged: (guildId: string) => [
+      ["admin", "events", guildId],
+      ["events", "joined"],
+    ],
     onCountChanged: (guildId: string) => [["admin", "guild", guildId]],
+  },
+  /**
+   * 横断カレンダー (#98) の予定一覧。"joined" は Snowflake ではないので、
+   * ギルド単位の `["events", guildId]` の前方一致とは混ざらない
+   */
+  joinedEvents: {
+    all: ["events", "joined"] as const,
+    range: (guildIds: readonly string[], start: string, end: string) =>
+      ["events", "joined", { guildIds, start, end }] as const,
   },
   guild: {
     detail: (guildId: string) => ["guild", guildId] as const,
@@ -30,8 +43,11 @@ export const queryKeys = {
       all: (guildId: string) => ["admin", "events", guildId] as const,
       range: (guildId: string, start: string, end: string) =>
         ["admin", "events", guildId, { start, end }] as const,
-      // 通常画面 (/dashboard/[id]) の一覧を古いままにしない
-      onChanged: (guildId: string) => [["events", guildId]],
+      // 通常画面 (/dashboard/[id]) と横断カレンダー (#98) の一覧を古いままにしない
+      onChanged: (guildId: string) => [
+        ["events", guildId],
+        ["events", "joined"],
+      ],
       // ギルド詳細の event_count を古いままにしない
       onCountChanged: (guildId: string) => [["admin", "guild", guildId]],
     },

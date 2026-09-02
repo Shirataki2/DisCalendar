@@ -41,6 +41,9 @@ export interface ApiEventInput {
   discord_scheduled_event: boolean;
 }
 
+/** 横断カレンダー (#98) で一度に問い合わせられるサーバー数 (api の `events::JOINED_MAX_IDS`。超えると 400) */
+export const JOINED_EVENTS_MAX_GUILDS = 200;
+
 export interface Guild {
   guild_id: string;
   name: string;

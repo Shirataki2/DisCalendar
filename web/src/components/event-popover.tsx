@@ -3,11 +3,13 @@
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import {
   AlarmClockIcon,
+  ArrowRightIcon,
   BellIcon,
   CopyIcon,
   PencilIcon,
   Trash2Icon,
 } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import { useLastValue } from "@/hooks/use-last-value";
@@ -28,9 +30,18 @@ interface Props {
   event: ApiEvent | null;
   anchor: PopoverAnchor | null;
   canEdit: boolean;
-  onEdit: (event: ApiEvent) => void;
-  onDuplicate: (event: ApiEvent) => void;
-  onDelete: (event: ApiEvent) => void;
+  /** ヘッダの色。横断カレンダー (#98) ではサーバーの色で塗る (省略時は予定の色) */
+  color?: string;
+  /** 横断カレンダー (#98) で出すサーバーの行と、そのサーバーのカレンダーへのリンク */
+  guild?: {
+    name: string;
+    iconUrl: string | null;
+    href: string;
+  };
+  /** 編集の操作。canEdit のときだけ使う (閲覧専用の呼び出し側は渡さなくてよい) */
+  onEdit?: (event: ApiEvent) => void;
+  onDuplicate?: (event: ApiEvent) => void;
+  onDelete?: (event: ApiEvent) => void;
   onClose: () => void;
 }
 
@@ -39,6 +50,8 @@ export function EventPopover({
   event,
   anchor,
   canEdit,
+  color,
+  guild,
   onEdit,
   onDuplicate,
   onDelete,
@@ -47,7 +60,10 @@ export function EventPopover({
   // 閉じるアニメーションの間も直前の内容を出しておく
   const shown = useLastValue(event);
   const shownAnchor = useLastValue(anchor);
+  const shownColor = useLastValue(color ?? null);
+  const shownGuild = useLastValue(guild ?? null);
   if (!shown) return null;
+  const headerColor = shownColor ?? shown.color;
 
   const notifications = shown.notifications.length
     ? shown.notifications.map(describeNotification).join("・")
@@ -71,8 +87,8 @@ export function EventPopover({
         <div
           className="px-4 py-2.5 font-semibold"
           style={{
-            backgroundColor: shown.color,
-            color: readableTextColor(shown.color),
+            backgroundColor: headerColor,
+            color: readableTextColor(headerColor),
           }}
         >
           {shown.name}
@@ -86,13 +102,41 @@ export function EventPopover({
             <BellIcon className="size-4 shrink-0 text-muted-foreground" />
             <span>{notifications}</span>
           </div>
+          {shownGuild && (
+            <div className="flex items-center gap-2">
+              {shownGuild.iconUrl ? (
+                // biome-ignore lint/performance/noImgElement: Discord CDN のアイコンは最適化不要
+                <img
+                  src={shownGuild.iconUrl}
+                  alt=""
+                  className="size-4 shrink-0 rounded-full"
+                />
+              ) : (
+                <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-[0.6rem] font-bold">
+                  {shownGuild.name.slice(0, 1)}
+                </span>
+              )}
+              <span className="truncate">{shownGuild.name}</span>
+            </div>
+          )}
           {shown.description && (
             <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
               {shown.description}
             </p>
           )}
         </div>
-        {canEdit && (
+        {shownGuild && (
+          <div className="border-t px-2 py-1.5">
+            <Link
+              href={shownGuild.href}
+              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-foreground/10"
+            >
+              このサーバーのカレンダーを開く
+              <ArrowRightIcon className="size-4" aria-hidden />
+            </Link>
+          </div>
+        )}
+        {canEdit && onEdit && onDuplicate && onDelete && (
           <div className="flex items-center justify-between border-t px-2 py-1.5">
             <div className="flex items-center">
               <Button

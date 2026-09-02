@@ -1,3 +1,4 @@
+import { CalendarDaysIcon } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -8,7 +9,6 @@ import {
 } from "@/components/guild-card";
 import { InviteGuildGrid } from "@/components/invite-guild-grid";
 import { ApiError } from "@/lib/api";
-import { serverApi } from "@/lib/api/server";
 import {
   botInviteUrl,
   canInviteBot,
@@ -16,23 +16,12 @@ import {
   getUserGuilds,
   guildIconUrl,
 } from "@/lib/discord";
+import { loadJoinedGuildIds } from "@/lib/joined-guilds";
+import { ROUTES } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "サーバー選択",
 };
-
-type JoinedResult =
-  | { ok: true; ids: Set<string> }
-  | { ok: false; error: unknown };
-
-async function loadJoined(guilds: DiscordGuild[]): Promise<JoinedResult> {
-  try {
-    const joined = await serverApi.guilds.joined(guilds.map((g) => g.id));
-    return { ok: true, ids: new Set(joined.map((g) => g.guild_id)) };
-  } catch (error) {
-    return { ok: false, error };
-  }
-}
 
 export default async function DashboardPage() {
   const guilds = await getUserGuilds().catch(() => null);
@@ -53,7 +42,7 @@ export default async function DashboardPage() {
   }
 
   // Bot が参加しているサーバー (カレンダーが使える) と、管理権限があり Bot を招待できるサーバーに分ける
-  const joined = await loadJoined(guilds);
+  const joined = await loadJoinedGuildIds(guilds);
   if (
     !joined.ok &&
     joined.error instanceof ApiError &&
@@ -82,6 +71,10 @@ export default async function DashboardPage() {
           を招待してください。
         </p>
       )}
+      {/* 横断カレンダー (#98)。参加状況が取れているときだけ出す (取れていないと全サーバーが「参加済み」に見えている) */}
+      {joined.ok && available.length > 0 && (
+        <AllEventsCard count={available.length} />
+      )}
       <JoinedGuildGrid guilds={available} />
       {invitable.length > 0 && (
         <>
@@ -100,6 +93,24 @@ export default async function DashboardPage() {
         </>
       )}
     </main>
+  );
+}
+
+/**
+ * 「すべての予定」への入口。サーバーのカードと同じ見た目で一覧の上に 1 枚だけ置く。
+ * サーバー名はカードに書かない (サーバー名でカードを探す導線・テストと混ざらないように)
+ */
+function AllEventsCard({ count }: { count: number }) {
+  return (
+    <Link href={ROUTES.dashboardAll} className={`${guildCardClassName()} mb-4`}>
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">
+        <CalendarDaysIcon className="size-6" aria-hidden />
+      </span>
+      <span className="flex-1 font-medium">すべての予定</span>
+      <span className="shrink-0 text-xs text-muted-foreground">
+        {count} サーバーの予定をまとめて表示
+      </span>
+    </Link>
   );
 }
 
