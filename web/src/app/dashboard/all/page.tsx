@@ -44,7 +44,8 @@ export default async function AllEventsPage() {
   if (available.length === 0) {
     return (
       <Unavailable title="Bot が参加しているサーバーがありません">
-        サーバー一覧から Bot を招待すると、そのサーバーの予定がここにまとめて表示されます。
+        サーバー一覧から Bot
+        を招待すると、そのサーバーの予定がここにまとめて表示されます。
       </Unavailable>
     );
   }
@@ -53,7 +54,8 @@ export default async function AllEventsPage() {
     <main className="flex min-h-0 flex-1 flex-col gap-2 p-4">
       <div className="flex shrink-0 flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="text-lg font-semibold">すべての予定</h1>
-        <span className="text-xs text-muted-foreground">
+        {/* スマホ幅ではカレンダーの高さを優先して説明は出さない */}
+        <span className="hidden text-xs text-muted-foreground sm:inline">
           {available.length}{" "}
           サーバーの予定をまとめて表示しています。予定の作成・編集は各サーバーのカレンダーで行えます
         </span>

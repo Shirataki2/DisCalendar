@@ -32,6 +32,8 @@ export const ROUTES = {
   home: "/",
   login: "/login",
   dashboard: "/dashboard",
+  /** 参加している全サーバーの予定をまとめて見る横断カレンダー (#98) */
+  dashboardAll: "/dashboard/all",
   /** 管理コンソール (ADMIN_DISCORD_USER_IDS のユーザーのみ。それ以外は 404) */
   admin: "/admin",
   /** 管理コンソールの分析情報 (アクティブユーザー・予定の作成数の推移) */

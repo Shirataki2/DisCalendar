@@ -2,6 +2,7 @@
 
 import {
   CalendarCogIcon,
+  CalendarDaysIcon,
   ChevronDownIcon,
   LayoutGridIcon,
   LogOutIcon,
@@ -30,7 +31,7 @@ interface Props {
 
 /**
  * ヘッダ右端のアカウントメニュー (旧実装の AccountMenu.vue 相当)。
- * アバターを押すとドロップダウンで「サーバー一覧」「カレンダーの表示設定」「テーマ切替」「ログアウト」を出す
+ * アバターを押すとドロップダウンで「サーバー一覧」「すべての予定」「カレンダーの表示設定」「テーマ切替」「ログアウト」を出す
  */
 export function UserMenu({ name, image }: Props) {
   const signOut = useSignOut();
@@ -78,6 +79,10 @@ export function UserMenu({ name, image }: Props) {
           <DropdownMenuItem render={<Link href={ROUTES.dashboard} />}>
             <LayoutGridIcon aria-hidden />
             サーバー一覧
+          </DropdownMenuItem>
+          <DropdownMenuItem render={<Link href={ROUTES.dashboardAll} />}>
+            <CalendarDaysIcon aria-hidden />
+            すべての予定
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setCalendarSettingsOpen(true)}>
             <CalendarCogIcon aria-hidden />
