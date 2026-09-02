@@ -4,7 +4,13 @@ import Calendar, {
   type DatesSetInfo,
   type EventClickInfo,
 } from "@fullcalendar/react";
-import { useMemo, useState } from "react";
+import {
+  type RefObject,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   calendarBaseOptions,
   datesSetToRange,
@@ -34,6 +40,41 @@ interface PopoverState {
 }
 
 /**
+ * 凡例のうち、折り畳んだ 1 行に収まらずに隠れているチップの数。
+ * サーバーが多い利用者やスマホ幅でも凡例がカレンダーの高さを食い潰さないよう、凡例は既定で 1 行に
+ * 折り畳み、あふれた分は「他 N サーバーを表示」で開く。何件あふれるかは幅と名前の長さで変わるので、
+ * 描画後に実際の位置で数える (行の下端より下から始まるチップ = 隠れている)
+ */
+function useOverflowCount(
+  listRef: RefObject<HTMLUListElement | null>,
+  collapsed: boolean,
+): number {
+  const [count, setCount] = useState(0);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || !collapsed) {
+      setCount(0);
+      return;
+    }
+    const measure = () => {
+      const bottom = list.getBoundingClientRect().bottom;
+      let hidden = 0;
+      for (const child of list.children) {
+        if (child.getBoundingClientRect().top >= bottom - 1) hidden += 1;
+      }
+      setCount(hidden);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+    // チップの増減 (サーバー一覧は RSC が渡すのでページ内では変わらない) も高さの変化として
+    // ResizeObserver が拾うので、依存に入れるのは折り畳みの状態だけでよい
+  }, [listRef, collapsed]);
+  return count;
+}
+
+/**
  * 参加している全サーバーの予定をまとめて表示する閲覧専用のカレンダー (#98)。
  * 予定はサーバーごとの色で塗り、上の凡例で見分ける。凡例のチップを押すとそのサーバーの予定を
  * 隠せる (この画面を開いている間だけ。保存はしない)。作成・編集・ドラッグはできず、
@@ -46,6 +87,10 @@ export function JoinedEventsCalendar({ guilds }: Props) {
   const [hiddenGuildIds, setHiddenGuildIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  // 凡例の折り畳み。既定は 1 行で、あふれたときだけ開閉ボタンを出す
+  const [legendExpanded, setLegendExpanded] = useState(false);
+  const legendRef = useRef<HTMLUListElement>(null);
+  const overflowCount = useOverflowCount(legendRef, !legendExpanded);
 
   // guildIds はクエリキーに入るので参照を固定する。色は一覧の並び順で決まる
   const guildIds = useMemo(() => guilds.map((guild) => guild.id), [guilds]);
@@ -108,10 +153,17 @@ export function JoinedEventsCalendar({ guilds }: Props) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        {/* 凡例。サーバーが多くてもカレンダーの高さを食い潰さないよう、数行でスクロールさせる */}
+        {/* 凡例。既定は 1 行に折り畳み (あふれた分は隠す)、開いたときも数行分でスクロールさせて
+            カレンダーの高さを食い潰さないようにする */}
         <ul
+          ref={legendRef}
           aria-label="サーバーの凡例"
-          className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto"
+          className={cn(
+            "flex min-w-0 flex-wrap gap-1.5",
+            legendExpanded
+              ? "max-h-32 overflow-y-auto"
+              : "max-h-7 overflow-hidden",
+          )}
         >
           {guilds.map((guild) => {
             const shown = !hiddenGuildIds.has(guild.id);
@@ -155,6 +207,18 @@ export function JoinedEventsCalendar({ guilds }: Props) {
             );
           })}
         </ul>
+        {(legendExpanded || overflowCount > 0) && (
+          <button
+            type="button"
+            aria-expanded={legendExpanded}
+            onClick={() => setLegendExpanded((value) => !value)}
+            className="shrink-0 text-xs text-muted-foreground underline hover:text-foreground"
+          >
+            {legendExpanded
+              ? "凡例を折りたたむ"
+              : `他 ${overflowCount} サーバーを表示`}
+          </button>
+        )}
         {eventsQuery.isFetching && (
           <span className="text-xs text-muted-foreground">読み込み中…</span>
         )}

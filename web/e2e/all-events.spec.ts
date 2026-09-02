@@ -127,3 +127,34 @@ test("サイドバーとサーバー選択画面から開ける", async ({ page 
     page.getByRole("main").getByRole("link", { name: "すべての予定" }),
   ).toHaveAttribute("href", "/dashboard/all");
 });
+
+test.describe("スマホ幅", () => {
+  test.use({ viewport: { width: 375, height: 812 }, hasTouch: true });
+
+  test("凡例は 1 行に折り畳まれ、あふれたサーバーは開いてから選べる", async ({
+    page,
+  }) => {
+    await page.goto("/dashboard/all");
+    await expect(page.getByRole("grid")).toBeVisible();
+    const legend = page.getByRole("list", { name: "サーバーの凡例" });
+    // 5 サーバーは 375px の 1 行に収まらないので、あふれた分の数を出す開閉ボタンが出る
+    const expand = page.getByRole("button", {
+      name: /^他 \d+ サーバーを表示$/,
+    });
+    await expect(expand).toHaveAttribute("aria-expanded", "false");
+    const last = legend.getByRole("button", {
+      name: E2E_GUILDS.reinvited.name,
+    });
+    await expect(last).not.toBeInViewport();
+
+    await expand.click();
+    await expect(last).toBeInViewport();
+    const collapse = page.getByRole("button", { name: "凡例を折りたたむ" });
+    await expect(collapse).toHaveAttribute("aria-expanded", "true");
+    // 開いた状態でも絞り込みは効く
+    await last.click();
+    await expect(last).toHaveAttribute("aria-pressed", "false");
+    await collapse.click();
+    await expect(last).not.toBeInViewport();
+  });
+});

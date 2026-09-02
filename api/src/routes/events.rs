@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use actix_web::{HttpResponse, delete, get, post, put, web};
 use chrono::{Duration, NaiveDateTime};
 use futures_util::{StreamExt as _, TryStreamExt as _, stream};
@@ -27,7 +29,7 @@ pub(crate) const JOINED_MAX_IDS: usize = 200;
 
 /// 横断カレンダー (#98) でメンバー確認のために同時に Discord へ問い合わせるギルド数。
 /// キャッシュが冷えていると 1 ギルドにつき最大 2 回 (ギルド情報 + メンバー情報) 呼ぶので、
-/// 参加ギルドが多い利用者でもレート制限に当たりにくいよう絞る (2 回目以降はキャッシュで済む)
+/// 期間内に予定のあるギルドが多い利用者でもレート制限に当たりにくいよう絞る (2 回目以降はキャッシュで済む)
 const MEMBER_ACCESS_CONCURRENCY: usize = 4;
 
 /// 予定の更新で、状態を読み直してやり直す回数の上限 (#94)。
@@ -115,9 +117,14 @@ pub struct EventPath {
 ///
 /// 認可は単独カレンダー ([`GuildMember`]) と同じ「Bot が参加していて、かつ呼び出したユーザーがメンバー」を
 /// ギルドごとに確かめる。api は利用者の参加ギルド一覧を自力で取れない (利用者の OAuth トークンは web にしか無い)
-/// ので、候補の ID は web から受け取り、ここで 1 つずつ絞る。非メンバー / Bot 未参加のギルドは黙って除外する
+/// ので、候補の ID は web から受け取り、ここで絞る。非メンバー / Bot 未参加のギルドの予定は黙って除外する
 /// (単独カレンダーの 403 に相当。web が持つ参加状況が古いときに起きる)。
 /// restricted モードは編集だけを制限し閲覧には関わらないので、ここでは見ない。
+///
+/// メンバー確認は候補すべてではなく、**期間内に予定があるギルドだけ**に行う。先に DB から候補全体の予定を
+/// 読み (認可前の行は返さない)、実際に返す行のギルドだけ Discord に問い合わせるので、参加ギルドが
+/// 多い利用者でも呼び出し回数は「予定のあるギルド数」で頭打ちになる (候補 200 件 × 冷えたキャッシュで
+/// 400 回になるのを避ける)。
 /// Discord への問い合わせが 1 つでも失敗したら全体を失敗にする (そのギルドだけ黙って抜くと
 /// 「予定が無い」ように見えてしまう。web は再試行を案内する)
 #[utoipa::path(
@@ -143,10 +150,21 @@ pub async fn list_joined(
         return Ok(web::Json(Vec::new()));
     }
 
-    // メンバー確認を並列に行う (結果の順序は問わない。予定の並びは SQL 側で決まる)
+    let rows =
+        events::list_between_guilds(&state.pool, &candidates, query.start, query.end).await?;
+    // 期間内に予定があるギルドだけ (並びは候補の順)
+    let present: Vec<String> = candidates
+        .into_iter()
+        .filter(|id| rows.iter().any(|row| &row.guild_id == id))
+        .collect();
+    if present.is_empty() {
+        return Ok(web::Json(Vec::new()));
+    }
+
+    // メンバー確認を並列に行う (結果の順序は問わない。予定の並びは SQL 側で決まっている)
     let discord = &state.discord;
     let user_id = &user.discord_user_id;
-    let checked: Vec<Option<String>> = stream::iter(candidates)
+    let checked: Vec<Option<String>> = stream::iter(present)
         .map(|guild_id| async move {
             discord
                 .member_access(&guild_id, user_id)
@@ -157,7 +175,7 @@ pub async fn list_joined(
         .try_collect()
         .await?;
     let skipped = checked.iter().filter(|id| id.is_none()).count();
-    let allowed: Vec<String> = checked.into_iter().flatten().collect();
+    let allowed: HashSet<String> = checked.into_iter().flatten().collect();
     if skipped > 0 {
         tracing::debug!(
             user_id = %user.discord_user_id,
@@ -165,12 +183,13 @@ pub async fn list_joined(
             "skipped guilds the user cannot view in the joined events list"
         );
     }
-    if allowed.is_empty() {
-        return Ok(web::Json(Vec::new()));
-    }
 
-    let rows = events::list_between_guilds(&state.pool, &allowed, query.start, query.end).await?;
-    Ok(web::Json(rows.into_iter().map(Event::from).collect()))
+    Ok(web::Json(
+        rows.into_iter()
+            .filter(|row| allowed.contains(&row.guild_id))
+            .map(Event::from)
+            .collect(),
+    ))
 }
 
 /// 期間に重なる予定の一覧
