@@ -242,6 +242,8 @@ pub async fn list_between_guilds(
 
 /// iCal フィード (#95) 用: `since` 以降に終わる (または続いている) 予定をすべて返す。
 /// 上限は設けない。呼び出し側が「今から 1 年前」を渡すので、行数はギルドの 1 年分 + 未来の予定に収まる。
+/// 終日予定の `end_at` は「終了日の 0:00」で、実際にはその翌日 0:00 まで続くので、下限の判定も 1 日ずらす
+/// (時刻指定の予定と同じ「実際の終了時刻 >= since」になる)。
 /// 認可 (トークンの照合) は呼び出し側が済ませていること
 pub async fn list_for_feed(
     pool: &PgPool,
@@ -256,7 +258,8 @@ pub async fn list_for_feed(
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id
-        WHERE e.guild_id = $1 AND e.end_at >= $2
+        WHERE e.guild_id = $1
+          AND e.end_at >= CASE WHEN e.is_all_day THEN $2::timestamp - INTERVAL '1 day' ELSE $2::timestamp END
         ORDER BY e.start_at, e.id
         "#,
         guild_id,

@@ -7,7 +7,7 @@
 //! そのまま出し、固定オフセットの `VTIMEZONE` を同梱する (TZID を参照するときは VTIMEZONE が必須。Outlook などは無いと読めない)。
 //! 終日予定は `VALUE=DATE` で、`DTEND` は排他的なので終了日の翌日にする (DB の `end_at` は終了日の 0:00)
 
-use chrono::{Duration, NaiveDate, NaiveDateTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 
 use crate::models::{events::EventRow, guilds::Guild};
 
@@ -18,14 +18,22 @@ const MAX_LINE_OCTETS: usize = 75;
 /// `UID` のドメイン部。環境 (本番 / staging / ローカル) に関わらず同じ予定は同じ UID にする
 const UID_DOMAIN: &str = "discalendar.app";
 
-/// ギルドの予定を 1 つの VCALENDAR にする。`site_base_url` はカレンダー画面へのリンク (`URL`) の起点
-pub fn render_feed(guild: &Guild, events: &[EventRow], site_base_url: &str) -> String {
+/// ギルドの予定を 1 つの VCALENDAR にする。`site_base_url` はカレンダー画面へのリンク (`URL`) の起点、
+/// `generated_at` はこのフィードを作った時刻 (各 VEVENT の `DTSTAMP` になる)。
+///
+/// `METHOD` は付けない。付けるなら Content-Type の `method` パラメータも同じ値にしなければならず
+/// (RFC 5545 3.2)、購読用のフィードには不要
+pub fn render_feed(
+    guild: &Guild,
+    events: &[EventRow],
+    site_base_url: &str,
+    generated_at: DateTime<Utc>,
+) -> String {
     let mut out = String::new();
     push_line(&mut out, "BEGIN:VCALENDAR");
     push_line(&mut out, "VERSION:2.0");
     push_line(&mut out, "PRODID:-//DisCalendar//DisCalendar//JA");
     push_line(&mut out, "CALSCALE:GREGORIAN");
-    push_line(&mut out, "METHOD:PUBLISH");
     // 購読したときのカレンダー名 (Apple / Google が読む拡張プロパティ)
     push_line(
         &mut out,
@@ -37,8 +45,9 @@ pub fn render_feed(guild: &Guild, events: &[EventRow], site_base_url: &str) -> S
     push_line(&mut out, "X-PUBLISHED-TTL:PT1H");
     push_vtimezone(&mut out);
     let dashboard_url = format!("{site_base_url}/dashboard/{}", guild.guild_id);
+    let dtstamp = generated_at.format("%Y%m%dT%H%M%SZ").to_string();
     for event in events {
-        push_vevent(&mut out, event, &dashboard_url);
+        push_vevent(&mut out, event, &dashboard_url, &dtstamp);
     }
     push_line(&mut out, "END:VCALENDAR");
     out
@@ -57,12 +66,14 @@ fn push_vtimezone(out: &mut String) {
     push_line(out, "END:VTIMEZONE");
 }
 
-fn push_vevent(out: &mut String, event: &EventRow, dashboard_url: &str) {
+fn push_vevent(out: &mut String, event: &EventRow, dashboard_url: &str, dtstamp: &str) {
     push_line(out, "BEGIN:VEVENT");
     push_line(out, &format!("UID:event-{}@{UID_DOMAIN}", event.id));
-    // DTSTAMP は UTC でなければならない。予定には更新日時が無いので作成日時を使う
-    // (内容が変わっても値は変わらないが、購読クライアントは本文の差分で更新を検出する)
-    push_line(out, &format!("DTSTAMP:{}", format_utc(event.created_at)));
+    // DTSTAMP (UTC 必須) にはフィードを作った時刻を入れる。予定には更新日時が無く (events は bot とも
+    // 共有するテーブルで、カラムを足すのはこの機能の範囲を超える)、作成日時を入れると編集しても
+    // リビジョンが進まず、DTSTAMP で更新を判定するクライアントが変更を取り込まない。
+    // 作成時刻なら常に「内容より新しい」ので、どの取得でも最新の内容として扱われる
+    push_line(out, &format!("DTSTAMP:{dtstamp}"));
     push_line(out, &format!("SUMMARY:{}", escape_text(&event.name)));
     if let Some(description) = event.description.as_deref().filter(|d| !d.is_empty()) {
         push_line(out, &format!("DESCRIPTION:{}", escape_text(description)));
@@ -101,13 +112,6 @@ fn format_local(dt: NaiveDateTime) -> String {
 
 fn format_date(date: NaiveDate) -> String {
     date.format("%Y%m%d").to_string()
-}
-
-/// JST の壁時計時刻を UTC (`...Z`) にする
-fn format_utc(jst: NaiveDateTime) -> String {
-    (jst - Duration::hours(9))
-        .format("%Y%m%dT%H%M%SZ")
-        .to_string()
 }
 
 /// TEXT 値のエスケープ (RFC 5545 3.3.11)。改行は `\n` に、`\` `;` `,` はバックスラッシュで逃がす。
@@ -184,6 +188,12 @@ mod tests {
         }
     }
 
+    /// 生成時刻を固定して描画する
+    fn render(events: &[EventRow]) -> String {
+        let generated_at = "2026-09-03T15:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        render_feed(&guild(), events, "https://discalendar.app", generated_at)
+    }
+
     /// 折り返しを戻して 1 行ずつにする (検証用)
     fn unfold(ics: &str) -> Vec<String> {
         ics.replace("\r\n ", "")
@@ -195,7 +205,7 @@ mod tests {
 
     #[test]
     fn renders_calendar_header_and_timezone() {
-        let ics = render_feed(&guild(), &[], "https://discalendar.app");
+        let ics = render(&[]);
         let lines = unfold(&ics);
         assert_eq!(lines.first().map(String::as_str), Some("BEGIN:VCALENDAR"));
         assert_eq!(lines.last().map(String::as_str), Some("END:VCALENDAR"));
@@ -203,6 +213,8 @@ mod tests {
         assert!(lines.contains(&"X-WR-CALNAME:ゲーム部".to_owned()));
         assert!(lines.contains(&"TZID:Asia/Tokyo".to_owned()));
         assert!(lines.contains(&"TZOFFSETTO:+0900".to_owned()));
+        // METHOD を付けると Content-Type の method パラメータと揃える必要が出るので付けない
+        assert!(!ics.contains("METHOD"));
         // 行末は CRLF
         assert!(ics.ends_with("END:VCALENDAR\r\n"));
         assert!(!ics.replace("\r\n", "").contains('\n'));
@@ -210,11 +222,7 @@ mod tests {
 
     #[test]
     fn renders_timed_event_with_tzid() {
-        let ics = render_feed(
-            &guild(),
-            &[event(false, "2026-08-22T10:00:00", "2026-08-22T11:30:00")],
-            "https://discalendar.app",
-        );
+        let ics = render(&[event(false, "2026-08-22T10:00:00", "2026-08-22T11:30:00")]);
         let lines = unfold(&ics);
         assert!(lines.contains(&"UID:event-42@discalendar.app".to_owned()));
         assert!(lines.contains(&"DTSTART;TZID=Asia/Tokyo:20260822T100000".to_owned()));
@@ -228,45 +236,30 @@ mod tests {
     }
 
     #[test]
-    fn dtstamp_is_created_at_in_utc() {
-        let ics = render_feed(
-            &guild(),
-            &[event(false, "2026-08-22T10:00:00", "2026-08-22T11:00:00")],
-            "https://discalendar.app",
-        );
-        // 2026-08-01 00:00 JST = 2026-07-31 15:00 UTC
-        assert!(unfold(&ics).contains(&"DTSTAMP:20260731T150000Z".to_owned()));
+    fn dtstamp_is_the_generation_time_in_utc() {
+        let ics = render(&[event(false, "2026-08-22T10:00:00", "2026-08-22T11:00:00")]);
+        // 作成日時 (2026-08-01 JST) ではなく生成時刻。編集後の取得でもリビジョンが古く見えないため
+        assert!(unfold(&ics).contains(&"DTSTAMP:20260903T150000Z".to_owned()));
+        assert!(!ics.contains("20260731"));
     }
 
     #[test]
     fn omits_dtend_when_event_has_no_duration() {
-        let ics = render_feed(
-            &guild(),
-            &[event(false, "2026-08-22T10:00:00", "2026-08-22T10:00:00")],
-            "https://discalendar.app",
-        );
+        let ics = render(&[event(false, "2026-08-22T10:00:00", "2026-08-22T10:00:00")]);
         assert!(!ics.contains("DTEND"));
     }
 
     #[test]
     fn renders_all_day_event_with_exclusive_end_date() {
         // DB では終日予定の end_at は終了日の 0:00 (8/22〜8/23 の 2 日間)
-        let ics = render_feed(
-            &guild(),
-            &[event(true, "2026-08-22T00:00:00", "2026-08-23T00:00:00")],
-            "https://discalendar.app",
-        );
+        let ics = render(&[event(true, "2026-08-22T00:00:00", "2026-08-23T00:00:00")]);
         let lines = unfold(&ics);
         assert!(lines.contains(&"DTSTART;VALUE=DATE:20260822".to_owned()));
         assert!(lines.contains(&"DTEND;VALUE=DATE:20260824".to_owned()));
         assert!(!ics.contains("TZID=Asia/Tokyo:"));
 
         // 1 日だけの終日予定も翌日を DTEND にする
-        let ics = render_feed(
-            &guild(),
-            &[event(true, "2026-08-22T00:00:00", "2026-08-22T00:00:00")],
-            "https://discalendar.app",
-        );
+        let ics = render(&[event(true, "2026-08-22T00:00:00", "2026-08-22T00:00:00")]);
         assert!(unfold(&ics).contains(&"DTEND;VALUE=DATE:20260823".to_owned()));
     }
 
@@ -274,12 +267,10 @@ mod tests {
     fn omits_description_when_empty() {
         let mut e = event(false, "2026-08-22T10:00:00", "2026-08-22T11:00:00");
         e.description = None;
-        let ics = render_feed(&guild(), &[e], "https://discalendar.app");
-        assert!(!ics.contains("DESCRIPTION"));
+        assert!(!render(&[e]).contains("DESCRIPTION"));
         let mut e = event(false, "2026-08-22T10:00:00", "2026-08-22T11:00:00");
         e.description = Some(String::new());
-        let ics = render_feed(&guild(), &[e], "https://discalendar.app");
-        assert!(!ics.contains("DESCRIPTION"));
+        assert!(!render(&[e]).contains("DESCRIPTION"));
     }
 
     #[test]

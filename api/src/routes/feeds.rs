@@ -138,7 +138,7 @@ pub async fn download_feed(
         .ok_or_else(not_found)?;
     let since = now_jst() - Duration::days(FEED_LOOKBACK_DAYS);
     let rows = events::list_for_feed(&state.pool, &guild.guild_id, since).await?;
-    let body = ical::render_feed(&guild, &rows, &state.site_base_url);
+    let body = ical::render_feed(&guild, &rows, &state.site_base_url, chrono::Utc::now());
     Ok(HttpResponse::Ok()
         .content_type("text/calendar; charset=utf-8")
         .insert_header((header::CACHE_CONTROL, CACHE_CONTROL))

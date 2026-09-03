@@ -765,6 +765,26 @@ async fn feed_lists_events_ending_after_the_cutoff(pool: PgPool) {
             .await
             .unwrap();
     }
+    // 終日予定の end_at は終了日の 0:00 で、実際には翌日 0:00 まで続く。
+    // 下限 (9/1 10:00) の日に終わる終日予定は含め、前日に終わるものは含めない
+    for (name, start, end) in [
+        (
+            "all-day-ends-on-cutoff-day",
+            "2025-09-01T00:00:00",
+            "2025-09-01T00:00:00",
+        ),
+        (
+            "all-day-ended-before",
+            "2025-08-31T00:00:00",
+            "2025-08-31T00:00:00",
+        ),
+    ] {
+        let mut all_day = input(name, start, end);
+        all_day.is_all_day = true;
+        events::create(&pool, GUILD, &all_day, created_at)
+            .await
+            .unwrap();
+    }
     // 他ギルドの予定は含めない
     events::create(
         &pool,
@@ -780,5 +800,8 @@ async fn feed_lists_events_ending_after_the_cutoff(pool: PgPool) {
         .unwrap();
     let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
     // 開始日時順
-    assert_eq!(names, vec!["spanning", "edge", "future"]);
+    assert_eq!(
+        names,
+        vec!["spanning", "all-day-ends-on-cutoff-day", "edge", "future"]
+    );
 }
