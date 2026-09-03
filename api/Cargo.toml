@@ -35,6 +35,8 @@ futures-util = { version = "0.3", default-features = false }
 hmac = "0.13"
 sha2 = "0.11"
 base64 = "0.23"
+# iCal フィード (#95) のトークン生成。0.9 系は sentry が既に依存しているので新しい版は増えない
+rand = "0.9"
 moka = { version = "0.12", features = ["future"] }
 utoipa = { version = "5", features = ["actix_extras", "chrono"] }
 utoipa-actix-web = "0.1"

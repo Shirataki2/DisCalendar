@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO guild_feed_tokens (guild_id, token, created_at, created_by)\n        VALUES ($1, $2, $3, $4)\n        ON CONFLICT (guild_id) DO UPDATE\n            SET token = EXCLUDED.token, created_at = EXCLUDED.created_at, created_by = EXCLUDED.created_by\n        RETURNING guild_id, token, created_at, created_by\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guild_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "guild_feed_tokens",
+            "name": "guild_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "token",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "guild_feed_tokens",
+            "name": "token"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "guild_feed_tokens",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "guild_feed_tokens",
+            "name": "created_by"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamp",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b73bdd8d4ac1cf3aa209f86b3d35c6f05e1b1910df0f128ab58702c1fde01ee1"
+}

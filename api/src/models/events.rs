@@ -240,6 +240,32 @@ pub async fn list_between_guilds(
     .await
 }
 
+/// iCal フィード (#95) 用: `since` 以降に終わる (または続いている) 予定をすべて返す。
+/// 上限は設けない。呼び出し側が「今から 1 年前」を渡すので、行数はギルドの 1 年分 + 未来の予定に収まる。
+/// 認可 (トークンの照合) は呼び出し側が済ませていること
+pub async fn list_for_feed(
+    pool: &PgPool,
+    guild_id: &str,
+    since: NaiveDateTime,
+) -> sqlx::Result<Vec<EventRow>> {
+    sqlx::query_as!(
+        EventRow,
+        r#"
+        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
+               e.start_at, e.end_at, e.created_at,
+               l.scheduled_event_id AS "discord_scheduled_event_id?"
+        FROM events e
+        LEFT JOIN event_discord_links l ON l.event_id = e.id
+        WHERE e.guild_id = $1 AND e.end_at >= $2
+        ORDER BY e.start_at, e.id
+        "#,
+        guild_id,
+        since
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// 返る行の `discord_scheduled_event_id` は常に `None` (対応付けは行を作った後にルート層が
 /// [`super::event_links`] へ書き、レスポンスへは呼び出し元が詰め直す)
 pub async fn create<'e>(

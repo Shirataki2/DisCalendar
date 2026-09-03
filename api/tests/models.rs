@@ -5,7 +5,7 @@ use chrono::NaiveDateTime;
 use discalendar_api::models::{
     event_links,
     events::{self, EventInput},
-    guilds,
+    feed_tokens, guilds,
     notifications::{Notification, NotificationUnit},
 };
 use sqlx::PgPool;
@@ -631,4 +631,154 @@ async fn event_writes_work_inside_a_transaction(pool: PgPool) {
             .unwrap()
             .is_none()
     );
+}
+
+// iCal フィードのトークン (#95)
+
+/// フィードの配信条件は「Bot が参加中 (guilds に行がある)」なので、テスト DB にギルドの行を入れる
+async fn insert_guild(pool: &PgPool, guild_id: &str, name: &str) {
+    sqlx::query(
+        "INSERT INTO guilds (guild_id, name, avatar_url, locale) VALUES ($1, $2, NULL, 'ja')",
+    )
+    .bind(guild_id)
+    .bind(name)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn feed_token_issue_rotate_and_revoke(pool: PgPool) {
+    insert_guild(&pool, GUILD, "guild").await;
+    assert!(feed_tokens::get(&pool, GUILD).await.unwrap().is_none());
+
+    // 発行
+    let first = feed_tokens::generate_token();
+    let issued = feed_tokens::upsert(
+        &pool,
+        GUILD,
+        &first,
+        "100000000000000001",
+        dt("2026-09-01T00:00:00"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(issued.token, first);
+    assert_eq!(issued.created_by, "100000000000000001");
+    assert_eq!(
+        feed_tokens::get(&pool, GUILD)
+            .await
+            .unwrap()
+            .map(|t| t.token),
+        Some(first.clone())
+    );
+    assert_eq!(
+        feed_tokens::find_guild_by_token(&pool, &first)
+            .await
+            .unwrap()
+            .map(|g| g.guild_id),
+        Some(GUILD.to_owned())
+    );
+
+    // 再発行で置き換わり、古いトークンは引けなくなる (1 ギルド 1 本)
+    let second = feed_tokens::generate_token();
+    let rotated = feed_tokens::upsert(
+        &pool,
+        GUILD,
+        &second,
+        "100000000000000002",
+        dt("2026-09-02T00:00:00"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rotated.token, second);
+    assert_eq!(rotated.created_by, "100000000000000002");
+    assert!(
+        feed_tokens::find_guild_by_token(&pool, &first)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        feed_tokens::find_guild_by_token(&pool, &second)
+            .await
+            .unwrap()
+            .is_some()
+    );
+
+    // 無効化
+    assert!(feed_tokens::delete(&pool, GUILD).await.unwrap());
+    assert!(!feed_tokens::delete(&pool, GUILD).await.unwrap());
+    assert!(feed_tokens::get(&pool, GUILD).await.unwrap().is_none());
+    assert!(
+        feed_tokens::find_guild_by_token(&pool, &second)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn feed_token_does_not_resolve_when_bot_has_left(pool: PgPool) {
+    // guilds に行が無い (Bot が退出した / まだ書かれていない) ギルドのトークンは配信に使えない
+    let token = feed_tokens::generate_token();
+    feed_tokens::upsert(
+        &pool,
+        GUILD,
+        &token,
+        "100000000000000001",
+        dt("2026-09-01T00:00:00"),
+    )
+    .await
+    .unwrap();
+    assert!(feed_tokens::get(&pool, GUILD).await.unwrap().is_some());
+    assert!(
+        feed_tokens::find_guild_by_token(&pool, &token)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    // 参加 (行が入る) すれば引ける
+    insert_guild(&pool, GUILD, "guild").await;
+    assert!(
+        feed_tokens::find_guild_by_token(&pool, &token)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn feed_lists_events_ending_after_the_cutoff(pool: PgPool) {
+    let created_at = dt("2026-01-01T00:00:00");
+    for (name, start, end) in [
+        // 下限より前に終わった予定は含めない
+        ("old", "2025-08-01T10:00:00", "2025-08-01T11:00:00"),
+        // 下限ちょうどに終わる予定は含める (end_at >= since)
+        ("edge", "2025-09-01T09:00:00", "2025-09-01T10:00:00"),
+        // 下限をまたいで続いている予定は含める
+        ("spanning", "2025-08-30T00:00:00", "2025-09-02T00:00:00"),
+        ("future", "2027-01-01T10:00:00", "2027-01-01T11:00:00"),
+    ] {
+        events::create(&pool, GUILD, &input(name, start, end), created_at)
+            .await
+            .unwrap();
+    }
+    // 他ギルドの予定は含めない
+    events::create(
+        &pool,
+        OTHER_GUILD,
+        &input("other", "2026-09-01T10:00:00", "2026-09-01T11:00:00"),
+        created_at,
+    )
+    .await
+    .unwrap();
+
+    let rows = events::list_for_feed(&pool, GUILD, dt("2025-09-01T10:00:00"))
+        .await
+        .unwrap();
+    let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+    // 開始日時順
+    assert_eq!(names, vec!["spanning", "edge", "future"]);
 }

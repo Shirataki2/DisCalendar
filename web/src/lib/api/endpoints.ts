@@ -14,6 +14,7 @@ import type {
   ApiEventInput,
   Guild,
   GuildConfig,
+  GuildFeed,
   MyPermissions,
   OpsResult,
   SqlHistoryEntry,
@@ -83,6 +84,15 @@ export function createApi(request: ApiFetcher) {
         request<MyPermissions>(`/guilds/${guildId}/@me/permissions/refresh`, {
           method: "POST",
         }),
+      /** iCal フィード (#95) の発行状況。メンバーなら誰でも見られる。未発行なら null */
+      feed: (guildId: string) =>
+        request<GuildFeed | null>(`/guilds/${guildId}/feed`),
+      /** フィードの発行・再発行 (管理権限が必要。発行済みなら新しい URL に置き換わり、古い URL は使えなくなる) */
+      issueFeed: (guildId: string) =>
+        request<GuildFeed>(`/guilds/${guildId}/feed`, { method: "POST" }),
+      /** フィードの無効化 (管理権限が必要) */
+      revokeFeed: (guildId: string) =>
+        request<void>(`/guilds/${guildId}/feed`, { method: "DELETE" }),
     },
     events: createEventsClient(request, (guildId) => `/events/${guildId}`),
     /**

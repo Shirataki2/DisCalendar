@@ -50,6 +50,12 @@ export const DOC_PAGES: readonly DocPage[] = [
       "作成した予定の編集・移動・削除の方法と、サーバー設定で編集できるユーザーを制限する方法。",
   },
   {
+    slug: "subscribe",
+    title: "外部カレンダーで見る",
+    description:
+      "サーバーの予定を Google カレンダー・Apple カレンダー・Outlook などで購読する方法と、フィード URL の発行・再発行・無効化について。",
+  },
+  {
     slug: "commands",
     title: "利用可能なコマンド",
     description:

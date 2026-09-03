@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { GuildConfig, MyPermissions } from "@/lib/api/types";
+import type { GuildConfig, GuildFeed, MyPermissions } from "@/lib/api/types";
 import { syncAdminGuildConfig } from "./admin-cache";
 import { queryKeys } from "./keys";
 
@@ -66,6 +66,53 @@ export function useUpdateGuildConfig(guildId: string) {
         config,
       );
       syncAdminGuildConfig(queryClient, guildId, config);
+    },
+  });
+}
+
+/**
+ * iCal フィードの発行状況 (#95)。RSC では事前取得せず、サーバー設定ダイアログを開いたときに取る。
+ * 未発行なら data は null (undefined は未取得)
+ */
+export function useGuildFeedQuery(guildId: string) {
+  return useQuery({
+    queryKey: queryKeys.guild.feed(guildId),
+    queryFn: () => api.guilds.feed(guildId),
+  });
+}
+
+/**
+ * フィードの発行・再発行 (管理権限が必要。なければ API が 403 を返す)。
+ * 成功したら新しいトークンでキャッシュを置き換える (再発行後に古い URL が表示されたままにならないよう、
+ * 実行中の取得はキャンセルする)
+ */
+export function useIssueGuildFeed(guildId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.guilds.issueFeed(guildId),
+    onMutate: () =>
+      queryClient.cancelQueries({ queryKey: queryKeys.guild.feed(guildId) }),
+    onSuccess: (feed) => {
+      queryClient.setQueryData<GuildFeed | null>(
+        queryKeys.guild.feed(guildId),
+        feed,
+      );
+    },
+  });
+}
+
+/** フィードの無効化 (管理権限が必要)。成功したらキャッシュを「未発行」にする */
+export function useRevokeGuildFeed(guildId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.guilds.revokeFeed(guildId),
+    onMutate: () =>
+      queryClient.cancelQueries({ queryKey: queryKeys.guild.feed(guildId) }),
+    onSuccess: () => {
+      queryClient.setQueryData<GuildFeed | null>(
+        queryKeys.guild.feed(guildId),
+        null,
+      );
     },
   });
 }

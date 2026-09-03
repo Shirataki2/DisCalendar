@@ -14,6 +14,7 @@ pub mod admin_status;
 pub mod admin_users;
 pub mod event_links;
 pub mod events;
+pub mod feed_tokens;
 pub mod guilds;
 pub mod notifications;
 pub mod user_activity;

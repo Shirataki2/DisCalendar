@@ -48,6 +48,13 @@ const nextConfig: NextConfig = {
         source: "/local/api/:path*",
         destination: `${API_URL}/:path*`,
       },
+      // iCal フィード (#95)。外部カレンダー (Google / Apple / Outlook) が購読する URL は web のオリジンで出し
+      // (api のポートは公開していない)、api の認証なしのルート `GET /feeds/{token}.ics` へ中継する。
+      // Service Worker (app/sw.ts) はこのパスに関与しない
+      {
+        source: "/feeds/:path*",
+        destination: `${API_URL}/feeds/:path*`,
+      },
     ];
   },
 };

@@ -57,6 +57,21 @@ export interface GuildConfig {
   restricted: boolean;
 }
 
+/**
+ * 発行済みの iCal フィード (#95。api の `feed_tokens::FeedToken`)。
+ * URL は web が自分のオリジンと token から組み立てる (`lib/feed-url.ts`)。
+ * `GET /guilds/{guild_id}/feed` は未発行なら null を返す
+ */
+export interface GuildFeed {
+  guild_id: string;
+  /** `/feeds/<token>.ics` のパスに入る 64 文字の 16 進。知っている人は誰でも予定を読める */
+  token: string;
+  /** 発行日時 (JST) */
+  created_at: string;
+  /** 発行した Discord ユーザー ID */
+  created_by: string;
+}
+
 /** GET /admin/me。ADMIN_DISCORD_USER_IDS に含まれるユーザーだけ 200 (それ以外は 403) */
 export interface AdminMe {
   /** Better Auth の user.id */
