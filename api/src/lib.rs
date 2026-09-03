@@ -12,6 +12,7 @@ pub mod build_info;
 pub mod config;
 pub mod discord;
 pub mod error;
+pub mod ical;
 pub mod logging;
 pub mod models;
 pub mod openapi;

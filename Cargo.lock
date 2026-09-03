@@ -802,6 +802,7 @@ dependencies = [
  "futures-util",
  "hmac",
  "moka",
+ "rand 0.9.5",
  "reqwest 0.13.4",
  "sentry",
  "sentry-actix",

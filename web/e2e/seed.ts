@@ -128,6 +128,44 @@ export async function deleteEventsNamed(
   }
 }
 
+/**
+ * iCal フィード (#95) のトークンを DB に直接入れる (管理者が発行した状態を作る)。
+ * 一般メンバーのギルドでは API から発行できないので、閲覧側の表示を確かめるのに使う。
+ * 使ったら deleteFeedToken で消す
+ */
+export async function setFeedToken(
+  databaseUrl: string,
+  guildId: string,
+  token: string,
+): Promise<void> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    await pool.query(
+      `INSERT INTO guild_feed_tokens (guild_id, token, created_at, created_by)
+       VALUES ($1, $2, now(), $3)
+       ON CONFLICT (guild_id) DO UPDATE SET token = EXCLUDED.token, created_at = EXCLUDED.created_at`,
+      [guildId, token, E2E_USER.discordId],
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+/** ギルドのフィードを未発行に戻す (無ければ何もしない) */
+export async function deleteFeedToken(
+  databaseUrl: string,
+  guildId: string,
+): Promise<void> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    await pool.query("DELETE FROM guild_feed_tokens WHERE guild_id = $1", [
+      guildId,
+    ]);
+  } finally {
+    await pool.end();
+  }
+}
+
 /** addGuild で入れたギルドを消す (設定と予定ごと) */
 export async function removeGuild(
   databaseUrl: string,
@@ -172,9 +210,10 @@ export async function seedDatabase(databaseUrl: string): Promise<string> {
     try {
       await client.query("BEGIN");
       // 前回の実行で残ったものを消す (旧 Bot と共有するスキーマでも、ここは E2E 専用 DB)。
-      // CASCADE は events を参照する子テーブル (event_discord_links #94 など) も一緒に空にするため
+      // CASCADE は events を参照する子テーブル (event_discord_links #94 など) も一緒に空にするため。
+      // guild_feed_tokens (#95) は FK を持たないので明示する
       await client.query(
-        "TRUNCATE events, guild_config, guilds RESTART IDENTITY CASCADE",
+        "TRUNCATE events, guild_config, guilds, guild_feed_tokens RESTART IDENTITY CASCADE",
       );
       await client.query('DELETE FROM "session"');
       await client.query('DELETE FROM "account"');

@@ -127,15 +127,30 @@ test.describe("ダイアログ", () => {
   });
 
   test("lp/settings.png (サーバー設定)", async ({ page }) => {
+    // iCal フィード (#95) は発行済みの状態 (URL とコピーボタンが出ている) を見せる。
+    // 撮影用 DB は毎回初期化されるので、ここで発行しても次の撮影には残らない
+    const issued = await page.request.post(`/local/api/guilds/${guildId}/feed`);
+    expect(issued.status()).toBe(200);
     await openCalendar(page);
     await page.getByRole("button", { name: "サーバー設定" }).click();
 
     const dialog = page.getByRole("dialog", { name: "サーバー設定" });
     await expect(dialog).toBeVisible();
+    const feedUrl = dialog.getByRole("textbox", { name: "フィード URL" });
+    await expect(feedUrl).toBeVisible();
     // 「限定する」を選んだ状態を見せる (保存はしないので DB は変わらない)
     await dialog.getByRole("checkbox").check();
     await blur(dialog);
     await settle(page);
+    // URL はブラウザのオリジンで組み立てられる (撮影環境では localhost:3100) ので、
+    // 表示だけ本番のドメインに差し替える (トークンはそのまま。見た目以外は変えない)。
+    // React の制御された input は再描画で値が戻るので、他の操作を終えた直後に書き換える
+    await feedUrl.evaluate((input: HTMLInputElement) => {
+      input.value = input.value.replace(
+        window.location.origin,
+        "https://discalendar.app",
+      );
+    });
     await page.screenshot({
       path: assetPath("lp/settings.png"),
       clip: await clipAround(page, [dialog], { x: 48, y: 40 }),

@@ -28,6 +28,8 @@ export const queryKeys = {
     config: (guildId: string) => ["guild", guildId, "config"] as const,
     myPermissions: (guildId: string) =>
       ["guild", guildId, "permissions"] as const,
+    /** iCal フィードの発行状況 (#95) */
+    feed: (guildId: string) => ["guild", guildId, "feed"] as const,
   },
   /** 管理コンソール。通常画面とは別のエンドポイントなので、キャッシュも別に持つ */
   admin: {

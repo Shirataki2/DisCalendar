@@ -9,6 +9,7 @@ mod admin_sql;
 mod admin_status;
 mod admin_users;
 mod events;
+mod feeds;
 mod guilds;
 mod health;
 mod member;
@@ -27,8 +28,14 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(guilds::my_permissions)
                 .service(guilds::refresh_my_permissions)
                 .service(guilds::get_config)
-                .service(guilds::put_config),
+                .service(guilds::put_config)
+                // iCal フィードの発行状況と発行・無効化 (#95)
+                .service(feeds::get_feed)
+                .service(feeds::issue_feed)
+                .service(feeds::revoke_feed),
         )
+        // iCal フィードの配信 (#95)。唯一の認証なしのデータ取得ルート (トークンが URL に入る)
+        .service(feeds::download_feed)
         .service(
             scope("/events")
                 // `/@me` (横断カレンダー #98) は `/{guild_id}` より先に登録しないと guild_id として解釈される
