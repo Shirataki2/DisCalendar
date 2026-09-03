@@ -63,7 +63,8 @@ export function GuildSettingsDialog({ guildId, open, onOpenChange }: Props) {
       // 旧 v-dialog persistent と同じく外側クリックでは閉じない
       disablePointerDismissal
     >
-      <DialogContent className="sm:max-w-lg">
+      {/* フィードの節 (#95) が増えて背が高くなったので、低い画面ではダイアログ内でスクロールさせる (予定ダイアログと同じ) */}
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
         {/* Base UI の Dialog は閉じると Popup を unmount するので、開くたびに設定値から初期化される */}
         <GuildSettingsForm
           guildId={guildId}
