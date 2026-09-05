@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, guild_id, name, description, notifications, color, is_all_day,\n               start_at, end_at, created_at,\n               NULL::text AS \"discord_scheduled_event_id?\"\n        FROM events\n        WHERE id = $1 AND guild_id = $2\n        FOR UPDATE\n        ",
+  "query": "\n        UPDATE events\n        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9, updated_by = $10, updated_at = $11\n        WHERE id = $1 AND guild_id = $2\n        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,\n                  NULL::text AS \"discord_scheduled_event_id?\"\n        ",
   "describe": {
     "columns": [
       {
@@ -115,6 +115,39 @@
       },
       {
         "ordinal": 10,
+        "name": "created_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
         "name": "discord_scheduled_event_id?",
         "type_info": "Text",
         "origin": "Expression"
@@ -123,7 +156,16 @@
     "parameters": {
       "Left": [
         "Int4",
-        "Text"
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Bool",
+        "Timestamp",
+        "Timestamp",
+        "Text",
+        "Timestamp"
       ]
     },
     "nullable": [
@@ -137,8 +179,11 @@
       false,
       false,
       false,
+      true,
+      true,
+      true,
       null
     ]
   },
-  "hash": "22d05d0b2d767c00fc5df0dc59ba2f6a43ef4dcb8ae1ed48b89739e49d0b6cfd"
+  "hash": "b8100ce93fbd67a737f3073bdb9bda1e7f03b2ea966fd369a9e654354bba2fb4"
 }

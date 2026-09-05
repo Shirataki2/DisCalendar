@@ -24,6 +24,8 @@ export const queryKeys = {
       ["events", "joined", { guildIds, start, end }] as const,
   },
   guild: {
+    members: (guildId: string, ids: string[]) =>
+      ["guild", guildId, "members", ids] as const,
     detail: (guildId: string) => ["guild", guildId] as const,
     config: (guildId: string) => ["guild", guildId, "config"] as const,
     myPermissions: (guildId: string) =>

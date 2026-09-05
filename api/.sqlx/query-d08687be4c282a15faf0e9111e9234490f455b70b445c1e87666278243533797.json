@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at\n        FROM events WHERE guild_id = $1 AND start_at <= $2 ORDER BY start_at, id\n        ",
+  "query": "\n        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,\n               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,\n               l.scheduled_event_id AS \"discord_scheduled_event_id?\"\n        FROM events e\n        LEFT JOIN event_discord_links l ON l.event_id = e.id\n        WHERE e.guild_id = $1 AND e.start_at < $3 AND e.end_at >= $2\n        ORDER BY e.start_at, e.id\n        ",
   "describe": {
     "columns": [
       {
@@ -112,11 +112,56 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 10,
+        "name": "created_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "discord_scheduled_event_id?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "event_discord_links",
+            "name": "scheduled_event_id"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
         "Text",
+        "Timestamp",
         "Timestamp"
       ]
     },
@@ -130,8 +175,12 @@
       false,
       false,
       false,
+      false,
+      true,
+      true,
+      true,
       false
     ]
   },
-  "hash": "112ff4f1da2e8cd659e971083adf3f09d6b20fff822de40e364ed91232ae414a"
+  "hash": "d08687be4c282a15faf0e9111e9234490f455b70b445c1e87666278243533797"
 }

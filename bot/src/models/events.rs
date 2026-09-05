@@ -25,6 +25,9 @@ pub struct Event {
     pub start_at: NaiveDateTime,
     pub end_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 impl Event {
@@ -45,6 +48,7 @@ pub struct NewEvent<'a> {
     pub start_at: NaiveDateTime,
     pub end_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    pub created_by: &'a str,
 }
 
 pub async fn create(pool: &PgPool, event: &NewEvent<'_>) -> sqlx::Result<Event> {
@@ -52,9 +56,9 @@ pub async fn create(pool: &PgPool, event: &NewEvent<'_>) -> sqlx::Result<Event> 
     sqlx::query_as!(
         Event,
         r#"
-        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
+        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         "#,
         event.guild_id,
         event.name,
@@ -64,7 +68,8 @@ pub async fn create(pool: &PgPool, event: &NewEvent<'_>) -> sqlx::Result<Event> 
         event.is_all_day,
         event.start_at,
         event.end_at,
-        event.created_at
+        event.created_at,
+        event.created_by
     )
     .fetch_one(pool)
     .await
@@ -75,7 +80,7 @@ pub async fn list_all(pool: &PgPool, guild_id: &str) -> sqlx::Result<Vec<Event>>
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
+        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 ORDER BY start_at, id
         "#,
         guild_id
@@ -93,7 +98,7 @@ pub async fn list_past(
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
+        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 AND start_at <= $2 ORDER BY start_at, id
         "#,
         guild_id,
@@ -112,7 +117,7 @@ pub async fn list_future(
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
+        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 AND start_at >= $2 ORDER BY start_at, id
         "#,
         guild_id,
@@ -128,7 +133,7 @@ pub async fn list_all_future(pool: &PgPool, now: NaiveDateTime) -> sqlx::Result<
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at
+        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE start_at >= $1 ORDER BY start_at, id
         "#,
         now

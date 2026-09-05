@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { calendarToday, dayCell, eventOn } from "../calendar";
 import { WEB_DIR } from "../env";
-import { E2E_GUILDS } from "../fixtures";
+import { E2E_GUILDS, E2E_USER } from "../fixtures";
 import {
   CREATE_SAMPLE,
   EDIT_TARGET,
@@ -51,6 +51,9 @@ test.describe("カレンダー", () => {
       .getByRole("dialog")
       .filter({ hasText: POPOVER_TARGET });
     await expect(popover).toBeVisible();
+    await expect(popover).toContainText(`作成:${E2E_USER.name}`);
+    // 自動フォーカスされた編集ボタンからフォーカスを外して撮影する。
+    await popover.getByText(POPOVER_TARGET, { exact: true }).click();
     await settle(page);
     await page.screenshot({
       path: assetPath("docs/popover.png"),

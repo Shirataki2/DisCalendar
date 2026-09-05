@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,\n               e.start_at, e.end_at, e.created_at,\n               l.scheduled_event_id AS \"discord_scheduled_event_id?\"\n        FROM events e\n        LEFT JOIN event_discord_links l ON l.event_id = e.id\n        WHERE e.id = $1 AND e.guild_id = $2\n        ",
+  "query": "\n        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at\n        FROM events WHERE guild_id = $1 AND start_at >= $2 ORDER BY start_at, id\n        ",
   "describe": {
     "columns": [
       {
@@ -115,20 +115,42 @@
       },
       {
         "ordinal": 10,
-        "name": "discord_scheduled_event_id?",
+        "name": "created_by",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "event_discord_links",
-            "name": "scheduled_event_id"
+            "table": "events",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_at"
           }
         }
       }
     ],
     "parameters": {
       "Left": [
-        "Int4",
-        "Text"
+        "Text",
+        "Timestamp"
       ]
     },
     "nullable": [
@@ -142,8 +164,10 @@
       false,
       false,
       false,
+      true,
+      true,
       true
     ]
   },
-  "hash": "3e70bec1fc531467f37e93faa7d7bac1e15ee134fbb4dca7f983f86c8ba2aee9"
+  "hash": "b8cba05aafca8ba394add2f953b3b710951c5df336513ed80f59220bdef4b95e"
 }

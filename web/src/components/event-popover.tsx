@@ -10,6 +10,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import Link from "next/link";
+import { EventAuthors } from "@/components/event-authors";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import { useLastValue } from "@/hooks/use-last-value";
@@ -30,6 +31,7 @@ interface Props {
   event: ApiEvent | null;
   anchor: PopoverAnchor | null;
   canEdit: boolean;
+  resolveAuthors?: boolean;
   /** ヘッダの色。横断カレンダー (#98) ではサーバーの色で塗る (省略時は予定の色) */
   color?: string;
   /** 横断カレンダー (#98) で出すサーバーの行と、そのサーバーのカレンダーへのリンク */
@@ -50,6 +52,7 @@ export function EventPopover({
   event,
   anchor,
   canEdit,
+  resolveAuthors = true,
   color,
   guild,
   onEdit,
@@ -119,6 +122,11 @@ export function EventPopover({
               <span className="truncate">{shownGuild.name}</span>
             </div>
           )}
+          <EventAuthors
+            event={shown}
+            active={event !== null}
+            resolveMembers={resolveAuthors}
+          />
           {shown.description && (
             <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
               {shown.description}

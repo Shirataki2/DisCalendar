@@ -199,7 +199,9 @@ pub async fn create_event(
     body.validate()?;
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
-    let event = Event::from(events::create(&mut *tx, guild_id, &body, now_jst()).await?);
+    let event = Event::from(
+        events::create(&mut *tx, guild_id, &body, now_jst(), &admin.discord_user_id).await?,
+    );
     admin_audit::record(
         &mut *tx,
         &admin,
@@ -245,10 +247,17 @@ pub async fn update_event(
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-    let mut after = events::update(&mut *tx, guild_id, path.event_id, &body)
-        .await?
-        .map(Event::from)
-        .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+    let mut after = events::update(
+        &mut *tx,
+        guild_id,
+        path.event_id,
+        &body,
+        &admin.discord_user_id,
+        now_jst(),
+    )
+    .await?
+    .map(Event::from)
+    .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
     // 管理コンソールの更新は Discord 連携 (#94) に触れず対応付けも変えないので、
     // 変更前の値を引き継ぐ (`events::update` の戻り値は常に None のため、そのままだと
     // レスポンスと監査ログの after が「連携解除」に見えてしまう)

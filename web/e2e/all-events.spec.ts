@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { calendarToday, eventOn, isoDate, openEventPopover } from "./calendar";
 import { DATABASE_URL } from "./env";
-import { E2E_GUILDS } from "./fixtures";
+import { E2E_GUILDS, E2E_USER } from "./fixtures";
 import { deleteEventsNamed, insertEvent } from "./seed";
 
 // 参加している全サーバーの予定をまとめて見る「すべての予定」(#98)。
@@ -89,6 +89,7 @@ test("予定のポップオーバーにサーバー名が出て、そのサー�
 }) => {
   await page.goto("/dashboard/all");
   const popover = await openEventPopover(page, adminTitle);
+  await expect(popover).toContainText(`作成:${E2E_USER.name}`);
   await expect(popover).toContainText(E2E_GUILDS.admin.name);
   // 閲覧のみ (編集の操作は無い)
   await expect(popover.getByRole("button", { name: "編集" })).toHaveCount(0);

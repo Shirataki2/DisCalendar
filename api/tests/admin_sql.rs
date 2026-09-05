@@ -114,9 +114,15 @@ async fn create_auth_tables(pool: &PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn select_returns_columns_and_text_values(pool: PgPool) {
     let _serial = SERIAL.lock().await;
-    let created = events::create(&pool, GUILD, &input("meeting"), dt("2026-08-01T00:00:00"))
-        .await
-        .unwrap();
+    let created = events::create(
+        &pool,
+        GUILD,
+        &input("meeting"),
+        dt("2026-08-01T00:00:00"),
+        "333",
+    )
+    .await
+    .unwrap();
 
     let result = run(
         &pool,
@@ -235,9 +241,15 @@ async fn statement_timeout_cancels_long_queries(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn writes_and_non_read_only_statements_are_rejected(pool: PgPool) {
     let _serial = SERIAL.lock().await;
-    events::create(&pool, GUILD, &input("keep"), dt("2026-08-01T00:00:00"))
-        .await
-        .unwrap();
+    events::create(
+        &pool,
+        GUILD,
+        &input("keep"),
+        dt("2026-08-01T00:00:00"),
+        "333",
+    )
+    .await
+    .unwrap();
 
     // 先頭キーワードで弾くもの (実行されない)
     for sql in [
@@ -669,13 +681,19 @@ async fn explain_and_show_work(pool: PgPool) {
 async fn delete_guild_events_removes_only_that_guild(pool: PgPool) {
     let _serial = SERIAL.lock().await;
     for name in ["a", "b"] {
-        events::create(&pool, GUILD, &input(name), dt("2026-08-01T00:00:00"))
+        events::create(&pool, GUILD, &input(name), dt("2026-08-01T00:00:00"), "333")
             .await
             .unwrap();
     }
-    events::create(&pool, OTHER_GUILD, &input("c"), dt("2026-08-01T00:00:00"))
-        .await
-        .unwrap();
+    events::create(
+        &pool,
+        OTHER_GUILD,
+        &input("c"),
+        dt("2026-08-01T00:00:00"),
+        "333",
+    )
+    .await
+    .unwrap();
 
     let mut tx = pool.begin().await.unwrap();
     let (snapshot, deleted) = admin_ops::delete_guild_events(&mut tx, GUILD)

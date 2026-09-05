@@ -1,6 +1,6 @@
 //! Bot トークンで Discord API を呼ぶクライアント。
 //!
-//! ユーザーがギルドのメンバーかどうかと、ギルド内での権限を調べるためだけに使う。
+//! ギルドへの所属・権限と、予定の作成者・更新者の表示情報を取得する。
 //! 旧実装は毎リクエストで 4 回 Discord API を呼んでいたが、ここではギルド情報と
 //! メンバー情報を短時間キャッシュして 0〜2 回に抑える。
 
@@ -170,8 +170,8 @@ pub struct DiscordClient {
     api_base: String,
     /// guild_id → ギルド情報。Bot が未参加なら None (負のキャッシュ)
     guilds: Cache<String, Option<Arc<GuildSnapshot>>>,
-    /// (guild_id, user_id) → メンバーの所持ロール。非メンバーなら None (負のキャッシュ)
-    members: Cache<(String, String), Option<Arc<Vec<String>>>>,
+    /// (guild_id, user_id) → メンバー情報。非メンバーなら None (負のキャッシュ)
+    members: Cache<(String, String), Option<Arc<ApiMember>>>,
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
     /// 直近に [`DiscordClient::refresh_permissions`] でギルド共通の情報を捨てたギルド (#122)。
@@ -203,9 +203,47 @@ struct ApiRole {
     permissions: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ApiMember {
     roles: Vec<String>,
+    nick: Option<String>,
+    avatar: Option<String>,
+    user: Option<MemberUser>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemberUser {
+    username: String,
+    global_name: Option<String>,
+    avatar: Option<String>,
+}
+
+/// 予定の作成者・更新者の表示情報。非メンバーの場合は ID のみ。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct MemberProfile {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+impl ApiMember {
+    fn profile(&self, guild_id: &str, user_id: &str) -> MemberProfile {
+        let display_name = self.nick.clone().or_else(|| {
+            self.user
+                .as_ref()
+                .map(|u| u.global_name.as_ref().unwrap_or(&u.username).clone())
+        });
+        let avatar_url = self.avatar.as_ref().map(|hash| {
+            format!("https://cdn.discordapp.com/guilds/{guild_id}/users/{user_id}/avatars/{hash}.png")
+        }).or_else(|| self.user.as_ref().and_then(|u| u.avatar.as_ref()).map(|hash| {
+            format!("https://cdn.discordapp.com/avatars/{user_id}/{hash}.png")
+        }));
+        MemberProfile {
+            user_id: user_id.to_owned(),
+            display_name,
+            avatar_url,
+        }
+    }
 }
 
 /// `GET /users/@me` が返すユーザー情報のうち使う部分
@@ -342,7 +380,7 @@ impl DiscordClient {
 
     /// メンバーの所持ロールを取り直してキャッシュを差し替える (#122)
     async fn recache_member(&self, key: (String, String)) -> Result<(), DiscordError> {
-        let roles = self.fetch_member_roles(&key.0, &key.1).await?;
+        let roles = self.fetch_member(&key.0, &key.1).await?;
         self.members.insert(key, roles).await;
         Ok(())
     }
@@ -352,7 +390,7 @@ impl DiscordClient {
         let guild = self.fetch_guild(guild_id).await?;
         // Bot 自身のロールも取り直す (招待し直しで Bot に別のロールが付くことがある)
         let bot_user_id = self.bot_user_id().await?;
-        let bot_roles = self.fetch_member_roles(guild_id, &bot_user_id).await?;
+        let bot_roles = self.fetch_member(guild_id, &bot_user_id).await?;
         self.guilds.insert(guild_id.to_owned(), guild).await;
         self.members
             .insert((guild_id.to_owned(), bot_user_id), bot_roles)
@@ -472,20 +510,63 @@ impl DiscordClient {
             }))
     }
 
-    /// メンバーの所持ロールを Discord から取る (キャッシュを見ない)。非メンバーなら `Ok(None)`
-    async fn fetch_member_roles(
+    /// メンバー情報を Discord から取る (キャッシュを見ない)。非メンバーなら `Ok(None)`
+    async fn fetch_member(
         &self,
         guild_id: &str,
         user_id: &str,
-    ) -> Result<Option<Arc<Vec<String>>>, DiscordError> {
+    ) -> Result<Option<Arc<ApiMember>>, DiscordError> {
         Ok(self
-            .get_json::<ApiMember>(&format!(
-                "/guilds/{}/members/{}",
-                checked_id(guild_id)?,
-                checked_id(user_id)?
-            ))
+            .get_json_with_access::<ApiMember>(
+                &format!(
+                    "/guilds/{}/members/{}",
+                    checked_id(guild_id)?,
+                    checked_id(user_id)?
+                ),
+                false,
+            )
             .await?
-            .map(|m| Arc::new(m.roles)))
+            .map(Arc::new))
+    }
+
+    async fn member(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<Option<Arc<ApiMember>>, DiscordError> {
+        let key = (checked_id(guild_id)?, checked_id(user_id)?);
+        // 同じ人のプロフィール表示と認可が重なっても外部呼び出しをまとめる。
+        self.members
+            .try_get_with(key, self.fetch_member(guild_id, user_id))
+            .await
+            .map_err(|error| match Arc::try_unwrap(error) {
+                Ok(error) => error,
+                Err(error) => match error.as_ref() {
+                    DiscordError::RateLimited => DiscordError::RateLimited,
+                    _ => DiscordError::Unexpected("failed to fetch member"),
+                },
+            })
+    }
+
+    pub async fn member_profile(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<MemberProfile, DiscordError> {
+        Ok(match self.member(guild_id, user_id).await? {
+            Some(member) => {
+                let profile = member.profile(guild_id, user_id);
+                if profile.display_name.is_none() {
+                    return Err(DiscordError::Unexpected("member has no display name"));
+                }
+                profile
+            }
+            None => MemberProfile {
+                user_id: user_id.to_owned(),
+                display_name: None,
+                avatar_url: None,
+            },
+        })
     }
 
     /// ユーザーがギルドのメンバーなら権限付きで返す。Bot 未参加または非メンバーなら `Ok(None)`
@@ -498,16 +579,7 @@ impl DiscordClient {
             return Ok(None);
         };
 
-        let key = (guild_id.to_owned(), user_id.to_owned());
-        let roles = match self.members.get(&key).await {
-            Some(cached) => cached,
-            None => {
-                let fetched = self.fetch_member_roles(guild_id, user_id).await?;
-                self.members.insert(key, fetched.clone()).await;
-                fetched
-            }
-        };
-        let Some(roles) = roles else {
+        let Some(member) = self.member(guild_id, user_id).await? else {
             return Ok(None);
         };
 
@@ -516,12 +588,12 @@ impl DiscordClient {
             &guild.owner_id,
             user_id,
             &guild.role_permissions,
-            &roles,
+            &member.roles,
         );
         Ok(Some(MemberAccess {
             guild,
             user_id: user_id.to_owned(),
-            roles: roles.to_vec(),
+            roles: member.roles.clone(),
             permissions,
         }))
     }
@@ -530,6 +602,14 @@ impl DiscordClient {
     /// 404 (Unknown Guild / Unknown Member) と 403 (Missing Access = Bot 未参加) は `Ok(None)`。
     /// 429 は Retry-After が短ければ 1 回だけ待って再試行する
     async fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>, DiscordError> {
+        self.get_json_with_access(path, true).await
+    }
+
+    async fn get_json_with_access<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        missing_access_is_none: bool,
+    ) -> Result<Option<T>, DiscordError> {
         let url = format!("{}{path}", self.api_base);
         let mut retried = false;
         loop {
@@ -538,7 +618,9 @@ impl DiscordClient {
             if status.is_success() {
                 return Ok(Some(res.json().await?));
             }
-            if status == StatusCode::NOT_FOUND || status == StatusCode::FORBIDDEN {
+            if status == StatusCode::NOT_FOUND
+                || (missing_access_is_none && status == StatusCode::FORBIDDEN)
+            {
                 tracing::debug!(%path, %status, "discord resource not accessible");
                 return Ok(None);
             }
@@ -617,6 +699,89 @@ impl DiscordClient {
 #[cfg(test)]
 mod tests {
     use super::{checked_id, is_snowflake};
+
+    #[test]
+    fn member_profile_prefers_guild_name_and_avatar() {
+        let mut member: super::ApiMember = serde_json::from_value(serde_json::json!({
+            "roles": [], "nick": "サーバー名", "avatar": "local",
+            "user": {"username": "username", "global_name": "表示名", "avatar": "global"}
+        }))
+        .unwrap();
+        let profile = member.profile("111", "333");
+        assert_eq!(profile.display_name.as_deref(), Some("サーバー名"));
+        assert_eq!(
+            profile.avatar_url.as_deref(),
+            Some("https://cdn.discordapp.com/guilds/111/users/333/avatars/local.png")
+        );
+        member.nick = None;
+        member.avatar = None;
+        let profile = member.profile("111", "333");
+        assert_eq!(profile.display_name.as_deref(), Some("表示名"));
+        assert_eq!(
+            profile.avatar_url.as_deref(),
+            Some("https://cdn.discordapp.com/avatars/333/global.png")
+        );
+        member.user.as_mut().unwrap().global_name = None;
+        member.user.as_mut().unwrap().avatar = None;
+        let profile = member.profile("111", "333");
+        assert_eq!(profile.display_name.as_deref(), Some("username"));
+        assert_eq!(profile.avatar_url, None);
+    }
+
+    #[tokio::test]
+    async fn member_profiles_share_cache_with_permissions_and_cache_departures() {
+        use actix_web::{App, HttpResponse, HttpServer, web};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let count = Arc::new(AtomicUsize::new(0));
+        let requests = count.clone();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = HttpServer::new(move || {
+            let count = requests.clone();
+            App::new().route("/guilds/111", web::get().to(|| async {
+                HttpResponse::Ok().json(serde_json::json!({"id":"111","name":"guild","owner_id":"333","roles":[]}))
+            })).route("/guilds/111/members/{id}", web::get().to(move |id: web::Path<String>| {
+                let count = count.clone();
+                async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    if id.as_str() == "333" {
+                        return HttpResponse::Ok().json(serde_json::json!({"roles":[],"user":{"username":"member"}}));
+                    }
+                    if id.as_str() == "555" { return HttpResponse::Forbidden().finish(); }
+                    HttpResponse::NotFound().finish()
+                }
+            }))
+        }).listen(listener).unwrap().run();
+        let handle = server.handle();
+        tokio::spawn(server);
+        let client = super::DiscordClient::new("test", &format!("http://{address}")).unwrap();
+        assert!(client.member_access("111", "333").await.unwrap().is_some());
+        assert_eq!(
+            client
+                .member_profile("111", "333")
+                .await
+                .unwrap()
+                .display_name
+                .as_deref(),
+            Some("member")
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                client
+                    .member_profile("111", "444")
+                    .await
+                    .unwrap()
+                    .display_name,
+                None
+            );
+        }
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+        assert!(client.member_profile("111", "555").await.is_err());
+        handle.stop(true).await;
+    }
 
     #[test]
     fn checked_id_accepts_snowflakes() {

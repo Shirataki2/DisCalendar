@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,\n               e.start_at, e.end_at, e.created_at,\n               l.scheduled_event_id AS \"discord_scheduled_event_id?\"\n        FROM events e\n        LEFT JOIN event_discord_links l ON l.event_id = e.id\n        WHERE e.guild_id = $1\n        ORDER BY e.id\n        LIMIT $2\n        FOR UPDATE OF e\n        ",
+  "query": "\n        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,\n               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,\n               l.scheduled_event_id AS \"discord_scheduled_event_id?\"\n        FROM events e\n        LEFT JOIN event_discord_links l ON l.event_id = e.id\n        WHERE e.guild_id = ANY($1) AND e.start_at < $3 AND e.end_at >= $2\n        ORDER BY e.start_at, e.id\n        ",
   "describe": {
     "columns": [
       {
@@ -115,6 +115,39 @@
       },
       {
         "ordinal": 10,
+        "name": "created_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
         "name": "discord_scheduled_event_id?",
         "type_info": "Text",
         "origin": {
@@ -127,8 +160,9 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Int8"
+        "TextArray",
+        "Timestamp",
+        "Timestamp"
       ]
     },
     "nullable": [
@@ -142,8 +176,11 @@
       false,
       false,
       false,
+      true,
+      true,
+      true,
       false
     ]
   },
-  "hash": "7b79ac7c4fcc995a327dae4980426dca17bfcef0b54edbeab17c18474d872db1"
+  "hash": "ad539844338ef696bf3f223f19514120d3dde32da0e12cf5299a3b9d404c2be7"
 }

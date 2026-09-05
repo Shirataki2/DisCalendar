@@ -13,6 +13,7 @@ mod feeds;
 mod guilds;
 mod health;
 mod member;
+mod members;
 mod shares;
 
 pub use member::GuildMember;
@@ -26,6 +27,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 // `/joined` は `/{guild_id}` より先に登録しないと guild_id として解釈される
                 .service(guilds::joined)
                 .service(guilds::get_guild)
+                .service(members::profiles)
                 .service(guilds::my_permissions)
                 .service(guilds::refresh_my_permissions)
                 .service(guilds::get_config)

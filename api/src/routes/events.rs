@@ -243,7 +243,14 @@ pub async fn create(
     let guild_id = member.guild_id();
 
     if !discord_scheduled_event {
-        let row = events::create(&state.pool, guild_id, &body, now_jst()).await?;
+        let row = events::create(
+            &state.pool,
+            guild_id,
+            &body,
+            now_jst(),
+            &member.user.discord_user_id,
+        )
+        .await?;
         tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event created");
         return Ok(HttpResponse::Created().json(Event::from(row)));
     }
@@ -265,7 +272,14 @@ pub async fn create(
         // 管理コンソールの全予定削除と排他する (新しい行は行ロックでは待たせられないため、
         // ギルド単位の勧告ロックで、削除側が控えた対応付けの一覧からこの連携が漏れないようにする)
         event_links::lock_guild(&mut *tx, guild_id).await?;
-        let row = events::create(&mut *tx, guild_id, &body, now_jst()).await?;
+        let row = events::create(
+            &mut *tx,
+            guild_id,
+            &body,
+            now_jst(),
+            &member.user.discord_user_id,
+        )
+        .await?;
         event_links::insert(&mut *tx, guild_id, row.id, &scheduled_event_id, now_jst()).await?;
         tx.commit().await?;
         Ok(row)
@@ -343,8 +357,15 @@ pub async fn update(
         // 連携を足していたら更新は起きない (`update_if_unlinked` が `None`) ので、
         // 連携ありの経路でやり直す (そのまま書くと、連携先に反映されない値が入ってしまう)
         if old.discord_scheduled_event_id.is_none() && !discord_scheduled_event {
-            if let Some(row) =
-                events::update_if_unlinked(&state.pool, guild_id, path.event_id, &body).await?
+            if let Some(row) = events::update_if_unlinked(
+                &state.pool,
+                guild_id,
+                path.event_id,
+                &body,
+                &member.user.discord_user_id,
+                now_jst(),
+            )
+            .await?
             {
                 tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event updated");
                 return Ok(web::Json(Event::from(row)));
@@ -436,9 +457,16 @@ pub async fn update(
             if current.discord_scheduled_event_id != old.discord_scheduled_event_id {
                 return Ok(None);
             }
-            let mut row = events::update(&mut *tx, guild_id, path.event_id, &body)
-                .await?
-                .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+            let mut row = events::update(
+                &mut *tx,
+                guild_id,
+                path.event_id,
+                &body,
+                &member.user.discord_user_id,
+                now_jst(),
+            )
+            .await?
+            .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
             // 突き合わせ済みなので current の対応付けは old と同じ。desired との差分だけ書く
             let mut replaced: Option<String> = None;
             match (&current.discord_scheduled_event_id, &desired) {

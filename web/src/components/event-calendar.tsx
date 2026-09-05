@@ -262,6 +262,7 @@ export function EventCalendar({
       </div>
 
       <EventPopover
+        resolveAuthors={eventsSource === dashboardEventsSource}
         event={popoverEvent}
         anchor={popover?.anchor ?? null}
         canEdit={canEdit}

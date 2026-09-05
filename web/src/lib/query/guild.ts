@@ -128,3 +128,19 @@ export function canEditEvents(
   if (!config || !permissions) return false;
   return !config.restricted || permissions.can_manage_server;
 }
+
+/** 詳細を開いたときだけ必要な人を取得する。ギルドと ID の組でキャッシュする。 */
+export function useMemberProfilesQuery(
+  guildId: string,
+  ids: string[],
+  enabled: boolean,
+) {
+  const uniqueIds = [...new Set(ids)].sort();
+  return useQuery({
+    queryKey: queryKeys.guild.members(guildId, uniqueIds),
+    queryFn: ({ signal }) => api.guilds.members(guildId, uniqueIds, signal),
+    enabled: enabled && uniqueIds.length > 0,
+    staleTime: 60_000,
+    retry: false,
+  });
+}

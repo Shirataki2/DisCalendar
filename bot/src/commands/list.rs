@@ -107,6 +107,9 @@ mod tests {
             start_at: "2026-08-23T10:00:00".parse().unwrap(),
             end_at: "2026-08-24T11:30:00".parse().unwrap(),
             created_at: "2026-08-01T00:00:00".parse().unwrap(),
+            created_by: None,
+            updated_by: None,
+            updated_at: None,
         }
     }
 
