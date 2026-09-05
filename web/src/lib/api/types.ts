@@ -534,3 +534,19 @@ export interface ApiErrorBody {
   error: ApiErrorKind;
   message: string;
 }
+
+/** 発行済みの予定共有リンク。 */
+export interface ShareLink {
+  token: string;
+}
+/** 公開する項目のみ。日時は JST。 */
+export interface SharedEvent {
+  guild_id: string;
+  guild_name: string;
+  guild_avatar_url: string | null;
+  name: string;
+  description: string | null;
+  is_all_day: boolean;
+  start_at: string;
+  end_at: string;
+}

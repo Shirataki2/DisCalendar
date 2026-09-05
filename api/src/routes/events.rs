@@ -570,7 +570,7 @@ pub async fn delete(
 
 /// restricted モードのギルドでは管理権限を持つユーザーだけが予定を編集できる。
 /// 旧実装はこの判定をクライアント側だけで行っていたが、サーバー側で強制する
-async fn ensure_can_edit(pool: &PgPool, member: &GuildMember) -> Result<(), ApiError> {
+pub(super) async fn ensure_can_edit(pool: &PgPool, member: &GuildMember) -> Result<(), ApiError> {
     let config = guilds::get_config(pool, member.guild_id()).await?;
     if config.restricted && !member.permissions().can_manage_server() {
         return Err(ApiError::Forbidden(

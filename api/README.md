@@ -46,6 +46,8 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | POST | `/events/{guild_id}` | 予定の作成 (201) |
 | PUT | `/events/{guild_id}/{event_id}` | 予定の更新 |
 | DELETE | `/events/{guild_id}/{event_id}` | 予定の削除 (204) |
+| GET / POST / DELETE | `/events/{guild_id}/{event_id}/share` | 予定の共有リンクの取得 (未発行なら null)・発行・無効化。すべて予定の編集権限が必要。再コピーは同じ URL を返す |
+| GET | `/share/{token}` | 認証不要の予定閲覧。タイトル・説明・日時・サーバー ID / 名前 / アイコンのみ。失効・削除・Bot 退出で 404 |
 | GET | `/admin/me` | 管理者の確認 (`ADMIN_DISCORD_USER_IDS` 以外は 403)。`/admin/*` は管理コンソール用で、ギルドのメンバーシップを見ない代わりにホワイトリストで制限する (#33) |
 | GET | `/admin/guilds?q=&page=` | 全ギルドの一覧・検索 (guild_id 完全一致 / 名前部分一致、50 件ずつ)。Bot 退出後にデータだけ残っているギルドも含む (`registered` = false)。`restricted` / 通知チャンネル / 予定数付き |
 | GET | `/admin/guilds/{guild_id}` | ギルド詳細 (+ Bot の参加状況を Discord API で確認) |

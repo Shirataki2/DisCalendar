@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM event_share_links s USING events e\n        WHERE s.event_id = e.id AND e.guild_id = $1 AND e.id = $2\n    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4aeedb7c59e606f5d8cf81a698b5e6e68ec7168a250c9a49f9a2a5cd94bc6354"
+}

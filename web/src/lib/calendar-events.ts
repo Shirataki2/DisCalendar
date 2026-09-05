@@ -186,7 +186,9 @@ export function describeNotification({
 }
 
 /** 予定の期間の表示用文字列。旧実装 (SimpleEdit.vue) と同じ形式 */
-export function describeEventRange(event: ApiEvent): string {
+export function describeEventRange(
+  event: Pick<ApiEvent, "start_at" | "end_at" | "is_all_day">,
+): string {
   const start = parseApiDateTime(event.start_at);
   const end = parseApiDateTime(event.end_at);
   const sameDay = format(start, "yyyy-MM-dd") === format(end, "yyyy-MM-dd");

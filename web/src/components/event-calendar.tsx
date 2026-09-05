@@ -272,6 +272,7 @@ export function EventCalendar({
       />
       <EventFormDialog
         state={dialog}
+        allowShare={canEdit && eventsSource === dashboardEventsSource}
         onClose={() => setDialog(null)}
         onSubmit={submitDialog}
         onDelete={setDeleteTarget}
