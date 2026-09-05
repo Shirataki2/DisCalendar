@@ -85,6 +85,8 @@ export interface SeedEvent {
   start_at: string;
   end_at: string;
   is_all_day?: boolean;
+  created_by?: string;
+  updated_by?: string;
 }
 
 /**
@@ -100,14 +102,16 @@ export async function insertEvent(
   const pool = new Pool({ connectionString: databaseUrl });
   try {
     await pool.query(
-      `INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at)
-       VALUES ($1, $2, NULL, '[]'::jsonb, '#2196F3', $3, $4, $5, now())`,
+      `INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by)
+       VALUES ($1, $2, NULL, '[]'::jsonb, '#2196F3', $3, $4, $5, now(), $6, $7)`,
       [
         guildId,
         event.name,
         event.is_all_day ?? false,
         event.start_at,
         event.end_at,
+        event.created_by ?? null,
+        event.updated_by ?? null,
       ],
     );
   } finally {

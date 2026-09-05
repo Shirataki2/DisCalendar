@@ -8,6 +8,7 @@ use super::GuildMember;
 use crate::{
     discord::MemberProfile,
     error::{ApiError, ErrorBody},
+    models::events,
     state::AppState,
 };
 
@@ -49,6 +50,13 @@ pub async fn profiles(
     state: web::Data<AppState>,
 ) -> Result<web::Json<Vec<MemberProfile>>, ApiError> {
     let ids = parse_ids(&query.ids)?;
+    // 任意 ID による Discord API の総当たりを防ぐ。クライアントは操作者を保存時に偽装できない。
+    let authors = events::author_ids(&state.pool, member.guild_id(), &ids).await?;
+    if authors.len() != ids.len() {
+        return Err(ApiError::BadRequest(
+            "ids must be authors of events in this guild".into(),
+        ));
+    }
     let profiles = stream::iter(ids)
         .map(|id| {
             let discord = &state.discord;

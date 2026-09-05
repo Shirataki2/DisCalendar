@@ -851,6 +851,17 @@ async fn event_authors_survive_updates_and_legacy_rows(pool: PgPool) {
     assert_eq!(updated.created_by, created.created_by);
     assert_eq!(updated.updated_by.as_deref(), Some("444"));
     assert_eq!(updated.updated_at, Some(at));
+    let mut authors = events::author_ids(&pool, GUILD, &["333".into(), "444".into(), "999".into()])
+        .await
+        .unwrap();
+    authors.sort();
+    assert_eq!(authors, vec!["333", "444"]);
+    assert!(
+        events::author_ids(&pool, OTHER_GUILD, &["333".into()])
+            .await
+            .unwrap()
+            .is_empty()
+    );
     let moved = events::update_if_unlinked(&pool, GUILD, created.id, &body, "555", at)
         .await
         .unwrap()

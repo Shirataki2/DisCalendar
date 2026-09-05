@@ -2,12 +2,22 @@ import { expect, test } from "@playwright/test";
 import { createEvent, openEventPopover } from "./calendar";
 import { DATABASE_URL } from "./env";
 import { E2E_GUILDS, E2E_USER } from "./fixtures";
-import { deleteEventsNamed } from "./seed";
+import { deleteEventsNamed, insertEvent } from "./seed";
 
 const guildId = E2E_GUILDS.admin.id;
 const title = `作成者確認 ${Date.now().toString(36)}`;
+const profileTitle = `メンバー解決 ${Date.now().toString(36)}`;
+test.beforeAll(async () => {
+  await insertEvent(DATABASE_URL, guildId, {
+    name: profileTitle,
+    start_at: "2026-01-01T10:00:00",
+    end_at: "2026-01-01T11:00:00",
+    created_by: E2E_USER.discordId,
+    updated_by: "999999999999999999",
+  });
+});
 test.afterAll(async () => {
-  await deleteEventsNamed(DATABASE_URL, [title]);
+  await deleteEventsNamed(DATABASE_URL, [title, profileTitle]);
 });
 
 test("メンバー情報は認証と所属確認を通し、ID の形式・上限を検証する", async ({
@@ -46,6 +56,13 @@ test("メンバー情報は認証と所属確認を通し、ID の形式・上�
       ).status(),
     ).toBe(400);
   }
+  expect(
+    (
+      await request.get(
+        `/local/api/guilds/${guildId}/members?ids=888888888888888888`,
+      )
+    ).status(),
+  ).toBe(400);
   const departed = await request.get(
     `/local/api/guilds/${guildId}/members?ids=999999999999999999`,
   );

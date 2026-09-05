@@ -37,7 +37,7 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 |---|---|---|
 | GET | `/` | バージョン文字列 |
 | GET | `/healthz` | DB 疎通込みのヘルスチェック |
-| GET | `/guilds/{guild_id}/members?ids=...` | メンバーのみ。カンマ区切りのユーザー ID (最大 20 件) を表示名・アバターに解決。60 秒キャッシュ、同時問い合わせは最大 4 件。退出済みは ID のみ返す |
+| GET | `/guilds/{guild_id}/members?ids=...` | メンバーのみ。カンマ区切りのユーザー ID (最大 20 件、このギルドの予定の操作者のみ) を表示名・アバターに解決。60 秒キャッシュ、同時問い合わせは最大 4 件。退出済みは ID のみ返す |
 | GET | `/guilds/joined?guild_ids=a,b,c` | 指定 ID のうち Bot が参加しているギルド |
 | GET | `/guilds/{guild_id}` | ギルド情報 (メンバーのみ) |
 | GET | `/guilds/{guild_id}/@me/permissions` | 自分のギルド権限 (`can_manage_server` など) |

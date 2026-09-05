@@ -170,8 +170,8 @@ pub struct DiscordClient {
     api_base: String,
     /// guild_id → ギルド情報。Bot が未参加なら None (負のキャッシュ)
     guilds: Cache<String, Option<Arc<GuildSnapshot>>>,
-    /// (guild_id, user_id) → メンバー情報。非メンバーなら None (負のキャッシュ)
-    members: Cache<(String, String), Option<Arc<ApiMember>>>,
+    /// (guild_id, user_id) → メンバー情報。退出済みとアクセス不可も区別してキャッシュする。
+    members: Cache<(String, String), MemberLookup>,
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
     /// 直近に [`DiscordClient::refresh_permissions`] でギルド共通の情報を捨てたギルド (#122)。
@@ -209,6 +209,14 @@ struct ApiMember {
     nick: Option<String>,
     avatar: Option<String>,
     user: Option<MemberUser>,
+}
+
+/// 404 (退出済み) と 403 (Bot のアクセス不可) はプロフィール表示時に区別する。
+#[derive(Clone)]
+enum MemberLookup {
+    Present(Arc<ApiMember>),
+    Missing,
+    Inaccessible,
 }
 
 #[derive(Debug, Deserialize)]
@@ -510,13 +518,13 @@ impl DiscordClient {
             }))
     }
 
-    /// メンバー情報を Discord から取る (キャッシュを見ない)。非メンバーなら `Ok(None)`
+    /// メンバー情報を Discord から取る (キャッシュを見ない)。404 と 403 も保持する。
     async fn fetch_member(
         &self,
         guild_id: &str,
         user_id: &str,
-    ) -> Result<Option<Arc<ApiMember>>, DiscordError> {
-        Ok(self
+    ) -> Result<MemberLookup, DiscordError> {
+        match self
             .get_json_with_access::<ApiMember>(
                 &format!(
                     "/guilds/{}/members/{}",
@@ -525,15 +533,19 @@ impl DiscordClient {
                 ),
                 false,
             )
-            .await?
-            .map(Arc::new))
+            .await
+        {
+            Ok(Some(member)) => Ok(MemberLookup::Present(Arc::new(member))),
+            Ok(None) => Ok(MemberLookup::Missing),
+            Err(DiscordError::Status {
+                status: StatusCode::FORBIDDEN,
+                ..
+            }) => Ok(MemberLookup::Inaccessible),
+            Err(error) => Err(error),
+        }
     }
 
-    async fn member(
-        &self,
-        guild_id: &str,
-        user_id: &str,
-    ) -> Result<Option<Arc<ApiMember>>, DiscordError> {
+    async fn member(&self, guild_id: &str, user_id: &str) -> Result<MemberLookup, DiscordError> {
         let key = (checked_id(guild_id)?, checked_id(user_id)?);
         // 同じ人のプロフィール表示と認可が重なっても外部呼び出しをまとめる。
         self.members
@@ -554,18 +566,21 @@ impl DiscordClient {
         user_id: &str,
     ) -> Result<MemberProfile, DiscordError> {
         Ok(match self.member(guild_id, user_id).await? {
-            Some(member) => {
+            MemberLookup::Present(member) => {
                 let profile = member.profile(guild_id, user_id);
                 if profile.display_name.is_none() {
                     return Err(DiscordError::Unexpected("member has no display name"));
                 }
                 profile
             }
-            None => MemberProfile {
+            MemberLookup::Missing => MemberProfile {
                 user_id: user_id.to_owned(),
                 display_name: None,
                 avatar_url: None,
             },
+            MemberLookup::Inaccessible => {
+                return Err(DiscordError::Unexpected("cannot access guild member"));
+            }
         })
     }
 
@@ -579,7 +594,7 @@ impl DiscordClient {
             return Ok(None);
         };
 
-        let Some(member) = self.member(guild_id, user_id).await? else {
+        let MemberLookup::Present(member) = self.member(guild_id, user_id).await? else {
             return Ok(None);
         };
 
@@ -741,7 +756,9 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = HttpServer::new(move || {
             let count = requests.clone();
-            App::new().route("/guilds/111", web::get().to(|| async {
+            App::new().route("/users/@me", web::get().to(|| async {
+                HttpResponse::Ok().json(serde_json::json!({"id":"333"}))
+            })).route("/guilds/111", web::get().to(|| async {
                 HttpResponse::Ok().json(serde_json::json!({"id":"111","name":"guild","owner_id":"333","roles":[]}))
             })).route("/guilds/111/members/{id}", web::get().to(move |id: web::Path<String>| {
                 let count = count.clone();
@@ -780,6 +797,15 @@ mod tests {
         }
         assert_eq!(count.load(Ordering::SeqCst), 2);
         assert!(client.member_profile("111", "555").await.is_err());
+        // 同じ 403 キャッシュでも、認可と権限再確認は従来どおり非所属として扱う。
+        assert!(client.member_access("111", "555").await.unwrap().is_none());
+        assert!(
+            client
+                .refresh_permissions("111", "555")
+                .await
+                .unwrap()
+                .is_none()
+        );
         handle.stop(true).await;
     }
 

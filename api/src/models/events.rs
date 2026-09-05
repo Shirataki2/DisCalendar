@@ -278,6 +278,25 @@ pub async fn list_for_feed(
     .await
 }
 
+/// プロフィール取得を、このギルドの予定に記録された操作者だけに限定する。
+pub async fn author_ids(
+    pool: &PgPool,
+    guild_id: &str,
+    ids: &[String],
+) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT created_by AS "actor_id!" FROM events WHERE guild_id = $1 AND created_by = ANY($2)
+        UNION
+        SELECT updated_by AS "actor_id!" FROM events WHERE guild_id = $1 AND updated_by = ANY($2)
+        "#,
+        guild_id,
+        ids
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// 返る行の `discord_scheduled_event_id` は常に `None` (対応付けは行を作った後にルート層が
 /// [`super::event_links`] へ書き、レスポンスへは呼び出し元が詰め直す)
 pub async fn create<'e>(
