@@ -4,6 +4,7 @@
 //! 通知設定 (`events.notifications`) は api の入出力と同じ JSONB で保存する (`notifications` モジュール)。
 
 pub mod event_settings;
+pub mod event_share_links;
 pub mod events;
 pub mod guild_config;
 pub mod guilds;

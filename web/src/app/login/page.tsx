@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { authClient } from "@/lib/auth-client";
+import { dashboardReturnPath } from "@/lib/login-redirect";
 import { ROUTES } from "@/lib/site";
 
 const LINK_CLASS =
@@ -11,7 +12,9 @@ export default function LoginPage() {
   const signIn = () => {
     authClient.signIn.social({
       provider: "discord",
-      callbackURL: "/dashboard",
+      callbackURL: dashboardReturnPath(
+        new URLSearchParams(window.location.search).get("returnTo"),
+      ),
     });
   };
 
