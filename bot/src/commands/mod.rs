@@ -12,7 +12,7 @@ pub mod invite;
 pub mod list;
 pub mod register;
 
-use chrono::NaiveDateTime;
+pub use crate::datetime::format_datetime;
 
 use crate::{
     data::{Context, Data},
@@ -42,18 +42,10 @@ pub async fn log_invocation(ctx: Context<'_>) {
     );
 }
 
-/// 予定の日時の表示。終日予定は日付だけ (web の `describeEventRange` と同じ書式)
-pub fn format_datetime(datetime: NaiveDateTime, all_day: bool) -> String {
-    if all_day {
-        datetime.format("%Y/%m/%d").to_string()
-    } else {
-        datetime.format("%Y/%m/%d %H:%M").to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::NaiveDateTime;
 
     /// Discord がスラッシュコマンドの登録時に要求する制約。破っていると `register` が 400 で失敗する
     #[test]
@@ -173,9 +165,12 @@ mod tests {
     }
 
     #[test]
-    fn formats_datetime_like_the_web() {
+    fn formats_datetime_for_discord_while_preserving_all_day_dates() {
         let dt: NaiveDateTime = "2026-08-23T09:05:00".parse().unwrap();
-        assert_eq!(format_datetime(dt, false), "2026/08/23 09:05");
+        assert_eq!(
+            format_datetime(dt, false),
+            "<t:1787443500:F> (<t:1787443500:R>)"
+        );
         assert_eq!(format_datetime(dt, true), "2026/08/23");
     }
 }
