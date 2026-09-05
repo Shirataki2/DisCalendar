@@ -17,6 +17,7 @@ pub mod events;
 pub mod feed_tokens;
 pub mod guilds;
 pub mod notifications;
+pub mod shares;
 pub mod user_activity;
 
 use chrono::{FixedOffset, NaiveDateTime, Utc};

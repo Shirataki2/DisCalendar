@@ -11,6 +11,7 @@ import {
   useForm,
   useWatch,
 } from "react-hook-form";
+import { EventShareControls } from "@/components/event-share-controls";
 import { ColorPicker } from "@/components/form/color-picker";
 import { DatePicker } from "@/components/form/date-picker";
 import { Button } from "@/components/ui/button";
@@ -66,6 +67,8 @@ export type EventDialogState =
 interface Props {
   /** null なら閉じている */
   state: EventDialogState | null;
+  /** 通常のサーバーカレンダーで、編集権限があるときだけ共有操作を出す。 */
+  allowShare?: boolean;
   onClose: () => void;
   /** 保存。resolve したらダイアログを閉じ、reject されたらエラーを表示して開いたままにする */
   onSubmit: (input: ApiEventInput) => Promise<unknown>;
@@ -101,6 +104,7 @@ export function EventFormDialog({
   onSubmit,
   onDelete,
   discordSync,
+  allowShare,
 }: Props) {
   // 閉じるアニメーションの間も直前の内容を出しておく
   const shown = useLastValue(state);
@@ -124,6 +128,7 @@ export function EventFormDialog({
             onSubmit={onSubmit}
             onDelete={onDelete}
             discordSync={discordSync}
+            allowShare={allowShare}
           />
         )}
       </DialogContent>
@@ -143,6 +148,7 @@ function EventForm({
   onSubmit,
   onDelete,
   discordSync,
+  allowShare,
 }: FormProps) {
   const isEdit = state.mode === "edit";
   const initialValues = isEdit ? eventToFormValues(state.event) : state.values;
@@ -445,6 +451,10 @@ function EventForm({
           />
         )}
       </FieldGroup>
+
+      {isEdit && allowShare && (
+        <EventShareControls key={state.event.id} event={state.event} />
+      )}
 
       {submitError && (
         <div

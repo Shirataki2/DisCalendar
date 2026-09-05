@@ -17,6 +17,7 @@ import type {
   GuildFeed,
   MyPermissions,
   OpsResult,
+  ShareLink,
   SqlHistoryEntry,
   SqlResult,
 } from "./types";
@@ -60,6 +61,18 @@ export type EventsClient = ReturnType<typeof createEventsClient>;
  */
 export function createApi(request: ApiFetcher) {
   return {
+    shares: {
+      get: (guildId: string, eventId: number) =>
+        request<ShareLink | null>(`/events/${guildId}/${eventId}/share`),
+      issue: (guildId: string, eventId: number) =>
+        request<ShareLink>(`/events/${guildId}/${eventId}/share`, {
+          method: "POST",
+        }),
+      revoke: (guildId: string, eventId: number) =>
+        request<void>(`/events/${guildId}/${eventId}/share`, {
+          method: "DELETE",
+        }),
+    },
     guilds: {
       /** 指定したギルドのうち Bot が参加しているもの */
       joined: (guildIds: string[]) => {

@@ -13,6 +13,7 @@ mod feeds;
 mod guilds;
 mod health;
 mod member;
+mod shares;
 
 pub use member::GuildMember;
 use utoipa_actix_web::{scope, service_config::ServiceConfig};
@@ -34,12 +35,16 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(feeds::issue_feed)
                 .service(feeds::revoke_feed),
         )
-        // iCal フィードの配信 (#95)。唯一の認証なしのデータ取得ルート (トークンが URL に入る)
+        // iCal フィードの配信 (#95)。認証なしのデータ取得ルート (トークンが URL に入る)
         .service(feeds::download_feed)
+        .service(shares::public_share)
         .service(
             scope("/events")
                 // `/@me` (横断カレンダー #98) は `/{guild_id}` より先に登録しないと guild_id として解釈される
                 .service(events::list_joined)
+                .service(shares::get_share)
+                .service(shares::issue_share)
+                .service(shares::revoke_share)
                 .service(events::list)
                 .service(events::create)
                 .service(events::update)
