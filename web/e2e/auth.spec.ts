@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { BETTER_AUTH_SECRET, DATABASE_URL } from "./env";
+import { BETTER_AUTH_SECRET, DATABASE_URL, WEB_URL } from "./env";
 import { E2E_GUILDS, E2E_USER } from "./fixtures";
 import { createExtraSession, sessionCookie } from "./seed";
 
@@ -17,9 +17,40 @@ test.describe("未ログイン", () => {
     ).toBeVisible();
   });
 
-  test("ギルドのカレンダーも開けない", async ({ page }) => {
-    await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
-    await expect(page).toHaveURL(/\/login$/);
+  test("通知のカレンダーへログイン後に戻る", async ({ page, context }) => {
+    const destination = `/dashboard/${E2E_GUILDS.admin.id}`;
+    // 戻り先ヘッダは閲覧者が送った値ではなく、実際のリクエストパスで上書きされる。
+    await page.setExtraHTTPHeaders({
+      "x-discalendar-return-to": "/dashboard/999",
+    });
+    await page.goto(destination);
+    await expect(page).toHaveURL(
+      `/login?returnTo=${encodeURIComponent(destination)}`,
+    );
+
+    const token = await createExtraSession(DATABASE_URL);
+    await page.route("**/api/auth/sign-in/social", async (route) => {
+      expect(route.request().postDataJSON().callbackURL).toBe(destination);
+      // Discord OAuth の完了を模擬し、セッション作成後に指定されたカレンダーへ戻す。
+      await context.addCookies([sessionCookie(token, BETTER_AUTH_SECRET)]);
+      await route.fulfill({
+        json: { redirect: true, url: `${WEB_URL}${destination}` },
+      });
+    });
+    await page.getByRole("button", { name: "Discordでログイン" }).click();
+    await expect(page).toHaveURL(destination);
+    await expect(page.getByRole("grid")).toBeVisible();
+    await expect(page.getByText(E2E_GUILDS.admin.name)).toBeVisible();
+  });
+
+  test("ログインの戻り先に外部 URL を指定できない", async ({ page }) => {
+    await page.goto("/login?returnTo=https%3A%2F%2Fexample.com");
+    await page.route("**/api/auth/sign-in/social", (route) =>
+      route.fulfill({ json: { redirect: false } }),
+    );
+    const request = page.waitForRequest("**/api/auth/sign-in/social");
+    await page.getByRole("button", { name: "Discordでログイン" }).click();
+    expect((await request).postDataJSON().callbackURL).toBe("/dashboard");
   });
 
   test("ログイン画面からトップページや使い方へ移動できる", async ({ page }) => {

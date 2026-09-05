@@ -25,7 +25,7 @@ pub fn format_datetime(datetime: NaiveDateTime, all_day: bool) -> String {
     )
 }
 
-/// 終日は日付を変換せず、時刻付き予定の終了は JST で同日なら時刻だけにする。
+/// 終日は日付を変換せず、時刻付き予定は閲覧者ごとの日付の違いを考慮して両端の日付を表示する。
 pub fn format_date_range(all_day: bool, start: NaiveDateTime, end: NaiveDateTime) -> String {
     if all_day {
         let start_date = format_datetime(start, true);
@@ -34,11 +34,10 @@ pub fn format_date_range(all_day: bool, start: NaiveDateTime, end: NaiveDateTime
         }
         return format!("{} - {}", start_date, format_datetime(end, true));
     }
-    let end_style = if start.date() == end.date() { 't' } else { 'F' };
     format!(
         "{} - {} ({})",
         timestamp(start, 'F'),
-        timestamp(end, end_style),
+        timestamp(end, 'F'),
         timestamp(start, 'R')
     )
 }

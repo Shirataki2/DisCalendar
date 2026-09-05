@@ -780,9 +780,14 @@ mod tests {
 
     #[test]
     fn formats_date_range_for_all_day_single_and_multi_day() {
+        // JST では同日でも UTC では前日から当日にまたがるため、終了日を省略しない。
+        assert_eq!(
+            format_date_range(false, dt("2026-08-23T00:30:00"), dt("2026-08-23T23:30:00")),
+            "<t:1787412600:F> - <t:1787495400:F> (<t:1787412600:R>)"
+        );
         assert_eq!(
             format_date_range(false, dt("1970-01-01T09:00:00"), dt("1970-01-01T10:00:00")),
-            "<t:0:F> - <t:3600:t> (<t:0:R>)"
+            "<t:0:F> - <t:3600:F> (<t:0:R>)"
         );
         assert_eq!(
             format_date_range(true, dt("2026-08-23T00:00:00"), dt("2026-08-23T00:00:00")),
@@ -794,7 +799,7 @@ mod tests {
         );
         assert_eq!(
             format_date_range(false, dt("2026-08-23T10:00:00"), dt("2026-08-23T11:30:00")),
-            "<t:1787446800:F> - <t:1787452200:t> (<t:1787446800:R>)"
+            "<t:1787446800:F> - <t:1787452200:F> (<t:1787446800:R>)"
         );
         assert_eq!(
             format_date_range(false, dt("2026-08-23T22:00:00"), dt("2026-08-24T01:00:00")),
@@ -863,7 +868,7 @@ mod tests {
             assert_eq!(embed["url"], links.calendar);
             assert_eq!(
                 embed["fields"][0]["value"],
-                "<t:1787446800:F> - <t:1787452200:t> (<t:1787446800:R>)"
+                "<t:1787446800:F> - <t:1787452200:F> (<t:1787446800:R>)"
             );
             let text = build_plain_text(&event, notification, event.start_at, event.end_at, &links);
             assert!(text.contains(embed["fields"][0]["value"].as_str().unwrap()));

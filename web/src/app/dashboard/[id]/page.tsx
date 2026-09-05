@@ -10,6 +10,7 @@ import { GuildDashboard } from "@/components/guild-dashboard";
 import { ApiError } from "@/lib/api";
 import { serverApi } from "@/lib/api/server";
 import type { Guild } from "@/lib/api/types";
+import { loginUrl } from "@/lib/login-redirect";
 import { queryKeys } from "@/lib/query/keys";
 
 export const metadata: Metadata = {
@@ -57,7 +58,7 @@ export default async function GuildCalendarPage({
   const result = await loadGuild(id, queryClient);
   if (!result.ok) {
     if (result.error instanceof ApiError && result.error.status === 401) {
-      redirect("/login");
+      redirect(loginUrl(`/dashboard/${id}`));
     }
     return <GuildUnavailable error={result.error} />;
   }
