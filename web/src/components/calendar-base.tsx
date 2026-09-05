@@ -23,10 +23,13 @@ import {
 } from "@/hooks/use-calendar-settings";
 import { toApiDateTime } from "@/lib/calendar-events";
 import {
+  CALENDAR_VIEW_LABELS,
+  CALENDAR_VIEWS,
   type CalendarView,
   parseCalendarView,
   resolveInitialView,
 } from "@/lib/calendar-settings";
+import { CALENDAR_VIEW_SHORTCUT_KEYS } from "@/lib/calendar-shortcuts";
 import {
   dayColorClass,
   dowColorClass,
@@ -131,6 +134,17 @@ const dayCellTopContent = (info: DayCellInfo) => {
 };
 
 /**
+ * ヘッダツールバーのボタンにキーボードショートカット (#160) を併記した title を付ける。
+ * FullCalendar の `hint` は aria-label になり、ボタンのアクセシブルネーム (E2E が使う「月」など) を
+ * 変えてしまうので、マウント時に title 属性を足すだけにする
+ */
+const buttonTitle = (title: string, key: string) => ({
+  didMount: ({ el }: { el: HTMLElement }) => {
+    el.title = `${title} (${key})`;
+  },
+});
+
+/**
  * サーバーのカレンダー (EventCalendar) と横断カレンダー (JoinedEventsCalendar、#98) で
  * 同じにする FullCalendar の設定 (プラグイン・日時の表記・祝日・ビュー・ツールバー・操作感)。
  * 予定の中身や編集の可否など画面ごとに違うものは各コンポーネントが足す
@@ -168,9 +182,23 @@ export const calendarBaseOptions = {
     list: { listDayFormat },
   },
   buttons: {
-    timeGridFourDay: { text: "4日" },
-    // ja ロケールの既定は "予定リスト" で、スマートフォンではボタンの並びが折り返す
-    listMonth: { text: "リスト" },
+    today: buttonTitle("今日", "t"),
+    prev: buttonTitle("前の期間", "←"),
+    next: buttonTitle("次の期間", "→"),
+    // ビューのボタンの文字は ja ロケールの既定 (月 / 週 / 日) を CALENDAR_VIEW_LABELS に合わせる。
+    // 4日は独自ビューなので既定が無く、リストの既定 "予定リスト" はスマートフォンで並びが折り返す
+    ...Object.fromEntries(
+      CALENDAR_VIEWS.map((view) => [
+        view,
+        {
+          text: CALENDAR_VIEW_LABELS[view],
+          ...buttonTitle(
+            CALENDAR_VIEW_LABELS[view],
+            CALENDAR_VIEW_SHORTCUT_KEYS[view],
+          ),
+        },
+      ]),
+    ),
   },
   nowIndicator: true,
   snapDuration: "00:15",

@@ -4,12 +4,14 @@ import {
   CalendarCogIcon,
   CalendarDaysIcon,
   ChevronDownIcon,
+  KeyboardIcon,
   LayoutGridIcon,
   LogOutIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { CalendarSettingsDialog } from "@/components/calendar-settings-dialog";
+import { useOpenKeyboardShortcuts } from "@/components/keyboard-shortcuts-dialog";
 import { ThemeToggleContent, useThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +40,8 @@ export function UserMenu({ name, image }: Props) {
   const toggleTheme = useThemeToggle();
   // ダイアログはメニューが閉じても残るよう、メニューの外に置いて開閉だけここで持つ
   const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
+  // ショートカット一覧 (#160) のダイアログは DashboardShell が持つ (context 経由で開く)
+  const openKeyboardShortcuts = useOpenKeyboardShortcuts();
 
   return (
     <>
@@ -88,6 +92,16 @@ export function UserMenu({ name, image }: Props) {
             <CalendarCogIcon aria-hidden />
             カレンダーの表示設定
           </DropdownMenuItem>
+          {/* キーボードが無いスマートフォン幅では出さない */}
+          {openKeyboardShortcuts && (
+            <DropdownMenuItem
+              onClick={openKeyboardShortcuts}
+              className="hidden sm:flex"
+            >
+              <KeyboardIcon aria-hidden />
+              キーボードショートカット
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={toggleTheme}>
             <ThemeToggleContent />
           </DropdownMenuItem>

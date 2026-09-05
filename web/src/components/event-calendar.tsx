@@ -31,6 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { useCalendarShortcuts } from "@/hooks/use-calendar-shortcuts";
 import { useLastValue } from "@/hooks/use-last-value";
 import { describeApiError } from "@/lib/api";
 import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
@@ -147,6 +148,12 @@ export function EventCalendar({
     setDialog({ mode: "create", values });
   };
 
+  // キーボードショートカット (#160)。"n" は「新規作成」ボタンと同じで、閲覧のみなら効かない
+  useCalendarShortcuts({
+    calendarRef,
+    onCreate: canEdit ? () => openCreate(defaultEventFormValues()) : undefined,
+  });
+
   const handleSelect = (info: DateSelectInfo) => {
     calendarRef.current?.getApi().unselect();
     openCreate(newEventFormValues(info.start, info.end, info.allDay));
@@ -203,7 +210,7 @@ export function EventCalendar({
           disabled={!canEdit}
           title={
             canEdit
-              ? undefined
+              ? "新規作成 (n)"
               : "このサーバーでは管理権限を持つユーザーのみ予定を編集できます"
           }
           className="rounded-full bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600"
