@@ -16,6 +16,15 @@ export const CALENDAR_VIEWS = [
 
 export type CalendarView = (typeof CALENDAR_VIEWS)[number];
 
+/** ビューの表示名 (ヘッダツールバーのボタンと同じ。表示設定とショートカット一覧でも使う) */
+export const CALENDAR_VIEW_LABELS: Record<CalendarView, string> = {
+  dayGridMonth: "月",
+  timeGridWeek: "週",
+  timeGridFourDay: "4日",
+  timeGridDay: "日",
+  listMonth: "リスト",
+};
+
 /** 最初に表示するビューの設定値。"last" は「前回開いていたビュー」 */
 export type CalendarInitialView = CalendarView | "last";
 

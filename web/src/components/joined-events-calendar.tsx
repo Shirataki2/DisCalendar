@@ -1,6 +1,7 @@
 "use client";
 
 import Calendar, {
+  type CalendarRef,
   type DatesSetInfo,
   type EventClickInfo,
 } from "@fullcalendar/react";
@@ -17,6 +18,7 @@ import {
   useCalendarBase,
 } from "@/components/calendar-base";
 import { EventPopover, type PopoverAnchor } from "@/components/event-popover";
+import { useCalendarShortcuts } from "@/hooks/use-calendar-shortcuts";
 import { describeApiError } from "@/lib/api";
 import { sourceOf, toCalendarEvent } from "@/lib/calendar-events";
 import { assignGuildColors } from "@/lib/guild-colors";
@@ -81,7 +83,10 @@ function useOverflowCount(
  * 予定のポップオーバーからそのサーバーのカレンダーへ移動して行う
  */
 export function JoinedEventsCalendar({ guilds }: Props) {
+  const calendarRef = useRef<CalendarRef>(null);
   const { initialView, firstDay, scrollTime } = useCalendarBase();
+  // キーボードショートカット (#160)。閲覧専用なので "n" (新規作成) は渡さない
+  useCalendarShortcuts({ calendarRef });
   const [range, setRange] = useState<EventRange | null>(null);
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [hiddenGuildIds, setHiddenGuildIds] = useState<ReadonlySet<string>>(
@@ -239,6 +244,7 @@ export function JoinedEventsCalendar({ guilds }: Props) {
       <div className="calendar-shell min-h-0 flex-1">
         {initialView && (
           <Calendar
+            ref={calendarRef}
             {...calendarBaseOptions}
             initialView={initialView}
             firstDay={firstDay}

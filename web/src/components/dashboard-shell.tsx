@@ -2,9 +2,13 @@
 
 import { MenuIcon } from "lucide-react";
 import Link from "next/link";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { CalendarSettingsDialog } from "@/components/calendar-settings-dialog";
 import { DashboardNav } from "@/components/dashboard-nav";
+import {
+  KeyboardShortcutsDialog,
+  OpenKeyboardShortcutsContext,
+} from "@/components/keyboard-shortcuts-dialog";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +51,10 @@ export function DashboardShell({
   // カレンダーの表示設定 (#96)。ダイアログはここに置く (ドロワー (Sheet) の中に置くと、
   // 項目を押してドロワーが閉じたときに一緒にアンマウントされて開けない)
   const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
+  // キーボードショートカットの一覧 (#160) も同じ理由でここに置き、アカウントメニューと
+  // カレンダーの "?" キーには context で「開く」だけを渡す
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
 
   const toggleSidebar = () => {
     const next = !sidebarOpen;
@@ -66,7 +74,7 @@ export function DashboardShell({
   }, []);
 
   return (
-    <>
+    <OpenKeyboardShortcutsContext value={openShortcuts}>
       <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-2 sm:px-3">
         {/* 2 つのボタンは CSS で出し分ける (PC はサイドバーの開閉、スマホはドロワーを開く) */}
         <Button
@@ -136,6 +144,10 @@ export function DashboardShell({
         open={calendarSettingsOpen}
         onOpenChange={setCalendarSettingsOpen}
       />
-    </>
+      <KeyboardShortcutsDialog
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+      />
+    </OpenKeyboardShortcutsContext>
   );
 }

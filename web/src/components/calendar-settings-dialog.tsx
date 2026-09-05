@@ -16,14 +16,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCalendarSettings } from "@/hooks/use-calendar-settings";
-import type { CalendarInitialView } from "@/lib/calendar-settings";
+import {
+  CALENDAR_VIEW_LABELS,
+  CALENDAR_VIEWS,
+  type CalendarInitialView,
+} from "@/lib/calendar-settings";
 
 const INITIAL_VIEW_ITEMS: { value: CalendarInitialView; label: string }[] = [
-  { value: "dayGridMonth", label: "月" },
-  { value: "timeGridWeek", label: "週" },
-  { value: "timeGridFourDay", label: "4日" },
-  { value: "timeGridDay", label: "日" },
-  { value: "listMonth", label: "リスト" },
+  ...CALENDAR_VIEWS.map((view) => ({
+    value: view,
+    label: CALENDAR_VIEW_LABELS[view],
+  })),
   { value: "last", label: "前回開いていたビュー" },
 ];
 
