@@ -38,9 +38,29 @@ export default async function SharePage({ params }: Props) {
         DisCalendar
       </Link>
       <article className="mt-8 space-y-6 rounded-2xl border bg-card p-6 sm:p-10">
-        <p className="text-sm text-muted-foreground break-words">
-          {event.guild_name}
-        </p>
+        <div className="flex items-center gap-3">
+          {event.guild_avatar_url ? (
+            // biome-ignore lint/performance/noImgElement: Discord CDN のアイコンは最適化不要
+            <img
+              src={event.guild_avatar_url}
+              alt=""
+              width={40}
+              height={40}
+              referrerPolicy="no-referrer"
+              className="size-10 shrink-0 rounded-full object-cover"
+            />
+          ) : (
+            <span
+              aria-hidden="true"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-foreground/10 font-semibold"
+            >
+              {Array.from(event.guild_name)[0]}
+            </span>
+          )}
+          <p className="min-w-0 text-sm text-muted-foreground break-words">
+            {event.guild_name}
+          </p>
+        </div>
         <h1 className="text-3xl font-bold break-words">{event.name}</h1>
         <p>
           {describeEventRange(event)}{" "}
