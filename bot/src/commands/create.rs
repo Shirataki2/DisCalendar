@@ -128,6 +128,7 @@ pub async fn create(
             start_at: validated.start,
             end_at: validated.end,
             created_at: now_jst(),
+            created_by: &ctx.author().id.to_string(),
         },
     )
     .await?;

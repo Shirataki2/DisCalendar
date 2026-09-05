@@ -37,6 +37,7 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 |---|---|---|
 | GET | `/` | バージョン文字列 |
 | GET | `/healthz` | DB 疎通込みのヘルスチェック |
+| GET | `/guilds/{guild_id}/members?ids=...` | メンバーのみ。カンマ区切りのユーザー ID (最大 20 件、このギルドの予定の操作者のみ) を表示名・アバターに解決。60 秒キャッシュ、同時問い合わせは最大 4 件。退出済みは ID のみ返す |
 | GET | `/guilds/joined?guild_ids=a,b,c` | 指定 ID のうち Bot が参加しているギルド |
 | GET | `/guilds/{guild_id}` | ギルド情報 (メンバーのみ) |
 | GET | `/guilds/{guild_id}/@me/permissions` | 自分のギルド権限 (`can_manage_server` など) |
@@ -142,3 +143,12 @@ src/
 build.rs            migrations/ の変更検知と GIT_SHA / IMAGE_TAG の再ビルド指示
 migrations/         スキーマ (適用済みのファイルは変更禁止、変更は新ファイルで)
 ```
+
+### 予定の作成者・更新者 (#156)
+
+作成時はセッション (Bot はコマンド実行者) の Discord ID を `created_by` に保存します。
+更新時は `updated_by` と JST naive の `updated_at` を記録し、作成者は変更しません。
+管理コンソールからの作成・更新も管理者の ID を記録します。リクエスト本文からの操作者指定は受け付けません。
+既存データは NULL のまま残します。表示名は詳細を開いたときに専用エンドポイントで取得し、
+ニックネーム → グローバル表示名 → ユーザー名、アバターはサーバー別 → 全体の順に使います。
+共有ページのレスポンスと iCal には操作者の情報を含めません。

@@ -40,6 +40,7 @@ async fn event_crud_is_scoped_to_guild(pool: PgPool) {
         GUILD,
         &input("meeting", "2026-08-22T10:00:00", "2026-08-22T11:00:00"),
         dt("2026-08-01T00:00:00"),
+        "333",
     )
     .await
     .unwrap();
@@ -54,10 +55,17 @@ async fn event_crud_is_scoped_to_guild(pool: PgPool) {
     let mut renamed = input("renamed", "2026-08-22T10:00:00", "2026-08-22T12:00:00");
     renamed.notifications.clear();
     assert!(
-        events::update(&pool, OTHER_GUILD, created.id, &renamed)
-            .await
-            .unwrap()
-            .is_none()
+        events::update(
+            &pool,
+            OTHER_GUILD,
+            created.id,
+            &renamed,
+            "333",
+            "2026-09-05T12:00:00".parse().unwrap()
+        )
+        .await
+        .unwrap()
+        .is_none()
     );
     assert!(
         !events::delete(&pool, OTHER_GUILD, created.id)
@@ -65,10 +73,17 @@ async fn event_crud_is_scoped_to_guild(pool: PgPool) {
             .unwrap()
     );
 
-    let updated = events::update(&pool, GUILD, created.id, &renamed)
-        .await
-        .unwrap()
-        .expect("event exists");
+    let updated = events::update(
+        &pool,
+        GUILD,
+        created.id,
+        &renamed,
+        "333",
+        "2026-09-05T12:00:00".parse().unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("event exists");
     assert_eq!(updated.name, "renamed");
     assert_eq!(updated.end_at, dt("2026-08-22T12:00:00"));
     assert_eq!(updated.notifications, serde_json::json!([]));
@@ -88,6 +103,7 @@ async fn list_returns_events_overlapping_range(pool: PgPool) {
         GUILD,
         &input("spans-into", "2026-08-30T10:00:00", "2026-09-02T10:00:00"),
         now,
+        "333",
     )
     .await
     .unwrap();
@@ -97,6 +113,7 @@ async fn list_returns_events_overlapping_range(pool: PgPool) {
         GUILD,
         &input("inside", "2026-09-10T10:00:00", "2026-09-10T11:00:00"),
         now,
+        "333",
     )
     .await
     .unwrap();
@@ -106,6 +123,7 @@ async fn list_returns_events_overlapping_range(pool: PgPool) {
         GUILD,
         &input("at-end", "2026-10-01T00:00:00", "2026-10-01T01:00:00"),
         now,
+        "333",
     )
     .await
     .unwrap();
@@ -115,6 +133,7 @@ async fn list_returns_events_overlapping_range(pool: PgPool) {
         GUILD,
         &input("before", "2026-08-01T10:00:00", "2026-08-01T11:00:00"),
         now,
+        "333",
     )
     .await
     .unwrap();
@@ -124,6 +143,7 @@ async fn list_returns_events_overlapping_range(pool: PgPool) {
         OTHER_GUILD,
         &input("other", "2026-09-10T10:00:00", "2026-09-10T11:00:00"),
         now,
+        "333",
     )
     .await
     .unwrap();
@@ -166,7 +186,7 @@ async fn list_between_guilds_spans_guilds_and_excludes_others(pool: PgPool) {
             "2026-10-10T11:00:00",
         ),
     ] {
-        events::create(&pool, guild, &input(name, start, end), now)
+        events::create(&pool, guild, &input(name, start, end), now, "333")
             .await
             .unwrap();
     }
@@ -208,6 +228,7 @@ async fn event_links_are_scoped_and_cascade(pool: PgPool) {
         GUILD,
         &input("linked", "2026-09-10T10:00:00", "2026-09-10T11:00:00"),
         now,
+        "333",
     )
     .await
     .unwrap();
@@ -290,6 +311,7 @@ async fn scheduled_event_ids_are_filtered_by_guild(pool: PgPool) {
         GUILD,
         &input("future", "2026-09-10T10:00:00", "2026-09-10T11:00:00"),
         now,
+        "333",
     )
     .await
     .unwrap();
@@ -298,6 +320,7 @@ async fn scheduled_event_ids_are_filtered_by_guild(pool: PgPool) {
         GUILD,
         &input("past", "2026-07-10T10:00:00", "2026-07-10T11:00:00"),
         now,
+        "333",
     )
     .await
     .unwrap();
@@ -306,6 +329,7 @@ async fn scheduled_event_ids_are_filtered_by_guild(pool: PgPool) {
         OTHER_GUILD,
         &input("other", "2026-09-10T10:00:00", "2026-09-10T11:00:00"),
         now,
+        "333",
     )
     .await
     .unwrap();
@@ -519,6 +543,7 @@ async fn admin_guild_list_joins_config_settings_and_counts(pool: PgPool) {
                 "2026-08-22T11:00:00",
             ),
             dt("2026-08-01T00:00:00"),
+            "333",
         )
         .await
         .unwrap();
@@ -531,6 +556,7 @@ async fn admin_guild_list_joins_config_settings_and_counts(pool: PgPool) {
         LEFT_GUILD,
         &input("orphan", "2026-08-22T10:00:00", "2026-08-22T11:00:00"),
         dt("2026-08-01T00:00:00"),
+        "333",
     )
     .await
     .unwrap();
@@ -607,6 +633,7 @@ async fn event_writes_work_inside_a_transaction(pool: PgPool) {
         GUILD,
         &input("tx", "2026-08-22T10:00:00", "2026-08-22T11:00:00"),
         dt("2026-08-01T00:00:00"),
+        "333",
     )
     .await
     .unwrap();
@@ -761,7 +788,7 @@ async fn feed_lists_events_ending_after_the_cutoff(pool: PgPool) {
         ("spanning", "2025-08-30T00:00:00", "2025-09-02T00:00:00"),
         ("future", "2027-01-01T10:00:00", "2027-01-01T11:00:00"),
     ] {
-        events::create(&pool, GUILD, &input(name, start, end), created_at)
+        events::create(&pool, GUILD, &input(name, start, end), created_at, "333")
             .await
             .unwrap();
     }
@@ -781,7 +808,7 @@ async fn feed_lists_events_ending_after_the_cutoff(pool: PgPool) {
     ] {
         let mut all_day = input(name, start, end);
         all_day.is_all_day = true;
-        events::create(&pool, GUILD, &all_day, created_at)
+        events::create(&pool, GUILD, &all_day, created_at, "333")
             .await
             .unwrap();
     }
@@ -791,6 +818,7 @@ async fn feed_lists_events_ending_after_the_cutoff(pool: PgPool) {
         OTHER_GUILD,
         &input("other", "2026-09-01T10:00:00", "2026-09-01T11:00:00"),
         created_at,
+        "333",
     )
     .await
     .unwrap();
@@ -804,4 +832,54 @@ async fn feed_lists_events_ending_after_the_cutoff(pool: PgPool) {
         names,
         vec!["spanning", "all-day-ends-on-cutoff-day", "edge", "future"]
     );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn event_authors_survive_updates_and_legacy_rows(pool: PgPool) {
+    let body = input("authors", "2026-09-05T10:00:00", "2026-09-05T11:00:00");
+    let created = events::create(&pool, GUILD, &body, dt("2026-09-01T12:00:00"), "333")
+        .await
+        .unwrap();
+    assert_eq!(created.created_by.as_deref(), Some("333"));
+    assert_eq!(created.updated_by, None);
+    assert_eq!(created.updated_at, None);
+    let at = dt("2026-09-05T12:00:00");
+    let updated = events::update(&pool, GUILD, created.id, &body, "444", at)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.created_by, created.created_by);
+    assert_eq!(updated.updated_by.as_deref(), Some("444"));
+    assert_eq!(updated.updated_at, Some(at));
+    let mut authors = events::author_ids(&pool, GUILD, &["333".into(), "444".into(), "999".into()])
+        .await
+        .unwrap();
+    authors.sort();
+    assert_eq!(authors, vec!["333", "444"]);
+    assert!(
+        events::author_ids(&pool, OTHER_GUILD, &["333".into()])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let moved = events::update_if_unlinked(&pool, GUILD, created.id, &body, "555", at)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(moved.created_by, created.created_by);
+    assert_eq!(moved.updated_by.as_deref(), Some("555"));
+    sqlx::query(
+        "UPDATE events SET created_by = NULL, updated_by = NULL, updated_at = NULL WHERE id = $1",
+    )
+    .bind(created.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let rows = events::list_between(&pool, GUILD, body.start_at, body.end_at)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].created_by.is_none());
+    assert!(rows[0].updated_by.is_none());
+    assert!(rows[0].updated_at.is_none());
 }

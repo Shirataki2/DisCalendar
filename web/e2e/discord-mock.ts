@@ -276,7 +276,14 @@ export function startDiscordMock(port: number): Promise<Server> {
         return notFound("Unknown Member", 10007);
       }
       return json(200, {
-        user: { id: E2E_USER.discordId, username: E2E_USER.name },
+        user: {
+          id: E2E_USER.discordId,
+          username: E2E_USER.name,
+          global_name: E2E_USER.name,
+          avatar: null,
+        },
+        nick: E2E_USER.name,
+        avatar: null,
         roles: guild.userCreateEvents ? [E2E_USER_ROLE_ID] : [],
       });
     }

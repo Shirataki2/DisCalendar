@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at\n        FROM events WHERE guild_id = $1 AND start_at >= $2 ORDER BY start_at, id\n        ",
+  "query": "\n        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,\n                  NULL::text AS \"discord_scheduled_event_id?\"\n        ",
   "describe": {
     "columns": [
       {
@@ -112,12 +112,59 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 10,
+        "name": "created_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "discord_scheduled_event_id?",
+        "type_info": "Text",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "Timestamp"
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Bool",
+        "Timestamp",
+        "Timestamp",
+        "Timestamp",
+        "Text"
       ]
     },
     "nullable": [
@@ -130,8 +177,12 @@
       false,
       false,
       false,
-      false
+      false,
+      true,
+      true,
+      true,
+      null
     ]
   },
-  "hash": "a74f5127a38d4cea2505fdc128b9a4cd93a35ed57bb602013e9be1ebca825bdc"
+  "hash": "77d43dfd7f2bc5bd5db039f3e4cbdf1faf12252f0b41dc3d28f2f87730c57acd"
 }

@@ -21,7 +21,7 @@ async fn share_lifecycle_and_public_fields(pool: PgPool) {
         end_at: "2026-09-05T11:00:00".parse().unwrap(),
         discord_scheduled_event: None,
     };
-    let event = events::create(&pool, "111", &input, input.start_at)
+    let event = events::create(&pool, "111", &input, input.start_at, "333")
         .await
         .unwrap();
     assert!(
@@ -50,9 +50,16 @@ async fn share_lifecycle_and_public_fields(pool: PgPool) {
         name: "変更済み".into(),
         ..input
     };
-    events::update(&pool, "111", event.id, &updated)
-        .await
-        .unwrap();
+    events::update(
+        &pool,
+        "111",
+        event.id,
+        &updated,
+        "333",
+        "2026-09-05T12:00:00".parse().unwrap(),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         shares::find(&pool, &link.token)
             .await

@@ -184,6 +184,9 @@ mod tests {
             start_at: start.parse().unwrap(),
             end_at: end.parse().unwrap(),
             created_at: "2026-08-01T00:00:00".parse().unwrap(),
+            created_by: None,
+            updated_by: None,
+            updated_at: None,
             discord_scheduled_event_id: None,
         }
     }

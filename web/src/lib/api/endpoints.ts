@@ -15,6 +15,7 @@ import type {
   Guild,
   GuildConfig,
   GuildFeed,
+  MemberProfile,
   MyPermissions,
   OpsResult,
   ShareLink,
@@ -74,6 +75,12 @@ export function createApi(request: ApiFetcher) {
         }),
     },
     guilds: {
+      members: (guildId: string, ids: string[], signal?: AbortSignal) => {
+        const query = new URLSearchParams({ ids: ids.join(",") });
+        return request<MemberProfile[]>(`/guilds/${guildId}/members?${query}`, {
+          signal,
+        });
+      },
       /** 指定したギルドのうち Bot が参加しているもの */
       joined: (guildIds: string[]) => {
         const query = new URLSearchParams({ guild_ids: guildIds.join(",") });
@@ -139,6 +146,13 @@ export function createApi(request: ApiFetcher) {
       /** アクティブユーザー・予定の作成数とその推移 (#79)。stats より重い */
       analytics: () => request<AdminAnalytics>("/admin/analytics"),
       guilds: {
+        members: (guildId: string, ids: string[], signal?: AbortSignal) => {
+          const query = new URLSearchParams({ ids: ids.join(",") });
+          return request<MemberProfile[]>(
+            `/guilds/${guildId}/members?${query}`,
+            { signal },
+          );
+        },
         /** 全ギルドの一覧・検索 (q: guild_id の完全一致 or 名前の部分一致、page: 1 始まり) */
         list: (q: string, page: number) => {
           const query = new URLSearchParams({ q, page: String(page) });

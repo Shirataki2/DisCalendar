@@ -26,6 +26,7 @@ fn new_event<'a>(guild_id: &'a str, name: &'a str, start: &str, end: &str) -> Ne
         start_at: dt(start),
         end_at: dt(end),
         created_at: dt("2026-08-01T00:00:00"),
+        created_by: "333",
     }
 }
 
@@ -46,6 +47,9 @@ async fn create_stores_notifications_in_legacy_format(pool: PgPool) {
     .await
     .unwrap();
 
+    assert_eq!(event.created_by.as_deref(), Some("333"));
+    assert_eq!(event.updated_by, None);
+    assert_eq!(event.updated_at, None);
     assert_eq!(event.guild_id, GUILD);
     assert_eq!(event.name, "定例");
     assert_eq!(event.description.as_deref(), Some("説明"));

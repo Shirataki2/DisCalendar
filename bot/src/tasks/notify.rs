@@ -703,6 +703,9 @@ mod tests {
             start_at: dt("2026-08-23T15:30:00"),
             end_at: dt("2026-08-24T09:00:00"),
             created_at: dt("2026-08-01T00:00:00"),
+            created_by: None,
+            updated_by: None,
+            updated_at: None,
         };
         assert_eq!(
             effective_range(&event),
@@ -723,6 +726,9 @@ mod tests {
             start_at: dt("2026-08-23T10:00:00"),
             end_at: dt("2026-08-23T11:00:00"),
             created_at: dt("2026-08-01T00:00:00"),
+            created_by: None,
+            updated_by: None,
+            updated_at: None,
         };
         assert_eq!(
             effective_range(&event),

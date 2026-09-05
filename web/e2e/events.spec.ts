@@ -8,7 +8,7 @@ import {
   neighborDay,
   openEventPopover,
 } from "./calendar";
-import { E2E_GUILDS } from "./fixtures";
+import { E2E_GUILDS, E2E_USER } from "./fixtures";
 
 // 予定の作成 → 編集 → ドラッグ移動 (成功 / 失敗時のロールバック) → 削除。
 // 管理権限のあるギルド (E2E_GUILDS.admin) で、同じブラウザで順に進める
@@ -49,6 +49,8 @@ test("予定をクリックすると概要が出て、編集ダイアログか�
   page,
 }) => {
   const popover = await openEventPopover(page, createdTitle);
+  await expect(popover).toContainText(`作成:${E2E_USER.name}`);
+  await expect(popover).not.toContainText("最終更新:");
   // 旧フォームの既定の通知
   await expect(popover).toContainText("1日前・1時間前");
   await popover.getByRole("button", { name: "編集" }).click();
@@ -69,6 +71,7 @@ test("予定をクリックすると概要が出て、編集ダイアログか�
   await expect(eventOn(page, createdTitle)).toHaveCount(0);
   const reopened = await openEventPopover(page, editedTitle);
   await expect(reopened).toContainText("E2E で編集した説明");
+  await expect(reopened).toContainText(`最終更新:${E2E_USER.name}`);
 });
 
 test("複製すると元の内容が入った作成ダイアログが開き、新しい予定として保存できる", async ({

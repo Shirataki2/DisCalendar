@@ -21,6 +21,9 @@ export interface ApiEvent {
   start_at: string;
   end_at: string;
   created_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
   /** 連携している Discord スケジュールイベントの ID。未連携なら null */
   discord_scheduled_event_id: string | null;
 }
@@ -549,4 +552,11 @@ export interface SharedEvent {
   is_all_day: boolean;
   start_at: string;
   end_at: string;
+}
+
+/** ギルド内の表示情報。退出したメンバーは ID のみ。 */
+export interface MemberProfile {
+  user_id: string;
+  display_name: string | null;
+  avatar_url: string | null;
 }

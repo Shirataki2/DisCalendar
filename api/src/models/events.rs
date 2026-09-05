@@ -26,6 +26,9 @@ pub struct EventRow {
     pub start_at: NaiveDateTime,
     pub end_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
+    pub updated_at: Option<NaiveDateTime>,
     /// 連携している Discord スケジュールイベントの ID (`event_discord_links`、#94)。未連携なら `None`
     pub discord_scheduled_event_id: Option<String>,
 }
@@ -49,6 +52,9 @@ pub struct Event {
     #[schema(example = "2026-08-22T11:00:00")]
     pub end_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
+    pub updated_at: Option<NaiveDateTime>,
     /// 連携している Discord スケジュールイベントの ID。未連携なら `null`
     #[schema(example = "1024667289529835550")]
     pub discord_scheduled_event_id: Option<String>,
@@ -67,6 +73,9 @@ impl From<EventRow> for Event {
             start_at: row.start_at,
             end_at: row.end_at,
             created_at: row.created_at,
+            created_by: row.created_by,
+            updated_by: row.updated_by,
+            updated_at: row.updated_at,
             discord_scheduled_event_id: row.discord_scheduled_event_id,
         }
     }
@@ -197,7 +206,7 @@ pub async fn list_between(
         EventRow,
         r#"
         SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
-               e.start_at, e.end_at, e.created_at,
+               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id
@@ -225,7 +234,7 @@ pub async fn list_between_guilds(
         EventRow,
         r#"
         SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
-               e.start_at, e.end_at, e.created_at,
+               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id
@@ -254,7 +263,7 @@ pub async fn list_for_feed(
         EventRow,
         r#"
         SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
-               e.start_at, e.end_at, e.created_at,
+               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id
@@ -269,6 +278,25 @@ pub async fn list_for_feed(
     .await
 }
 
+/// プロフィール取得を、このギルドの予定に記録された操作者だけに限定する。
+pub async fn author_ids(
+    pool: &PgPool,
+    guild_id: &str,
+    ids: &[String],
+) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT created_by AS "actor_id!" FROM events WHERE guild_id = $1 AND created_by = ANY($2)
+        UNION
+        SELECT updated_by AS "actor_id!" FROM events WHERE guild_id = $1 AND updated_by = ANY($2)
+        "#,
+        guild_id,
+        ids
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// 返る行の `discord_scheduled_event_id` は常に `None` (対応付けは行を作った後にルート層が
 /// [`super::event_links`] へ書き、レスポンスへは呼び出し元が詰め直す)
 pub async fn create<'e>(
@@ -276,14 +304,15 @@ pub async fn create<'e>(
     guild_id: &str,
     input: &EventInput,
     created_at: NaiveDateTime,
+    created_by: &str,
 ) -> sqlx::Result<EventRow> {
     let notifications = Notification::encode_all(&input.notifications);
     sqlx::query_as!(
         EventRow,
         r#"
-        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at,
+        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
         "#,
         guild_id,
@@ -294,7 +323,8 @@ pub async fn create<'e>(
         input.is_all_day,
         input.start_at,
         input.end_at,
-        created_at
+        created_at,
+        created_by
     )
     .fetch_one(executor)
     .await
@@ -308,7 +338,7 @@ pub async fn find_by_id(pool: &PgPool, guild_id: &str, id: i32) -> sqlx::Result<
         EventRow,
         r#"
         SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
-               e.start_at, e.end_at, e.created_at,
+               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id
@@ -338,7 +368,7 @@ pub async fn find_by_id_for_update(
         EventRow,
         r#"
         SELECT id, guild_id, name, description, notifications, color, is_all_day,
-               start_at, end_at, created_at,
+               start_at, end_at, created_at, created_by, updated_by, updated_at,
                NULL::text AS "discord_scheduled_event_id?"
         FROM events
         WHERE id = $1 AND guild_id = $2
@@ -366,16 +396,18 @@ pub async fn update_if_unlinked<'e>(
     guild_id: &str,
     id: i32,
     input: &EventInput,
+    updated_by: &str,
+    updated_at: NaiveDateTime,
 ) -> sqlx::Result<Option<EventRow>> {
     let notifications = Notification::encode_all(&input.notifications);
     sqlx::query_as!(
         EventRow,
         r#"
         UPDATE events
-        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9
+        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9, updated_by = $10, updated_at = $11
         WHERE id = $1 AND guild_id = $2
           AND NOT EXISTS (SELECT 1 FROM event_discord_links l WHERE l.event_id = events.id)
-        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at,
+        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
         "#,
         id,
@@ -386,7 +418,9 @@ pub async fn update_if_unlinked<'e>(
         input.color,
         input.is_all_day,
         input.start_at,
-        input.end_at
+        input.end_at,
+        updated_by,
+        updated_at
     )
     .fetch_optional(executor)
     .await
@@ -400,15 +434,17 @@ pub async fn update<'e>(
     guild_id: &str,
     id: i32,
     input: &EventInput,
+    updated_by: &str,
+    updated_at: NaiveDateTime,
 ) -> sqlx::Result<Option<EventRow>> {
     let notifications = Notification::encode_all(&input.notifications);
     sqlx::query_as!(
         EventRow,
         r#"
         UPDATE events
-        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9
+        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9, updated_by = $10, updated_at = $11
         WHERE id = $1 AND guild_id = $2
-        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at,
+        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
         "#,
         id,
@@ -419,7 +455,9 @@ pub async fn update<'e>(
         input.color,
         input.is_all_day,
         input.start_at,
-        input.end_at
+        input.end_at,
+        updated_by,
+        updated_at
     )
     .fetch_optional(executor)
     .await

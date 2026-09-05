@@ -41,7 +41,7 @@ pub async fn delete_guild_events(
         EventRow,
         r#"
         SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
-               e.start_at, e.end_at, e.created_at,
+               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id

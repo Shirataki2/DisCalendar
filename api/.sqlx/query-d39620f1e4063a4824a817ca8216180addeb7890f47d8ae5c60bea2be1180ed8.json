@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE events\n        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9\n        WHERE id = $1 AND guild_id = $2\n          AND NOT EXISTS (SELECT 1 FROM event_discord_links l WHERE l.event_id = events.id)\n        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at,\n                  NULL::text AS \"discord_scheduled_event_id?\"\n        ",
+  "query": "\n        UPDATE events\n        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9, updated_by = $10, updated_at = $11\n        WHERE id = $1 AND guild_id = $2\n          AND NOT EXISTS (SELECT 1 FROM event_discord_links l WHERE l.event_id = events.id)\n        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,\n                  NULL::text AS \"discord_scheduled_event_id?\"\n        ",
   "describe": {
     "columns": [
       {
@@ -115,6 +115,39 @@
       },
       {
         "ordinal": 10,
+        "name": "created_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
         "name": "discord_scheduled_event_id?",
         "type_info": "Text",
         "origin": "Expression"
@@ -130,6 +163,8 @@
         "Text",
         "Bool",
         "Timestamp",
+        "Timestamp",
+        "Text",
         "Timestamp"
       ]
     },
@@ -144,8 +179,11 @@
       false,
       false,
       false,
+      true,
+      true,
+      true,
       null
     ]
   },
-  "hash": "624579392ef4dbbf087819535d64fce2a2ac339127e14d11d70f4fc4378515ac"
+  "hash": "d39620f1e4063a4824a817ca8216180addeb7890f47d8ae5c60bea2be1180ed8"
 }
