@@ -6,8 +6,8 @@ import { E2E_CHANNELS, E2E_GUILDS } from "./fixtures";
 
 const RESTRICTED_NOTICE =
   "このサーバーでは管理権限を持つユーザーのみ予定を編集できます";
-const RESTRICTED_LABEL = "予定の追加・編集・削除を";
-const NOTIFY_AT_START_LABEL = "予定の開始時刻に通知する";
+const RESTRICTED_LABEL = "予定の編集を管理権限のあるメンバーに限定する";
+const NOTIFY_AT_START_LABEL = "開始時刻に通知する";
 const CHANNEL_LABEL = "通知先チャンネル";
 const configApi = `/local/api/guilds/${E2E_GUILDS.admin.id}/config`;
 
@@ -330,5 +330,53 @@ test.describe("管理権限のないギルド (restricted)", () => {
       { data: { restricted: false } },
     );
     expect(config.status()).toBe(403);
+  });
+});
+
+test.describe("設定の補足", () => {
+  test("キーボードで補足を読み、Escape で設定を閉じずに戻れる", async ({
+    page,
+  }) => {
+    await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+    const dialog = await openSettings(page);
+    const hint = dialog.getByRole("button", { name: "予定の編集権限の補足" });
+    const checkbox = dialog.getByRole("checkbox", { name: RESTRICTED_LABEL });
+    const checked = await checkbox.isChecked();
+    await checkbox.focus();
+    await page.keyboard.press("Tab");
+    await expect(hint).toBeFocused();
+    await expect(page.getByRole("tooltip")).toContainText("ロールの管理");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("tooltip")).toBeHidden();
+    await expect(dialog).toBeVisible();
+    await expect(checkbox).toBeChecked({ checked });
+    await expect(
+      dialog.getByRole("button", { name: "保存", exact: true }),
+    ).toBeInViewport();
+  });
+
+  test.describe("タッチ端末", () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    test("タップで補足が開き、別の項目に移ると閉じる", async ({
+      page,
+    }, testInfo) => {
+      await page.goto(`/dashboard/${E2E_GUILDS.member.id}`);
+      const dialog = await openSettings(page);
+      await dialog
+        .getByRole("button", { name: "通知先チャンネルの補足" })
+        .tap();
+      await expect(page.getByRole("tooltip")).toContainText("反映まで 1 分");
+      await dialog.getByRole("heading", { name: "Discord への通知" }).tap();
+      await expect(page.getByRole("tooltip")).toBeHidden();
+      await expect(dialog.getByText("未設定 (通知は届きません)")).toBeVisible();
+      const fits = await dialog.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      );
+      expect(fits).toBe(true);
+      await page.screenshot({
+        path: testInfo.outputPath("mobile-settings.png"),
+        fullPage: true,
+      });
+    });
   });
 });
