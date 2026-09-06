@@ -174,8 +174,9 @@ export function useMemberProfilesQuery(
 }
 
 /** 設定ダイアログを開いている間に取得する。Discord 側はギルドの既存キャッシュを共有する。 */
-export function useGuildRolesQuery(guildId: string) {
+export function useGuildRolesQuery(guildId: string, enabled: boolean) {
   return useQuery({
+    enabled,
     queryKey: queryKeys.guild.roles(guildId),
     queryFn: ({ signal }) => api.guilds.roles(guildId, signal),
     refetchOnMount: "always",

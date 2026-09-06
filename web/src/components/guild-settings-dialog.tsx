@@ -175,7 +175,10 @@ function GuildSettingsForm({
   const configQuery = useGuildConfigQuery(guildId);
   const permissionsQuery = useMyPermissionsQuery(guildId);
   const updateConfig = useUpdateGuildConfig(guildId);
-  const rolesQuery = useGuildRolesQuery(guildId);
+  const canManage =
+    !permissionsQuery.isError &&
+    (permissionsQuery.data?.can_manage_server ?? false);
+  const rolesQuery = useGuildRolesQuery(guildId, canManage);
   const refreshPermissions = useRefreshMyPermissions(guildId);
   const config = configQuery.data;
   const form = useForm<GuildSettingsFormValues>({
@@ -206,7 +209,6 @@ function GuildSettingsForm({
     if (config && !isDirty) reset(configToFormValues(config));
   }, [config, isDirty, reset]);
 
-  const canManage = permissionsQuery.data?.can_manage_server ?? false;
   const reloading =
     permissionsQuery.isFetching ||
     refreshPermissions.isPending ||
@@ -221,9 +223,11 @@ function GuildSettingsForm({
   const reload = async () => {
     setError(null);
     try {
-      await refreshPermissions.mutateAsync();
-      const result = await rolesQuery.refetch();
-      if (result.error) setError(describeApiError(result.error));
+      const permissions = await refreshPermissions.mutateAsync();
+      if (permissions.can_manage_server) {
+        const result = await rolesQuery.refetch();
+        if (result.error) setError(describeApiError(result.error));
+      }
     } catch (cause) {
       setError(describeApiError(cause));
     }
@@ -292,93 +296,97 @@ function GuildSettingsForm({
                 予定の編集を管理権限または指定ロールのあるメンバーに限定する
               </FieldLabel>
               <SettingsHint label="予定の編集権限">
-                予定の追加・編集・削除を、サーバーのオーナーまたは「管理者」「サーバー管理」「ロールの管理」「メッセージの管理」のいずれかの権限、または下で指定したロールを持つメンバーに限定します。Discord
+                予定の追加・編集・削除を、サーバーのオーナーまたは「管理者」「サーバー管理」「ロールの管理」「メッセージの管理」のいずれかの権限、または設定で指定したロールを持つメンバーに限定します。Discord
                 側で権限を変更したら「再読込」を押してください。変更後の権限とロール一覧を取り直します。
               </SettingsHint>
             </div>
           </FieldContent>
         </Field>
 
-        <Controller
-          control={control}
-          name="editorRoleIds"
-          render={({ field }) => (
-            <fieldset
-              className="grid gap-2"
-              disabled={!canManage || !form.watch("restricted") || saving}
-            >
-              <legend className="mb-2 text-sm font-medium">
-                編集を許可するロール ({field.value.length}/25)
-              </legend>
-              <p className="text-sm text-muted-foreground">
-                管理権限がなくても、選んだロールのメンバーは予定を追加・編集・削除できます
-              </p>
-              {rolesQuery.isPending ? (
-                <p className="text-sm">ロールを読み込み中…</p>
-              ) : rolesQuery.isError ? (
-                <p role="alert" className="text-sm text-destructive">
-                  ロール一覧を取得できませんでした。「再読込」で再試行してください。変更していないロール設定はそのまま保存されます
+        {canManage && (
+          <Controller
+            control={control}
+            name="editorRoleIds"
+            render={({ field }) => (
+              <fieldset
+                className="grid gap-2"
+                disabled={!canManage || !form.watch("restricted") || saving}
+              >
+                <legend className="mb-2 text-sm font-medium">
+                  編集を許可するロール ({field.value.length}/25)
+                </legend>
+                <p className="text-sm text-muted-foreground">
+                  管理権限がなくても、選んだロールのメンバーは予定を追加・編集・削除できます
                 </p>
-              ) : (
-                <div className="grid max-h-40 gap-2 overflow-y-auto rounded-md border p-3">
-                  {[
-                    ...rolesQuery.data,
-                    ...field.value
-                      .filter(
-                        (id) => !rolesQuery.data.some((role) => role.id === id),
-                      )
-                      .map((id) => ({
-                        id,
-                        name: `削除されたロール (ID: ${id})`,
-                        color: 0,
-                        position: 0,
-                      })),
-                  ].map((role) => (
-                    <label
-                      key={role.id}
-                      htmlFor={`editor-role-${role.id}`}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <Checkbox
-                        id={`editor-role-${role.id}`}
-                        checked={field.value.includes(role.id)}
-                        disabled={
-                          !canManage ||
-                          !form.watch("restricted") ||
-                          saving ||
-                          (field.value.length >= 25 &&
-                            !field.value.includes(role.id))
-                        }
-                        onCheckedChange={(checked) =>
-                          field.onChange(
-                            checked
-                              ? [...field.value, role.id]
-                              : field.value.filter((id) => id !== role.id),
-                          )
-                        }
-                      />
-                      <span
-                        aria-hidden
-                        className="size-3 shrink-0 rounded-full border"
-                        style={{
-                          backgroundColor: role.color
-                            ? `#${role.color.toString(16).padStart(6, "0")}`
-                            : "var(--muted-foreground)",
-                        }}
-                      />
-                      <span className="break-all">{role.name}</span>
-                    </label>
-                  ))}
-                  {rolesQuery.data.length === 0 && field.value.length === 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      選択できるロールはありません
-                    </p>
-                  )}
-                </div>
-              )}
-            </fieldset>
-          )}
-        />
+                {rolesQuery.isPending ? (
+                  <p className="text-sm">ロールを読み込み中…</p>
+                ) : rolesQuery.isError ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    ロール一覧を取得できませんでした。「再読込」で再試行してください。変更していないロール設定はそのまま保存されます
+                  </p>
+                ) : (
+                  <div className="grid max-h-40 gap-2 overflow-y-auto rounded-md border p-3">
+                    {[
+                      ...rolesQuery.data,
+                      ...field.value
+                        .filter(
+                          (id) =>
+                            !rolesQuery.data.some((role) => role.id === id),
+                        )
+                        .map((id) => ({
+                          id,
+                          name: `削除されたロール (ID: ${id})`,
+                          color: 0,
+                          position: 0,
+                        })),
+                    ].map((role) => (
+                      <label
+                        key={role.id}
+                        htmlFor={`editor-role-${role.id}`}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <Checkbox
+                          id={`editor-role-${role.id}`}
+                          checked={field.value.includes(role.id)}
+                          disabled={
+                            !canManage ||
+                            !form.watch("restricted") ||
+                            saving ||
+                            (field.value.length >= 25 &&
+                              !field.value.includes(role.id))
+                          }
+                          onCheckedChange={(checked) =>
+                            field.onChange(
+                              checked
+                                ? [...field.value, role.id]
+                                : field.value.filter((id) => id !== role.id),
+                            )
+                          }
+                        />
+                        <span
+                          aria-hidden
+                          className="size-3 shrink-0 rounded-full border"
+                          style={{
+                            backgroundColor: role.color
+                              ? `#${role.color.toString(16).padStart(6, "0")}`
+                              : "var(--muted-foreground)",
+                          }}
+                        />
+                        <span className="break-all">{role.name}</span>
+                      </label>
+                    ))}
+                    {rolesQuery.data.length === 0 &&
+                      field.value.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          選択できるロールはありません
+                        </p>
+                      )}
+                  </div>
+                )}
+              </fieldset>
+            )}
+          />
+        )}
 
         <Separator />
 

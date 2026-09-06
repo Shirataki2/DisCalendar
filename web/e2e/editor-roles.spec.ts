@@ -262,6 +262,11 @@ test("付与・剥奪後の再読込で画面が変わり、一般メンバー�
     data: { restricted: true, editor_role_ids: [role.id] },
   });
   await setAccess(page, [], false, false);
+  const roleRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.endsWith(`/guilds/${guild.id}/roles`))
+      roleRequests.push(request.url());
+  });
   await page.goto(`/dashboard/${guild.id}`);
   await expect(page.getByRole("button", { name: "新規作成" })).toBeDisabled();
   await page.getByRole("button", { name: "サーバー設定" }).click();
@@ -271,7 +276,8 @@ test("付与・剥奪後の再読込で画面が変わり、一般メンバー�
   ).toBeDisabled();
   await expect(
     dialog.getByRole("checkbox", { name: role.name, exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
+  await expect(dialog.getByText(/編集を許可するロール/)).toHaveCount(0);
   for (const ids of [[role.id], []]) {
     await setEditorRoles(guild.id, ids);
     await expect(async () => {
@@ -289,7 +295,9 @@ test("付与・剥奪後の再読込で画面が変わり、一般メンバー�
           page.getByRole("button", { name: "新規作成", includeHidden: true }),
         ).toBeDisabled({ timeout: 500 });
     }).toPass({ timeout: 20_000, intervals: [1100] });
+    await expect(dialog.getByText(/編集を許可するロール/)).toHaveCount(0);
   }
+  expect(roleRequests).toEqual([]);
 });
 
 test("削除済みロールは解除でき、一覧取得失敗は削除と誤表示しない", async ({
