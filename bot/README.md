@@ -88,6 +88,17 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```
 
+### サイト URL
+
+| 環境変数 | 既定値 | 用途 |
+| --- | --- | --- |
+| `SITE_BASE_URL` | `https://discalendar.app` | 通知のタイトル・「カレンダーで開く」「詳細を見る」と `/help` のリンク先。staging では staging のドメインを指定 |
+
+Docker Compose では api と同じ `NEXT_PUBLIC_SITE_URL` を Bot の `SITE_BASE_URL` に渡します。
+通知の「詳細を見る」は共有リンクを発行済みの予定だけに表示し、Bot は共有リンクを自動発行しません。
+日時は Discord のタイムスタンプで閲覧者の言語・タイムゾーンに合わせて表示します。
+終日予定は JST の日付を保つため固定表記です。Discord 外のプッシュ通知などではタイムスタンプがそのまま見える場合があります。
+
 ### 動作確認
 
 1. Bot をテスト用サーバーに招待する (Developer Portal > OAuth2 > URL Generator で `bot` + `applications.commands` スコープ。
@@ -137,7 +148,8 @@ src/
   main.rs           エントリポイント (dotenv, tracing, Config)
   lib.rs            run(): DB 接続・poise Framework 構築 (コマンド登録・pre_command)・Gateway 接続・シグナル処理
   config.rs         環境変数
-  data.rs           Data (pool / ログチャンネル / 招待 URL / サポートサーバー ID) と Context 型
+  data.rs           Data (pool / ログチャンネル / 招待 URL / サイト URL / サポートサーバー ID) と Context 型
+  datetime.rs       通知・コマンドで共有する Discord 向けの日時表示
   error.rs          BotError (User = 本人に返す入力・権限エラー) と poise の on_error (日本語の返信)
   event.rs          Gateway イベント (Ready / ShardsReady / GuildCreate / GuildUpdate / GuildDelete)
   checks.rs         管理権限の判定 (api の can_manage_server と同じ)

@@ -161,6 +161,7 @@ services:
       BOT_LOG_CHANNEL_ID: ${BOT_LOG_CHANNEL_ID:-}
       DISCORD_BOT_INVITE_URL: ${DISCORD_BOT_INVITE_URL:-}
       BOT_SUPPORT_GUILD_ID: ${BOT_SUPPORT_GUILD_ID:-}
+      SITE_BASE_URL: ${NEXT_PUBLIC_SITE_URL:-https://discalendar.app}
       RUST_LOG: ${BOT_RUST_LOG:-info,discalendar_bot=info,sqlx=warn}
       # ログの形式 (#104)。api と同じ (LOG_FORMAT=text で人が読む形式に戻せる)
       LOG_FORMAT: ${LOG_FORMAT:-json}

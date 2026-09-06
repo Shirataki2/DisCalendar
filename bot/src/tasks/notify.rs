@@ -16,8 +16,9 @@ use poise::serenity_prelude::{self as serenity, ChannelId, HttpError};
 
 use crate::{
     data::Data,
+    datetime::format_date_range,
     models::{
-        event_settings,
+        event_settings, event_share_links,
         events::{self, Event},
         notifications::{Notification, NotificationUnit},
         now_jst,
@@ -247,10 +248,19 @@ async fn notify_for_event(
         return true;
     };
 
+    let token = match event_share_links::get_token(&data.pool, &event.guild_id, event.id).await {
+        Ok(token) => token,
+        Err(e) => {
+            tracing::error!(error = %e, event_id = event.id, "failed to fetch notification share link");
+            return false;
+        }
+    };
+    let links = NotificationLinks::new(&data.site_base_url, &event.guild_id, token.as_deref());
+
     let mut all_sent = true;
     for (notification, fire) in due {
         let key = (event.id, fire);
-        if send_notification(ctx, channel_id, event, notification, start, end).await {
+        if send_notification(ctx, channel_id, event, notification, start, end, &links).await {
             sent_in_window.insert(key);
             failure_counts.remove(&key);
             continue;
@@ -341,10 +351,16 @@ async fn send_notification(
     notification: Notification,
     start: NaiveDateTime,
     end: NaiveDateTime,
+    links: &NotificationLinks,
 ) -> bool {
-    let embed = build_embed(event, notification, start, end);
+    let embed = build_embed(event, notification, start, end, links);
     let result = channel_id
-        .send_message(&ctx.http, serenity::CreateMessage::new().embed(embed))
+        .send_message(
+            &ctx.http,
+            serenity::CreateMessage::new()
+                .embed(embed)
+                .components(vec![links.buttons()]),
+        )
         .await;
     if let Err(e) = result {
         tracing::warn!(
@@ -352,7 +368,7 @@ async fn send_notification(
             channel_id = channel_id.get(),
             "failed to send notification embed, falling back to plain text"
         );
-        let content = build_plain_text(event, notification, start, end);
+        let content = build_plain_text(event, notification, start, end, links);
         // embed と違い、プレーンテキストは予定名・説明中の @everyone やロール/ユーザーメンションを
         // そのまま解釈してしまうので、明示的に許可したメンションを空にして無効化する
         if let Err(e) = channel_id
@@ -421,25 +437,28 @@ fn author_text(notification: Notification) -> String {
     }
 }
 
-fn format_date_range(is_all_day: bool, start: NaiveDateTime, end: NaiveDateTime) -> String {
-    if is_all_day {
-        if start == end {
-            start.format("%Y/%m/%d").to_string()
-        } else {
-            format!("{} - {}", start.format("%Y/%m/%d"), end.format("%Y/%m/%d"))
+/// 通知から辿る URL。共有リンクは発行済みの場合だけ案内する。
+struct NotificationLinks {
+    calendar: String,
+    share: Option<String>,
+}
+
+impl NotificationLinks {
+    fn new(site_base_url: &str, guild_id: &str, token: Option<&str>) -> Self {
+        let base = site_base_url.trim_end_matches('/');
+        Self {
+            calendar: format!("{base}/dashboard/{guild_id}"),
+            share: token.map(|token| format!("{base}/share/{token}")),
         }
-    } else if start.date() == end.date() {
-        format!(
-            "{} - {}",
-            start.format("%Y/%m/%d %H:%M"),
-            end.format("%H:%M")
-        )
-    } else {
-        format!(
-            "{} - {}",
-            start.format("%Y/%m/%d %H:%M"),
-            end.format("%Y/%m/%d %H:%M")
-        )
+    }
+
+    fn buttons(&self) -> serenity::CreateActionRow {
+        let mut buttons =
+            vec![serenity::CreateButton::new_link(&self.calendar).label("カレンダーで開く")];
+        if let Some(url) = &self.share {
+            buttons.push(serenity::CreateButton::new_link(url).label("詳細を見る"));
+        }
+        serenity::CreateActionRow::Buttons(buttons)
     }
 }
 
@@ -448,11 +467,13 @@ fn build_embed(
     notification: Notification,
     start: NaiveDateTime,
     end: NaiveDateTime,
+    links: &NotificationLinks,
 ) -> serenity::CreateEmbed {
     let color = event.color.trim_start_matches('#');
     let color = u32::from_str_radix(color, 16).unwrap_or(0xff0000);
     let mut embed = serenity::CreateEmbed::new()
         .title(&event.name)
+        .url(&links.calendar)
         .colour(color)
         .author(serenity::CreateEmbedAuthor::new(author_text(notification)))
         .field(
@@ -472,6 +493,7 @@ fn build_plain_text(
     notification: Notification,
     start: NaiveDateTime,
     end: NaiveDateTime,
+    links: &NotificationLinks,
 ) -> String {
     use std::fmt::Write as _;
 
@@ -486,6 +508,10 @@ fn build_plain_text(
         "**日時**\n　{}",
         format_date_range(event.is_all_day, start, end)
     );
+    let _ = writeln!(content, "カレンダーで開く: {}", links.calendar);
+    if let Some(url) = &links.share {
+        let _ = writeln!(content, "詳細を見る: {url}");
+    }
     content
 }
 
@@ -754,6 +780,15 @@ mod tests {
 
     #[test]
     fn formats_date_range_for_all_day_single_and_multi_day() {
+        // JST では同日でも UTC では前日から当日にまたがるため、終了日を省略しない。
+        assert_eq!(
+            format_date_range(false, dt("2026-08-23T00:30:00"), dt("2026-08-23T23:30:00")),
+            "<t:1787412600:F> - <t:1787495400:F> (<t:1787412600:R>)"
+        );
+        assert_eq!(
+            format_date_range(false, dt("1970-01-01T09:00:00"), dt("1970-01-01T10:00:00")),
+            "<t:0:F> - <t:3600:F> (<t:0:R>)"
+        );
         assert_eq!(
             format_date_range(true, dt("2026-08-23T00:00:00"), dt("2026-08-23T00:00:00")),
             "2026/08/23"
@@ -764,11 +799,84 @@ mod tests {
         );
         assert_eq!(
             format_date_range(false, dt("2026-08-23T10:00:00"), dt("2026-08-23T11:30:00")),
-            "2026/08/23 10:00 - 11:30"
+            "<t:1787446800:F> - <t:1787452200:F> (<t:1787446800:R>)"
         );
         assert_eq!(
             format_date_range(false, dt("2026-08-23T22:00:00"), dt("2026-08-24T01:00:00")),
-            "2026/08/23 22:00 - 2026/08/24 01:00"
+            "<t:1787490000:F> - <t:1787500800:F> (<t:1787490000:R>)"
         );
+    }
+    #[test]
+    fn notification_links_use_the_configured_site_and_optional_share_token() {
+        for base in [
+            "https://staging.discalendar.app",
+            "https://staging.discalendar.app/",
+        ] {
+            let links = NotificationLinks::new(base, "123456789012345678", None);
+            assert_eq!(
+                links.calendar,
+                "https://staging.discalendar.app/dashboard/123456789012345678"
+            );
+            assert!(links.share.is_none());
+            let row = serde_json::to_value(links.buttons()).unwrap();
+            assert_eq!(row["components"].as_array().unwrap().len(), 1);
+            assert_eq!(row["components"][0]["label"], "カレンダーで開く");
+            assert_eq!(row["components"][0]["url"], links.calendar);
+            assert_eq!(row["components"][0]["style"], 5);
+
+            let token = "a".repeat(64);
+            let links = NotificationLinks::new(base, "123456789012345678", Some(&token));
+            let row = serde_json::to_value(links.buttons()).unwrap();
+            assert_eq!(row["components"].as_array().unwrap().len(), 2);
+            assert_eq!(row["components"][1]["label"], "詳細を見る");
+            assert_eq!(
+                row["components"][1]["url"],
+                format!("https://staging.discalendar.app/share/{token}")
+            );
+            assert_eq!(row["components"][1]["style"], 5);
+        }
+    }
+
+    #[test]
+    fn notification_embed_and_plain_text_include_dates_and_links() {
+        let event = Event {
+            id: 1,
+            guild_id: "123".to_owned(),
+            name: "定例".to_owned(),
+            description: Some("説明".to_owned()),
+            notifications: serde_json::json!([]),
+            color: "#2196F3".to_owned(),
+            is_all_day: false,
+            start_at: dt("2026-08-23T10:00:00"),
+            end_at: dt("2026-08-23T11:30:00"),
+            created_at: dt("2026-08-01T00:00:00"),
+            created_by: None,
+            updated_by: None,
+            updated_at: None,
+        };
+        let notification = Notification::new(30, NotificationUnit::Minutes);
+        for token in [None, Some("published-token")] {
+            let links = NotificationLinks::new("https://discalendar.app", &event.guild_id, token);
+            let embed = serde_json::to_value(build_embed(
+                &event,
+                notification,
+                event.start_at,
+                event.end_at,
+                &links,
+            ))
+            .unwrap();
+            assert_eq!(embed["url"], links.calendar);
+            assert_eq!(
+                embed["fields"][0]["value"],
+                "<t:1787446800:F> - <t:1787452200:F> (<t:1787446800:R>)"
+            );
+            let text = build_plain_text(&event, notification, event.start_at, event.end_at, &links);
+            assert!(text.contains(embed["fields"][0]["value"].as_str().unwrap()));
+            assert!(text.contains(&links.calendar));
+            assert_eq!(text.contains("詳細を見る"), token.is_some());
+            if let Some(url) = &links.share {
+                assert!(text.contains(url));
+            }
+        }
     }
 }

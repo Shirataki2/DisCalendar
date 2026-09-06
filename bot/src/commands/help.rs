@@ -9,7 +9,8 @@ pub async fn help(ctx: Context<'_>) -> Result<(), BotError> {
     let description = format!(
         include_str!("help.txt"),
         dummy = "　",
-        invite = ctx.data().invite_url
+        invite = ctx.data().invite_url,
+        site = ctx.data().site_base_url
     );
     // CurrentUserRef はキャッシュのロックなので、URL だけ取り出してすぐ手放す
     let thumbnail = ctx.cache().current_user().face();

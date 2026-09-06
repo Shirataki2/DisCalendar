@@ -14,6 +14,8 @@ use tokio::{sync::Mutex, task::JoinHandle};
 #[derive(Debug, Clone)]
 pub struct Data {
     pub pool: PgPool,
+    /// 通知とヘルプのリンク先 (`SITE_BASE_URL`)
+    pub site_base_url: String,
     /// Bot の参加・退出を通知するチャンネル (`BOT_LOG_CHANNEL_ID`)
     pub log_channel_id: Option<ChannelId>,
     /// `/help` と `/invite` で案内する Bot の招待 URL

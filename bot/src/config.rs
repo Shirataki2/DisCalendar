@@ -9,6 +9,8 @@ pub struct Config {
     /// Discord Bot トークン (api の `DISCORD_BOT_TOKEN` と同じ値)
     pub discord_bot_token: String,
     pub database_url: String,
+    /// 通知とヘルプのリンク先 (`SITE_BASE_URL`)
+    pub site_base_url: String,
     pub max_db_connections: u32,
     /// Bot の参加・退出を通知するチャンネル。未設定なら通知しない
     pub log_channel_id: Option<ChannelId>,
@@ -44,6 +46,9 @@ impl Config {
             log_channel_id,
             invite_url: optional("DISCORD_BOT_INVITE_URL"),
             support_guild_id,
+            site_base_url: env_or("SITE_BASE_URL", "https://discalendar.app")
+                .trim_end_matches('/')
+                .to_owned(),
         })
     }
 }
