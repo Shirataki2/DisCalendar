@@ -115,7 +115,7 @@ test.describe("通知の設定 (#181)", () => {
     // 足りない権限は ⓘ のツールチップで出す (選択肢の中に文章で出すと見切れるため)
     await expect(staffOnly).toContainText("「チャンネルを見る」");
     await staffOnly.locator("[data-slot=tooltip-trigger]").hover();
-    await expect(page.getByRole("tooltip")).toContainText(
+    await expect(page.locator("[data-slot=tooltip-content]")).toContainText(
       "Bot に「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限がありません",
     );
     // ボイスチャンネルは出ない

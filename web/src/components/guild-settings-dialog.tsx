@@ -528,7 +528,9 @@ function CannotPostHint({
 }) {
   const reason = `Bot に${describeMissingPermissions(permissions)}の権限がありません`;
   return (
-    <Tooltip>
+    // 選択肢の上に出るので、アイコンから離れたらすぐ閉じ (disableHoverablePopup)、ツールチップ自体は
+    // ポインタイベントを受けない。残ったままだと重なった選択肢をクリックできない
+    <Tooltip disableHoverablePopup>
       <TooltipTrigger
         render={
           <span className="pointer-events-auto inline-flex items-center text-muted-foreground" />
@@ -537,7 +539,7 @@ function CannotPostHint({
         <InfoIcon aria-hidden className="size-3.5" />
         <span className="sr-only">{reason}</span>
       </TooltipTrigger>
-      <TooltipContent>{reason}</TooltipContent>
+      <TooltipContent className="pointer-events-none">{reason}</TooltipContent>
     </Tooltip>
   );
 }
