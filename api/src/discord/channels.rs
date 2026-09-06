@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::{
-    DiscordClient, DiscordError, checked_id,
+    DiscordClient, DiscordError, MemberAccess, checked_id,
     permissions::{PermissionOverwrite, Permissions, compute_channel_permissions},
 };
 
@@ -107,6 +107,29 @@ pub struct GuildChannel {
     pub missing_permissions: Vec<NotificationPermission>,
 }
 
+/// キャッシュに持つ 1 件。呼び出し元ごとの「見えるか」の判定に権限上書きも残しておく
+/// (Bot の投稿可否は Bot 共通なので計算済みで持つ)
+#[derive(Debug, Clone)]
+pub(super) struct CachedChannel {
+    pub channel: GuildChannel,
+    pub overwrites: Vec<PermissionOverwrite>,
+}
+
+impl CachedChannel {
+    /// `viewer` がこのチャンネルを見られるか (「チャンネルを見る」を上書き込みで持つか)。
+    /// Bot には見えても本人には見えないチャンネル (スタッフ専用など) を API から列挙できないようにする
+    fn visible_to(&self, guild_id: &str, viewer: &MemberAccess) -> bool {
+        compute_channel_permissions(
+            viewer.permissions,
+            guild_id,
+            &viewer.user_id,
+            &viewer.roles,
+            &self.overwrites,
+        )
+        .has(Permissions::VIEW_CHANNEL)
+    }
+}
+
 /// Discord の応答から一覧を組み立てる (純粋関数。テスト用に分けてある)
 pub(super) fn build_channel_list(
     guild_id: &str,
@@ -114,7 +137,7 @@ pub(super) fn build_channel_list(
     base: Permissions,
     bot_roles: &[String],
     channels: Vec<ApiChannel>,
-) -> Vec<GuildChannel> {
+) -> Vec<CachedChannel> {
     // カテゴリの id → (位置, 名前)。カテゴリ自体の並びで先にグループ分けする
     let categories: HashMap<String, (i64, String)> = channels
         .iter()
@@ -126,7 +149,7 @@ pub(super) fn build_channel_list(
             )
         })
         .collect();
-    let mut sortable: Vec<(i64, i64, u64, GuildChannel)> = channels
+    let mut sortable: Vec<(i64, i64, u64, CachedChannel)> = channels
         .into_iter()
         .filter(|c| matches!(c.kind, CHANNEL_TYPE_TEXT | CHANNEL_TYPE_ANNOUNCEMENT))
         .map(|c| {
@@ -146,12 +169,15 @@ pub(super) fn build_channel_list(
                 category_position,
                 c.position,
                 id_order,
-                GuildChannel {
-                    id: c.id,
-                    name: c.name.unwrap_or_default(),
-                    category: category.map(|(_, name)| name.clone()),
-                    can_post: missing.is_empty(),
-                    missing_permissions: missing,
+                CachedChannel {
+                    channel: GuildChannel {
+                        id: c.id,
+                        name: c.name.unwrap_or_default(),
+                        category: category.map(|(_, name)| name.clone()),
+                        can_post: missing.is_empty(),
+                        missing_permissions: missing,
+                    },
+                    overwrites,
                 },
             )
         })
@@ -161,14 +187,28 @@ pub(super) fn build_channel_list(
 }
 
 impl DiscordClient {
-    /// 通知先に選べるチャンネルの一覧と Bot の投稿可否。
-    /// [`super::CHANNELS_TTL`] の間はキャッシュを返す (チャンネルの追加・改名や権限変更の反映は
-    /// その分だけ遅れる。`refresh_permissions` (#122) で捨てられる)。
+    /// `viewer` に見える、通知先に選べるチャンネルの一覧と Bot の投稿可否。
+    /// Bot には見えても `viewer` 本人に「チャンネルを見る」が無いチャンネルは返さない
+    /// (一般メンバーがスタッフ専用チャンネルの名前を API から列挙できないようにする)。
+    /// Discord から取った一覧は [`super::CHANNELS_TTL`] の間キャッシュする (チャンネルの追加・改名や
+    /// 権限変更の反映はその分だけ遅れる。`refresh_permissions` (#122) で捨てられる)。
     /// Bot が未参加 (キャッシュ上は参加していても Discord から 403 / 404) なら [`DiscordError::GuildGone`]
     pub async fn guild_channels(
         &self,
         guild_id: &str,
-    ) -> Result<Arc<Vec<GuildChannel>>, DiscordError> {
+        viewer: &MemberAccess,
+    ) -> Result<Vec<GuildChannel>, DiscordError> {
+        Ok(self
+            .all_channels(guild_id)
+            .await?
+            .iter()
+            .filter(|c| c.visible_to(guild_id, viewer))
+            .map(|c| c.channel.clone())
+            .collect())
+    }
+
+    /// Bot から見える全チャンネル (キャッシュ込み)。呼び出し元ごとの絞り込みは [`Self::guild_channels`]
+    async fn all_channels(&self, guild_id: &str) -> Result<Arc<Vec<CachedChannel>>, DiscordError> {
         if let Some(cached) = self.channels.get(guild_id).await {
             return Ok(cached);
         }
@@ -192,19 +232,6 @@ impl DiscordClient {
             .insert(guild_id.to_owned(), list.clone())
             .await;
         Ok(list)
-    }
-
-    /// 通知先にできる (`can_post` の) チャンネルか。一覧に無いチャンネル (スレッド・ボイス・存在しない ID) は false
-    pub async fn can_post_to(
-        &self,
-        guild_id: &str,
-        channel_id: &str,
-    ) -> Result<bool, DiscordError> {
-        Ok(self
-            .guild_channels(guild_id)
-            .await?
-            .iter()
-            .any(|c| c.id == channel_id && c.can_post))
     }
 }
 
@@ -230,7 +257,10 @@ mod tests {
             channel(serde_json::json!({"id": "11", "type": 5, "name": "news", "position": 1})),
             channel(serde_json::json!({"id": "10", "type": 0, "name": "general", "position": 0})),
         ];
-        let list = build_channel_list("g", "bot", base, &[], channels);
+        let list: Vec<GuildChannel> = build_channel_list("g", "bot", base, &[], channels)
+            .into_iter()
+            .map(|c| c.channel)
+            .collect();
         let names: Vec<&str> = list.iter().map(|c| c.name.as_str()).collect();
         // カテゴリ無し (位置順) → カテゴリ内。ボイスとカテゴリ自体は出ない
         assert_eq!(names, ["general", "news", "in-category"]);
@@ -257,14 +287,67 @@ mod tests {
             })),
         ];
         let list = build_channel_list("g", "bot", base, &["r1".to_owned()], channels);
-        assert!(list[0].can_post);
-        assert!(!list[1].can_post);
+        assert!(list[0].channel.can_post);
+        assert!(!list[1].channel.can_post);
         assert_eq!(
-            list[1].missing_permissions,
+            list[1].channel.missing_permissions,
             [
                 NotificationPermission::ViewChannel,
                 NotificationPermission::EmbedLinks
             ]
+        );
+    }
+
+    #[test]
+    fn hides_channels_the_viewer_cannot_see() {
+        let bot = Permissions::from_bits(
+            Permissions::VIEW_CHANNEL | Permissions::SEND_MESSAGES | Permissions::EMBED_LINKS,
+        );
+        let channels = vec![
+            channel(serde_json::json!({"id": "10", "type": 0, "name": "general", "position": 0})),
+            // 「staff」ロールだけが見られる (@everyone は閲覧禁止、Bot はメンバー上書きで許可)
+            channel(serde_json::json!({
+                "id": "11", "type": 0, "name": "staff", "position": 1,
+                "permission_overwrites": [
+                    {"id": "g", "type": 0, "allow": "0", "deny": "1024"},
+                    {"id": "staff", "type": 0, "allow": "1024", "deny": "0"},
+                    {"id": "bot", "type": 1, "allow": "1024", "deny": "0"}
+                ]
+            })),
+        ];
+        let list = build_channel_list("g", "bot", bot, &[], channels);
+        let viewer = |roles: &[&str], permissions: u64| MemberAccess {
+            guild: Arc::new(super::super::GuildSnapshot {
+                id: "g".to_owned(),
+                name: "guild".to_owned(),
+                icon: None,
+                owner_id: "owner".to_owned(),
+                role_permissions: HashMap::new(),
+            }),
+            user_id: "member".to_owned(),
+            roles: roles.iter().map(|r| (*r).to_owned()).collect(),
+            permissions: Permissions::from_bits(permissions),
+        };
+        let visible = |viewer: &MemberAccess| -> Vec<String> {
+            list.iter()
+                .filter(|c| c.visible_to("g", viewer))
+                .map(|c| c.channel.name.clone())
+                .collect()
+        };
+        // 一般メンバーには staff が見えない (Bot には見えて投稿もできるが、列挙させない)
+        assert_eq!(
+            visible(&viewer(&[], Permissions::VIEW_CHANNEL)),
+            ["general"]
+        );
+        assert!(list[1].channel.can_post);
+        // staff ロールを持つ人と管理者には見える
+        assert_eq!(
+            visible(&viewer(&["staff"], Permissions::VIEW_CHANNEL)),
+            ["general", "staff"]
+        );
+        assert_eq!(
+            visible(&viewer(&[], Permissions::ADMINISTRATOR)),
+            ["general", "staff"]
         );
     }
 

@@ -118,14 +118,27 @@ pub async fn lock_config_for_update(
     )
     .execute(&mut *conn)
     .await?;
-    // ロックを取るのは guild_config の行だけ (通知先の event_settings は管理コンソールからは変えない)
     sqlx::query!(
         "SELECT guild_id FROM guild_config WHERE guild_id = $1 FOR UPDATE",
         guild_id
     )
     .fetch_one(&mut *conn)
     .await?;
+    // スナップショットには通知先 (event_settings) も入るので、`/init` や web の通知先変更が
+    // 変更前と変更後の読み取りの間に割り込んで「管理者が通知先も変えた」ように記録されないよう、
+    // 通知先の書き込みと同じアドバイザリロックも取っておく (トランザクション終了で外れる)
+    lock_notification_channel(&mut *conn, guild_id).await?;
     get_config(&mut *conn, guild_id).await
+}
+
+/// 通知先 (`event_settings`) の読み書きを直列化するギルド ID ごとのアドバイザリロック。
+/// Bot の `/init` (`event_settings::set`) と同じキー。トランザクション内で呼ぶこと
+async fn lock_notification_channel(conn: &mut PgConnection, guild_id: &str) -> sqlx::Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind(guild_id)
+        .execute(conn)
+        .await?;
+    Ok(())
 }
 
 /// [`upsert_config`] で変える項目。`None` の項目は今の値のまま
@@ -189,10 +202,7 @@ pub async fn set_notification_channel(
     guild_id: &str,
     channel_id: &str,
 ) -> sqlx::Result<Option<String>> {
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
-        .bind(guild_id)
-        .execute(&mut *conn)
-        .await?;
+    lock_notification_channel(&mut *conn, guild_id).await?;
     let previous = sqlx::query_scalar!(
         "SELECT channel_id FROM event_settings WHERE guild_id = $1 ORDER BY id LIMIT 1",
         guild_id

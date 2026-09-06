@@ -198,7 +198,9 @@ pub async fn refresh_my_permissions(
 }
 
 /// 通知先に選べるチャンネル (テキスト / アナウンス) の一覧と、Bot がそこに投稿できるか (#181)。
-/// メンバーなら誰でも呼べる (予定ごとの通知先 (#175) は予定を作れる人が選ぶため)。
+/// メンバーなら誰でも呼べる (予定ごとの通知先 (#175) は予定を作れる人が選ぶため) が、
+/// 返すのは**呼び出した本人が Discord で見られるチャンネルだけ** (Bot に見えるからといって、
+/// 本人に権限のないスタッフ専用チャンネルの名前を列挙させない)。
 /// Bot 側のキャッシュ (最大 1 分) により、チャンネルの追加や権限の変更は少し遅れて反映される
 #[utoipa::path(
     tag = "guilds",
@@ -215,19 +217,18 @@ pub async fn channels(
     member: GuildMember,
     state: web::Data<AppState>,
 ) -> Result<web::Json<Vec<GuildChannel>>, ApiError> {
-    let list = fetch_channels(&state, member.guild_id()).await?;
-    Ok(web::Json(list.as_ref().clone()))
+    Ok(web::Json(fetch_channels(&state, &member).await?))
 }
 
-/// チャンネル一覧を取る。Bot が退出済み (キャッシュ上は参加していても Discord から見えない) なら
-/// メンバー確認 (extractor) と同じ 403 にする
+/// 呼び出した本人に見えるチャンネルの一覧を取る。Bot が退出済み (キャッシュ上は参加していても
+/// Discord から見えない) ならメンバー確認 (extractor) と同じ 403 にする
 async fn fetch_channels(
     state: &AppState,
-    guild_id: &str,
-) -> Result<std::sync::Arc<Vec<GuildChannel>>, ApiError> {
+    member: &GuildMember,
+) -> Result<Vec<GuildChannel>, ApiError> {
     state
         .discord
-        .guild_channels(guild_id)
+        .guild_channels(member.guild_id(), &member.access)
         .await
         .map_err(|err| match err {
             DiscordError::GuildGone => {
@@ -321,13 +322,14 @@ pub async fn put_config(
     let current = guilds::get_config(&state.pool, guild_id).await?;
 
     // 通知先は変えるときだけ Bot の投稿可否を確かめる。`/init` で設定したスレッドなど一覧に無い
-    // チャンネルが入っていても、他の設定の保存が止まらないようにする
+    // チャンネルが入っていても、他の設定の保存が止まらないようにする。
+    // 一覧は本人に見えるチャンネルに絞ったもの (見えないチャンネルは「このギルドのチャンネルではない」と同じ扱い)
     let new_channel = body
         .notification_channel_id
         .as_deref()
         .filter(|id| current.notification_channel_id.as_deref() != Some(*id));
     if let Some(channel_id) = new_channel {
-        let list = fetch_channels(&state, guild_id).await?;
+        let list = fetch_channels(&state, &member).await?;
         let channel = list.iter().find(|c| c.id == channel_id).ok_or_else(|| {
             ApiError::BadRequest(
                 "notification_channel_id must be a text or announcement channel of this guild"

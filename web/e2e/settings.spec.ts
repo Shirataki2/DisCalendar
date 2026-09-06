@@ -266,6 +266,14 @@ test.describe("管理権限のないギルド (restricted)", () => {
       dialog.getByRole("combobox", { name: CHANNEL_LABEL }),
     ).toBeDisabled();
     await expect(dialog.getByText("未設定 (通知は届きません)")).toBeVisible();
+    // チャンネル一覧は本人に見えるものだけ (Bot には見える staff-only を一般メンバーには返さない)
+    const channels = await page.request.get(
+      `/local/api/guilds/${E2E_GUILDS.member.id}/channels`,
+    );
+    expect(channels.status()).toBe(200);
+    const names = (await channels.json()).map((c: { name: string }) => c.name);
+    expect(names).toContain(E2E_CHANNELS.general.name);
+    expect(names).not.toContain(E2E_CHANNELS.staffOnly.name);
     await expect(
       dialog.getByRole("button", { name: "通知を追加" }),
     ).toBeDisabled();

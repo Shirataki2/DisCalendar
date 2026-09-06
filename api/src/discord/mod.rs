@@ -181,7 +181,7 @@ pub struct DiscordClient {
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
     /// guild_id → 通知先に選べるチャンネルと Bot の投稿可否 (#181)
-    channels: Cache<String, Arc<Vec<GuildChannel>>>,
+    channels: Cache<String, Arc<Vec<channels::CachedChannel>>>,
     /// 直近に [`DiscordClient::refresh_permissions`] でギルド共通の情報を捨てたギルド (#122)。
     /// 値は使わず、[`REFRESH_THROTTLE`] の間だけ「捨てた印」として置いておく
     refreshed_guilds: Cache<String, ()>,
