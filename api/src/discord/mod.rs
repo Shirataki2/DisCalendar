@@ -4,6 +4,7 @@
 //! 旧実装は毎リクエストで 4 回 Discord API を呼んでいたが、ここではギルド情報と
 //! メンバー情報を短時間キャッシュして 0〜2 回に抑える。
 
+pub mod channels;
 pub mod permissions;
 pub mod scheduled_events;
 
@@ -19,6 +20,7 @@ use moka::future::Cache;
 use reqwest::{StatusCode, header};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
+pub use self::channels::{GuildChannel, NotificationPermission};
 pub use self::permissions::Permissions;
 use self::permissions::compute_base_permissions;
 
@@ -35,6 +37,10 @@ const GUILD_TTL: Duration = Duration::from_secs(300);
 const MEMBER_TTL: Duration = Duration::from_secs(60);
 /// Bot の参加ギルド一覧 ([`DiscordClient::bot_guilds`]) のキャッシュ期間
 const BOT_GUILDS_TTL: Duration = Duration::from_secs(60);
+/// チャンネル一覧 ([`DiscordClient::guild_channels`]、#181) のキャッシュ期間。
+/// サーバー設定ダイアログを開くたびに取りに行かないための短い期間で、チャンネルの追加・改名や
+/// 権限変更の反映はこの時間だけ遅れる (`refresh_permissions` で捨てられる)
+const CHANNELS_TTL: Duration = Duration::from_secs(60);
 /// 利用者の操作でキャッシュを捨てられる間隔 ([`DiscordClient::refresh_permissions`]、#122)。
 /// 連打されても、ギルドごとの Discord への問い合わせがこの間隔より細かくならないようにする
 const REFRESH_THROTTLE: Duration = Duration::from_secs(10);
@@ -174,6 +180,8 @@ pub struct DiscordClient {
     members: Cache<(String, String), MemberLookup>,
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
+    /// guild_id → 通知先に選べるチャンネルと Bot の投稿可否 (#181)
+    channels: Cache<String, Arc<Vec<GuildChannel>>>,
     /// 直近に [`DiscordClient::refresh_permissions`] でギルド共通の情報を捨てたギルド (#122)。
     /// 値は使わず、[`REFRESH_THROTTLE`] の間だけ「捨てた印」として置いておく
     refreshed_guilds: Cache<String, ()>,
@@ -300,6 +308,10 @@ impl DiscordClient {
                 .max_capacity(1)
                 .time_to_live(BOT_GUILDS_TTL)
                 .build(),
+            channels: Cache::builder()
+                .max_capacity(10_000)
+                .time_to_live(CHANNELS_TTL)
+                .build(),
             refreshed_guilds: Cache::builder()
                 .max_capacity(10_000)
                 .time_to_live(REFRESH_THROTTLE)
@@ -403,6 +415,8 @@ impl DiscordClient {
         self.members
             .insert((guild_id.to_owned(), bot_user_id), bot_roles)
             .await;
+        // チャンネル一覧の投稿可否は Bot のロールから計算しているので、一緒に捨てて取り直させる (#181)
+        self.channels.invalidate(guild_id).await;
         Ok(())
     }
 
@@ -413,6 +427,7 @@ impl DiscordClient {
     /// その場で取りに行かず、次に必要になったときに取り直させる
     pub async fn invalidate_guild_permissions(&self, guild_id: &str) {
         self.guilds.invalidate(guild_id).await;
+        self.channels.invalidate(guild_id).await;
         match self.bot_user_id().await {
             Ok(bot_user_id) => {
                 self.members

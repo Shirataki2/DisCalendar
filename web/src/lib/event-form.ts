@@ -65,8 +65,11 @@ export const NOTIFICATION_UNITS: { value: NotificationUnit; label: string }[] =
     { value: "minutes", label: "分前" },
   ];
 
-/** 旧フォームの既定の通知 (1 日前と 1 時間前) */
-const DEFAULT_NOTIFICATIONS: Notification[] = [
+/**
+ * サーバー設定 (#181) を取れていないときの既定の事前通知 (旧フォームの既定 = 1 日前と 1 時間前)。
+ * 通常はサーバー設定の `default_notifications` (api 側の既定値も同じ) を使う
+ */
+export const DEFAULT_NOTIFICATIONS: Notification[] = [
   { num: 1, unit: "days" },
   { num: 1, unit: "hours" },
 ];
@@ -75,7 +78,8 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
 const NOTIFICATION_NUM_MESSAGE = `${NOTIFICATION_NUM_MIN}〜${NOTIFICATION_NUM_MAX}の範囲で入力してください`;
 
-const notificationSchema = z.object({
+/** 「num unit 前」1 件。予定ダイアログとサーバー設定の「既定の事前通知」(#181) で共通 */
+export const notificationSchema = z.object({
   num: z
     .number({ error: "数値を入力してください" })
     .int("整数で入力してください")
@@ -263,18 +267,21 @@ export function eventToFormValues(event: ApiEvent): EventFormValues {
 
 /**
  * カレンダー上で範囲選択したときの初期値。
- * end は FullCalendar 流儀の「含まない」(終日なら翌日 0:00) なので、終日は 1 日戻す
+ * end は FullCalendar 流儀の「含まない」(終日なら翌日 0:00) なので、終日は 1 日戻す。
+ * `defaultNotifications` はサーバー設定の「新しい予定の既定の事前通知」(#181)。
+ * 渡されなければ (管理コンソールなど) 旧フォームの既定を使う
  */
 export function newEventFormValues(
   start: Date,
   end: Date | null,
   allDay: boolean,
+  defaultNotifications: readonly Notification[] = DEFAULT_NOTIFICATIONS,
 ): EventFormValues {
   const base = {
     name: "",
     description: "",
     color: DEFAULT_COLOR,
-    notifications: DEFAULT_NOTIFICATIONS.map((n) => ({ ...n })),
+    notifications: defaultNotifications.map(({ num, unit }) => ({ num, unit })),
     isAllDay: allDay,
     discordEvent: false,
   };
@@ -302,7 +309,15 @@ export function newEventFormValues(
 }
 
 /** 「新規作成」ボタンからの既定値 (旧フォーム: 今日の HH:00 〜 HH:30) */
-export function defaultEventFormValues(now = new Date()): EventFormValues {
+export function defaultEventFormValues(
+  now = new Date(),
+  defaultNotifications?: readonly Notification[],
+): EventFormValues {
   const start = startOfHour(now);
-  return newEventFormValues(start, addMinutes(start, 30), false);
+  return newEventFormValues(
+    start,
+    addMinutes(start, 30),
+    false,
+    defaultNotifications,
+  );
 }

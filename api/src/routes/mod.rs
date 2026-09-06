@@ -30,6 +30,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(members::profiles)
                 .service(guilds::my_permissions)
                 .service(guilds::refresh_my_permissions)
+                // 通知先に選べるチャンネル (#181)
+                .service(guilds::channels)
                 .service(guilds::get_config)
                 .service(guilds::put_config)
                 // iCal フィードの発行状況と発行・無効化 (#95)

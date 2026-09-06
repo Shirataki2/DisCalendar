@@ -41,8 +41,9 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | GET | `/guilds/joined?guild_ids=a,b,c` | 指定 ID のうち Bot が参加しているギルド |
 | GET | `/guilds/{guild_id}` | ギルド情報 (メンバーのみ) |
 | GET | `/guilds/{guild_id}/@me/permissions` | 自分のギルド権限 (`can_manage_server` など) |
-| GET | `/guilds/{guild_id}/config` | ギルド設定 (`restricted`) |
-| PUT | `/guilds/{guild_id}/config` | ギルド設定の更新 (管理権限が必要) |
+| GET | `/guilds/{guild_id}/channels` | 通知先に選べるチャンネル (テキスト / アナウンス) と Bot がそこに投稿できるか (`can_post` と足りない権限)。Discord の応答を 1 分キャッシュ (#181) |
+| GET | `/guilds/{guild_id}/config` | ギルド設定 (`restricted` / `notify_at_start` / `default_notifications` / `notification_channel_id`)。通知先は `/init` と同じ `event_settings` の先頭の行 |
+| PUT | `/guilds/{guild_id}/config` | ギルド設定の更新 (管理権限が必要)。`restricted` 以外は省略すると変更しない。通知先を変えるときは Bot が投稿できるチャンネルか確認し、できなければ 400 (#181) |
 | GET | `/events/{guild_id}?start=&end=` | 期間に重なる予定 |
 | POST | `/events/{guild_id}` | 予定の作成 (201) |
 | PUT | `/events/{guild_id}/{event_id}` | 予定の更新 |

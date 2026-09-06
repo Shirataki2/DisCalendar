@@ -167,7 +167,8 @@ pub async fn left_guilds<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<Vec<
 /// 判定は Bot (bot/src/tasks/notify.rs の `notify_for_event`) に合わせる:
 ///
 /// - 発火時刻は `開始 - num unit`。終日予定の開始は 0:00 に丸める (`effective_range`)
-/// - 保存済みの設定に加えて**必ず開始時刻 (0 分前) の通知**を送り、同じ分数のものは 1 回にまとめる
+/// - 保存済みの設定に加えて**開始時刻 (0 分前) の通知**を送り (ギルド設定 `notify_at_start` が
+///   false なら送らない、#181)、同じ分数のものは 1 回にまとめる
 /// - 通知先チャンネル (`event_settings` の先頭の行) が無いギルドや、`channel_id` が
 ///   Snowflake として不正なギルド (旧データの `"0"` など) には送らないので数に入れない
 /// - Bot が退出したギルド (`guilds` に行が無い) は、通知先の設定と予定が残っていても
@@ -193,11 +194,14 @@ pub async fn notifications_between<'e>(
             SELECT DISTINCT ON (guild_id) guild_id, channel_id
             FROM event_settings ORDER BY guild_id, id
         )
-        SELECT e.start_at, e.is_all_day, e.notifications, c.channel_id
+        SELECT e.start_at, e.is_all_day, e.notifications, c.channel_id,
+               -- 開始時刻に通知するか (#181)。設定の行が無いギルドは既定の true
+               COALESCE(gc.notify_at_start, TRUE) AS "notify_at_start!"
         FROM events e
         JOIN channels c ON c.guild_id = e.guild_id
         -- Bot が退出したギルド (guilds に行が無い) には送れない
         JOIN guilds g ON g.guild_id = e.guild_id
+        LEFT JOIN guild_config gc ON gc.guild_id = e.guild_id
         WHERE e.start_at >= $1 AND e.start_at < $2
         "#,
         day_start,
@@ -214,6 +218,7 @@ pub async fn notifications_between<'e>(
                 row.start_at,
                 row.is_all_day,
                 &row.notifications,
+                row.notify_at_start,
                 day_start,
                 day_end,
             ) as i64
@@ -234,12 +239,13 @@ fn count_fired_between(
     start_at: NaiveDateTime,
     is_all_day: bool,
     raw_notifications: &serde_json::Value,
+    notify_at_start: bool,
     day_start: NaiveDateTime,
     day_end: NaiveDateTime,
 ) -> usize {
     // 終日予定の丸め・開始時刻の通知の追加・同じ分数のものの統合・計算できない通知の除外は
     // すべて Notification::fire_times に一本化してある (Bot と数え方を揃えるため)
-    Notification::fire_times(start_at, is_all_day, raw_notifications)
+    Notification::fire_times(start_at, is_all_day, raw_notifications, notify_at_start)
         .into_iter()
         .filter(|&fire| fire >= day_start && fire < day_end)
         .count()
@@ -258,10 +264,20 @@ mod tests {
 
     /// 8/23 の 1 日ぶんを判定窓にする
     fn count(start: &str, is_all_day: bool, notifications: &Value) -> usize {
+        count_with(start, is_all_day, notifications, true)
+    }
+
+    fn count_with(
+        start: &str,
+        is_all_day: bool,
+        notifications: &Value,
+        notify_at_start: bool,
+    ) -> usize {
         count_fired_between(
             dt(start),
             is_all_day,
             notifications,
+            notify_at_start,
             dt("2026-08-23T00:00:00"),
             dt("2026-08-24T00:00:00"),
         )
@@ -301,6 +317,19 @@ mod tests {
         // 保存済みの 0 分前と重複しても 1 回 (Bot も dedup する)
         let zero = json!([{ "num": 0, "unit": "minutes" }]);
         assert_eq!(count("2026-08-23T10:00:00", false, &zero), 1);
+    }
+
+    #[test]
+    fn skips_the_start_notification_when_the_guild_turned_it_off() {
+        // 開始時刻に通知しないギルド (#181) では、設定が無ければ何も送らない
+        assert_eq!(
+            count_with("2026-08-23T10:00:00", false, &json!([]), false),
+            0
+        );
+        // 事前通知はそのまま数える
+        let hour = json!([{ "num": 1, "unit": "hours" }]);
+        assert_eq!(count_with("2026-08-23T10:00:00", false, &hour, false), 1);
+        assert_eq!(count_with("2026-08-23T10:00:00", false, &hour, true), 2);
     }
 
     #[test]

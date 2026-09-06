@@ -9,6 +9,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+use crate::error::ApiError;
+
+/// `num` の値域 (web の `NOTIFICATION_NUM_MIN` / `NOTIFICATION_NUM_MAX` と同じ)。
+/// 予定の入力 (`EventInput`) にはまだ適用していない (#46)。
+/// サーバー既定の事前通知 (#181) は新規作成フォームの初期値になるので、web のフォームが受け付ける
+/// 範囲に収めておく (範囲外の初期値が入るとフォームを開いた時点で検証に落ちてしまう)
+pub const NOTIFICATION_NUM_MIN: u32 = 1;
+pub const NOTIFICATION_NUM_MAX: u32 = 100;
+
 /// 予定開始の「num unit 前」に通知する
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Notification {
@@ -66,23 +75,44 @@ impl Notification {
         serde_json::to_value(list).expect("Notification is always serializable")
     }
 
+    /// 通知の一覧が保存できる形か (件数と `num` の値域)。
+    /// サーバー既定の事前通知 (#181) の入力検証に使う。`what` はエラーメッセージに入れる項目名
+    pub fn validate_list(list: &[Self], what: &str, max_len: usize) -> Result<(), ApiError> {
+        if list.len() > max_len {
+            return Err(ApiError::BadRequest(format!(
+                "at most {max_len} {what} are allowed"
+            )));
+        }
+        if list
+            .iter()
+            .any(|n| !(NOTIFICATION_NUM_MIN..=NOTIFICATION_NUM_MAX).contains(&n.num))
+        {
+            return Err(ApiError::BadRequest(format!(
+                "{what}: num must be between {NOTIFICATION_NUM_MIN} and {NOTIFICATION_NUM_MAX}"
+            )));
+        }
+        Ok(())
+    }
+
     /// DB の値 → Bot が実際に発火させる「開始の何分前か」の一覧 (昇順・重複なし)。
     ///
     /// Bot (bot/src/tasks/notify.rs の `notify_for_event`) の扱いに合わせる:
     ///
     /// - 解釈できない要素は捨てる ([`Notification::decode_all`])
-    /// - 保存済みの設定に関係なく**必ず開始時刻 (0 分前) の通知を送る**
+    /// - `notify_at_start` (ギルド設定 `guild_config.notify_at_start`、#181) が true なら、
+    ///   保存済みの設定に関係なく**開始時刻 (0 分前) の通知を送る**。false なら足さない
+    ///   (保存済みの「0 分前」はそのまま残る)
     /// - `total_minutes()` が同じもの (「60 分前」と「1 時間前」、保存済みの「0 分前」と
     ///   開始時刻通知など) は 1 回にまとめる (`dedup_notifications`)
     ///
     /// 通知の数を数える側 (`admin_stats` の今日の通知予定数、`admin_analytics` の内訳) が
     /// それぞれ同じ規則を書き写すとずれるので、ここに一本化する
-    pub fn fire_minutes(raw: &Value) -> Vec<i64> {
+    pub fn fire_minutes(raw: &Value, notify_at_start: bool) -> Vec<i64> {
         let mut minutes: Vec<i64> = Self::decode_all(raw)
             .into_iter()
             .map(Self::total_minutes)
-            // Bot は保存済みの設定に関係なく開始時刻の通知を送る
-            .chain(std::iter::once(0))
+            // Bot はギルド設定が許す限り、保存済みの設定に関係なく開始時刻の通知を送る
+            .chain(notify_at_start.then_some(0))
             .collect();
         minutes.sort_unstable();
         minutes.dedup();
@@ -105,14 +135,15 @@ impl Notification {
     ///
     /// `num` の値域は api で検証していない (#46) ので、`total_minutes()` に直した時点や
     /// 開始からの減算で溢れることがある。Bot (`fire_at`) はそれを送れないので、ここでも除く。
-    /// **開始時刻の通知は必ず計算できるため、戻り値は必ず 1 件以上**になる
+    /// `notify_at_start` が true なら**開始時刻の通知は必ず計算できるため、戻り値は必ず 1 件以上**になる
     pub fn fire_times(
         start_at: NaiveDateTime,
         is_all_day: bool,
         raw: &Value,
+        notify_at_start: bool,
     ) -> Vec<NaiveDateTime> {
         let start = Self::effective_start(start_at, is_all_day);
-        Self::fire_minutes(raw)
+        Self::fire_minutes(raw, notify_at_start)
             .into_iter()
             .filter_map(|minutes| {
                 Duration::try_minutes(minutes).and_then(|offset| start.checked_sub_signed(offset))
@@ -235,13 +266,26 @@ mod tests {
             { "num": 1, "unit": "days" },
             "garbage",
         ]);
-        assert_eq!(Notification::fire_minutes(&raw), vec![0, 60, 1440]);
+        assert_eq!(Notification::fire_minutes(&raw, true), vec![0, 60, 1440]);
+        // 開始時刻に通知しないギルド (#181) では 0 分前を足さないが、保存済みの 0 分前は残る
+        assert_eq!(Notification::fire_minutes(&raw, false), vec![0, 60, 1440]);
+        let without_zero = json!([{ "num": 60, "unit": "minutes" }]);
+        assert_eq!(Notification::fire_minutes(&without_zero, false), vec![60]);
     }
 
     #[test]
     fn fire_minutes_always_contains_the_start_notification() {
-        assert_eq!(Notification::fire_minutes(&json!([])), vec![0]);
-        assert_eq!(Notification::fire_minutes(&json!(["garbage"])), vec![0]);
+        assert_eq!(Notification::fire_minutes(&json!([]), true), vec![0]);
+        assert_eq!(
+            Notification::fire_minutes(&json!(["garbage"]), true),
+            vec![0]
+        );
+    }
+
+    #[test]
+    fn fire_minutes_can_be_empty_when_start_notifications_are_off() {
+        assert!(Notification::fire_minutes(&json!([]), false).is_empty());
+        assert!(Notification::fire_minutes(&json!(["garbage"]), false).is_empty());
     }
 
     #[test]
@@ -254,7 +298,7 @@ mod tests {
         ]);
         // 30 分前と、必ず送られる開始時刻の通知だけが残る
         assert_eq!(
-            Notification::fire_times(start, false, &raw),
+            Notification::fire_times(start, false, &raw, true),
             vec![start, "2026-08-25T09:30:00".parse().unwrap()]
         );
     }
@@ -264,7 +308,7 @@ mod tests {
         let start: NaiveDateTime = "2026-08-25T15:30:00".parse().unwrap();
         let raw = json!([{ "num": 30, "unit": "minutes" }]);
         assert_eq!(
-            Notification::fire_times(start, true, &raw),
+            Notification::fire_times(start, true, &raw, true),
             vec![
                 "2026-08-25T00:00:00".parse().unwrap(),
                 "2026-08-24T23:30:00".parse().unwrap(),
@@ -280,6 +324,20 @@ mod tests {
         assert_eq!(minutes(1, NotificationUnit::Days), 1440);
         assert_eq!(minutes(1, NotificationUnit::Weeks), 10080);
         assert_eq!(minutes(0, NotificationUnit::Minutes), 0);
+    }
+
+    #[test]
+    fn validate_list_checks_count_and_num_range() {
+        let n = |num| Notification {
+            num,
+            unit: NotificationUnit::Minutes,
+        };
+        assert!(Notification::validate_list(&[], "notifications", 10).is_ok());
+        assert!(Notification::validate_list(&[n(1), n(100)], "notifications", 10).is_ok());
+        assert!(Notification::validate_list(&[n(0)], "notifications", 10).is_err());
+        assert!(Notification::validate_list(&[n(101)], "notifications", 10).is_err());
+        assert!(Notification::validate_list(&[n(1); 11], "notifications", 10).is_err());
+        assert!(Notification::validate_list(&[n(1); 10], "notifications", 10).is_ok());
     }
 
     #[test]

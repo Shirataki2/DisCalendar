@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { GuildConfig, GuildFeed, MyPermissions } from "@/lib/api/types";
+import type {
+  GuildConfig,
+  GuildConfigInput,
+  GuildFeed,
+  MyPermissions,
+} from "@/lib/api/types";
 import { syncAdminGuildConfig } from "./admin-cache";
 import { queryKeys } from "./keys";
 
@@ -58,8 +63,8 @@ export function useRefreshMyPermissions(guildId: string) {
 export function useUpdateGuildConfig(guildId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (restricted: boolean) =>
-      api.guilds.updateConfig(guildId, restricted),
+    mutationFn: (input: GuildConfigInput) =>
+      api.guilds.updateConfig(guildId, input),
     onSuccess: (config) => {
       queryClient.setQueryData<GuildConfig>(
         queryKeys.guild.config(guildId),
@@ -98,6 +103,19 @@ export function useIssueGuildFeed(guildId: string) {
         feed,
       );
     },
+  });
+}
+
+/**
+ * 通知先に選べるチャンネルの一覧 (#181)。サーバー設定ダイアログを開いたときに取る。
+ * api 側で 1 分キャッシュしているので、Discord でチャンネルや権限を変えた直後は少し遅れて反映される
+ */
+export function useGuildChannelsQuery(guildId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.guild.channels(guildId),
+    queryFn: ({ signal }) => api.guilds.channels(guildId, signal),
+    enabled,
+    staleTime: 60_000,
   });
 }
 

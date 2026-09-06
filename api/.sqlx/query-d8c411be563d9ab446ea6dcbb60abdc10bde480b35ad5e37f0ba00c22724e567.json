@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        WITH channels AS (\n            -- 旧スキーマには guild_id の一意制約が無いので、Bot (event_settings::get) と同じく先頭の 1 行を使う\n            SELECT DISTINCT ON (guild_id) guild_id, channel_id\n            FROM event_settings ORDER BY guild_id, id\n        )\n        SELECT e.start_at, e.is_all_day, e.notifications, c.channel_id\n        FROM events e\n        JOIN channels c ON c.guild_id = e.guild_id\n        -- Bot が退出したギルド (guilds に行が無い) には送れない\n        JOIN guilds g ON g.guild_id = e.guild_id\n        WHERE e.start_at >= $1 AND e.start_at < $2\n        ",
+  "query": "\n        WITH channels AS (\n            -- 旧スキーマには guild_id の一意制約が無いので、Bot (event_settings::get) と同じく先頭の 1 行を使う\n            SELECT DISTINCT ON (guild_id) guild_id, channel_id\n            FROM event_settings ORDER BY guild_id, id\n        )\n        SELECT e.start_at, e.is_all_day, e.notifications, c.channel_id,\n               -- 開始時刻に通知するか (#181)。設定の行が無いギルドは既定の true\n               COALESCE(gc.notify_at_start, TRUE) AS \"notify_at_start!\"\n        FROM events e\n        JOIN channels c ON c.guild_id = e.guild_id\n        -- Bot が退出したギルド (guilds に行が無い) には送れない\n        JOIN guilds g ON g.guild_id = e.guild_id\n        LEFT JOIN guild_config gc ON gc.guild_id = e.guild_id\n        WHERE e.start_at >= $1 AND e.start_at < $2\n        ",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,12 @@
             "name": "channel_id"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "notify_at_start!",
+        "type_info": "Bool",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -58,8 +64,9 @@
       false,
       false,
       false,
-      false
+      false,
+      null
     ]
   },
-  "hash": "3a12d5847dd910979927f73ba64f5dbb5fe4392ccef2ed3a13d3294865b4d122"
+  "hash": "d8c411be563d9ab446ea6dcbb60abdc10bde480b35ad5e37f0ba00c22724e567"
 }

@@ -517,8 +517,10 @@ pub async fn notification_stats<'e>(executor: impl PgExecutor<'e>) -> sqlx::Resu
     let mut total = 0;
     while let Some(row) = rows.try_next().await? {
         // fire_times には必ず開始時刻の通知が入るので、そのぶんを引くと「設定によって増えた通知」
-        let extra = Notification::fire_times(row.start_at, row.is_all_day, &row.notifications).len()
-            as i64
+        // ギルド設定で開始時刻の通知を止めていても (#181)、ここでは「設定によって増えた分」を
+        // 数えたいので、開始時刻の通知を含めて並べてから 1 を引く
+        let extra = Notification::fire_times(row.start_at, row.is_all_day, &row.notifications, true)
+            .len() as i64
             - 1;
         if extra > 0 {
             events_with_notifications += 1;

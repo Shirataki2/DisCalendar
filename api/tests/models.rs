@@ -5,7 +5,8 @@ use chrono::NaiveDateTime;
 use discalendar_api::models::{
     event_links,
     events::{self, EventInput},
-    feed_tokens, guilds,
+    feed_tokens,
+    guilds::{self, GuildConfigUpdate},
     notifications::{Notification, NotificationUnit},
 };
 use sqlx::PgPool;
@@ -390,18 +391,128 @@ async fn events_with_out_of_range_numbers_in_notifications_are_still_readable(po
     );
 }
 
+/// restricted だけを変える upsert (管理コンソールと同じ呼び方)
+async fn set_restricted(pool: &PgPool, restricted: bool) {
+    let mut conn = pool.acquire().await.unwrap();
+    guilds::upsert_config(&mut conn, GUILD, &GuildConfigUpdate::restricted(restricted))
+        .await
+        .unwrap();
+}
+
 #[sqlx::test(migrations = "./migrations")]
 async fn guild_config_defaults_and_upserts(pool: PgPool) {
     let config = guilds::get_config(&pool, GUILD).await.unwrap();
     assert!(!config.restricted);
     assert_eq!(config.guild_id, GUILD);
+    // 行が無いギルドの既定値 (#181): 開始時刻に通知する、既定の事前通知は 1 日前と 1 時間前、通知先なし
+    assert!(config.notify_at_start);
+    assert_eq!(config.default_notifications, guilds::DEFAULT_NOTIFICATIONS);
+    assert_eq!(config.notification_channel_id, None);
 
-    let config = guilds::upsert_config(&pool, GUILD, true).await.unwrap();
+    set_restricted(&pool, true).await;
+    let config = guilds::get_config(&pool, GUILD).await.unwrap();
     assert!(config.restricted);
-    assert!(guilds::get_config(&pool, GUILD).await.unwrap().restricted);
+    // 行を作ったときの DEFAULT も行が無いときの既定値と同じ (マイグレーションと DEFAULT_NOTIFICATIONS が揃っている)
+    assert!(config.notify_at_start);
+    assert_eq!(config.default_notifications, guilds::DEFAULT_NOTIFICATIONS);
 
-    let config = guilds::upsert_config(&pool, GUILD, false).await.unwrap();
+    set_restricted(&pool, false).await;
+    assert!(!guilds::get_config(&pool, GUILD).await.unwrap().restricted);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn guild_config_notification_settings_are_updated_only_when_given(pool: PgPool) {
+    let thirty = vec![Notification {
+        num: 30,
+        unit: NotificationUnit::Minutes,
+    }];
+    let mut conn = pool.acquire().await.unwrap();
+    guilds::upsert_config(
+        &mut conn,
+        GUILD,
+        &GuildConfigUpdate {
+            restricted: true,
+            notify_at_start: Some(false),
+            default_notifications: Some(thirty.clone()),
+        },
+    )
+    .await
+    .unwrap();
+    let config = guilds::get_config(&pool, GUILD).await.unwrap();
+    assert!(config.restricted);
+    assert!(!config.notify_at_start);
+    assert_eq!(config.default_notifications, thirty);
+
+    // None の項目は今の値のまま (管理コンソールの restricted の切替で通知の設定が消えない)
+    set_restricted(&pool, false).await;
+    let config = guilds::get_config(&pool, GUILD).await.unwrap();
     assert!(!config.restricted);
+    assert!(!config.notify_at_start);
+    assert_eq!(config.default_notifications, thirty);
+
+    // 空の一覧は「既定の事前通知なし」として保存できる (None とは区別する)
+    guilds::upsert_config(
+        &mut conn,
+        GUILD,
+        &GuildConfigUpdate {
+            restricted: false,
+            notify_at_start: Some(true),
+            default_notifications: Some(vec![]),
+        },
+    )
+    .await
+    .unwrap();
+    let config = guilds::get_config(&pool, GUILD).await.unwrap();
+    assert!(config.notify_at_start);
+    assert!(config.default_notifications.is_empty());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn notification_channel_is_shared_with_the_bot_init_rows(pool: PgPool) {
+    let mut tx = pool.begin().await.unwrap();
+    let previous = guilds::set_notification_channel(&mut tx, GUILD, "333333333333333333")
+        .await
+        .unwrap();
+    assert_eq!(previous, None);
+    tx.commit().await.unwrap();
+    assert_eq!(
+        guilds::get_config(&pool, GUILD)
+            .await
+            .unwrap()
+            .notification_channel_id
+            .as_deref(),
+        Some("333333333333333333")
+    );
+
+    // 旧 Bot の時代の重複行があっても、先頭の行を返し、変更はまとめて更新する
+    sqlx::query(
+        "INSERT INTO event_settings (guild_id, channel_id) VALUES ($1, '444444444444444444')",
+    )
+    .bind(GUILD)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let previous = guilds::set_notification_channel(&mut tx, GUILD, "555555555555555555")
+        .await
+        .unwrap();
+    assert_eq!(previous.as_deref(), Some("333333333333333333"));
+    tx.commit().await.unwrap();
+    let rows: Vec<String> =
+        sqlx::query_scalar("SELECT channel_id FROM event_settings WHERE guild_id = $1")
+            .bind(GUILD)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(rows, ["555555555555555555", "555555555555555555"]);
+    // 別のギルドには影響しない
+    assert_eq!(
+        guilds::get_config(&pool, OTHER_GUILD)
+            .await
+            .unwrap()
+            .notification_channel_id,
+        None
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -412,6 +523,7 @@ async fn lock_config_for_update_creates_default_row_inside_transaction(pool: PgP
         .await
         .unwrap();
     assert!(!before.restricted);
+    assert!(before.notify_at_start);
     tx.rollback().await.unwrap();
     let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM guild_config WHERE guild_id = $1")
         .bind(GUILD)
@@ -421,13 +533,16 @@ async fn lock_config_for_update_creates_default_row_inside_transaction(pool: PgP
     assert_eq!(rows, 0);
 
     // 既に行があれば、その値を返して上書きしない
-    guilds::upsert_config(&pool, GUILD, true).await.unwrap();
+    set_restricted(&pool, true).await;
     let mut tx = pool.begin().await.unwrap();
     let before = guilds::lock_config_for_update(&mut tx, GUILD)
         .await
         .unwrap();
     assert!(before.restricted);
-    let after = guilds::upsert_config(&mut *tx, GUILD, false).await.unwrap();
+    guilds::upsert_config(&mut tx, GUILD, &GuildConfigUpdate::restricted(false))
+        .await
+        .unwrap();
+    let after = guilds::get_config(&mut *tx, GUILD).await.unwrap();
     assert!(!after.restricted);
     tx.commit().await.unwrap();
     assert!(!guilds::get_config(&pool, GUILD).await.unwrap().restricted);
@@ -525,7 +640,7 @@ async fn admin_guild_list_joins_config_settings_and_counts(pool: PgPool) {
         .await
         .unwrap();
     }
-    guilds::upsert_config(&pool, GUILD, true).await.unwrap();
+    set_restricted(&pool, true).await;
     sqlx::query(
         "INSERT INTO event_settings (guild_id, channel_id) VALUES ($1, '333333333333333333')",
     )

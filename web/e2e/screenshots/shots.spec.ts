@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { calendarToday, dayCell, eventOn } from "../calendar";
 import { WEB_DIR } from "../env";
-import { E2E_GUILDS, E2E_USER } from "../fixtures";
+import { E2E_CHANNELS, E2E_GUILDS, E2E_USER } from "../fixtures";
 import {
   CREATE_SAMPLE,
   EDIT_TARGET,
@@ -80,8 +80,8 @@ test.describe("カレンダー", () => {
 });
 
 test.describe("ダイアログ", () => {
-  // 予定のフォームは縦に長いので、スクロールバーが出ない高さにする
-  test.use({ viewport: { width: 1400, height: 1000 }, deviceScaleFactor: 2 });
+  // 予定のフォームとサーバー設定 (通知の節 #181 で伸びた) は縦に長いので、スクロールバーが出ない高さにする
+  test.use({ viewport: { width: 1400, height: 1200 }, deviceScaleFactor: 2 });
 
   test("lp/dialog.png (予定の編集)", async ({ page }) => {
     await openCalendar(page);
@@ -141,8 +141,15 @@ test.describe("ダイアログ", () => {
     await expect(dialog).toBeVisible();
     const feedUrl = dialog.getByRole("textbox", { name: "フィード URL" });
     await expect(feedUrl).toBeVisible();
-    // 「限定する」を選んだ状態を見せる (保存はしないので DB は変わらない)
-    await dialog.getByRole("checkbox").check();
+    // 「限定する」を選び、通知先チャンネル (#181) を選んだ状態を見せる (保存はしないので DB は変わらない)
+    await dialog
+      .getByRole("checkbox", { name: "予定の追加・編集・削除を" })
+      .check();
+    await dialog.getByRole("combobox", { name: "通知先チャンネル" }).click();
+    await page
+      .getByRole("listbox")
+      .getByRole("option", { name: `#${E2E_CHANNELS.notices.name}` })
+      .click();
     await blur(dialog);
     await settle(page);
     // URL はブラウザのオリジンで組み立てられる (撮影環境では localhost:3100) ので、

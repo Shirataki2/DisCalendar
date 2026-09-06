@@ -32,6 +32,8 @@ export const queryKeys = {
       ["guild", guildId, "permissions"] as const,
     /** iCal フィードの発行状況 (#95) */
     feed: (guildId: string) => ["guild", guildId, "feed"] as const,
+    /** 通知先に選べるチャンネル (#181) */
+    channels: (guildId: string) => ["guild", guildId, "channels"] as const,
   },
   /** 管理コンソール。通常画面とは別のエンドポイントなので、キャッシュも別に持つ */
   admin: {

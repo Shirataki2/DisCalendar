@@ -5,6 +5,7 @@ import {
   E2E_BOT_ROLE_ID,
   E2E_BOT_TOKEN,
   E2E_BOT_USER_ID,
+  E2E_CHANNELS,
   E2E_USER,
   E2E_USER_ROLE_ID,
   type E2EGuild,
@@ -17,6 +18,7 @@ import {
 // - GET /users/@me/guilds                       web (lib/discord.ts、ユーザーのトークン) と api の管理コンソール (Bot トークン)
 // - GET /guilds/{id}                            api (ギルド情報とロール一覧、権限計算)
 // - GET /guilds/{id}/members/{uid}              api (メンバー確認と所持ロール。Bot 自身も含む)
+// - GET /guilds/{id}/channels                   api (通知先に選べるチャンネルと Bot の投稿可否、#181)
 // - POST/PATCH/DELETE /guilds/{id}/scheduled-events(/{sid})  api (スケジュールイベントの同期、#94)
 // それ以外と未知のギルドは Discord と同じく 404 の JSON を返す。
 // テスト用に Discord には無い経路を 2 つ足してある (モックは globalSetup のプロセスで動いていて
@@ -130,6 +132,63 @@ function botGuild(guild: E2EGuild) {
         : []),
     ],
   };
+}
+
+/**
+ * `GET /guilds/{id}/channels` (Bot から見えるチャンネル。スレッドは含まない)。
+ * 権限のビットは Discord と同じ: 1024 = チャンネルを見る、2048 = メッセージを送信、16384 = 埋め込みリンク
+ */
+function guildChannels(guild: E2EGuild) {
+  const everyoneAllowsPosting = {
+    id: guild.id,
+    type: 0,
+    allow: String(2048 + 16384),
+    deny: "0",
+  };
+  return [
+    {
+      id: E2E_CHANNELS.general.id,
+      type: 0,
+      name: E2E_CHANNELS.general.name,
+      position: 0,
+      parent_id: null,
+      permission_overwrites: [everyoneAllowsPosting],
+    },
+    {
+      id: E2E_CHANNELS.voice.id,
+      type: 2,
+      name: E2E_CHANNELS.voice.name,
+      position: 1,
+      parent_id: null,
+      permission_overwrites: [],
+    },
+    {
+      id: E2E_CHANNELS.category.id,
+      type: 4,
+      name: E2E_CHANNELS.category.name,
+      position: 0,
+      parent_id: null,
+      permission_overwrites: [],
+    },
+    {
+      id: E2E_CHANNELS.notices.id,
+      type: 5,
+      name: E2E_CHANNELS.notices.name,
+      position: 0,
+      parent_id: E2E_CHANNELS.category.id,
+      permission_overwrites: [everyoneAllowsPosting],
+    },
+    {
+      id: E2E_CHANNELS.staffOnly.id,
+      type: 0,
+      name: E2E_CHANNELS.staffOnly.name,
+      position: 1,
+      parent_id: E2E_CHANNELS.category.id,
+      permission_overwrites: [
+        { id: guild.id, type: 0, allow: "0", deny: "1024" },
+      ],
+    },
+  ];
 }
 
 /** Bot が作ったスケジュールイベント (scheduled_event_id → ギルド)。テスト実行中だけ持つ */
@@ -248,6 +307,19 @@ export function startDiscordMock(port: number): Promise<Server> {
         );
       }
       return json(401, { message: "401: Unauthorized", code: 0 });
+    }
+
+    // チャンネル一覧 (#181)。Bot トークンが必要
+    const channelsMatch = /^\/guilds\/(\d+)\/channels$/.exec(url.pathname);
+    if (channelsMatch) {
+      if (auth !== `Bot ${E2E_BOT_TOKEN}`) {
+        return json(401, { message: "401: Unauthorized", code: 0 });
+      }
+      const guild = currentGuild(channelsMatch[1]);
+      if (!guild) {
+        return notFound("Unknown Guild", 10004);
+      }
+      return json(200, guildChannels(guild));
     }
 
     const guildMatch = /^\/guilds\/(\d+)(?:\/members\/(\d+))?$/.exec(
