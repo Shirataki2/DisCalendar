@@ -339,6 +339,7 @@ mod tests {
         let list = build_channel_list("g", "bot", bot, &[], channels);
         let viewer = |roles: &[&str], permissions: u64| MemberAccess {
             guild: Arc::new(super::super::GuildSnapshot {
+                editor_roles: vec![],
                 id: "g".to_owned(),
                 name: "guild".to_owned(),
                 icon: None,
@@ -392,8 +393,8 @@ mod tests {
                         HttpResponse::Ok().json(serde_json::json!({
                             "id": "111", "name": "guild", "owner_id": "555",
                             "roles": [
-                                {"id": "111", "permissions": "0"},
-                                {"id": "999", "permissions": "8"}
+                                {"id": "111", "name": "@everyone", "color": 0, "position": 0, "managed": false, "permissions": "0"},
+                                {"id": "999", "name": "Bot", "color": 0, "position": 1, "managed": true, "permissions": "8"}
                             ]
                         }))
                     }),
@@ -431,6 +432,7 @@ mod tests {
         // 今のギルド情報では @everyone に権限が無いので、計算し直すと何も見えない
         let stale_viewer = MemberAccess {
             guild: Arc::new(super::super::GuildSnapshot {
+                editor_roles: vec![],
                 id: "111".to_owned(),
                 name: "guild".to_owned(),
                 icon: None,

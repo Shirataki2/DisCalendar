@@ -5,8 +5,9 @@ import { E2E_CHANNELS, E2E_GUILDS } from "./fixtures";
 // admin ギルドではテストユーザーがオーナー、member ギルドでは権限のない一般メンバー (Discord モックの定義)
 
 const RESTRICTED_NOTICE =
-  "このサーバーでは管理権限を持つユーザーのみ予定を編集できます";
-const RESTRICTED_LABEL = "予定の編集を管理権限のあるメンバーに限定する";
+  "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます";
+const RESTRICTED_LABEL =
+  "予定の編集を管理権限または指定ロールのあるメンバーに限定する";
 const NOTIFY_AT_START_LABEL = "開始時刻に通知する";
 const CHANNEL_LABEL = "通知先チャンネル";
 const configApi = `/local/api/guilds/${E2E_GUILDS.admin.id}/config`;

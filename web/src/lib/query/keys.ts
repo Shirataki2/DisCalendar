@@ -24,6 +24,7 @@ export const queryKeys = {
       ["events", "joined", { guildIds, start, end }] as const,
   },
   guild: {
+    roles: (guildId: string) => ["guild", guildId, "roles"] as const,
     members: (guildId: string, ids: string[]) =>
       ["guild", guildId, "members", ids] as const,
     detail: (guildId: string) => ["guild", guildId] as const,

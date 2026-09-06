@@ -54,10 +54,18 @@ export interface Guild {
   locale: string;
 }
 
+export interface GuildRole {
+  id: string;
+  name: string;
+  color: number;
+  position: number;
+}
+
 export interface GuildConfig {
   guild_id: string;
-  /** true なら予定の作成・更新・削除にサーバー管理権限が必要 */
+  /** true なら予定の作成・更新・削除に管理権限または編集ロールが必要 */
   restricted: boolean;
+  editor_role_ids: string[];
   /** 予定の開始時刻に通知するか (#181)。false なら事前通知だけが届く */
   notify_at_start: boolean;
   /** 予定を新規作成するときの事前通知の初期値 (#181)。最大 NOTIFICATIONS_MAX 件 */
@@ -77,6 +85,7 @@ export interface GuildConfig {
  */
 export interface GuildConfigInput {
   restricted: boolean;
+  editor_role_ids?: string[];
   notify_at_start?: boolean;
   default_notifications?: Notification[];
   notification_channel_id?: string;
@@ -423,6 +432,7 @@ export interface MyPermissions {
   manage_roles: boolean;
   /** 上記 4 つのいずれか */
   can_manage_server: boolean;
+  can_edit_events: boolean;
   /**
    * このユーザー自身が Discord の「イベントの作成」権限を持つか (#94)。
    * 連携は Bot が代行するので、これが false のユーザーは予定を新たに連携させられない

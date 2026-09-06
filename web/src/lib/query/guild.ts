@@ -47,6 +47,13 @@ export function useRefreshMyPermissions(guildId: string) {
       queryClient.cancelQueries({
         queryKey: queryKeys.guild.myPermissions(guildId),
       }),
+    onError: () => {
+      queryClient.setQueryData<MyPermissions>(
+        queryKeys.guild.myPermissions(guildId),
+        (previous) =>
+          previous ? { ...previous, can_edit_events: false } : previous,
+      );
+    },
     onSuccess: (permissions) => {
       queryClient.setQueryData<MyPermissions>(
         queryKeys.guild.myPermissions(guildId),
@@ -75,6 +82,9 @@ export function useUpdateGuildConfig(guildId: string) {
         config,
       );
       syncAdminGuildConfig(queryClient, guildId, config);
+      return queryClient.invalidateQueries({
+        queryKey: queryKeys.guild.myPermissions(guildId),
+      });
     },
   });
 }
@@ -140,15 +150,11 @@ export function useRevokeGuildFeed(guildId: string) {
 }
 
 /**
- * 予定を編集できるか。restricted モードでは管理権限を持つユーザーだけが編集できる (API 側でも強制される)。
+ * 予定を編集できるか。restricted モードでは管理権限または編集ロールを持つユーザーが編集できる (API 側でも強制される)。
  * 取得できていない間は閲覧のみ扱いにする
  */
-export function canEditEvents(
-  config: GuildConfig | undefined,
-  permissions: MyPermissions | undefined,
-): boolean {
-  if (!config || !permissions) return false;
-  return !config.restricted || permissions.can_manage_server;
+export function canEditEvents(permissions: MyPermissions | undefined): boolean {
+  return permissions?.can_edit_events ?? false;
 }
 
 /** 詳細を開いたときだけ必要な人を取得する。ギルドと ID の組でキャッシュする。 */
@@ -163,6 +169,16 @@ export function useMemberProfilesQuery(
     queryFn: ({ signal }) => api.guilds.members(guildId, uniqueIds, signal),
     enabled: enabled && uniqueIds.length > 0,
     staleTime: 60_000,
+    retry: false,
+  });
+}
+
+/** 設定ダイアログを開いている間に取得する。Discord 側はギルドの既存キャッシュを共有する。 */
+export function useGuildRolesQuery(guildId: string) {
+  return useQuery({
+    queryKey: queryKeys.guild.roles(guildId),
+    queryFn: ({ signal }) => api.guilds.roles(guildId, signal),
+    refetchOnMount: "always",
     retry: false,
   });
 }

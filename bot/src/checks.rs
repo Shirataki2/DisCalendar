@@ -11,6 +11,26 @@ use crate::{data::Context, error::BotError};
 /// 権限が足りないときにユーザーへ返すメッセージ
 pub const MANAGE_PERMISSIONS_REQUIRED: &str = "このコマンドを実行するには「管理者」「サーバー管理」「メッセージの管理」「ロールの管理」のいずれかの権限が必要です";
 
+/// 予定編集用。管理コマンドの案内とは分ける。
+pub const EDIT_PERMISSIONS_REQUIRED: &str =
+    "予定の作成には管理権限、または編集を許可されたロールが必要です";
+
+pub async fn author_can_edit_events(
+    ctx: Context<'_>,
+    config: &crate::models::guild_config::GuildConfig,
+) -> Result<bool, BotError> {
+    if !config.restricted {
+        return Ok(true);
+    }
+    let can_manage = author_can_manage_server(ctx).await?;
+    let roles: Vec<String> = ctx
+        .author_member()
+        .await
+        .map(|member| member.roles.iter().map(ToString::to_string).collect())
+        .unwrap_or_default();
+    Ok(config.can_edit_events(can_manage, &roles))
+}
+
 /// 旧実装・api と同じ「サーバー管理」判定。`administrator` を含むかどうかは serenity が各メソッドで考慮する
 pub fn can_manage_server(permissions: Permissions) -> bool {
     permissions.administrator()

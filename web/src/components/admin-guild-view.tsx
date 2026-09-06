@@ -106,7 +106,7 @@ export function AdminGuildView({ guildId }: Props) {
             disabled={!guild || updateConfig.isPending}
             onCheckedChange={(checked) => void toggleRestricted(checked)}
           />
-          restricted (管理権限を持つユーザーのみ編集可)
+          restricted (管理権限または指定ロールで編集可)
         </label>
         {guildQuery.isError && (
           <span className="rounded-md bg-red-900/40 px-3 py-1.5 text-sm text-red-200">

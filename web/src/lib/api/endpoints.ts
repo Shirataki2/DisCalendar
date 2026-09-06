@@ -17,6 +17,7 @@ import type {
   GuildConfig,
   GuildConfigInput,
   GuildFeed,
+  GuildRole,
   MemberProfile,
   MyPermissions,
   OpsResult,
@@ -77,6 +78,8 @@ export function createApi(request: ApiFetcher) {
         }),
     },
     guilds: {
+      roles: (guildId: string, signal?: AbortSignal) =>
+        request<GuildRole[]>(`/guilds/${guildId}/roles`, { signal }),
       members: (guildId: string, ids: string[], signal?: AbortSignal) => {
         const query = new URLSearchParams({ ids: ids.join(",") });
         return request<MemberProfile[]>(`/guilds/${guildId}/members?${query}`, {

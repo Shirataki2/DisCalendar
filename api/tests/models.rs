@@ -433,6 +433,7 @@ async fn guild_config_notification_settings_are_updated_only_when_given(pool: Pg
         GUILD,
         &GuildConfigUpdate {
             restricted: true,
+            editor_role_ids: None,
             notify_at_start: Some(false),
             default_notifications: Some(thirty.clone()),
         },
@@ -457,6 +458,7 @@ async fn guild_config_notification_settings_are_updated_only_when_given(pool: Pg
         GUILD,
         &GuildConfigUpdate {
             restricted: false,
+            editor_role_ids: None,
             notify_at_start: Some(true),
             default_notifications: Some(vec![]),
         },
@@ -1000,4 +1002,53 @@ async fn event_authors_survive_updates_and_legacy_rows(pool: PgPool) {
     assert!(rows[0].created_by.is_none());
     assert!(rows[0].updated_by.is_none());
     assert!(rows[0].updated_at.is_none());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn editor_roles_preserve_partial_updates_and_control_editing(pool: PgPool) {
+    let default = guilds::get_config(&pool, GUILD).await.unwrap();
+    assert!(default.editor_role_ids.is_empty());
+    assert!(default.can_edit_events(false, &[]));
+    let mut conn = pool.acquire().await.unwrap();
+    guilds::upsert_config(
+        &mut conn,
+        GUILD,
+        &GuildConfigUpdate {
+            restricted: true,
+            editor_role_ids: Some(vec!["123".into()]),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    guilds::upsert_config(&mut conn, GUILD, &GuildConfigUpdate::restricted(false))
+        .await
+        .unwrap();
+    let mut config = guilds::get_config(&pool, GUILD).await.unwrap();
+    assert_eq!(config.editor_role_ids, vec!["123"]);
+    for (restricted, manager, roles, expected) in [
+        (false, false, vec![], true),
+        (false, false, vec!["456".into()], true),
+        (true, false, vec![], false),
+        (true, false, vec!["456".into()], false),
+        (true, false, vec!["456".into(), "123".into()], true),
+        (true, true, vec![], true),
+    ] {
+        config.restricted = restricted;
+        assert_eq!(config.can_edit_events(manager, &roles), expected);
+    }
+    guilds::upsert_config(
+        &mut conn,
+        GUILD,
+        &GuildConfigUpdate {
+            restricted: true,
+            editor_role_ids: Some(vec![]),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let cleared = guilds::get_config(&pool, GUILD).await.unwrap();
+    assert!(cleared.editor_role_ids.is_empty());
+    assert!(!cleared.can_edit_events(false, &["123".into()]));
 }

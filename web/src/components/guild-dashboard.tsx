@@ -29,7 +29,9 @@ export function GuildDashboard({ guild }: Props) {
   const refreshPermissions = useRefreshMyPermissions(guildId);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const canEdit = canEditEvents(configQuery.data, permissionsQuery.data);
+  const canEdit = canEditEvents(
+    permissionsQuery.isError ? undefined : permissionsQuery.data,
+  );
   // 連携の可否は、取得できていないときだけでなく**取得に失敗したとき**も無効側に倒す (#122)。
   // Bot がサーバーから外れているとこのクエリ自体が 403 になり、TanStack Query は
   // 直前に成功した「権限あり」を持ち続けるため、そのままだと操作できるように見えてしまう
@@ -42,7 +44,7 @@ export function GuildDashboard({ guild }: Props) {
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">
         {configQuery.data?.restricted && !canEdit && (
           <span className="text-xs text-muted-foreground">
-            このサーバーでは管理権限を持つユーザーのみ予定を編集できます
+            このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます
           </span>
         )}
         {/* 長いサーバー名はスマホで折り返さず 1 行に省略する (#14)。名前だけが縮み、アイコンとボタンは残す */}
