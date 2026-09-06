@@ -5,7 +5,7 @@ use utoipa::{IntoParams, ToSchema};
 use super::{GuildMember, events::parse_guild_ids, member::is_snowflake};
 use crate::{
     auth::AuthUser,
-    discord::{DiscordError, GuildChannel, Permissions},
+    discord::{DiscordError, GuildChannel, GuildRole, Permissions},
     error::{ApiError, ErrorBody},
     models::{
         events::NOTIFICATIONS_MAX,
@@ -85,8 +85,10 @@ pub struct MyPermissions {
     pub manage_guild: bool,
     pub manage_messages: bool,
     pub manage_roles: bool,
-    /// 上記 4 つのいずれか。restricted モードでの編集可否とサーバー設定の変更可否に使う
+    /// 上記 4 つのいずれか。サーバー設定の変更可否に使う
     pub can_manage_server: bool,
+    /// restricted と編集ロールを含む予定編集の最終判定 (#170)
+    pub can_edit_events: bool,
     /// **このユーザー自身**が Discord の「イベントの作成」権限を持つか (#94)。
     /// 連携は Bot が代行するので、これを見ないと本人の権限では作れないイベントを
     /// web 経由で作れてしまう (権限昇格)。予定を連携させる操作の条件
@@ -100,7 +102,12 @@ pub struct MyPermissions {
 
 /// 応答を組み立てる。`bot_create_events` の求め方は呼び出し側で変える
 /// (通常の取得は取れなくても false に倒し、明示的な再確認 (#122) はエラーを返す)
-fn build_my_permissions(user_id: &str, p: Permissions, bot_create_events: bool) -> MyPermissions {
+fn build_my_permissions(
+    user_id: &str,
+    p: Permissions,
+    bot_create_events: bool,
+    can_edit_events: bool,
+) -> MyPermissions {
     MyPermissions {
         user_id: user_id.to_owned(),
         permissions: p.bits().to_string(),
@@ -109,6 +116,7 @@ fn build_my_permissions(user_id: &str, p: Permissions, bot_create_events: bool) 
         manage_messages: p.manage_messages(),
         manage_roles: p.manage_roles(),
         can_manage_server: p.can_manage_server(),
+        can_edit_events,
         create_events: p.create_events(),
         bot_create_events,
     }
@@ -142,6 +150,12 @@ pub async fn my_permissions(
         &member.user.discord_user_id,
         member.permissions(),
         bot_create_events,
+        guilds::get_config(&state.pool, member.guild_id())
+            .await?
+            .can_edit_events(
+                member.permissions().can_manage_server(),
+                &member.access.roles,
+            ),
     )))
 }
 
@@ -194,7 +208,21 @@ pub async fn refresh_my_permissions(
         &user_id,
         access.permissions,
         bot_create_events,
+        guilds::get_config(&state.pool, &guild_id)
+            .await?
+            .can_edit_events(access.permissions.can_manage_server(), &access.roles),
     )))
+}
+
+/// ギルドの編集許可に選べるロール。所属メンバーのみ取得できる。
+#[utoipa::path(
+    tag = "guilds",
+    params(("guild_id" = String, Path, description = "ギルド ID")),
+    responses((status = 200, body = Vec<GuildRole>), (status = 401, body = ErrorBody), (status = 403, body = ErrorBody))
+)]
+#[get("/{guild_id}/roles")]
+pub async fn roles(member: GuildMember) -> web::Json<Vec<GuildRole>> {
+    web::Json(member.access.guild.editor_roles.clone())
 }
 
 /// 通知先に選べるチャンネル (テキスト / アナウンス) の一覧と、Bot がそこに投稿できるか (#181)。
@@ -268,6 +296,9 @@ pub async fn get_config(
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct GuildConfigInput {
     pub restricted: bool,
+    /// 編集を許可するロール (最大 25 件)。省略は維持、空配列は全解除
+    #[serde(default)]
+    pub editor_role_ids: Option<Vec<String>>,
     /// 予定の開始時刻に通知するか (#181)
     #[serde(default)]
     pub notify_at_start: Option<bool>,
@@ -284,6 +315,14 @@ pub struct GuildConfigInput {
 impl GuildConfigInput {
     /// 形式の検証 (Discord への問い合わせが要る投稿可否は [`put_config`] で見る)
     pub fn validate(&self) -> Result<(), ApiError> {
+        if let Some(ids) = &self.editor_role_ids {
+            let mut seen = std::collections::HashSet::new();
+            if ids.len() > 25 || ids.iter().any(|id| !is_snowflake(id) || !seen.insert(id)) {
+                return Err(ApiError::BadRequest(
+                    "editor_role_ids must contain at most 25 unique snowflakes".into(),
+                ));
+            }
+        }
         if let Some(list) = &self.default_notifications {
             Notification::validate_list(list, "default_notifications", NOTIFICATIONS_MAX)?;
         }
@@ -324,6 +363,20 @@ pub async fn put_config(
         ));
     }
     body.validate()?;
+    if let Some(ids) = &body.editor_role_ids
+        && ids.iter().any(|id| {
+            !member
+                .access
+                .guild
+                .editor_roles
+                .iter()
+                .any(|role| &role.id == id)
+        })
+    {
+        return Err(ApiError::BadRequest(
+            "editor_role_ids must be selectable roles of this guild".into(),
+        ));
+    }
     let guild_id = member.guild_id();
     let current = guilds::get_config(&state.pool, guild_id).await?;
 
@@ -361,6 +414,7 @@ pub async fn put_config(
         guild_id,
         &GuildConfigUpdate {
             restricted: body.restricted,
+            editor_role_ids: body.editor_role_ids.clone(),
             notify_at_start: body.notify_at_start,
             default_notifications: body.default_notifications.clone(),
         },
@@ -389,6 +443,7 @@ mod tests {
     fn input() -> GuildConfigInput {
         GuildConfigInput {
             restricted: false,
+            editor_role_ids: None,
             notify_at_start: Some(true),
             default_notifications: Some(vec![Notification {
                 num: 30,
@@ -396,6 +451,25 @@ mod tests {
             }]),
             notification_channel_id: Some("782502586817314820".to_owned()),
         }
+    }
+
+    #[test]
+    fn editor_role_input_rejects_invalid_ids_duplicates_and_overflow() {
+        let mut body = input();
+        body.editor_role_ids = Some((1..=25).map(|id| id.to_string()).collect());
+        assert!(body.validate().is_ok());
+        for ids in [
+            vec!["123".into(), "123".into()],
+            vec!["abc".into()],
+            vec!["".into()],
+            vec!["1/2".into()],
+            (1..=26).map(|id| id.to_string()).collect(),
+        ] {
+            body.editor_role_ids = Some(ids);
+            assert!(body.validate().is_err());
+        }
+        body.editor_role_ids = Some(vec![]);
+        assert!(body.validate().is_ok());
     }
 
     #[test]

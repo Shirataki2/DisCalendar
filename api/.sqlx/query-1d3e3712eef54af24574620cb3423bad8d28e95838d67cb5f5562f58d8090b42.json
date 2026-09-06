@@ -1,0 +1,57 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            COALESCE(gc.editor_role_ids, '{}'::text[]) AS \"editor_role_ids!\",\n            COALESCE(gc.restricted, FALSE) AS \"restricted!\",\n            COALESCE(gc.notify_at_start, TRUE) AS \"notify_at_start!\",\n            COALESCE(gc.default_notifications, $2::jsonb) AS \"default_notifications!\",\n            es.channel_id AS \"notification_channel_id?\"\n        FROM (SELECT $1::text AS guild_id) g\n        LEFT JOIN guild_config gc ON gc.guild_id = g.guild_id\n        LEFT JOIN LATERAL (\n            SELECT channel_id FROM event_settings WHERE guild_id = g.guild_id ORDER BY id LIMIT 1\n        ) es ON TRUE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "editor_role_ids!",
+        "type_info": "TextArray",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "restricted!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "notify_at_start!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "default_notifications!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "notification_channel_id?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "event_settings",
+            "name": "channel_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "1d3e3712eef54af24574620cb3423bad8d28e95838d67cb5f5562f58d8090b42"
+}

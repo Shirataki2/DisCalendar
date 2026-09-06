@@ -40,10 +40,11 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | GET | `/guilds/{guild_id}/members?ids=...` | メンバーのみ。カンマ区切りのユーザー ID (最大 20 件、このギルドの予定の操作者のみ) を表示名・アバターに解決。60 秒キャッシュ、同時問い合わせは最大 4 件。退出済みは ID のみ返す |
 | GET | `/guilds/joined?guild_ids=a,b,c` | 指定 ID のうち Bot が参加しているギルド |
 | GET | `/guilds/{guild_id}` | ギルド情報 (メンバーのみ) |
-| GET | `/guilds/{guild_id}/@me/permissions` | 自分のギルド権限 (`can_manage_server` など) |
+| GET | `/guilds/{guild_id}/@me/permissions` | 自分のギルド権限 (`can_manage_server` と、編集ロール・restricted を含む `can_edit_events` など) |
+| GET | `/guilds/{guild_id}/roles` | 編集許可に選べるロール (ID・名前・色・位置)。所属メンバーのみ。@everyone・managed は除外、位置の降順。ギルドの既存キャッシュを共有 (#170) |
 | GET | `/guilds/{guild_id}/channels` | 通知先に選べるチャンネル (テキスト / アナウンス) と Bot がそこに投稿できるか (`can_post` と足りない権限)。返すのは呼び出した本人に「チャンネルを見る」があるチャンネルだけ。Discord の応答を 1 分キャッシュ (#181) |
-| GET | `/guilds/{guild_id}/config` | ギルド設定 (`restricted` / `notify_at_start` / `default_notifications` / `notification_channel_id` / `notification_channel_configured`)。通知先は `/init` と同じ `event_settings` の先頭の行で、ID は管理権限を持つ呼び出し元にだけ返す (それ以外は設定済みかどうかだけ) |
-| PUT | `/guilds/{guild_id}/config` | ギルド設定の更新 (管理権限が必要)。`restricted` 以外は省略すると変更しない。通知先を変えるときは Bot が投稿できるチャンネルか確認し、できなければ 400 (#181) |
+| GET | `/guilds/{guild_id}/config` | ギルド設定 (`restricted` / `editor_role_ids` / `notify_at_start` / `default_notifications` / `notification_channel_id` / `notification_channel_configured`)。通知先は `/init` と同じ `event_settings` の先頭の行で、ID は管理権限を持つ呼び出し元にだけ返す (それ以外は設定済みかどうかだけ) |
+| PUT | `/guilds/{guild_id}/config` | ギルド設定の更新 (管理権限が必要)。`restricted` 以外は省略すると変更しない。`editor_role_ids` は最大25件、空配列で全解除。指定されたロールは同一ギルドの選択可能なロールか確認する。通知先を変えるときは Bot が投稿できるチャンネルか確認し、できなければ 400 (#181) |
 | GET | `/events/{guild_id}?start=&end=` | 期間に重なる予定 |
 | POST | `/events/{guild_id}` | 予定の作成 (201) |
 | PUT | `/events/{guild_id}/{event_id}` | 予定の更新 |

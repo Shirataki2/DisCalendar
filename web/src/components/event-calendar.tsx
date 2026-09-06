@@ -58,7 +58,7 @@ import {
 
 interface Props {
   guildId: string;
-  /** false なら閲覧のみ (restricted モードで管理権限がない) */
+  /** false なら閲覧のみ (restricted モードで管理権限も編集ロールもない) */
   canEdit: boolean;
   /**
    * 新規作成の事前通知の初期値 (サーバー設定の「新しい予定の既定の事前通知」、#181)。
@@ -230,7 +230,7 @@ export function EventCalendar({
           title={
             canEdit
               ? "新規作成 (n)"
-              : "このサーバーでは管理権限を持つユーザーのみ予定を編集できます"
+              : "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます"
           }
           className="rounded-full bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600"
         >

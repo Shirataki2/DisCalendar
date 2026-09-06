@@ -6,6 +6,9 @@ import {
   E2E_BOT_TOKEN,
   E2E_BOT_USER_ID,
   E2E_CHANNELS,
+  E2E_EDITOR_ROLES,
+  E2E_GUILDS,
+  E2E_MANAGER_ROLE_ID,
   E2E_USER,
   E2E_USER_ROLE_ID,
   type E2EGuild,
@@ -34,6 +37,24 @@ const joinedGuilds = new Map<string, E2EGuild>(
 /** 「イベントの作成」権限の差し替え (#122)。fixtures の値は書き換えず、ここで上書きする */
 type EventPermissions = Pick<E2EGuild, "botCreateEvents" | "userCreateEvents">;
 const permissionOverrides = new Map<string, EventPermissions>();
+const memberRoles = new Map<string, string[]>();
+const removedRoles = new Map<string, string[]>();
+
+export async function setEditorRoles(
+  guildId: string,
+  roles: string[],
+  removed: string[] = [],
+) {
+  const query = new URLSearchParams({
+    roles: roles.join(","),
+    removed: removed.join(","),
+  });
+  const res = await fetch(
+    `${DISCORD_MOCK_URL}/_test/guilds/${guildId}/roles?${query}`,
+    { method: "PUT" },
+  );
+  if (!res.ok) throw new Error(`ロールの差し替えに失敗: ${res.status}`);
+}
 
 /** モックが今返すべきギルド (差し替えを反映したもの) */
 function currentGuild(guildId: string): E2EGuild | undefined {
@@ -110,13 +131,36 @@ function botGuild(guild: E2EGuild) {
     icon: null,
     owner_id: guild.owner ? E2E_USER.discordId : OTHER_OWNER_ID,
     roles: [
-      { id: guild.id, name: "@everyone", permissions: "1024" },
+      ...(guild.id === E2E_GUILDS.editorRoles.id
+        ? [
+            ...E2E_EDITOR_ROLES,
+            {
+              id: E2E_MANAGER_ROLE_ID,
+              name: "サーバー管理",
+              color: 0,
+              position: 50,
+              managed: false,
+              permissions: "32",
+            },
+          ].filter((role) => !removedRoles.get(guild.id)?.includes(role.id))
+        : [E2E_EDITOR_ROLES[0]]),
+      {
+        id: guild.id,
+        name: "@everyone",
+        permissions: "1024",
+        color: 0,
+        position: 0,
+        managed: false,
+      },
       // botCreateEvents / userCreateEvents のギルドでは「イベントの作成」(1<<44) のロールが付いている
       ...(guild.botCreateEvents
         ? [
             {
               id: E2E_BOT_ROLE_ID,
               name: "DisCalendar",
+              color: 0,
+              position: 1,
+              managed: true,
               permissions: "17592186044416",
             },
           ]
@@ -126,6 +170,9 @@ function botGuild(guild: E2EGuild) {
             {
               id: E2E_USER_ROLE_ID,
               name: "イベント担当",
+              color: 0,
+              position: 2,
+              managed: false,
               permissions: "17592186044416",
             },
           ]
@@ -207,6 +254,19 @@ export function startDiscordMock(port: number): Promise<Server> {
     };
     const notFound = (message: string, code: number) =>
       json(404, { message, code });
+
+    const rolesMatch = /^\/_test\/guilds\/(\d+)\/roles$/.exec(url.pathname);
+    if (rolesMatch && req.method === "PUT") {
+      memberRoles.set(
+        rolesMatch[1],
+        url.searchParams.get("roles")?.split(",").filter(Boolean) ?? [],
+      );
+      removedRoles.set(
+        rolesMatch[1],
+        url.searchParams.get("removed")?.split(",").filter(Boolean) ?? [],
+      );
+      return json(200, {});
+    }
 
     // テスト専用 (Discord には無い): 「イベントの作成」権限を差し替える (#122)
     const permissionsMatch = /^\/_test\/guilds\/(\d+)\/permissions$/.exec(
@@ -356,7 +416,10 @@ export function startDiscordMock(port: number): Promise<Server> {
         },
         nick: E2E_USER.name,
         avatar: null,
-        roles: guild.userCreateEvents ? [E2E_USER_ROLE_ID] : [],
+        roles: [
+          ...(guild.userCreateEvents ? [E2E_USER_ROLE_ID] : []),
+          ...(memberRoles.get(guildId) ?? []),
+        ],
       });
     }
 

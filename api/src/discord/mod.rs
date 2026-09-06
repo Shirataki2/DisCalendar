@@ -141,6 +141,8 @@ pub struct GuildSnapshot {
     pub owner_id: String,
     /// role_id → permissions ビット。@everyone は role_id == guild_id
     pub role_permissions: HashMap<String, u64>,
+    /// @everyone と managed を除いた、編集許可に選べるロール
+    pub editor_roles: Vec<GuildRole>,
 }
 
 impl GuildSnapshot {
@@ -204,8 +206,21 @@ struct ApiGuild {
     roles: Vec<ApiRole>,
 }
 
+/// ギルドメンバー向けのロール一覧。権限ビットは公開しない。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct GuildRole {
+    pub id: String,
+    pub name: String,
+    pub color: u32,
+    pub position: i32,
+}
+
 #[derive(Deserialize)]
 struct ApiRole {
+    name: String,
+    color: u32,
+    position: i32,
+    managed: bool,
     id: String,
     /// Discord は permissions を文字列化した整数で返す
     permissions: String,
@@ -519,7 +534,21 @@ impl DiscordClient {
             .get_json::<ApiGuild>(&format!("/guilds/{}", checked_id(guild_id)?))
             .await?
             .map(|g| {
+                let mut editor_roles: Vec<_> = g
+                    .roles
+                    .iter()
+                    .filter(|r| r.id != g.id && !r.managed)
+                    .map(|r| GuildRole {
+                        id: r.id.clone(),
+                        name: r.name.clone(),
+                        color: r.color,
+                        position: r.position,
+                    })
+                    .collect();
+                editor_roles
+                    .sort_by(|a, b| b.position.cmp(&a.position).then_with(|| a.id.cmp(&b.id)));
                 Arc::new(GuildSnapshot {
+                    editor_roles,
                     id: g.id,
                     name: g.name,
                     icon: g.icon,

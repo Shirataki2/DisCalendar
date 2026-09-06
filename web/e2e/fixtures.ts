@@ -84,6 +84,15 @@ export interface E2EGuild {
  *   他のテストからは参照しない (api の権限キャッシュが変わったまま残るため)
  */
 export const E2E_GUILDS = {
+  editorRoles: {
+    id: "200000000000000009",
+    name: displayName("E2E Editor Roles Guild", "運営チーム"),
+    permissions: "1024",
+    owner: false,
+    botJoined: true,
+    botCreateEvents: true,
+    userCreateEvents: false,
+  },
   admin: {
     id: "200000000000000001",
     name: displayName("E2E Admin Guild", "ゲーム部"),
@@ -176,9 +185,22 @@ const SCREENSHOT_GUILDS: E2EGuild[] = SCREENSHOT
 
 /** Discord モックが返し、seed が DB に入れるギルドの全体 */
 export const E2E_ALL_GUILDS: E2EGuild[] = [
-  ...Object.values(E2E_GUILDS),
+  ...Object.values(E2E_GUILDS).filter(
+    (guild) => !SCREENSHOT || guild.id !== E2E_GUILDS.editorRoles.id,
+  ),
   ...SCREENSHOT_GUILDS,
 ];
 
 /** member ギルドのオーナー (テストユーザーではない誰か) */
 export const OTHER_OWNER_ID = "100000000000000099";
+
+/** 編集ロールの権限と件数上限を検証する専用ロール。管理権限は付けない。 */
+export const E2E_EDITOR_ROLES = Array.from({ length: 26 }, (_, i) => ({
+  id: `3000000000000001${String(i).padStart(2, "0")}`,
+  name: i === 0 ? "カレンダー運営" : `編集チーム ${i + 1}`,
+  color: i === 0 ? 0x22c55e : 0x5865f2,
+  position: 30 - i,
+  managed: false,
+  permissions: "0",
+}));
+export const E2E_MANAGER_ROLE_ID = "300000000000000099";

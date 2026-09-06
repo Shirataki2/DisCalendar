@@ -57,8 +57,10 @@ pub struct GuildConfig {
     #[schema(example = "782502586817314816")]
     pub guild_id: String,
     /// true の場合、予定の追加・編集・削除を管理権限
-    /// (管理者 / サーバー管理 / メッセージの管理 / ロールの管理) を持つユーザーに限定する
+    /// (管理者 / サーバー管理 / メッセージの管理 / ロールの管理) または編集ロールを持つユーザーに限定する
     pub restricted: bool,
+    /// restricted モードでも予定を編集できる Discord ロール ID
+    pub editor_role_ids: Vec<String>,
     /// 予定の開始時刻に通知するか (#181)。false なら Bot は事前通知だけを送る。既定は true
     pub notify_at_start: bool,
     /// web で予定を新規作成するときの事前通知の初期値 (#181)。既定は 1 日前と 1 時間前
@@ -74,6 +76,13 @@ pub struct GuildConfig {
 }
 
 impl GuildConfig {
+    /// Web の権限表示と API の書き込み認可に使う最終判定 (#170)。
+    pub fn can_edit_events(&self, can_manage_server: bool, roles: &[String]) -> bool {
+        !self.restricted
+            || can_manage_server
+            || roles.iter().any(|id| self.editor_role_ids.contains(id))
+    }
+
     /// 通知先チャンネルの ID を伏せる (管理権限のない呼び出し元への応答用)
     pub fn without_channel_id(self) -> Self {
         Self {
@@ -93,6 +102,7 @@ pub async fn get_config<'e>(
     let row = sqlx::query!(
         r#"
         SELECT
+            COALESCE(gc.editor_role_ids, '{}'::text[]) AS "editor_role_ids!",
             COALESCE(gc.restricted, FALSE) AS "restricted!",
             COALESCE(gc.notify_at_start, TRUE) AS "notify_at_start!",
             COALESCE(gc.default_notifications, $2::jsonb) AS "default_notifications!",
@@ -111,6 +121,7 @@ pub async fn get_config<'e>(
     Ok(GuildConfig {
         guild_id: guild_id.to_owned(),
         restricted: row.restricted,
+        editor_role_ids: row.editor_role_ids,
         notify_at_start: row.notify_at_start,
         default_notifications: Notification::decode_all(&row.default_notifications),
         notification_channel_configured: row.notification_channel_id.is_some(),
@@ -161,6 +172,7 @@ async fn lock_notification_channel(conn: &mut PgConnection, guild_id: &str) -> s
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GuildConfigUpdate {
     pub restricted: bool,
+    pub editor_role_ids: Option<Vec<String>>,
     pub notify_at_start: Option<bool>,
     pub default_notifications: Option<Vec<Notification>>,
 }
@@ -188,10 +200,11 @@ pub async fn upsert_config(
         .map(Notification::encode_all);
     sqlx::query!(
         r#"
-        INSERT INTO guild_config (guild_id, restricted, notify_at_start, default_notifications)
-        VALUES ($1, $2, COALESCE($3::boolean, TRUE), COALESCE($4::jsonb, $5::jsonb))
+        INSERT INTO guild_config (guild_id, restricted, notify_at_start, default_notifications, editor_role_ids)
+        VALUES ($1, $2, COALESCE($3::boolean, TRUE), COALESCE($4::jsonb, $5::jsonb), COALESCE($6::text[], '{}'::text[]))
         ON CONFLICT (guild_id) DO UPDATE SET
             restricted = EXCLUDED.restricted,
+            editor_role_ids = COALESCE($6::text[], guild_config.editor_role_ids),
             notify_at_start = COALESCE($3::boolean, guild_config.notify_at_start),
             default_notifications = COALESCE($4::jsonb, guild_config.default_notifications)
         "#,
@@ -199,7 +212,8 @@ pub async fn upsert_config(
         update.restricted,
         update.notify_at_start,
         default_notifications,
-        Notification::encode_all(&DEFAULT_NOTIFICATIONS)
+        Notification::encode_all(&DEFAULT_NOTIFICATIONS),
+        update.editor_role_ids.as_deref()
     )
     .execute(conn)
     .await?;

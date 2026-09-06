@@ -9,6 +9,7 @@ import {
 const config: GuildConfig = {
   guild_id: "200000000000000001",
   restricted: true,
+  editor_role_ids: [],
   notify_at_start: false,
   default_notifications: [{ num: 30, unit: "minutes" }],
   notification_channel_id: "400000000000000001",
@@ -20,6 +21,7 @@ describe("configToFormValues / formValuesToConfigInput", () => {
     const values = configToFormValues(config);
     expect(values).toEqual({
       restricted: true,
+      editorRoleIds: [],
       notifyAtStart: false,
       notifications: [{ num: 30, unit: "minutes" }],
       notificationChannelId: "400000000000000001",

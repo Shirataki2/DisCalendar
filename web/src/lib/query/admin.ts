@@ -31,6 +31,9 @@ export function useUpdateAdminGuildConfig(guildId: string) {
         queryKeys.guild.config(guildId),
         config,
       );
+      return queryClient.invalidateQueries({
+        queryKey: queryKeys.guild.myPermissions(guildId),
+      });
     },
   });
 }

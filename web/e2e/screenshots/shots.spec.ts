@@ -144,8 +144,11 @@ test.describe("ダイアログ", () => {
     // 「限定する」を選び、通知先チャンネル (#181) を選んだ状態を見せる (保存はしないので DB は変わらない)
     await dialog
       .getByRole("checkbox", {
-        name: "予定の編集を管理権限のあるメンバーに限定する",
+        name: "予定の編集を管理権限または指定ロールのあるメンバーに限定する",
       })
+      .check();
+    await dialog
+      .getByRole("checkbox", { name: "カレンダー運営", exact: true })
       .check();
     await dialog.getByRole("combobox", { name: "通知先チャンネル" }).click();
     await page

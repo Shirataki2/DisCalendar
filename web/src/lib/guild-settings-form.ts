@@ -7,6 +7,9 @@ import { NOTIFICATIONS_MAX, notificationSchema } from "@/lib/event-form";
 
 export const guildSettingsSchema = z.object({
   restricted: z.boolean(),
+  editorRoleIds: z
+    .array(z.string())
+    .max(25, "編集ロールは25件まで設定できます"),
   /** 予定の開始時刻に通知する */
   notifyAtStart: z.boolean(),
   /** 新しい予定の既定の事前通知。フィールド名は NotificationsField (共通部品) に合わせる */
@@ -24,6 +27,7 @@ export function configToFormValues(
 ): GuildSettingsFormValues {
   return {
     restricted: config.restricted,
+    editorRoleIds: [...config.editor_role_ids],
     notifyAtStart: config.notify_at_start,
     notifications: config.default_notifications.map(({ num, unit }) => ({
       num,
@@ -36,9 +40,11 @@ export function configToFormValues(
 /** 未設定 ("") のままなら通知先は送らない (api 側で「変更しない」扱い) */
 export function formValuesToConfigInput(
   values: GuildSettingsFormValues,
+  editorRolesChanged = false,
 ): GuildConfigInput {
   return {
     restricted: values.restricted,
+    ...(editorRolesChanged ? { editor_role_ids: values.editorRoleIds } : {}),
     notify_at_start: values.notifyAtStart,
     default_notifications: values.notifications,
     ...(values.notificationChannelId

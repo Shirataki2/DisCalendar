@@ -596,13 +596,16 @@ pub async fn delete(
     Ok(HttpResponse::NoContent().finish())
 }
 
-/// restricted モードのギルドでは管理権限を持つユーザーだけが予定を編集できる。
+/// restricted モードのギルドでは管理権限または編集ロールを持つユーザーが予定を編集できる。
 /// 旧実装はこの判定をクライアント側だけで行っていたが、サーバー側で強制する
 pub(super) async fn ensure_can_edit(pool: &PgPool, member: &GuildMember) -> Result<(), ApiError> {
     let config = guilds::get_config(pool, member.guild_id()).await?;
-    if config.restricted && !member.permissions().can_manage_server() {
+    if !config.can_edit_events(
+        member.permissions().can_manage_server(),
+        &member.access.roles,
+    ) {
         return Err(ApiError::Forbidden(
-            "this guild restricts editing events to users with manage permissions".into(),
+            "this guild restricts editing events to users with manage permissions or an editor role".into(),
         ));
     }
     Ok(())

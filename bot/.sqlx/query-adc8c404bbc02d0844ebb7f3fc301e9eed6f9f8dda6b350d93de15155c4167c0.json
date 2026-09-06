@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT restricted, notify_at_start, default_notifications FROM guild_config WHERE guild_id = $1",
+  "query": "SELECT restricted, editor_role_ids, notify_at_start, default_notifications FROM guild_config WHERE guild_id = $1",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "editor_role_ids",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "guild_config",
+            "name": "editor_role_ids"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "notify_at_start",
         "type_info": "Bool",
         "origin": {
@@ -26,7 +37,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "default_notifications",
         "type_info": "Jsonb",
         "origin": {
@@ -45,8 +56,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "1948c9c77adf42aae0e5e032c135958bfa96f8ff5a58bc12d2a27a28d17ff5d7"
+  "hash": "adc8c404bbc02d0844ebb7f3fc301e9eed6f9f8dda6b350d93de15155c4167c0"
 }

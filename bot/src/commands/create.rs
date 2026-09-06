@@ -106,13 +106,12 @@ pub async fn create(
     // 保存だけ成功して利用者には失敗に見える (再試行で重複登録される) 事態を防ぐ方を優先する
     ctx.defer().await?;
 
-    // restricted モードのサーバーでは管理権限を持つユーザーだけが予定を作れる (api の `ensure_can_edit` と同じ)
-    if guild_config::is_restricted(pool, &guild_id).await?
-        && !checks::author_can_manage_server(ctx).await?
-    {
+    // restricted モードのサーバーでは管理権限または編集ロールを持つユーザーが予定を作れる (api の `ensure_can_edit` と同じ)
+    let config = guild_config::get(pool, &guild_id).await?;
+    if !checks::author_can_edit_events(ctx, &config).await? {
         return Err(BotError::user(format!(
             "このサーバーでは予定の作成が制限されています。{}",
-            checks::MANAGE_PERMISSIONS_REQUIRED
+            checks::EDIT_PERMISSIONS_REQUIRED
         )));
     }
 
