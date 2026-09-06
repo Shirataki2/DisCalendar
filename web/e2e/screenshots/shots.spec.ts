@@ -71,10 +71,10 @@ test.describe("カレンダー", () => {
     ).toBeVisible();
     await prepare(page);
     await settle(page);
-    // 下は空白なので、招待できるサーバーの行までで切る (「すべての予定」のカード (#98) の分だけ高い)
+    // 招待できるサーバーのカードまで含める (参加済みサーバーが 2 行ある)
     await page.screenshot({
       path: assetPath("docs/serverselect.png"),
-      clip: { x: 0, y: 0, width: 1400, height: 520 },
+      clip: { x: 0, y: 0, width: 1400, height: 640 },
     });
   });
 });
@@ -143,7 +143,9 @@ test.describe("ダイアログ", () => {
     await expect(feedUrl).toBeVisible();
     // 「限定する」を選び、通知先チャンネル (#181) を選んだ状態を見せる (保存はしないので DB は変わらない)
     await dialog
-      .getByRole("checkbox", { name: "予定の追加・編集・削除を" })
+      .getByRole("checkbox", {
+        name: "予定の編集を管理権限のあるメンバーに限定する",
+      })
       .check();
     await dialog.getByRole("combobox", { name: "通知先チャンネル" }).click();
     await page

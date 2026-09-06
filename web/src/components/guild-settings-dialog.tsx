@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckIcon, CopyIcon, InfoIcon, RefreshCwIcon } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   Controller,
   FormProvider,
@@ -92,6 +92,42 @@ const RESTRICTED_CHECKBOX_ID = "guild-settings-restricted";
 const NOTIFY_AT_START_CHECKBOX_ID = "guild-settings-notify-at-start";
 const CHANNEL_SELECT_ID = "guild-settings-channel";
 
+/** ホバー・キーボードのフォーカスに加え、タッチではタップで補足を開く。 */
+function SettingsHint({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerId = useId();
+  return (
+    <TooltipProvider>
+      <Tooltip open={open} onOpenChange={setOpen} triggerId={triggerId}>
+        <TooltipTrigger
+          id={triggerId}
+          type="button"
+          aria-label={`${label}の補足`}
+          aria-describedby={open ? `${triggerId}-content` : undefined}
+          closeOnClick={false}
+          onClick={() => setOpen(true)}
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <InfoIcon aria-hidden className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent
+          id={`${triggerId}-content`}
+          role="tooltip"
+          className="max-w-[min(20rem,calc(100vw-2rem))] leading-relaxed"
+        >
+          {children}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 /**
  * サーバー設定ダイアログ (旧 ServerSetting.vue 相当)。
  * restricted モードの切り替えと通知の設定 (#181) は「保存」で反映し、
@@ -106,7 +142,7 @@ export function GuildSettingsDialog({ guildId, open, onOpenChange }: Props) {
       disablePointerDismissal
     >
       {/* フィードの節 (#95) が増えて背が高くなったので、低い画面ではダイアログ内でスクロールさせる (予定ダイアログと同じ) */}
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
         {/* Base UI の Dialog は閉じると Popup を unmount するので、開くたびに設定値から初期化される */}
         <GuildSettingsForm
           guildId={guildId}
@@ -192,18 +228,17 @@ function GuildSettingsForm({
 
   return (
     <FormProvider {...form}>
-      <form onSubmit={save} noValidate className="flex flex-col gap-5">
+      <form onSubmit={save} noValidate className="flex flex-col gap-4">
         <DialogHeader>
           <DialogTitle>サーバー設定</DialogTitle>
           <DialogDescription>
-            予定を編集できるユーザーの制限、Discord
-            への通知、外部カレンダーからの購読を設定できます
+            予定の編集権限・通知・外部カレンダーへの連携を設定します
           </DialogDescription>
         </DialogHeader>
 
         {permissionsQuery.data && !canManage && (
           <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-            サーバーの設定の変更には「管理者」「サーバー管理」「ロールの管理」「メッセージの管理」のいずれかの権限を持っている必要があります
+            サーバーの設定の変更には管理権限が必要です
           </p>
         )}
 
@@ -221,20 +256,21 @@ function GuildSettingsForm({
             )}
           />
           <FieldContent>
-            <FieldLabel
-              htmlFor={RESTRICTED_CHECKBOX_ID}
-              className="font-normal"
-            >
-              予定の追加・編集・削除を「管理者」「サーバー管理」「ロールの管理」「メッセージの管理」のいずれかの権限を持ったユーザーに限定する
-            </FieldLabel>
+            <div className="flex items-center gap-1">
+              <FieldLabel
+                htmlFor={RESTRICTED_CHECKBOX_ID}
+                className="font-normal"
+              >
+                予定の編集を管理権限のあるメンバーに限定する
+              </FieldLabel>
+              <SettingsHint label="予定の編集権限">
+                予定の追加・編集・削除を、サーバーのオーナーまたは「管理者」「サーバー管理」「ロールの管理」「メッセージの管理」のいずれかの権限を持つメンバーに限定します。Discord
+                側で権限を変更したら「再読込」を押してください。反映まで最大 1
+                分ほどかかることがあります。
+              </SettingsHint>
+            </div>
           </FieldContent>
         </Field>
-
-        <FieldDescription>
-          Discord
-          側でユーザーの権限を変更した場合は「再読込」を押してください。反映まで最大
-          1 分ほどかかることがあります
-        </FieldDescription>
 
         <Separator />
 
@@ -327,66 +363,64 @@ function NotificationSection({
       aria-labelledby="guild-settings-notifications"
       className="flex flex-col gap-4"
     >
-      <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1">
         <h3 id="guild-settings-notifications" className="text-sm font-medium">
           Discord への通知
         </h3>
-        <p className="text-sm text-muted-foreground">
-          予定の開始時刻と事前通知のタイミングに、Bot
-          がここで選んだチャンネルへ通知を投稿します。Discord の{" "}
-          <code className="rounded bg-muted px-1 font-mono text-xs">/init</code>{" "}
-          で設定した通知先と同じ設定です
-        </p>
+        <SettingsHint label="Discord への通知">
+          Bot が通知先チャンネルに予定の開始時刻と事前通知を投稿します。Discord
+          の /init と同じ設定です。
+        </SettingsHint>
       </div>
 
-      <Controller
-        control={control}
-        name="notificationChannelId"
-        render={({ field }) => (
-          <ChannelField
-            guildId={guildId}
-            value={field.value}
-            onChange={field.onChange}
-            currentChannelId={currentChannelId}
-            configured={configured}
-            disabled={!canManage}
-          />
-        )}
-      />
-
-      <Field orientation="horizontal" data-disabled={!canManage || undefined}>
+      <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
         <Controller
           control={control}
-          name="notifyAtStart"
+          name="notificationChannelId"
           render={({ field }) => (
-            <Checkbox
-              id={NOTIFY_AT_START_CHECKBOX_ID}
-              checked={field.value}
+            <ChannelField
+              guildId={guildId}
+              value={field.value}
+              onChange={field.onChange}
+              currentChannelId={currentChannelId}
+              configured={configured}
               disabled={!canManage}
-              onCheckedChange={(checked) => field.onChange(checked)}
             />
           )}
         />
-        <FieldContent>
-          <FieldLabel
-            htmlFor={NOTIFY_AT_START_CHECKBOX_ID}
-            className="font-normal"
-          >
-            予定の開始時刻に通知する
-          </FieldLabel>
-          <FieldDescription>
-            外すと、予定ごとに設定した事前通知だけが届きます (終日予定の 0:00
-            の通知も届きません)
-          </FieldDescription>
-        </FieldContent>
-      </Field>
 
-      <NotificationsField
-        label="新しい予定の既定の事前通知"
-        disabled={!canManage}
-      >
+        <Field orientation="horizontal" data-disabled={!canManage || undefined}>
+          <Controller
+            control={control}
+            name="notifyAtStart"
+            render={({ field }) => (
+              <Checkbox
+                id={NOTIFY_AT_START_CHECKBOX_ID}
+                checked={field.value}
+                disabled={!canManage}
+                onCheckedChange={(checked) => field.onChange(checked)}
+              />
+            )}
+          />
+          <FieldContent>
+            <div className="flex items-center gap-1">
+              <FieldLabel
+                htmlFor={NOTIFY_AT_START_CHECKBOX_ID}
+                className="font-normal"
+              >
+                開始時刻に通知する
+              </FieldLabel>
+              <SettingsHint label="開始時刻の通知">
+                外すと、予定ごとに設定した事前通知だけが届きます。終日予定の
+                0:00 の通知も届きません。
+              </SettingsHint>
+            </div>
+          </FieldContent>
+        </Field>
+      </div>
+      <NotificationsField label="既定の事前通知" disabled={!canManage}>
         <FieldDescription>
-          このサーバーで予定を新しく作るときの「通知」の初期値です。予定ごとに変更できます
+          新しい予定に使う初期値です。予定ごとに変更できます
         </FieldDescription>
       </NotificationsField>
     </section>
@@ -441,14 +475,22 @@ function ChannelField({
   return (
     <TooltipProvider>
       <Field data-disabled={disabled || undefined}>
-        <FieldLabel htmlFor={CHANNEL_SELECT_ID}>通知先チャンネル</FieldLabel>
+        <div className="flex items-center gap-1">
+          <FieldLabel htmlFor={CHANNEL_SELECT_ID}>通知先チャンネル</FieldLabel>
+          <SettingsHint label="通知先チャンネル">
+            Bot
+            に「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限があるテキストチャンネルを選べます。Discord
+            側でチャンネルや権限を変えた直後は、反映まで 1
+            分ほどかかることがあります。
+          </SettingsHint>
+        </div>
         <Select
           value={value || null}
           onValueChange={(next) => onChange(next ?? "")}
           items={items}
           disabled={disabled || channelsQuery.isPending}
         >
-          <SelectTrigger id={CHANNEL_SELECT_ID} className="w-full sm:w-72">
+          <SelectTrigger id={CHANNEL_SELECT_ID} className="w-full min-w-0">
             <SelectValue
               placeholder={
                 channelsQuery.isPending
@@ -503,14 +545,7 @@ function ChannelField({
             Bot に{describeMissingPermissions(selected.missing_permissions)}
             の権限がないため、このチャンネルには通知を投稿できません。チャンネルの権限設定を見直すか、別のチャンネルを選んでください
           </FieldDescription>
-        ) : (
-          <FieldDescription>
-            Bot
-            に「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限があるテキストチャンネルを選べます。Discord
-            側でチャンネルや権限を変えた直後は、反映まで 1
-            分ほどかかることがあります
-          </FieldDescription>
-        )}
+        ) : null}
       </Field>
     </TooltipProvider>
   );
@@ -629,16 +664,14 @@ function FeedSection({
   return (
     <section
       aria-labelledby="guild-settings-feed"
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-2"
     >
       <div className="flex flex-col gap-1">
         <h3 id="guild-settings-feed" className="text-sm font-medium">
           外部カレンダーで購読する
         </h3>
         <p className="text-sm text-muted-foreground">
-          このサーバーの予定を Google カレンダーや Apple
-          カレンダーなどに表示するための URL です。URL
-          を知っている人は誰でも予定を読めるので、共有する相手にご注意ください
+          URL を知っている人は誰でも予定を読めます。共有する相手にご注意ください
         </p>
       </div>
 
@@ -713,7 +746,6 @@ function FeedSection({
       )}
 
       <FieldDescription>
-        カレンダーアプリへの登録のしかたは使い方の
         <Link
           href={docPath("subscribe")}
           target="_blank"
@@ -722,7 +754,10 @@ function FeedSection({
         >
           「外部カレンダーで見る」
         </Link>
-        を参照してください。反映までの時間は各カレンダーサービスの更新間隔によります
+        <SettingsHint label="外部カレンダーでの購読">
+          Google カレンダーや Apple
+          カレンダーなどに予定を表示できます。反映までの時間は各サービスの更新間隔によります。
+        </SettingsHint>
       </FieldDescription>
 
       <AlertDialog
