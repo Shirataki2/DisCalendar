@@ -13,7 +13,9 @@ use utoipa::ToSchema;
 
 use super::{
     DiscordClient, DiscordError, MemberAccess, checked_id,
-    permissions::{PermissionOverwrite, Permissions, compute_channel_permissions},
+    permissions::{
+        PermissionOverwrite, Permissions, compute_base_permissions, compute_channel_permissions,
+    },
 };
 
 const CHANNEL_TYPE_TEXT: u8 = 0;
@@ -198,11 +200,26 @@ impl DiscordClient {
         guild_id: &str,
         viewer: &MemberAccess,
     ) -> Result<Vec<GuildChannel>, DiscordError> {
-        Ok(self
-            .all_channels(guild_id)
-            .await?
+        let channels = self.all_channels(guild_id).await?;
+        // 閲覧者の基本権限は、今のギルド情報 (一覧を作り直したときに取り直したロールごとの権限) から
+        // 計算し直す。extractor が組み立てた `viewer.permissions` は最長 5 分前のギルドキャッシュ由来なので、
+        // ロールから「チャンネルを見る」を外した直後に古い権限のまま非表示チャンネルを返さないため
+        let guild = self.guild(guild_id).await?.ok_or(DiscordError::GuildGone)?;
+        let viewer = MemberAccess {
+            permissions: compute_base_permissions(
+                &guild.id,
+                &guild.owner_id,
+                &viewer.user_id,
+                &guild.role_permissions,
+                &viewer.roles,
+            ),
+            guild,
+            user_id: viewer.user_id.clone(),
+            roles: viewer.roles.clone(),
+        };
+        Ok(channels
             .iter()
-            .filter(|c| c.visible_to(guild_id, viewer))
+            .filter(|c| c.visible_to(guild_id, &viewer))
             .map(|c| c.channel.clone())
             .collect())
     }
@@ -353,6 +370,93 @@ mod tests {
             visible(&viewer(&[], Permissions::ADMINISTRATOR)),
             ["general", "staff"]
         );
+    }
+
+    /// 閲覧者の権限は extractor が渡した値ではなく、取り直したギルド情報から計算し直す
+    #[tokio::test]
+    async fn viewer_permissions_are_recomputed_from_the_refreshed_guild() {
+        use actix_web::{App, HttpResponse, HttpServer, web};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = HttpServer::new(move || {
+            App::new()
+                .route(
+                    "/users/@me",
+                    web::get()
+                        .to(|| async { HttpResponse::Ok().json(serde_json::json!({"id": "333"})) }),
+                )
+                .route(
+                    "/guilds/111",
+                    web::get().to(|| async {
+                        // @everyone は何も見られない。Bot のロールは全権限
+                        HttpResponse::Ok().json(serde_json::json!({
+                            "id": "111", "name": "guild", "owner_id": "555",
+                            "roles": [
+                                {"id": "111", "permissions": "0"},
+                                {"id": "999", "permissions": "8"}
+                            ]
+                        }))
+                    }),
+                )
+                .route(
+                    "/guilds/111/members/{id}",
+                    web::get().to(|id: web::Path<String>| async move {
+                        let roles = if id.as_str() == "333" {
+                            vec!["999"]
+                        } else {
+                            vec![]
+                        };
+                        HttpResponse::Ok().json(
+                            serde_json::json!({"roles": roles, "user": {"username": id.as_str()}}),
+                        )
+                    }),
+                )
+                .route(
+                    "/guilds/111/channels",
+                    web::get().to(|| async {
+                        HttpResponse::Ok().json(serde_json::json!([
+                            {"id": "10", "type": 0, "name": "general", "position": 0}
+                        ]))
+                    }),
+                )
+        })
+        .listen(listener)
+        .unwrap()
+        .run();
+        let handle = server.handle();
+        tokio::spawn(server);
+        let client = DiscordClient::new("test", &format!("http://{address}")).unwrap();
+
+        // extractor が (古いキャッシュから) 「チャンネルを見る」を持つと判断していた閲覧者。
+        // 今のギルド情報では @everyone に権限が無いので、計算し直すと何も見えない
+        let stale_viewer = MemberAccess {
+            guild: Arc::new(super::super::GuildSnapshot {
+                id: "111".to_owned(),
+                name: "guild".to_owned(),
+                icon: None,
+                owner_id: "555".to_owned(),
+                role_permissions: HashMap::from([("111".to_owned(), Permissions::VIEW_CHANNEL)]),
+            }),
+            user_id: "444".to_owned(),
+            roles: vec![],
+            permissions: Permissions::from_bits(Permissions::VIEW_CHANNEL),
+        };
+        assert!(
+            client
+                .guild_channels("111", &stale_viewer)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        // オーナーは今の情報でも全権限なので見える (Bot の投稿可否も Bot のロールから出ている)
+        let owner = MemberAccess {
+            user_id: "555".to_owned(),
+            ..stale_viewer.clone()
+        };
+        let list = client.guild_channels("111", &owner).await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert!(list[0].can_post);
+        handle.stop(true).await;
     }
 
     #[test]

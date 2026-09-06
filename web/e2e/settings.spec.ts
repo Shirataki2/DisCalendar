@@ -133,15 +133,26 @@ test.describe("通知の設定 (#181)", () => {
     await expect(
       reopened.getByRole("combobox", { name: CHANNEL_LABEL }),
     ).toContainText(`#${E2E_CHANNELS.notices.name}`);
-    // 別のチャンネルにも変えられる (次の実行では最初の状態が違っても同じ手順で通る)
-    await reopened.getByRole("combobox", { name: CHANNEL_LABEL }).click();
-    await page
-      .getByRole("listbox")
-      .getByRole("option", { name: `#${E2E_CHANNELS.general.name}` })
-      .click();
-    await saveSettings(page, reopened);
-    const changed = await page.request.get(configApi);
-    expect(await changed.json()).toMatchObject({
+    await reopened.getByRole("button", { name: "キャンセル" }).click();
+
+    // ページを開いたまま別の経路 (`/init` 相当。ここでは API) で通知先が変わっても、
+    // 次にダイアログを開いたときは取り直した設定で始まる (古い値を保存で送り返さない)。
+    // 次の実行では最初の状態が違っても同じ手順で通る
+    const changed = await page.request.put(configApi, {
+      data: {
+        restricted: false,
+        notification_channel_id: E2E_CHANNELS.general.id,
+      },
+    });
+    expect(changed.status()).toBe(200);
+    const synced = await openSettings(page);
+    await expect(
+      synced.getByRole("combobox", { name: CHANNEL_LABEL }),
+    ).toContainText(`#${E2E_CHANNELS.general.name}`);
+    // そのまま保存しても通知先は general のまま (古い notices に戻らない)
+    await saveSettings(page, synced);
+    const after = await page.request.get(configApi);
+    expect(await after.json()).toMatchObject({
       notification_channel_id: E2E_CHANNELS.general.id,
     });
   });

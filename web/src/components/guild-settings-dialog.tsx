@@ -138,9 +138,22 @@ function GuildSettingsForm({
   const {
     control,
     handleSubmit,
-    formState: { isSubmitting },
+    reset,
+    formState: { isSubmitting, isDirty },
   } = form;
   const [error, setError] = useState<string | null>(null);
+
+  // 開くたびに設定を取り直す (staleTime 内だとマウントしただけでは再取得されない)。
+  // ダイアログを開く前に `/init` や別のブラウザで変わっていた分を、古い値のまま保存で送り返さないため
+  const { refetch: refetchConfig } = configQuery;
+  useEffect(() => {
+    void refetchConfig();
+  }, [refetchConfig]);
+  // 取り直した設定をフォームに反映する。まだ何も触っていないときだけ置き換え、編集中の入力は消さない
+  // (編集後に届いた変更は「保存」で上書きされる。競合の解決までは持ち込まない)
+  useEffect(() => {
+    if (config && !isDirty) reset(configToFormValues(config));
+  }, [config, isDirty, reset]);
 
   const canManage = permissionsQuery.data?.can_manage_server ?? false;
   const reloading = permissionsQuery.isFetching;
