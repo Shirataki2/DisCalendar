@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CheckIcon, CopyIcon, RefreshCwIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, InfoIcon, RefreshCwIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
@@ -48,8 +48,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { describeApiError } from "@/lib/api";
-import type { GuildChannel, GuildConfig } from "@/lib/api/types";
+import type {
+  GuildChannel,
+  GuildConfig,
+  NotificationPermission,
+} from "@/lib/api/types";
 import {
   channelLabel,
   describeMissingPermissions,
@@ -429,83 +439,108 @@ function ChannelField({
   const selected = channels.find((channel) => channel.id === value);
 
   return (
-    <Field data-disabled={disabled || undefined}>
-      <FieldLabel htmlFor={CHANNEL_SELECT_ID}>通知先チャンネル</FieldLabel>
-      <Select
-        value={value || null}
-        onValueChange={(next) => onChange(next ?? "")}
-        items={items}
-        disabled={disabled || channelsQuery.isPending}
-      >
-        <SelectTrigger id={CHANNEL_SELECT_ID} className="w-full sm:w-72">
-          <SelectValue
-            placeholder={
-              channelsQuery.isPending
-                ? "チャンネルを読み込み中…"
-                : configured
-                  ? "設定済み (管理権限を持つメンバーだけが確認・変更できます)"
-                  : "未設定 (通知は届きません)"
-            }
-          />
-        </SelectTrigger>
-        <SelectContent>
-          {groups.map((group) => (
-            <SelectGroup key={group.category ?? ""}>
-              {group.category !== null && (
-                <SelectLabel>{group.category}</SelectLabel>
-              )}
-              {group.channels.map((channel) => (
-                <SelectItem
-                  key={channel.id}
-                  value={channel.id}
-                  disabled={!channel.can_post}
-                >
-                  {channelLabel(channel)}
-                  {!channel.can_post && (
-                    <span className="text-xs text-muted-foreground">
-                      Bot に
-                      {describeMissingPermissions(channel.missing_permissions)}
-                      の権限がありません
-                    </span>
-                  )}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          ))}
-          {unknownCurrent && (
-            <SelectItem value={unknownCurrent}>
-              一覧にないチャンネル (ID: {unknownCurrent})
-            </SelectItem>
-          )}
-        </SelectContent>
-      </Select>
-      {channelsQuery.isError ? (
-        <FieldDescription className="text-destructive">
-          チャンネルの一覧を取得できませんでした (
-          {describeApiError(channelsQuery.error)}
-          )。通知先以外の設定は保存できます
-        </FieldDescription>
-      ) : value === "" && !channelsQuery.isPending && !configured ? (
-        <FieldDescription>
-          通知先が未設定のため、予定を作っても通知は届きません。チャンネルを選んで保存してください
-        </FieldDescription>
-      ) : selected && !selected.can_post ? (
-        <FieldDescription className="text-destructive">
-          Bot に{describeMissingPermissions(selected.missing_permissions)}
-          の権限がないため、このチャンネルには通知を投稿できません。チャンネルの権限設定を見直すか、別のチャンネルを選んでください
-        </FieldDescription>
-      ) : (
-        <FieldDescription>
-          Bot
-          に「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限があるテキストチャンネルを選べます。Discord
-          側でチャンネルや権限を変えた直後は、反映まで 1
-          分ほどかかることがあります
-        </FieldDescription>
-      )}
-    </Field>
+    <TooltipProvider>
+      <Field data-disabled={disabled || undefined}>
+        <FieldLabel htmlFor={CHANNEL_SELECT_ID}>通知先チャンネル</FieldLabel>
+        <Select
+          value={value || null}
+          onValueChange={(next) => onChange(next ?? "")}
+          items={items}
+          disabled={disabled || channelsQuery.isPending}
+        >
+          <SelectTrigger id={CHANNEL_SELECT_ID} className="w-full sm:w-72">
+            <SelectValue
+              placeholder={
+                channelsQuery.isPending
+                  ? "チャンネルを読み込み中…"
+                  : configured
+                    ? "設定済み (管理権限を持つメンバーだけが確認・変更できます)"
+                    : "未設定 (通知は届きません)"
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {groups.map((group) => (
+              <SelectGroup key={group.category ?? ""}>
+                {group.category !== null && (
+                  <SelectLabel>{group.category}</SelectLabel>
+                )}
+                {group.channels.map((channel) => (
+                  <SelectItem
+                    key={channel.id}
+                    value={channel.id}
+                    disabled={!channel.can_post}
+                  >
+                    {channelLabel(channel)}
+                    {!channel.can_post && (
+                      <CannotPostHint
+                        permissions={channel.missing_permissions}
+                      />
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            ))}
+            {unknownCurrent && (
+              <SelectItem value={unknownCurrent}>
+                一覧にないチャンネル (ID: {unknownCurrent})
+              </SelectItem>
+            )}
+          </SelectContent>
+        </Select>
+        {channelsQuery.isError ? (
+          <FieldDescription className="text-destructive">
+            チャンネルの一覧を取得できませんでした (
+            {describeApiError(channelsQuery.error)}
+            )。通知先以外の設定は保存できます
+          </FieldDescription>
+        ) : value === "" && !channelsQuery.isPending && !configured ? (
+          <FieldDescription>
+            通知先が未設定のため、予定を作っても通知は届きません。チャンネルを選んで保存してください
+          </FieldDescription>
+        ) : selected && !selected.can_post ? (
+          <FieldDescription className="text-destructive">
+            Bot に{describeMissingPermissions(selected.missing_permissions)}
+            の権限がないため、このチャンネルには通知を投稿できません。チャンネルの権限設定を見直すか、別のチャンネルを選んでください
+          </FieldDescription>
+        ) : (
+          <FieldDescription>
+            Bot
+            に「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限があるテキストチャンネルを選べます。Discord
+            側でチャンネルや権限を変えた直後は、反映まで 1
+            分ほどかかることがあります
+          </FieldDescription>
+        )}
+      </Field>
+    </TooltipProvider>
   );
 }
 
+/**
+ * Bot が投稿できないチャンネルの理由 (足りない権限)。選択肢の中に文章で出すと幅に収まらず見切れるので、
+ * ⓘ アイコンのツールチップに入れる。無効な選択肢は pointer-events を切られているので、
+ * アイコンだけ受け取れるようにして hover で開く (読み上げには sr-only の文章を残す)
+ */
+function CannotPostHint({
+  permissions,
+}: {
+  permissions: readonly NotificationPermission[];
+}) {
+  const reason = `Bot に${describeMissingPermissions(permissions)}の権限がありません`;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="pointer-events-auto inline-flex items-center text-muted-foreground" />
+        }
+      >
+        <InfoIcon aria-hidden className="size-3.5" />
+        <span className="sr-only">{reason}</span>
+      </TooltipTrigger>
+      <TooltipContent>{reason}</TooltipContent>
+    </Tooltip>
+  );
+}
 /** Discord の表示順のままカテゴリごとにまとめる (カテゴリ無しは先頭) */
 function groupByCategory(
   channels: readonly GuildChannel[],
