@@ -2,18 +2,18 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { isBefore } from "date-fns";
-import { PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   type Control,
   Controller,
-  useFieldArray,
+  FormProvider,
   useForm,
   useWatch,
 } from "react-hook-form";
 import { EventShareControls } from "@/components/event-share-controls";
 import { ColorPicker } from "@/components/form/color-picker";
 import { DatePicker } from "@/components/form/date-picker";
+import { NotificationsField } from "@/components/form/notifications-field";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -33,13 +33,6 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useLastValue } from "@/hooks/use-last-value";
 import { describeApiError } from "@/lib/api";
@@ -53,10 +46,6 @@ import {
   eventToFormValues,
   formStartAt,
   NAME_MAX_CHARS,
-  NOTIFICATION_NUM_MAX,
-  NOTIFICATION_NUM_MIN,
-  NOTIFICATION_UNITS,
-  NOTIFICATIONS_MAX,
   withCheckedDiscordEvent,
 } from "@/lib/event-form";
 
@@ -152,14 +141,7 @@ function EventForm({
 }: FormProps) {
   const isEdit = state.mode === "edit";
   const initialValues = isEdit ? eventToFormValues(state.event) : state.values;
-  const {
-    control,
-    register,
-    handleSubmit,
-    setValue,
-    getValues,
-    formState: { errors, isSubmitting },
-  } = useForm<EventFormValues>({
+  const form = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     // 連携を扱わない画面 (管理コンソール) ではチェックボックスを出さないので、値も落とす。
     // 連携済みの予定を開くと `eventToFormValues` が true にするが、そのままだと
@@ -168,7 +150,14 @@ function EventForm({
       ? initialValues
       : { ...initialValues, discordEvent: false },
   });
-  const notifications = useFieldArray({ control, name: "notifications" });
+  const {
+    control,
+    register,
+    handleSubmit,
+    setValue,
+    getValues,
+    formState: { errors, isSubmitting },
+  } = form;
   const [isAllDay, name, description, startDate, startTime] = useWatch({
     control,
     name: ["isAllDay", "name", "description", "startDate", "startTime"],
@@ -219,277 +208,201 @@ function EventForm({
     }
   });
 
-  const notificationsError =
-    errors.notifications?.root?.message ?? errors.notifications?.message;
-
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-5">
-      <DialogHeader>
-        <DialogTitle>{isEdit ? "予定を編集" : "予定を作成"}</DialogTitle>
-        <DialogDescription className="sr-only">
-          タイトル・日時・通知・色・説明を入力して
-          {isEdit ? "保存" : "作成"}してください
-        </DialogDescription>
-      </DialogHeader>
+    <FormProvider {...form}>
+      <form onSubmit={submit} noValidate className="flex flex-col gap-5">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "予定を編集" : "予定を作成"}</DialogTitle>
+          <DialogDescription className="sr-only">
+            タイトル・日時・通知・色・説明を入力して
+            {isEdit ? "保存" : "作成"}してください
+          </DialogDescription>
+        </DialogHeader>
 
-      <FieldGroup className="gap-4">
-        <Field data-invalid={errors.name ? true : undefined}>
-          <FieldLabel htmlFor={NAME_INPUT_ID}>
-            タイトル
-            <span aria-hidden className="text-destructive">
-              *
-            </span>
-          </FieldLabel>
-          <Input
-            id={NAME_INPUT_ID}
-            placeholder="タイトルを入力"
-            aria-invalid={errors.name ? true : undefined}
-            {...register("name")}
-          />
-          <div className="flex items-start justify-between gap-2">
-            <FieldError errors={[errors.name]} />
-            <FieldDescription className="ml-auto shrink-0 text-xs">
-              {charCount(name)}/{NAME_MAX_CHARS}
-            </FieldDescription>
-          </div>
-        </Field>
-
-        {/* 開始行 (開始日・開始時刻・終日) と終了行 (終了日・終了時刻・色) で
-            列の位置が揃うよう、1 つのグリッドで 2 行に並べる */}
-        <div className="grid gap-4 sm:grid-cols-[1fr_8rem_auto]">
-          <Field data-invalid={errors.startDate ? true : undefined}>
-            <FieldLabel htmlFor="event-form-start-date">開始日</FieldLabel>
-            <Controller
-              control={control}
-              name="startDate"
-              render={({ field }) => (
-                <DatePicker
-                  id="event-form-start-date"
-                  value={field.value}
-                  onChange={handleStartDateChange}
-                  invalid={!!errors.startDate}
-                />
-              )}
-            />
-            <FieldError errors={[errors.startDate]} />
-          </Field>
-          <Field data-invalid={errors.startTime ? true : undefined}>
-            <FieldLabel htmlFor="event-form-start-time">開始時刻</FieldLabel>
-            <Input
-              id="event-form-start-time"
-              type="time"
-              disabled={isAllDay}
-              aria-invalid={errors.startTime ? true : undefined}
-              {...register("startTime")}
-            />
-            <FieldError errors={[errors.startTime]} />
-          </Field>
-          <Field orientation="horizontal" className="sm:mt-7 sm:w-auto">
-            <Controller
-              control={control}
-              name="isAllDay"
-              render={({ field }) => (
-                <Checkbox
-                  id="event-form-all-day"
-                  checked={field.value}
-                  onCheckedChange={(checked) => field.onChange(checked)}
-                />
-              )}
-            />
-            <FieldLabel htmlFor="event-form-all-day" className="font-normal">
-              終日
+        <FieldGroup className="gap-4">
+          <Field data-invalid={errors.name ? true : undefined}>
+            <FieldLabel htmlFor={NAME_INPUT_ID}>
+              タイトル
+              <span aria-hidden className="text-destructive">
+                *
+              </span>
             </FieldLabel>
-          </Field>
-          <Field data-invalid={errors.endDate ? true : undefined}>
-            <FieldLabel htmlFor="event-form-end-date">終了日</FieldLabel>
-            <Controller
-              control={control}
-              name="endDate"
-              render={({ field }) => (
-                <DatePicker
-                  id="event-form-end-date"
-                  value={field.value}
-                  onChange={field.onChange}
-                  invalid={!!errors.endDate}
-                />
-              )}
-            />
-            <FieldError errors={[errors.endDate]} />
-          </Field>
-          <Field data-invalid={errors.endTime ? true : undefined}>
-            <FieldLabel htmlFor="event-form-end-time">終了時刻</FieldLabel>
             <Input
-              id="event-form-end-time"
-              type="time"
-              disabled={isAllDay}
-              aria-invalid={errors.endTime ? true : undefined}
-              {...register("endTime")}
+              id={NAME_INPUT_ID}
+              placeholder="タイトルを入力"
+              aria-invalid={errors.name ? true : undefined}
+              {...register("name")}
             />
-            <FieldError errors={[errors.endTime]} />
-          </Field>
-          <Field data-invalid={errors.color ? true : undefined}>
-            <FieldLabel htmlFor="event-form-color">色</FieldLabel>
-            <Controller
-              control={control}
-              name="color"
-              render={({ field }) => (
-                <ColorPicker
-                  id="event-form-color"
-                  value={field.value}
-                  onChange={field.onChange}
-                  invalid={!!errors.color}
-                  className="sm:w-36"
-                />
-              )}
-            />
-            <FieldError errors={[errors.color]} />
-          </Field>
-        </div>
-
-        <Field data-invalid={notificationsError ? true : undefined}>
-          <FieldLabel>通知</FieldLabel>
-          <div className="flex flex-col gap-2">
-            {notifications.fields.map((item, index) => {
-              const numError = errors.notifications?.[index]?.num;
-              return (
-                <div
-                  key={item.id}
-                  className="flex flex-wrap items-center gap-2"
-                >
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    min={NOTIFICATION_NUM_MIN}
-                    max={NOTIFICATION_NUM_MAX}
-                    aria-label="通知のタイミング (数値)"
-                    aria-invalid={numError ? true : undefined}
-                    className="w-20"
-                    {...register(`notifications.${index}.num`, {
-                      valueAsNumber: true,
-                    })}
-                  />
-                  <Controller
-                    control={control}
-                    name={`notifications.${index}.unit`}
-                    render={({ field }) => (
-                      <Select
-                        value={field.value}
-                        onValueChange={(value) => {
-                          if (value) field.onChange(value);
-                        }}
-                        items={NOTIFICATION_UNITS}
-                      >
-                        <SelectTrigger
-                          className="w-28"
-                          aria-label="通知のタイミング (単位)"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {NOTIFICATION_UNITS.map((unit) => (
-                            <SelectItem key={unit.value} value={unit.value}>
-                              {unit.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="この通知を削除"
-                    onClick={() => notifications.remove(index)}
-                  >
-                    <XIcon />
-                  </Button>
-                  <FieldError errors={[numError]} className="basis-full" />
-                </div>
-              );
-            })}
-            <div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={notifications.fields.length >= NOTIFICATIONS_MAX}
-                onClick={() => notifications.append({ num: 1, unit: "hours" })}
-              >
-                <PlusIcon />
-                通知を追加
-              </Button>
+            <div className="flex items-start justify-between gap-2">
+              <FieldError errors={[errors.name]} />
+              <FieldDescription className="ml-auto shrink-0 text-xs">
+                {charCount(name)}/{NAME_MAX_CHARS}
+              </FieldDescription>
             </div>
-          </div>
-          <FieldError>{notificationsError}</FieldError>
-        </Field>
+          </Field>
 
-        <Field data-invalid={errors.description ? true : undefined}>
-          <FieldLabel htmlFor="event-form-description">説明</FieldLabel>
-          <Textarea
-            id="event-form-description"
-            rows={3}
-            aria-invalid={errors.description ? true : undefined}
-            {...register("description")}
-          />
-          <div className="flex items-start justify-between gap-2">
-            <FieldError errors={[errors.description]} />
-            <FieldDescription className="ml-auto shrink-0 text-xs">
-              {charCount(description)}/{DESCRIPTION_MAX_CHARS}
-            </FieldDescription>
+          {/* 開始行 (開始日・開始時刻・終日) と終了行 (終了日・終了時刻・色) で
+            列の位置が揃うよう、1 つのグリッドで 2 行に並べる */}
+          <div className="grid gap-4 sm:grid-cols-[1fr_8rem_auto]">
+            <Field data-invalid={errors.startDate ? true : undefined}>
+              <FieldLabel htmlFor="event-form-start-date">開始日</FieldLabel>
+              <Controller
+                control={control}
+                name="startDate"
+                render={({ field }) => (
+                  <DatePicker
+                    id="event-form-start-date"
+                    value={field.value}
+                    onChange={handleStartDateChange}
+                    invalid={!!errors.startDate}
+                  />
+                )}
+              />
+              <FieldError errors={[errors.startDate]} />
+            </Field>
+            <Field data-invalid={errors.startTime ? true : undefined}>
+              <FieldLabel htmlFor="event-form-start-time">開始時刻</FieldLabel>
+              <Input
+                id="event-form-start-time"
+                type="time"
+                disabled={isAllDay}
+                aria-invalid={errors.startTime ? true : undefined}
+                {...register("startTime")}
+              />
+              <FieldError errors={[errors.startTime]} />
+            </Field>
+            <Field orientation="horizontal" className="sm:mt-7 sm:w-auto">
+              <Controller
+                control={control}
+                name="isAllDay"
+                render={({ field }) => (
+                  <Checkbox
+                    id="event-form-all-day"
+                    checked={field.value}
+                    onCheckedChange={(checked) => field.onChange(checked)}
+                  />
+                )}
+              />
+              <FieldLabel htmlFor="event-form-all-day" className="font-normal">
+                終日
+              </FieldLabel>
+            </Field>
+            <Field data-invalid={errors.endDate ? true : undefined}>
+              <FieldLabel htmlFor="event-form-end-date">終了日</FieldLabel>
+              <Controller
+                control={control}
+                name="endDate"
+                render={({ field }) => (
+                  <DatePicker
+                    id="event-form-end-date"
+                    value={field.value}
+                    onChange={field.onChange}
+                    invalid={!!errors.endDate}
+                  />
+                )}
+              />
+              <FieldError errors={[errors.endDate]} />
+            </Field>
+            <Field data-invalid={errors.endTime ? true : undefined}>
+              <FieldLabel htmlFor="event-form-end-time">終了時刻</FieldLabel>
+              <Input
+                id="event-form-end-time"
+                type="time"
+                disabled={isAllDay}
+                aria-invalid={errors.endTime ? true : undefined}
+                {...register("endTime")}
+              />
+              <FieldError errors={[errors.endTime]} />
+            </Field>
+            <Field data-invalid={errors.color ? true : undefined}>
+              <FieldLabel htmlFor="event-form-color">色</FieldLabel>
+              <Controller
+                control={control}
+                name="color"
+                render={({ field }) => (
+                  <ColorPicker
+                    id="event-form-color"
+                    value={field.value}
+                    onChange={field.onChange}
+                    invalid={!!errors.color}
+                    className="sm:w-36"
+                  />
+                )}
+              />
+              <FieldError errors={[errors.color]} />
+            </Field>
           </div>
-        </Field>
 
-        {discordSync && (
-          <DiscordEventField
-            control={control}
-            isLinkedEdit={isLinkedEdit}
-            botCreateEvents={discordSync.botCreateEvents}
-            canCreateEvents={discordSync.canCreateEvents}
-            startsInPast={discordStartsInPast}
-            onRefresh={discordSync.onRefresh}
-          />
+          {/* 通知の一覧はサーバー設定の「既定の事前通知」(#181) と同じ部品 */}
+          <NotificationsField label="通知" />
+
+          <Field data-invalid={errors.description ? true : undefined}>
+            <FieldLabel htmlFor="event-form-description">説明</FieldLabel>
+            <Textarea
+              id="event-form-description"
+              rows={3}
+              aria-invalid={errors.description ? true : undefined}
+              {...register("description")}
+            />
+            <div className="flex items-start justify-between gap-2">
+              <FieldError errors={[errors.description]} />
+              <FieldDescription className="ml-auto shrink-0 text-xs">
+                {charCount(description)}/{DESCRIPTION_MAX_CHARS}
+              </FieldDescription>
+            </div>
+          </Field>
+
+          {discordSync && (
+            <DiscordEventField
+              control={control}
+              isLinkedEdit={isLinkedEdit}
+              botCreateEvents={discordSync.botCreateEvents}
+              canCreateEvents={discordSync.canCreateEvents}
+              startsInPast={discordStartsInPast}
+              onRefresh={discordSync.onRefresh}
+            />
+          )}
+        </FieldGroup>
+
+        {isEdit && allowShare && (
+          <EventShareControls key={state.event.id} event={state.event} />
         )}
-      </FieldGroup>
 
-      {isEdit && allowShare && (
-        <EventShareControls key={state.event.id} event={state.event} />
-      )}
+        {submitError && (
+          <div
+            role="alert"
+            className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {submitError}
+          </div>
+        )}
 
-      {submitError && (
-        <div
-          role="alert"
-          className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          {submitError}
-        </div>
-      )}
-
-      <DialogFooter>
-        {isEdit && (
+        <DialogFooter>
+          {isEdit && (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isSubmitting}
+              onClick={() => onDelete(state.event)}
+              className="sm:mr-auto"
+            >
+              削除
+            </Button>
+          )}
           <Button
             type="button"
-            variant="destructive"
+            variant="outline"
             disabled={isSubmitting}
-            onClick={() => onDelete(state.event)}
-            className="sm:mr-auto"
+            onClick={onClose}
           >
-            削除
+            キャンセル
           </Button>
-        )}
-        <Button
-          type="button"
-          variant="outline"
-          disabled={isSubmitting}
-          onClick={onClose}
-        >
-          キャンセル
-        </Button>
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "保存中…" : isEdit ? "保存" : "作成"}
-        </Button>
-      </DialogFooter>
-    </form>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "保存中…" : isEdit ? "保存" : "作成"}
+          </Button>
+        </DialogFooter>
+      </form>
+    </FormProvider>
   );
 }
 

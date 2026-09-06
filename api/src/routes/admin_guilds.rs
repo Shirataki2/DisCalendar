@@ -8,7 +8,7 @@ use actix_web::{HttpResponse, delete, get, post, put, web};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-use super::{events::ListQuery, guilds::GuildConfigInput, member::is_snowflake};
+use super::{events::ListQuery, member::is_snowflake};
 use crate::{
     admin::AdminUser,
     error::{ApiError, ErrorBody},
@@ -16,7 +16,7 @@ use crate::{
         admin_audit::{self, AuditEntry},
         admin_guilds::{self, AdminGuild, MAX_PAGE, PAGE_SIZE},
         events::{self, Event, EventInput},
-        guilds::{self, GuildConfig},
+        guilds::{self, GuildConfig, GuildConfigUpdate},
         now_jst,
     },
     state::AppState,
@@ -349,13 +349,19 @@ pub async fn delete_event(
     Ok(HttpResponse::NoContent().finish())
 }
 
+/// 管理コンソールから変えられる設定 (restricted だけ)。通知の設定 (#181) は通常 API の入力型 (`GuildConfigInput`) で扱う
+#[derive(Deserialize, ToSchema)]
+pub struct AdminGuildConfigInput {
+    pub restricted: bool,
+}
+
 /// ギルド設定 (restricted) の変更。通常 API の `PUT /guilds/{guild_id}/config` と同じ保存処理で、
 /// 管理権限の判定の代わりに `AdminUser` を要求し、`admin_audit_logs` に変更前後を記録する。
 /// どのテーブルにも無いギルド ID には 404 (孤立した設定行を作らない)
 #[utoipa::path(
     tag = "admin",
     params(GuildPath),
-    request_body = GuildConfigInput,
+    request_body = AdminGuildConfigInput,
     responses(
         (status = 200, body = GuildConfig),
         (status = 400, body = ErrorBody),
@@ -368,14 +374,20 @@ pub async fn delete_event(
 pub async fn put_config(
     admin: AdminUser,
     path: web::Path<GuildPath>,
-    body: web::Json<GuildConfigInput>,
+    body: web::Json<AdminGuildConfigInput>,
     state: web::Data<AppState>,
 ) -> Result<web::Json<GuildConfig>, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
     let before = guilds::lock_config_for_update(&mut tx, guild_id).await?;
-    let after = guilds::upsert_config(&mut *tx, guild_id, body.restricted).await?;
+    guilds::upsert_config(
+        &mut tx,
+        guild_id,
+        &GuildConfigUpdate::restricted(body.restricted),
+    )
+    .await?;
+    let after = guilds::get_config(&mut *tx, guild_id).await?;
     admin_audit::record(
         &mut *tx,
         &admin,

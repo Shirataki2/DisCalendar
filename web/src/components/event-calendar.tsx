@@ -34,7 +34,7 @@ import { Button } from "@/components/ui/button";
 import { useCalendarShortcuts } from "@/hooks/use-calendar-shortcuts";
 import { useLastValue } from "@/hooks/use-last-value";
 import { describeApiError } from "@/lib/api";
-import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
+import type { ApiEvent, ApiEventInput, Notification } from "@/lib/api/types";
 import {
   sourceOf,
   toApiEventInput,
@@ -60,6 +60,11 @@ interface Props {
   guildId: string;
   /** false なら閲覧のみ (restricted モードで管理権限がない) */
   canEdit: boolean;
+  /**
+   * 新規作成の事前通知の初期値 (サーバー設定の「新しい予定の既定の事前通知」、#181)。
+   * 未指定なら (管理コンソールなど) 旧フォームの既定 (1 日前と 1 時間前)
+   */
+  defaultNotifications?: readonly Notification[];
   /** 予定の取得元。管理コンソール (#35) からは admin 用 API に差し替える */
   eventsSource?: EventsSource;
   /** ダイアログの「Discord のイベントとしても作成する」(#94)。未指定なら出さない */
@@ -79,6 +84,7 @@ interface PopoverState {
 export function EventCalendar({
   guildId,
   canEdit,
+  defaultNotifications,
   eventsSource = dashboardEventsSource,
   discordSync,
 }: Props) {
@@ -148,15 +154,26 @@ export function EventCalendar({
     setDialog({ mode: "create", values });
   };
 
+  // 「新規作成」ボタンとショートカットからの初期値 (事前通知はサーバー設定の既定、#181)
+  const openCreateDefault = () =>
+    openCreate(defaultEventFormValues(new Date(), defaultNotifications));
+
   // キーボードショートカット (#160)。"n" は「新規作成」ボタンと同じで、閲覧のみなら効かない
   useCalendarShortcuts({
     calendarRef,
-    onCreate: canEdit ? () => openCreate(defaultEventFormValues()) : undefined,
+    onCreate: canEdit ? openCreateDefault : undefined,
   });
 
   const handleSelect = (info: DateSelectInfo) => {
     calendarRef.current?.getApi().unselect();
-    openCreate(newEventFormValues(info.start, info.end, info.allDay));
+    openCreate(
+      newEventFormValues(
+        info.start,
+        info.end,
+        info.allDay,
+        defaultNotifications,
+      ),
+    );
   };
 
   // タッチのタップで日付から作成する (#14)。タッチでは select が長押し必須なので、タップは dateClick で拾う。
@@ -168,7 +185,9 @@ export function EventCalendar({
       !(typeof TouchEvent !== "undefined" && info.jsEvent instanceof TouchEvent)
     )
       return;
-    openCreate(newEventFormValues(info.date, null, info.allDay));
+    openCreate(
+      newEventFormValues(info.date, null, info.allDay, defaultNotifications),
+    );
   };
 
   const openEdit = (event: ApiEvent) => {
@@ -206,7 +225,7 @@ export function EventCalendar({
         <Button
           type="button"
           size="lg"
-          onClick={() => openCreate(defaultEventFormValues())}
+          onClick={openCreateDefault}
           disabled={!canEdit}
           title={
             canEdit

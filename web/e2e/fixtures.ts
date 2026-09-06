@@ -37,6 +37,22 @@ export const E2E_BOT_ROLE_ID = "300000000000000001";
 /** userCreateEvents のギルドでテストユーザーに付いているロール (「イベントの作成」を持つ) */
 export const E2E_USER_ROLE_ID = "300000000000000002";
 
+/**
+ * Bot 参加済みの全ギルドに共通で見えるチャンネル (Discord モックの `GET /guilds/{id}/channels`、#181)。
+ * Bot の基本権限は @everyone ロールの「チャンネルを見る」だけなので、投稿できるかはチャンネルの
+ * 権限上書き (permission_overwrites) で決まる:
+ * - general / notices: @everyone に「メッセージを送信」「埋め込みリンク」を許可 → 通知先にできる
+ * - staffOnly: @everyone の「チャンネルを見る」を禁止 → Bot が投稿できず、選択肢では無効
+ * - voice (ボイス) と category (カテゴリ) は一覧に出ない
+ */
+export const E2E_CHANNELS = {
+  general: { id: "400000000000000001", name: "general" },
+  notices: { id: "400000000000000002", name: "予定の通知" },
+  staffOnly: { id: "400000000000000003", name: "staff-only" },
+  voice: { id: "400000000000000004", name: "雑談" },
+  category: { id: "400000000000000005", name: "予定" },
+} as const;
+
 /** テストに出てくるギルド (Discord モックの応答と guilds テーブルの行のもと) */
 export interface E2EGuild {
   /** Discord のギルド ID (Snowflake。API 境界では必ず文字列) */

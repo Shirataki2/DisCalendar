@@ -74,6 +74,8 @@ export function GuildDashboard({ guild }: Props) {
       <EventCalendar
         guildId={guildId}
         canEdit={canEdit}
+        // 新規作成の事前通知の初期値はサーバー設定 (#181)。RSC で hydrate 済みなので通常は取れている
+        defaultNotifications={configQuery.data?.default_notifications}
         // 権限を取得できるまでは無効 (disabled + 案内) 側に倒す
         discordSync={{
           botCreateEvents: discordPermissions?.bot_create_events ?? false,

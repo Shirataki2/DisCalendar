@@ -357,4 +357,18 @@ describe("defaultEventFormValues", () => {
       endTime: "14:30",
     });
   });
+
+  it("サーバー設定の既定の事前通知 (#181) を初期値にする (空なら通知なし)", () => {
+    const thirty = [{ num: 30, unit: "minutes" as const }];
+    expect(defaultEventFormValues(day(23), thirty).notifications).toEqual(
+      thirty,
+    );
+    expect(defaultEventFormValues(day(23), []).notifications).toEqual([]);
+    expect(
+      newEventFormValues(day(23), null, true, thirty).notifications,
+    ).toEqual(thirty);
+    // 初期値はフォームの値として複製する (設定のキャッシュをフォームが書き換えない)
+    const values = defaultEventFormValues(day(23), thirty);
+    expect(values.notifications[0]).not.toBe(thirty[0]);
+  });
 });

@@ -2,12 +2,16 @@ use actix_web::{get, post, put, web};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-use super::{GuildMember, events::parse_guild_ids};
+use super::{GuildMember, events::parse_guild_ids, member::is_snowflake};
 use crate::{
     auth::AuthUser,
-    discord::Permissions,
+    discord::{DiscordError, GuildChannel, Permissions},
     error::{ApiError, ErrorBody},
-    models::guilds::{self, Guild, GuildConfig},
+    models::{
+        events::NOTIFICATIONS_MAX,
+        guilds::{self, Guild, GuildConfig, GuildConfigUpdate},
+        notifications::Notification,
+    },
     state::AppState,
 };
 
@@ -193,7 +197,49 @@ pub async fn refresh_my_permissions(
     )))
 }
 
-/// ギルド設定 (未設定なら既定値)
+/// 通知先に選べるチャンネル (テキスト / アナウンス) の一覧と、Bot がそこに投稿できるか (#181)。
+/// メンバーなら誰でも呼べる (予定ごとの通知先 (#175) は予定を作れる人が選ぶため) が、
+/// 返すのは**呼び出した本人が Discord で見られるチャンネルだけ** (Bot に見えるからといって、
+/// 本人に権限のないスタッフ専用チャンネルの名前を列挙させない)。
+/// Bot 側のキャッシュ (最大 1 分) により、チャンネルの追加や権限の変更は少し遅れて反映される
+#[utoipa::path(
+    tag = "guilds",
+    params(("guild_id" = String, Path, description = "ギルド ID")),
+    responses(
+        (status = 200, body = Vec<GuildChannel>),
+        (status = 401, body = ErrorBody),
+        (status = 403, description = "非メンバー / Bot 未参加", body = ErrorBody),
+        (status = 502, description = "Discord に問い合わせられなかった", body = ErrorBody),
+    )
+)]
+#[get("/{guild_id}/channels")]
+pub async fn channels(
+    member: GuildMember,
+    state: web::Data<AppState>,
+) -> Result<web::Json<Vec<GuildChannel>>, ApiError> {
+    Ok(web::Json(fetch_channels(&state, &member).await?))
+}
+
+/// 呼び出した本人に見えるチャンネルの一覧を取る。Bot が退出済み (キャッシュ上は参加していても
+/// Discord から見えない) ならメンバー確認 (extractor) と同じ 403 にする
+async fn fetch_channels(
+    state: &AppState,
+    member: &GuildMember,
+) -> Result<Vec<GuildChannel>, ApiError> {
+    state
+        .discord
+        .guild_channels(member.guild_id(), &member.access)
+        .await
+        .map_err(|err| match err {
+            DiscordError::GuildGone => {
+                ApiError::Forbidden("the bot has not joined this guild".into())
+            }
+            other => other.into(),
+        })
+}
+
+/// ギルド設定 (未設定なら既定値)。通知先チャンネルの ID はサーバー管理権限を持つ人にだけ返す
+/// (それ以外は `notification_channel_configured` だけ分かる)
 #[utoipa::path(
     tag = "guilds",
     params(("guild_id" = String, Path, description = "ギルド ID")),
@@ -208,25 +254,62 @@ pub async fn get_config(
     member: GuildMember,
     state: web::Data<AppState>,
 ) -> Result<web::Json<GuildConfig>, ApiError> {
-    Ok(web::Json(
-        guilds::get_config(&state.pool, member.guild_id()).await?,
-    ))
+    let config = guilds::get_config(&state.pool, member.guild_id()).await?;
+    // 一般メンバーには通知先の ID を見せない (`/init` でスタッフ専用チャンネルが設定されていると、
+    // チャンネル一覧では見えないチャンネルの ID がここから分かってしまう)
+    Ok(web::Json(if member.permissions().can_manage_server() {
+        config
+    } else {
+        config.without_channel_id()
+    }))
 }
 
-#[derive(Deserialize, ToSchema)]
+/// サーバー設定の更新内容。`restricted` 以外は省略すると変更しない
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct GuildConfigInput {
     pub restricted: bool,
+    /// 予定の開始時刻に通知するか (#181)
+    #[serde(default)]
+    pub notify_at_start: Option<bool>,
+    /// 新しい予定の既定の事前通知 (#181)。最大 10 件、`num` は 1〜100
+    #[serde(default)]
+    pub default_notifications: Option<Vec<Notification>>,
+    /// 通知先チャンネルの ID (#181)。Bot が投稿できるテキスト / アナウンスチャンネルであること
+    /// (`GET /guilds/{guild_id}/channels` の `can_post`)。今の値と同じなら確認しない
+    #[serde(default)]
+    #[schema(example = "782502586817314820")]
+    pub notification_channel_id: Option<String>,
 }
 
-/// ギルド設定の更新。サーバー管理権限 (`can_manage_server`) が必要
+impl GuildConfigInput {
+    /// 形式の検証 (Discord への問い合わせが要る投稿可否は [`put_config`] で見る)
+    pub fn validate(&self) -> Result<(), ApiError> {
+        if let Some(list) = &self.default_notifications {
+            Notification::validate_list(list, "default_notifications", NOTIFICATIONS_MAX)?;
+        }
+        if let Some(channel_id) = &self.notification_channel_id
+            && !is_snowflake(channel_id)
+        {
+            return Err(ApiError::BadRequest(
+                "notification_channel_id must be a snowflake".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// ギルド設定の更新。サーバー管理権限 (`can_manage_server`) が必要。
+/// 通知先チャンネルは `/init` と同じ行 (`event_settings`) を書くので、どちらからでも変更できる
 #[utoipa::path(
     tag = "guilds",
     params(("guild_id" = String, Path, description = "ギルド ID")),
     request_body = GuildConfigInput,
     responses(
         (status = 200, body = GuildConfig),
+        (status = 400, description = "通知の件数・値域、チャンネル ID の形式、Bot が投稿できないチャンネル", body = ErrorBody),
         (status = 401, body = ErrorBody),
         (status = 403, description = "非メンバー / 管理権限なし", body = ErrorBody),
+        (status = 502, description = "チャンネルの確認で Discord に問い合わせられなかった", body = ErrorBody),
     )
 )]
 #[put("/{guild_id}/config")]
@@ -240,7 +323,130 @@ pub async fn put_config(
             "manage permission is required to change guild settings".into(),
         ));
     }
-    Ok(web::Json(
-        guilds::upsert_config(&state.pool, member.guild_id(), body.restricted).await?,
-    ))
+    body.validate()?;
+    let guild_id = member.guild_id();
+    let current = guilds::get_config(&state.pool, guild_id).await?;
+
+    // 通知先は変えるときだけ Bot の投稿可否を確かめる。`/init` で設定したスレッドなど一覧に無い
+    // チャンネルが入っていても、他の設定の保存が止まらないようにする。
+    // 一覧は本人に見えるチャンネルに絞ったもの (見えないチャンネルは「このギルドのチャンネルではない」と同じ扱い)
+    let new_channel = body
+        .notification_channel_id
+        .as_deref()
+        .filter(|id| current.notification_channel_id.as_deref() != Some(*id));
+    if let Some(channel_id) = new_channel {
+        let list = fetch_channels(&state, &member).await?;
+        let channel = list.iter().find(|c| c.id == channel_id).ok_or_else(|| {
+            ApiError::BadRequest(
+                "notification_channel_id must be a text or announcement channel of this guild"
+                    .into(),
+            )
+        })?;
+        if !channel.can_post {
+            return Err(ApiError::BadRequest(format!(
+                "the bot cannot post to this channel (missing permissions: {})",
+                channel
+                    .missing_permissions
+                    .iter()
+                    .map(|p| p.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+    }
+
+    let mut tx = state.pool.begin().await?;
+    guilds::upsert_config(
+        &mut tx,
+        guild_id,
+        &GuildConfigUpdate {
+            restricted: body.restricted,
+            notify_at_start: body.notify_at_start,
+            default_notifications: body.default_notifications.clone(),
+        },
+    )
+    .await?;
+    if let Some(channel_id) = new_channel {
+        let previous = guilds::set_notification_channel(&mut tx, guild_id, channel_id).await?;
+        tracing::info!(
+            guild_id,
+            channel_id,
+            previous = previous.as_deref().unwrap_or("-"),
+            user_id = %member.user.discord_user_id,
+            "notification channel set from the web"
+        );
+    }
+    let config = guilds::get_config(&mut *tx, guild_id).await?;
+    tx.commit().await?;
+    Ok(web::Json(config))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::notifications::NotificationUnit;
+
+    fn input() -> GuildConfigInput {
+        GuildConfigInput {
+            restricted: false,
+            notify_at_start: Some(true),
+            default_notifications: Some(vec![Notification {
+                num: 30,
+                unit: NotificationUnit::Minutes,
+            }]),
+            notification_channel_id: Some("782502586817314820".to_owned()),
+        }
+    }
+
+    #[test]
+    fn accepts_a_valid_input() {
+        assert!(input().validate().is_ok());
+        // 省略した項目は検証しない
+        let minimal: GuildConfigInput = serde_json::from_str(r#"{"restricted": true}"#).unwrap();
+        assert!(minimal.validate().is_ok());
+        assert_eq!(minimal.notify_at_start, None);
+        assert_eq!(minimal.default_notifications, None);
+        assert_eq!(minimal.notification_channel_id, None);
+    }
+
+    #[test]
+    fn rejects_too_many_default_notifications() {
+        let mut i = input();
+        i.default_notifications = Some(vec![
+            Notification {
+                num: 1,
+                unit: NotificationUnit::Hours,
+            };
+            NOTIFICATIONS_MAX + 1
+        ]);
+        assert!(i.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_default_notifications_outside_the_num_range() {
+        for num in [0, 101] {
+            let mut i = input();
+            i.default_notifications = Some(vec![Notification {
+                num,
+                unit: NotificationUnit::Minutes,
+            }]);
+            assert!(i.validate().is_err(), "{num}");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_notification_units() {
+        let json =
+            r#"{"restricted": false, "default_notifications": [{"num": 1, "unit": "years"}]}"#;
+        assert!(serde_json::from_str::<GuildConfigInput>(json).is_err());
+    }
+
+    #[test]
+    fn rejects_non_snowflake_channel_ids() {
+        for id in ["", "general", "1/2", "-1", "123456789012345678901"] {
+            let mut i = input();
+            i.notification_channel_id = Some(id.to_owned());
+            assert!(i.validate().is_err(), "{id}");
+        }
+    }
 }

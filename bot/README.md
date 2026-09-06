@@ -20,7 +20,7 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 | `/help` | 使い方と招待 URL を埋め込みで表示 (本人にだけ見える) | – |
 | `/create` | 予定の作成。名称 / 開始・終了の年月日時分 (必須)、説明 / 終日 / 色 / 事前通知 4 つまで (任意)。`events` に api と同じ形式で保存するので web のカレンダーにそのまま出る | restricted モードのサーバーでは管理権限 (下記) が必要 |
 | `/list [範囲]` | 予定の一覧 (`過去` / `未来` (既定) / `全て`)。4 件ずつ「前へ」「次へ」でページ送り、「完了」で消える。web で作った予定も出る | – |
-| `/init [チャンネル]` | 予定の通知先チャンネルを設定 (省略時は実行したチャンネル)。Bot にそのチャンネルでの「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限がなければ保存せず理由を返す。`event_settings` に保存し、通知タスク (`tasks/notify.rs`) が読む | 管理権限が必要 |
+| `/init [チャンネル]` | 予定の通知先チャンネルを設定 (省略時は実行したチャンネル)。Bot にそのチャンネルでの「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限がなければ保存せず理由を返す。`event_settings` に保存し、通知タスク (`tasks/notify.rs`) が読む。web のサーバー設定 (#181) も同じ行を書くので、どちらからでも設定・変更できる | 管理権限が必要 |
 | `/invite` | Bot の招待 URL を表示 | – |
 | `@DisCalendar register` | スラッシュコマンドを Discord に登録・削除するボタンを出す (このサーバーだけ / グローバル)。help には出ない | Bot のオーナー |
 
@@ -155,7 +155,8 @@ src/
   checks.rs         管理権限の判定 (api の can_manage_server と同じ)
   paginator.rs      /list のページ送り (ボタン付き埋め込み)
   commands/         スラッシュコマンド (help.txt は /help の本文)
-  models/           sqlx クエリ (guilds / events / event_settings / guild_config) と通知設定の読み書き (notifications)
+  models/           sqlx クエリ (guilds / events / event_settings / guild_config) と通知設定の読み書き (notifications)。
+                    guild_config は web が書く設定 (restricted / 開始時刻に通知するか / 既定の事前通知、#181) を読む
   tasks/            定期タスク (notify = 予定の通知 / presence = ステータス表示 / icon_updater = 日付アイコン)
 tests/              DB テスト (#[sqlx::test])
 assets/             icon_updater が使う日付入りアイコン画像 (01.png 〜 31.png、土曜は _b、日曜・祝日は _r)

@@ -17,7 +17,12 @@ export function revalidateAdminPagesQuietly(): void {
   });
 }
 
-/** 設定 (restricted) が変わったとき、管理コンソールのギルド詳細キャッシュ (あれば) を追従させる */
+/**
+ * 設定 (restricted・通知先チャンネル) が変わったとき、管理コンソールのギルド詳細キャッシュ (あれば) を追従させる。
+ * 通知先の ID は管理権限を持つ人への応答にしか入らないが、この関数を呼ぶ mutation はどちらも
+ * 管理権限が前提 (通常画面の保存は can_manage_server、管理コンソールは AdminUser) なので、
+ * 設定済みなら ID が入っている
+ */
 export function syncAdminGuildConfig(
   queryClient: QueryClient,
   guildId: string,
@@ -27,7 +32,15 @@ export function syncAdminGuildConfig(
     queryKeys.admin.guild(guildId),
     // まだ管理画面を開いていなければ何もしない (undefined を返すと更新されない)
     (detail) =>
-      detail ? { ...detail, restricted: config.restricted } : detail,
+      detail
+        ? {
+            ...detail,
+            restricted: config.restricted,
+            channel_id: config.notification_channel_configured
+              ? (config.notification_channel_id ?? detail.channel_id)
+              : null,
+          }
+        : detail,
   );
   revalidateAdminPagesQuietly();
 }

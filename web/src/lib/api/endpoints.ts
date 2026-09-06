@@ -13,7 +13,9 @@ import type {
   ApiEvent,
   ApiEventInput,
   Guild,
+  GuildChannel,
   GuildConfig,
+  GuildConfigInput,
   GuildFeed,
   MemberProfile,
   MyPermissions,
@@ -89,11 +91,15 @@ export function createApi(request: ApiFetcher) {
       get: (guildId: string) => request<Guild>(`/guilds/${guildId}`),
       config: (guildId: string) =>
         request<GuildConfig>(`/guilds/${guildId}/config`),
-      updateConfig: (guildId: string, restricted: boolean) =>
+      /** サーバー設定の更新 (管理権限が必要。通知先は Bot が投稿できるチャンネルでないと 400) */
+      updateConfig: (guildId: string, input: GuildConfigInput) =>
         request<GuildConfig>(`/guilds/${guildId}/config`, {
           method: "PUT",
-          body: { restricted },
+          body: input,
         }),
+      /** 通知先に選べるチャンネルの一覧 (#181)。メンバーなら誰でも取れる */
+      channels: (guildId: string, signal?: AbortSignal) =>
+        request<GuildChannel[]>(`/guilds/${guildId}/channels`, { signal }),
       myPermissions: (guildId: string) =>
         request<MyPermissions>(`/guilds/${guildId}/@me/permissions`),
       /**

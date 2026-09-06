@@ -1,7 +1,8 @@
 //! 予定の通知タスク (旧 `tasks/notify.rs` 相当)。
 //!
 //! 60秒ごとに全ギルド横断で未来の予定を取得し、各予定の通知設定 (「num unit 前」、
-//! 予定開始そのものを含む) の発火時刻 (`start - num unit`) が前回チェックした時刻から
+//! 予定開始そのものを含む。ギルド設定 `guild_config.notify_at_start` で止められる、#181) の
+//! 発火時刻 (`start - num unit`) が前回チェックした時刻から
 //! 今回までの間に入っていれば `event_settings` の通知先チャンネルへ embed を送る。
 //! 固定長の判定窓ではなく前回時刻を引き継ぐ可変長の窓を使うことで、1回の実行が
 //! 60秒を超えても (Discord API が遅い、対象が多いなど) 未判定区間が生まれず取りこぼさない。
@@ -20,6 +21,7 @@ use crate::{
     models::{
         event_settings, event_share_links,
         events::{self, Event},
+        guild_config,
         notifications::{Notification, NotificationUnit},
         now_jst,
     },
@@ -193,12 +195,11 @@ async fn notify_for_event(
     failure_counts: &mut HashMap<(i32, NaiveDateTime), u32>,
 ) -> bool {
     let (start, end) = effective_range(event);
-    // 予定開始そのものへの通知を、他の「num unit 前」の通知と同じ仕組みで扱う
-    let mut notifications = event.notifications();
-    notifications.push(Notification::new(0, NotificationUnit::Minutes));
-    // web のフォームや API は同じ通知の重複を弾かないので、送信前に一度だけに絞る
-    // (0分前の開始時刻通知が DB に保存されていた場合もここで一本化される)
-    let notifications = dedup_notifications(notifications);
+    // 予定開始そのものへの通知を、他の「num unit 前」の通知と同じ仕組みで扱う。
+    // ギルド設定で開始時刻の通知を止めているか (#181) はまだ引いていないので、いったん含めて
+    // 今回送る候補を絞り、候補があるときだけ設定を引いて外す (下の `without_start_notification`)
+    let saved = event.notifications();
+    let notifications = with_start_notification(saved.clone());
 
     // 先に今回送る通知を絞ってから event_settings を引く。全未来予定に対して毎 tick
     // SELECT すると、予定が増えるほど DB 負荷とタスクの所要時間が際限なく伸びてしまう。
@@ -232,6 +233,23 @@ async fn notify_for_event(
             return false;
         }
     };
+    // 開始時刻に通知しないギルド (#181) では、自動で足した 0 分前を候補から外す。
+    // 通知先と同じタイミングで引く (候補がある予定だけ、tick ごとに 1 回)
+    let config = match guild_config::get(&data.pool, &event.guild_id).await {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::error!(error = %e, guild_id = event.guild_id, "failed to fetch guild config");
+            return false;
+        }
+    };
+    let due = if config.notify_at_start {
+        due
+    } else {
+        without_start_notification(due, &saved)
+    };
+    if due.is_empty() {
+        return true;
+    }
     // event_settings.channel_id は制約のない TEXT なので、旧データや手動修正で "0" が
     // 入っている可能性がある。ChannelId::new(0) は panic するので、u64 ではなく
     // NonZeroU64 としてパースし、0 も不正値として弾く
@@ -285,6 +303,29 @@ async fn notify_for_event(
         }
     }
     all_sent
+}
+
+/// 予定に保存された通知に、開始時刻そのもの (0 分前) の通知を足して重複を除く。
+/// web のフォームや API は同じ通知の重複を弾かないので、送信前に一度だけに絞る
+/// (0 分前の開始時刻通知が DB に保存されていた場合もここで一本化される)
+fn with_start_notification(mut saved: Vec<Notification>) -> Vec<Notification> {
+    saved.push(Notification::new(0, NotificationUnit::Minutes));
+    dedup_notifications(saved)
+}
+
+/// ギルド設定で開始時刻の通知を止めている (#181) ときに、自動で足した 0 分前の候補を外す。
+/// 予定に保存された通知の中に 0 分前が明示されていれば (API を直接叩いた場合など)、それは
+/// 予定側の指定として残す (api の `Notification::fire_minutes` と同じ規則)
+fn without_start_notification(
+    due: Vec<(Notification, NaiveDateTime)>,
+    saved: &[Notification],
+) -> Vec<(Notification, NaiveDateTime)> {
+    if saved.iter().any(|n| n.total_minutes() == 0) {
+        return due;
+    }
+    due.into_iter()
+        .filter(|(notification, _)| notification.total_minutes() != 0)
+        .collect()
 }
 
 /// 同じ発火時刻 (分換算値) を持つ通知の重複を除く (最初に現れた1件だけを残す)。
@@ -663,6 +704,42 @@ mod tests {
         ));
         assert!(!is_due(start, i64::MAX, last_checked, now));
         assert!(!is_due(start, i64::MIN, last_checked, now));
+    }
+
+    #[test]
+    fn start_notification_is_added_once() {
+        let saved = vec![
+            Notification::new(30, NotificationUnit::Minutes),
+            Notification::new(0, NotificationUnit::Minutes),
+        ];
+        assert_eq!(with_start_notification(saved.clone()), saved);
+        assert_eq!(
+            with_start_notification(vec![]),
+            vec![Notification::new(0, NotificationUnit::Minutes)]
+        );
+    }
+
+    #[test]
+    fn start_notification_is_dropped_when_the_guild_turned_it_off() {
+        let start = dt("2026-08-23T10:00:00");
+        let saved = vec![Notification::new(30, NotificationUnit::Minutes)];
+        let due = vec![
+            (
+                Notification::new(30, NotificationUnit::Minutes),
+                dt("2026-08-23T09:30:00"),
+            ),
+            (Notification::new(0, NotificationUnit::Minutes), start),
+        ];
+        // 自動で足した 0 分前だけが消え、事前通知は残る
+        assert_eq!(
+            without_start_notification(due.clone(), &saved),
+            vec![due[0]]
+        );
+        // 事前通知が無ければ何も送らない
+        assert!(without_start_notification(vec![due[1]], &[]).is_empty());
+        // 予定側に 0 分前が明示されていれば、それは予定の指定として残す
+        let explicit = vec![Notification::new(0, NotificationUnit::Minutes)];
+        assert_eq!(without_start_notification(due.clone(), &explicit), due);
     }
 
     #[test]

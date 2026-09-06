@@ -58,6 +58,49 @@ export interface GuildConfig {
   guild_id: string;
   /** true なら予定の作成・更新・削除にサーバー管理権限が必要 */
   restricted: boolean;
+  /** 予定の開始時刻に通知するか (#181)。false なら事前通知だけが届く */
+  notify_at_start: boolean;
+  /** 予定を新規作成するときの事前通知の初期値 (#181)。最大 NOTIFICATIONS_MAX 件 */
+  default_notifications: Notification[];
+  /**
+   * 通知先チャンネルの ID (`/init` またはサーバー設定で設定)。サーバー管理権限を持つ人にだけ返り、
+   * それ以外は設定済みでも null (本人に見えないチャンネルの ID を知らせないため)
+   */
+  notification_channel_id: string | null;
+  /** 通知先チャンネルが設定されているか。false なら通知は届かない */
+  notification_channel_configured: boolean;
+}
+
+/**
+ * サーバー設定の更新 (`PUT /guilds/{guild_id}/config`、api の `GuildConfigInput`)。
+ * `restricted` 以外は省略すると変更しない。通知先は Bot が投稿できるチャンネルでないと 400 になる
+ */
+export interface GuildConfigInput {
+  restricted: boolean;
+  notify_at_start?: boolean;
+  default_notifications?: Notification[];
+  notification_channel_id?: string;
+}
+
+/** 通知の投稿に必要な権限 (api の `NotificationPermission`)。表示名は `lib/channel-permissions.ts` */
+export type NotificationPermission =
+  | "view_channel"
+  | "send_messages"
+  | "embed_links";
+
+/**
+ * 通知先に選べるチャンネル (`GET /guilds/{guild_id}/channels`、api の `GuildChannel`、#181)。
+ * テキスト / アナウンスチャンネルだけで、Discord の表示順に並ぶ
+ */
+export interface GuildChannel {
+  id: string;
+  name: string;
+  /** 所属するカテゴリの名前。無ければ null */
+  category: string | null;
+  /** Bot がこのチャンネルに通知を投稿できるか。false なら通知先にできない */
+  can_post: boolean;
+  /** can_post が false のときに足りない権限 */
+  missing_permissions: NotificationPermission[];
 }
 
 /**
