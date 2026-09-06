@@ -12,6 +12,7 @@ const config: GuildConfig = {
   notify_at_start: false,
   default_notifications: [{ num: 30, unit: "minutes" }],
   notification_channel_id: "400000000000000001",
+  notification_channel_configured: true,
 };
 
 describe("configToFormValues / formValuesToConfigInput", () => {
@@ -35,6 +36,7 @@ describe("configToFormValues / formValuesToConfigInput", () => {
     const values = configToFormValues({
       ...config,
       notification_channel_id: null,
+      notification_channel_configured: false,
     });
     expect(values.notificationChannelId).toBe("");
     const input = formValuesToConfigInput(values);

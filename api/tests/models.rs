@@ -408,6 +408,7 @@ async fn guild_config_defaults_and_upserts(pool: PgPool) {
     assert!(config.notify_at_start);
     assert_eq!(config.default_notifications, guilds::DEFAULT_NOTIFICATIONS);
     assert_eq!(config.notification_channel_id, None);
+    assert!(!config.notification_channel_configured);
 
     set_restricted(&pool, true).await;
     let config = guilds::get_config(&pool, GUILD).await.unwrap();
@@ -475,14 +476,16 @@ async fn notification_channel_is_shared_with_the_bot_init_rows(pool: PgPool) {
         .unwrap();
     assert_eq!(previous, None);
     tx.commit().await.unwrap();
+    let config = guilds::get_config(&pool, GUILD).await.unwrap();
     assert_eq!(
-        guilds::get_config(&pool, GUILD)
-            .await
-            .unwrap()
-            .notification_channel_id
-            .as_deref(),
+        config.notification_channel_id.as_deref(),
         Some("333333333333333333")
     );
+    assert!(config.notification_channel_configured);
+    // 管理権限のない呼び出し元には ID を伏せるが、設定済みであることは残る
+    let masked = config.without_channel_id();
+    assert_eq!(masked.notification_channel_id, None);
+    assert!(masked.notification_channel_configured);
 
     // 旧 Bot の時代の重複行があっても、先頭の行を返し、変更はまとめて更新する
     sqlx::query(

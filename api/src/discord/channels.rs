@@ -212,6 +212,10 @@ impl DiscordClient {
         if let Some(cached) = self.channels.get(guild_id).await {
             return Ok(cached);
         }
+        // Bot の投稿可否はロールの権限 (ギルド情報、最長 5 分のキャッシュ) と Bot 自身のロールからも
+        // 決まるので、一覧を作り直すときはそれらも取り直して、一覧と同じ鮮度 (1 分) にそろえる
+        // (Bot のロールから「メッセージを送信」を外した直後に、古いロール権限で can_post を誤らないため)
+        self.recache_guild_permissions(guild_id).await?;
         let bot_user_id = self.bot_user_id().await?;
         let access = self
             .member_access(guild_id, &bot_user_id)

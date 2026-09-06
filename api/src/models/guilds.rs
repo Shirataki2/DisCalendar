@@ -63,9 +63,24 @@ pub struct GuildConfig {
     pub notify_at_start: bool,
     /// web で予定を新規作成するときの事前通知の初期値 (#181)。既定は 1 日前と 1 時間前
     pub default_notifications: Vec<Notification>,
-    /// 通知先チャンネルの ID (`/init` またはサーバー設定で設定する)。未設定なら null で、通知は届かない
+    /// 通知先チャンネルの ID (`/init` またはサーバー設定で設定する)。
+    /// **サーバー管理権限を持つ人にだけ返す** (それ以外は設定済みでも null。本人に見えないスタッフ専用
+    /// チャンネルの ID を一般メンバーに知らせないため、[`GuildConfig::without_channel_id`])
     #[schema(example = "782502586817314820")]
     pub notification_channel_id: Option<String>,
+    /// 通知先チャンネルが設定されているか。`notification_channel_id` が伏せられていても分かるようにする
+    /// (未設定なら通知は届かないので、web はその案内を出す)
+    pub notification_channel_configured: bool,
+}
+
+impl GuildConfig {
+    /// 通知先チャンネルの ID を伏せる (管理権限のない呼び出し元への応答用)
+    pub fn without_channel_id(self) -> Self {
+        Self {
+            notification_channel_id: None,
+            ..self
+        }
+    }
 }
 
 /// 未設定なら既定値 (restricted = false、開始時刻に通知する、既定の事前通知は
@@ -98,6 +113,7 @@ pub async fn get_config<'e>(
         restricted: row.restricted,
         notify_at_start: row.notify_at_start,
         default_notifications: Notification::decode_all(&row.default_notifications),
+        notification_channel_configured: row.notification_channel_id.is_some(),
         notification_channel_id: row.notification_channel_id,
     })
 }

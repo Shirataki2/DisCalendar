@@ -62,8 +62,13 @@ export interface GuildConfig {
   notify_at_start: boolean;
   /** 予定を新規作成するときの事前通知の初期値 (#181)。最大 NOTIFICATIONS_MAX 件 */
   default_notifications: Notification[];
-  /** 通知先チャンネルの ID (`/init` またはサーバー設定で設定)。未設定なら null で、通知は届かない */
+  /**
+   * 通知先チャンネルの ID (`/init` またはサーバー設定で設定)。サーバー管理権限を持つ人にだけ返り、
+   * それ以外は設定済みでも null (本人に見えないチャンネルの ID を知らせないため)
+   */
   notification_channel_id: string | null;
+  /** 通知先チャンネルが設定されているか。false なら通知は届かない */
+  notification_channel_configured: boolean;
 }
 
 /**

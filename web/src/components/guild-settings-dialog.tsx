@@ -113,6 +113,7 @@ const FALLBACK_CONFIG: Omit<GuildConfig, "guild_id"> = {
   notify_at_start: true,
   default_notifications: [],
   notification_channel_id: null,
+  notification_channel_configured: false,
 };
 
 function GuildSettingsForm({
@@ -214,6 +215,7 @@ function GuildSettingsForm({
           guildId={guildId}
           canManage={canManage}
           currentChannelId={config?.notification_channel_id ?? null}
+          configured={config?.notification_channel_configured ?? false}
         />
 
         <Separator />
@@ -272,10 +274,13 @@ function NotificationSection({
   guildId,
   canManage,
   currentChannelId,
+  configured,
 }: {
   guildId: string;
   canManage: boolean;
   currentChannelId: string | null;
+  /** 通知先が設定済みか (管理権限が無いと ID は返らないので、これで案内を出し分ける) */
+  configured: boolean;
 }) {
   const { control } = useFormContext<GuildSettingsFormValues>();
   return (
@@ -304,6 +309,7 @@ function NotificationSection({
             value={field.value}
             onChange={field.onChange}
             currentChannelId={currentChannelId}
+            configured={configured}
             disabled={!canManage}
           />
         )}
@@ -354,6 +360,7 @@ function ChannelField({
   value,
   onChange,
   currentChannelId,
+  configured,
   disabled,
 }: {
   guildId: string;
@@ -362,6 +369,8 @@ function ChannelField({
   onChange: (value: string) => void;
   /** 保存済みの通知先。一覧に無い (スレッドや削除済みの) チャンネルでも選択肢として残す */
   currentChannelId: string | null;
+  /** 通知先が設定済みか。管理権限が無いと ID (currentChannelId) は返らないので、これで表示を分ける */
+  configured: boolean;
   disabled: boolean;
 }) {
   const channelsQuery = useGuildChannelsQuery(guildId);
@@ -404,7 +413,9 @@ function ChannelField({
             placeholder={
               channelsQuery.isPending
                 ? "チャンネルを読み込み中…"
-                : "未設定 (通知は届きません)"
+                : configured
+                  ? "設定済み (管理権限を持つメンバーだけが確認・変更できます)"
+                  : "未設定 (通知は届きません)"
             }
           />
         </SelectTrigger>
@@ -445,7 +456,7 @@ function ChannelField({
           {describeApiError(channelsQuery.error)}
           )。通知先以外の設定は保存できます
         </FieldDescription>
-      ) : value === "" && !channelsQuery.isPending ? (
+      ) : value === "" && !channelsQuery.isPending && !configured ? (
         <FieldDescription>
           通知先が未設定のため、予定を作っても通知は届きません。チャンネルを選んで保存してください
         </FieldDescription>

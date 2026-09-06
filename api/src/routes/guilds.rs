@@ -238,7 +238,8 @@ async fn fetch_channels(
         })
 }
 
-/// ギルド設定 (未設定なら既定値)
+/// ギルド設定 (未設定なら既定値)。通知先チャンネルの ID はサーバー管理権限を持つ人にだけ返す
+/// (それ以外は `notification_channel_configured` だけ分かる)
 #[utoipa::path(
     tag = "guilds",
     params(("guild_id" = String, Path, description = "ギルド ID")),
@@ -253,9 +254,14 @@ pub async fn get_config(
     member: GuildMember,
     state: web::Data<AppState>,
 ) -> Result<web::Json<GuildConfig>, ApiError> {
-    Ok(web::Json(
-        guilds::get_config(&state.pool, member.guild_id()).await?,
-    ))
+    let config = guilds::get_config(&state.pool, member.guild_id()).await?;
+    // 一般メンバーには通知先の ID を見せない (`/init` でスタッフ専用チャンネルが設定されていると、
+    // チャンネル一覧では見えないチャンネルの ID がここから分かってしまう)
+    Ok(web::Json(if member.permissions().can_manage_server() {
+        config
+    } else {
+        config.without_channel_id()
+    }))
 }
 
 /// サーバー設定の更新内容。`restricted` 以外は省略すると変更しない
