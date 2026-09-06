@@ -158,6 +158,10 @@ function GuildSettingsForm({
   const canManage = permissionsQuery.data?.can_manage_server ?? false;
   const reloading = permissionsQuery.isFetching;
   const saving = updateConfig.isPending || isSubmitting;
+  // 開いたときの設定の取り直し (下の refetchConfig) が終わるまで、また取り直せなかったときは保存させない。
+  // 古いキャッシュの値をそのまま送ると、別の経路で変わった通知先や既定の事前通知を取り消してしまう
+  const syncing = configQuery.isFetching;
+  const syncFailed = configQuery.isError;
 
   // Discord 側で権限を変えた後に押してもらう (旧 checkEditable)。入力内容はそのまま残す
   const reload = async () => {
@@ -239,6 +243,13 @@ function GuildSettingsForm({
           onError={setError}
         />
 
+        {syncFailed && (
+          <p role="alert" className="text-sm text-destructive">
+            設定を取り直せませんでした ({describeApiError(configQuery.error)}
+            )。古い設定を上書きしないよう、保存はできません。ダイアログを開き直してください
+          </p>
+        )}
+
         {error && (
           <div
             role="alert"
@@ -270,8 +281,13 @@ function GuildSettingsForm({
           >
             キャンセル
           </Button>
-          <Button type="submit" disabled={!canManage || saving || reloading}>
-            {saving ? "保存中…" : "保存"}
+          <Button
+            type="submit"
+            disabled={
+              !canManage || saving || reloading || syncing || syncFailed
+            }
+          >
+            {saving ? "保存中…" : syncing ? "確認中…" : "保存"}
           </Button>
         </DialogFooter>
       </form>

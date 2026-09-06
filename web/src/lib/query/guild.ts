@@ -65,6 +65,10 @@ export function useUpdateGuildConfig(guildId: string) {
   return useMutation({
     mutationFn: (input: GuildConfigInput) =>
       api.guilds.updateConfig(guildId, input),
+    // 進行中の取得 (ダイアログを開いたときの取り直しなど) を止める。放っておくと、保存前の値を読んだ
+    // 応答があとから届いて、下の setQueryData を古い値で上書きしうる (useRefreshMyPermissions と同じ)
+    onMutate: () =>
+      queryClient.cancelQueries({ queryKey: queryKeys.guild.config(guildId) }),
     onSuccess: (config) => {
       queryClient.setQueryData<GuildConfig>(
         queryKeys.guild.config(guildId),
