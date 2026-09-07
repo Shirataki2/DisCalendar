@@ -194,10 +194,11 @@ async fn deliver_one(
 ) -> sqlx::Result<bool> {
     let mut tx = state.pool.begin().await?;
     // 解除済み・オフ・作成者限定の範囲外・Bot 退出・古すぎる通知は送らない。
+    // リース中の配信は結果確定に任せ、別ワーカーの掃除で成功結果を失わない。
     sqlx::query(
         r#"
         UPDATE push_deliveries d SET done = true FROM push_outbox o
-        WHERE d.outbox_id = o.id AND NOT d.done AND (
+        WHERE d.outbox_id = o.id AND NOT d.done AND d.next_attempt_at <= now() AND (
             o.fire_at < $1 - interval '1 hour' OR NOT EXISTS (
                 SELECT 1 FROM push_subscriptions s
                 JOIN user_push_settings p ON p.user_id = s.user_id
@@ -688,11 +689,13 @@ mod tests {
         assert!(disabled);
         assert_eq!(failures, 5);
         // 別の配信が停止状態を記録したあと、進行中の送信が成功した場合は復帰する。
-        let (outbox_id, subscription_id): (i64, i32) = sqlx::query_as("UPDATE push_deliveries SET done=false,attempts=1 WHERE outbox_id=(SELECT min(id) FROM push_outbox) RETURNING outbox_id,subscription_id")
+        let (outbox_id, subscription_id): (i64, i32) = sqlx::query_as("UPDATE push_deliveries SET done=false,attempts=1,next_attempt_at=now()+interval '1 minute' WHERE outbox_id=(SELECT min(id) FROM push_outbox) RETURNING outbox_id,subscription_id")
             .fetch_one(&pool).await.unwrap();
         let mut completed = delivery(String::new(), String::new());
         completed.outbox_id = outbox_id;
         completed.subscription_id = subscription_id;
+        // 停止後に別ワーカーが掃除しても、送信中の成功結果を受け付ける。
+        assert!(!deliver_one(&state, &config, &client).await.unwrap());
         finish_delivery(&pool, &completed, Outcome::Sent)
             .await
             .unwrap();
