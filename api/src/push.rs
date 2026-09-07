@@ -6,7 +6,7 @@ use crate::{
 };
 use actix_web::web;
 use chrono::NaiveDateTime;
-use futures_util::{StreamExt, stream};
+use futures_util::{StreamExt, TryStreamExt, stream};
 use sqlx::PgPool;
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -58,17 +58,31 @@ pub async fn run(state: web::Data<AppState>, config: PushConfig) {
             return;
         }
     };
-    let mut interval = tokio::time::interval(Duration::from_secs(15));
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut expansion_cursor = 0;
-    loop {
-        interval.tick().await;
-        if let Err(error) = expand(&state.pool, &state.discord, &mut expansion_cursor).await {
-            tracing::warn!(error = %error, "failed to expand push outbox");
-            continue;
+    run_workers(&state, &config, &client).await;
+}
+
+async fn run_workers(state: &AppState, config: &PushConfig, client: &reqwest::Client) {
+    // 所属照会が遅れても、すでに確保した宛先への配信を止めない。
+    let expansion = async {
+        let mut interval = tokio::time::interval(Duration::from_secs(15));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut cursor = 0;
+        loop {
+            interval.tick().await;
+            if let Err(error) = expand(&state.pool, &state.discord, &mut cursor).await {
+                tracing::warn!(error = %error, "failed to expand push outbox");
+            }
         }
-        deliver_batch(&state, &config, &client).await;
-    }
+    };
+    let delivery = async {
+        let mut interval = tokio::time::interval(Duration::from_secs(15));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            interval.tick().await;
+            deliver_batch(state, config, client).await;
+        }
+    };
+    tokio::join!(expansion, delivery);
 }
 
 async fn deliver_batch(state: &AppState, config: &PushConfig, client: &reqwest::Client) {
@@ -104,9 +118,13 @@ pub async fn expand(pool: &PgPool, discord: &DiscordClient, cursor: &mut i64) ->
     for (id, guild) in pending {
         guilds.entry(guild).or_default().push(id);
     }
-    for (guild, ids) in guilds {
-        let candidates: Vec<(i32, String)> = sqlx::query_as(
-            r#"
+    let permits = tokio::sync::Semaphore::new(10);
+    stream::iter(guilds)
+        .map(|(guild, ids)| {
+            let permits = &permits;
+            async move {
+                let candidates: Vec<(i32, String)> = sqlx::query_as(
+                    r#"
             SELECT DISTINCT s.id, a."accountId" FROM push_subscriptions s
             JOIN user_push_settings p ON p.user_id=s.user_id
             JOIN "account" a ON a."userId"=s.user_id AND a."providerId"='discord'
@@ -117,26 +135,30 @@ pub async fn expand(pool: &PgPool, discord: &DiscordClient, cursor: &mut i64) ->
                 AND (p.scope='all' OR (p.scope='created' AND e.created_by=a."accountId"))
             )
         "#,
-        )
-        .bind(&ids)
-        .fetch_all(pool)
-        .await?;
-        // 外部通信中は DB 接続を保持しない。同じ人の複数端末もキャッシュで集約する。
-        let results = stream::iter(candidates.into_iter().map(|(id, user)| {
-            let guild = &guild;
-            async move { (id, discord.push_membership(guild, &user).await) }
-        }))
-        .buffer_unordered(10)
-        .collect::<Vec<_>>()
-        .await;
-        let complete = results.iter().all(|(_, result)| result.is_some());
-        let recipients: Vec<i32> = results
-            .into_iter()
-            .filter_map(|(id, result)| matches!(result, Some(true)).then_some(id))
-            .collect();
-        let mut tx = pool.begin().await?;
-        sqlx::query(
-            r#"
+                )
+                .bind(&ids)
+                .fetch_all(pool)
+                .await?;
+                // 外部通信中は DB 接続を保持しない。同じ人の複数端末もキャッシュで集約する。
+                let results = stream::iter(candidates.into_iter().map(|(id, user)| {
+                    let guild = &guild;
+                    async move {
+                        // ギルドをまたぐ場合も所属照会は全体で最大10件に抑える。
+                        let _permit = permits.acquire().await.expect("semaphore stays open");
+                        (id, discord.push_membership(guild, &user).await)
+                    }
+                }))
+                .buffer_unordered(10)
+                .collect::<Vec<_>>()
+                .await;
+                let complete = results.iter().all(|(_, result)| result.is_some());
+                let recipients: Vec<i32> = results
+                    .into_iter()
+                    .filter_map(|(id, result)| matches!(result, Some(true)).then_some(id))
+                    .collect();
+                let mut tx = pool.begin().await?;
+                sqlx::query(
+                    r#"
             INSERT INTO push_deliveries (outbox_id, subscription_id)
             SELECT DISTINCT o.id, s.id FROM push_outbox o
             JOIN events e ON e.id=o.event_id JOIN guilds g ON g.guild_id=e.guild_id
@@ -148,21 +170,25 @@ pub async fn expand(pool: &PgPool, discord: &DiscordClient, cursor: &mut i64) ->
               AND (p.scope='all' OR (p.scope='created' AND e.created_by=a."accountId"))
             ON CONFLICT DO NOTHING
         "#,
-        )
-        .bind(&ids)
-        .bind(&recipients)
-        .bind(now_jst())
-        .execute(&mut *tx)
-        .await?;
-        // 所属不明の候補は利用者単位で再照会し、通知ごとの配信行には展開しない。
-        if complete {
-            sqlx::query("UPDATE push_outbox SET expanded=true WHERE id=ANY($1)")
+                )
                 .bind(&ids)
+                .bind(&recipients)
+                .bind(now_jst())
                 .execute(&mut *tx)
                 .await?;
-        }
-        tx.commit().await?;
-    }
+                // 所属不明の候補は利用者単位で再照会し、通知ごとの配信行には展開しない。
+                if complete {
+                    sqlx::query("UPDATE push_outbox SET expanded=true WHERE id=ANY($1)")
+                        .bind(&ids)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+                tx.commit().await
+            }
+        })
+        .buffer_unordered(10)
+        .try_collect::<Vec<_>>()
+        .await?;
     Ok(())
 }
 
@@ -501,11 +527,11 @@ mod tests {
             let requested = server_requested.clone();
             let release = server_release.clone();
             App::new().route(
-                "/guilds/111/members/222",
-                web::get().to(move || {
+                "/guilds/{guild}/members/222",
+                web::get().to(move |guild: web::Path<String>| {
                     let present = present.load(Ordering::SeqCst);
                     let unavailable = unavailable.load(Ordering::SeqCst);
-                    let blocked = blocked.swap(false, Ordering::SeqCst);
+                    let blocked = guild.as_str() == "333" || blocked.swap(false, Ordering::SeqCst);
                     let requested = requested.clone();
                     let release = release.clone();
                     async move {
@@ -746,6 +772,31 @@ mod tests {
                 .await
                 .unwrap();
         assert!(!pending);
+        sqlx::raw_sql(r#"
+            INSERT INTO guilds (guild_id,name,locale) VALUES ('333','遅いサーバー','ja'),('444','後続サーバー','ja');
+            INSERT INTO events (guild_id,name,color,is_all_day,start_at,end_at,created_by)
+                SELECT guild_id,'予定','#5865F2',false,now() AT TIME ZONE 'Asia/Tokyo',now() AT TIME ZONE 'Asia/Tokyo','222' FROM guilds WHERE guild_id IN ('333','444');
+            INSERT INTO push_outbox (event_id,fire_at,start_at) SELECT id,start_at,start_at FROM events ON CONFLICT DO NOTHING;
+            UPDATE push_deliveries SET done=false,attempts=0,next_attempt_at=now();
+        "#).execute(&pool).await.unwrap();
+        let other_guild_and_delivery_progress = async {
+            requested.notified().await; // 333 の展開用所属照会をブロックする。
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    let progressed: bool = sqlx::query_scalar(r#"
+                        SELECT NOT EXISTS (SELECT 1 FROM push_deliveries WHERE NOT done)
+                        AND EXISTS (SELECT 1 FROM push_outbox o JOIN events e ON e.id=o.event_id WHERE e.guild_id='444' AND o.expanded)
+                    "#).fetch_one(&pool).await.unwrap();
+                    if progressed { break; }
+                    tokio::task::yield_now().await;
+                }
+            }).await.expect("遅いギルドの展開中も別ギルドの展開と既存宛先への配信が進む");
+            release.notify_one();
+        };
+        tokio::select! {
+            _ = run_workers(&state, &config, &client) => panic!("workers should keep running"),
+            _ = other_guild_and_delivery_progress => {}
+        }
         handle.stop(true).await;
     }
 }
