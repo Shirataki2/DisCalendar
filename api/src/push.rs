@@ -87,7 +87,7 @@ async fn deliver_batch(state: &AppState, config: &PushConfig, client: &reqwest::
     .await;
 }
 
-/// 所属確認はサーバー・利用者単位の既存キャッシュでまとめ、参加者だけを配信待ちにする。
+/// 所属確認はサーバー・利用者単位の既存キャッシュでまとめ、非参加者を配信待ちから除く。
 pub async fn expand(pool: &PgPool, discord: &DiscordClient) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM push_outbox WHERE fire_at < $1 - interval '1 day'")
         .bind(now_jst())
@@ -126,10 +126,9 @@ pub async fn expand(pool: &PgPool, discord: &DiscordClient) -> sqlx::Result<()> 
         .buffer_unordered(10)
         .collect::<Vec<_>>()
         .await;
-        let complete = results.iter().all(|(_, result)| result.is_ok());
-        let members: Vec<i32> = results
+        let recipients: Vec<i32> = results
             .into_iter()
-            .filter_map(|(id, result)| matches!(result, Ok(true)).then_some(id))
+            .filter_map(|(id, result)| (!matches!(result, Ok(false))).then_some(id))
             .collect();
         let mut tx = pool.begin().await?;
         sqlx::query(
@@ -147,17 +146,15 @@ pub async fn expand(pool: &PgPool, discord: &DiscordClient) -> sqlx::Result<()> 
         "#,
         )
         .bind(&ids)
-        .bind(&members)
+        .bind(&recipients)
         .bind(now_jst())
         .execute(&mut *tx)
         .await?;
-        // 一時的な所属確認エラーは次の tick で再試行し、確認できた宛先は先に配信する。
-        if complete {
-            sqlx::query("UPDATE push_outbox SET expanded=true WHERE id=ANY($1)")
-                .bind(&ids)
-                .execute(&mut *tx)
-                .await?;
-        }
+        // 所属不明の宛先は配信側で再確認・再試行する。展開済みにして後続を塞がない。
+        sqlx::query("UPDATE push_outbox SET expanded=true WHERE id=ANY($1)")
+            .bind(&ids)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
     }
     Ok(())
@@ -480,6 +477,8 @@ mod tests {
     async fn rechecks_membership_and_disables_only_after_five_exhausted_deliveries(pool: PgPool) {
         let present = Arc::new(AtomicBool::new(true));
         let server_present = present.clone();
+        let unavailable = Arc::new(AtomicBool::new(false));
+        let server_unavailable = unavailable.clone();
         let blocked = Arc::new(AtomicBool::new(false));
         let server_blocked = blocked.clone();
         let requested = Arc::new(tokio::sync::Notify::new());
@@ -490,6 +489,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = HttpServer::new(move || {
             let present = server_present.clone();
+            let unavailable = server_unavailable.clone();
             let blocked = server_blocked.clone();
             let requested = server_requested.clone();
             let release = server_release.clone();
@@ -497,6 +497,7 @@ mod tests {
                 "/guilds/111/members/222",
                 web::get().to(move || {
                     let present = present.load(Ordering::SeqCst);
+                    let unavailable = unavailable.load(Ordering::SeqCst);
                     let blocked = blocked.swap(false, Ordering::SeqCst);
                     let requested = requested.clone();
                     let release = release.clone();
@@ -504,6 +505,9 @@ mod tests {
                         if blocked {
                             requested.notify_one();
                             release.notified().await;
+                        }
+                        if unavailable {
+                            return HttpResponse::ServiceUnavailable().finish();
                         }
                         if present {
                             HttpResponse::Ok().json(serde_json::json!({"roles":[]}))
@@ -605,6 +609,16 @@ mod tests {
         let (done,failures):(bool,i32)=sqlx::query_as("SELECT d.done,s.failure_count FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id").fetch_one(&pool).await.unwrap();
         assert!(done);
         assert_eq!(failures, 0);
+        unavailable.store(true, Ordering::SeqCst);
+        sqlx::query("UPDATE push_deliveries SET done=false,attempts=0,next_attempt_at=now()")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(deliver_one(&state, &config, &client).await.unwrap());
+        let (done,failures):(bool,i32)=sqlx::query_as("SELECT d.done,s.failure_count FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id").fetch_one(&pool).await.unwrap();
+        assert!(!done); // 所属確認の一時エラーは端末を失敗扱いにせず再試行待ちにする。
+        assert_eq!(failures, 0);
+        unavailable.store(false, Ordering::SeqCst);
         present.store(true, Ordering::SeqCst);
         blocked.store(true, Ordering::SeqCst);
         sqlx::query("UPDATE push_deliveries SET done=false,attempts=0,next_attempt_at=now()")

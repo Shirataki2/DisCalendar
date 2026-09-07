@@ -11,7 +11,7 @@ use discalendar_api::{
 use sqlx::PgPool;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicUsize, Ordering},
 };
 use std::time::Duration;
 
@@ -146,7 +146,7 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
       INSERT INTO guilds (guild_id,name,locale) VALUES ('111','サーバー','ja');
       INSERT INTO guild_config (guild_id,restricted) VALUES ('111',true);
       INSERT INTO events (guild_id,name,color,is_all_day,start_at,end_at,created_by)
-        SELECT '111','予定','#5865F2',false,now() AT TIME ZONE 'Asia/Tokyo',now() AT TIME ZONE 'Asia/Tokyo','2' FROM generate_series(1,2);
+        SELECT '111','予定','#5865F2',false,now() AT TIME ZONE 'Asia/Tokyo',now() AT TIME ZONE 'Asia/Tokyo','2' FROM generate_series(1,101);
     "#).execute(&pool).await.unwrap();
     for (n, user, scope) in [
         (0, "all", PushScope::All),
@@ -170,7 +170,6 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
         .await
         .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let transient = Arc::new(AtomicBool::new(true));
     let server_calls = calls.clone();
     let server_pool = single_pool.clone();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -178,22 +177,18 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
     let server = HttpServer::new(move || {
         let calls = server_calls.clone();
         let pool = server_pool.clone();
-        let transient = transient.clone();
         App::new().route(
             "/guilds/111/members/{id}",
             web::get().to(move |id: web::Path<String>| {
                 let calls = calls.clone();
                 let pool = pool.clone();
-                let transient = transient.clone();
                 async move {
                     // 所属確認中に唯一の接続を占有していないことも確認する。
                     sqlx::query("SELECT 1").execute(&pool).await.unwrap();
                     calls.fetch_add(1, Ordering::SeqCst);
                     match id.as_str() {
                         "6" => HttpResponse::NotFound().finish(),
-                        "7" if transient.swap(false, Ordering::SeqCst) => {
-                            HttpResponse::InternalServerError().finish()
-                        }
+                        "7" => HttpResponse::InternalServerError().finish(),
                         _ => HttpResponse::Ok().json(serde_json::json!({"roles":[]})),
                     }
                 }
@@ -211,21 +206,24 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 4); // 2予定でも所属確認は利用者ごとに1回。
-    let targets: Vec<String>=sqlx::query_scalar("SELECT s.user_id FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id ORDER BY s.user_id").fetch_all(&pool).await.unwrap();
-    assert_eq!(targets, vec!["all", "all", "created", "created"]);
-    let expanded: bool = sqlx::query_scalar("SELECT bool_or(expanded) FROM push_outbox")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert!(!expanded);
-    expand(&single_pool, &discord).await.unwrap();
-    expand(&single_pool, &discord).await.unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 5); // 一時エラーだけ再照会する。
+    assert_eq!(calls.load(Ordering::SeqCst), 4); // 100予定でも所属確認は利用者ごとに1回。
     let targets: Vec<String>=sqlx::query_scalar("SELECT s.user_id FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id ORDER BY s.user_id").fetch_all(&pool).await.unwrap();
     assert_eq!(
         targets,
-        vec!["all", "all", "created", "created", "retry", "retry"]
+        [vec!["all"; 100], vec!["created"; 100], vec!["retry"; 100]].concat()
+    );
+    let expanded: i64 = sqlx::query_scalar("SELECT count(*) FROM push_outbox WHERE expanded")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(expanded, 100);
+    expand(&single_pool, &discord).await.unwrap();
+    expand(&single_pool, &discord).await.unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 5); // 継続的な一時エラーでも101件目の展開が進む。
+    let targets: Vec<String>=sqlx::query_scalar("SELECT s.user_id FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id ORDER BY s.user_id").fetch_all(&pool).await.unwrap();
+    assert_eq!(
+        targets,
+        [vec!["all"; 101], vec!["created"; 101], vec!["retry"; 101]].concat()
     );
     let expanded: bool = sqlx::query_scalar("SELECT bool_and(expanded) FROM push_outbox")
         .fetch_one(&pool)
@@ -240,7 +238,7 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(count, 4);
+    assert_eq!(count, 202);
     sqlx::query("DELETE FROM events")
         .execute(&pool)
         .await
