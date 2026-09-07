@@ -592,7 +592,7 @@ mod tests {
     ) {
         sqlx::raw_sql("INSERT INTO guilds (guild_id, name) VALUES ('111', 'テスト'); INSERT INTO event_settings (guild_id, channel_id) VALUES ('111', '222'); INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device_name) VALUES ('user', 'https://fcm.googleapis.com/test', 'test', 'test', '端末'); ALTER TABLE push_outbox RENAME TO unavailable_push_outbox")
             .execute(&pool).await.unwrap();
-        let start = now_jst();
+        let start = dt("2026-09-07T10:00:00");
         let event = events::create(
             &pool,
             &events::NewEvent {
