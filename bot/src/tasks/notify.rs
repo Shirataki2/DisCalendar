@@ -156,6 +156,16 @@ async fn run_once(
     sent_in_window: &mut HashSet<(i32, NaiveDateTime)>,
     failure_counts: &mut HashMap<(i32, NaiveDateTime), u32>,
 ) -> bool {
+    // 配信を停止した環境でも通知待ちが残り続けないよう、Bot 側でも古い記録を掃除する。
+    if let Err(error) = sqlx::query!(
+        "DELETE FROM push_outbox WHERE fire_at < $1",
+        now - Duration::days(1)
+    )
+    .execute(&data.pool)
+    .await
+    {
+        tracing::warn!(error = %error, "failed to clean up old push outbox");
+    }
     // 開始時刻通知 (0分前) の発火時刻は start そのものなので、start >= last_checked の予定を
     // 取得すれば、事前通知 (start は未来) と開始時刻通知 (start は前回チェック以降) の両方を拾える
     let events = match events::list_all_future(&data.pool, last_checked).await {
@@ -224,15 +234,6 @@ async fn notify_for_event(
         return true;
     }
 
-    let setting = match event_settings::get(&data.pool, &event.guild_id).await {
-        Ok(Some(setting)) => setting,
-        Ok(None) => return true,
-        Err(e) => {
-            tracing::error!(error = %e, guild_id = event.guild_id, "failed to fetch notification channel");
-            // 一時的な DB エラーの可能性があるので、次の tick で同じ判定窓のまま再試行できるよう false を返す
-            return false;
-        }
-    };
     // 開始時刻に通知しないギルド (#181) では、自動で足した 0 分前を候補から外す。
     // 通知先と同じタイミングで引く (候補がある予定だけ、tick ごとに 1 回)
     let config = match guild_config::get(&data.pool, &event.guild_id).await {
@@ -250,6 +251,26 @@ async fn notify_for_event(
     if due.is_empty() {
         return true;
     }
+    // Discord のチャンネル未設定・送信失敗とは独立に、同じ発火判定を API へ渡す。
+    // UNIQUE(event_id, fire_at) により再試行・Bot 再起動でも同じ通知待ちは増えない。
+    for (_, fire) in &due {
+        if let Err(error) = sqlx::query!(
+            "INSERT INTO push_outbox (event_id, fire_at, start_at) SELECT id, $2, $3 FROM events WHERE id = $1 AND EXISTS (SELECT 1 FROM push_subscriptions WHERE NOT disabled) ON CONFLICT (event_id, fire_at) DO NOTHING",
+            event.id, *fire, start
+        ).execute(&data.pool).await {
+            tracing::error!(event_id = event.id, error = %error, "failed to enqueue push notification");
+            return false;
+        }
+    }
+    let setting = match event_settings::get(&data.pool, &event.guild_id).await {
+        Ok(Some(setting)) => setting,
+        Ok(None) => return true,
+        Err(e) => {
+            tracing::error!(error = %e, guild_id = event.guild_id, "failed to fetch notification channel");
+            // 一時的な DB エラーの可能性があるので、次の tick で同じ判定窓のまま再試行できるよう false を返す
+            return false;
+        }
+    };
     // event_settings.channel_id は制約のない TEXT なので、旧データや手動修正で "0" が
     // 入っている可能性がある。ChannelId::new(0) は panic するので、u64 ではなく
     // NonZeroU64 としてパースし、0 も不正値として弾く

@@ -161,3 +161,8 @@ src/
 tests/              DB テスト (#[sqlx::test])
 assets/             icon_updater が使う日付入りアイコン画像 (01.png 〜 31.png、土曜は _b、日曜・祝日は _r)
 ```
+
+### プッシュ通知の発火 (#176)
+
+`notify` は Discord 送信と同じ判定結果を `push_outbox` に重複しないよう記録する。Discord のチャンネル未設定や送信失敗とは独立し、購読端末がある場合に記録する。
+API が通知範囲と現在の所属を確認して配信するため、Bot は Better Auth のテーブルや VAPID 秘密鍵を扱わない。構成・設定はルート README「端末へのプッシュ通知」を参照。

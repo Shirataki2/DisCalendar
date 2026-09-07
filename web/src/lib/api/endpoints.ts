@@ -21,6 +21,9 @@ import type {
   MemberProfile,
   MyPermissions,
   OpsResult,
+  PushScope,
+  PushSettings,
+  PushSubscriptionInput,
   ShareLink,
   SqlHistoryEntry,
   SqlResult,
@@ -65,6 +68,28 @@ export type EventsClient = ReturnType<typeof createEventsClient>;
  */
 export function createApi(request: ApiFetcher) {
   return {
+    push: {
+      get: () => request<PushSettings>("/users/@me/push-subscriptions"),
+      subscribe: (input: PushSubscriptionInput) =>
+        request<void>("/users/@me/push-subscriptions", {
+          method: "POST",
+          body: input,
+        }),
+      setScope: (scope: PushScope) =>
+        request<void>("/users/@me/push-settings", {
+          method: "PUT",
+          body: { scope },
+        }),
+      remove: (id: number) =>
+        request<void>(`/users/@me/push-subscriptions/${id}`, {
+          method: "DELETE",
+        }),
+      removeCurrent: (endpoint: string) =>
+        request<void>("/users/@me/push-subscriptions", {
+          method: "DELETE",
+          body: { endpoint },
+        }),
+    },
     shares: {
       get: (guildId: string, eventId: number) =>
         request<ShareLink | null>(`/events/${guildId}/${eventId}/share`),

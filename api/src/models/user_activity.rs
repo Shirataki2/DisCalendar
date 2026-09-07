@@ -39,16 +39,30 @@ pub async fn record<'e>(
 /// 外部キーが無い間に `"user"` の行が消されて残った記録 (孤児) があると ADD CONSTRAINT が
 /// 検証で失敗するので、同じトランザクションで先に消してから張る (削除方針の遅れた実施)
 pub async fn ensure_user_fk(conn: &mut PgConnection) -> sqlx::Result<()> {
+    for (table, constraint) in [
+        ("user_daily_activity", "user_daily_activity_user_id_fkey"),
+        ("user_push_settings", "user_push_settings_user_id_fkey"),
+        ("push_subscriptions", "push_subscriptions_user_id_fkey"),
+    ] {
+        ensure_fk(conn, table, constraint).await?;
+    }
+    Ok(())
+}
+
+// 識別子は上の定数だけから渡す。利用者入力は受け取らない。
+async fn ensure_fk(conn: &mut PgConnection, table: &str, constraint: &str) -> sqlx::Result<()> {
     let missing: bool = sqlx::query_scalar(
         r#"
         SELECT to_regclass('public."user"') IS NOT NULL
            AND NOT EXISTS (
                SELECT 1 FROM pg_constraint
-               WHERE conname = 'user_daily_activity_user_id_fkey'
-                 AND conrelid = 'public.user_daily_activity'::regclass
+               WHERE conname = $1
+                 AND conrelid = to_regclass($2)
            )
         "#,
     )
+    .bind(constraint)
+    .bind(format!("public.{table}"))
     .fetch_one(&mut *conn)
     .await?;
     if !missing {
@@ -56,25 +70,16 @@ pub async fn ensure_user_fk(conn: &mut PgConnection) -> sqlx::Result<()> {
     }
 
     let mut tx = conn.begin().await?;
-    let orphans = sqlx::query(
-        r#"
-        DELETE FROM user_daily_activity uda
-        WHERE NOT EXISTS (SELECT 1 FROM "user" u WHERE u.id = uda.user_id)
-        "#,
-    )
+    let orphans = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DELETE FROM {table} t WHERE NOT EXISTS (SELECT 1 FROM \"user\" u WHERE u.id = t.user_id)"
+    )))
     .execute(&mut *tx)
     .await?
     .rows_affected();
-    sqlx::query(
-        r#"
-        ALTER TABLE user_daily_activity
-            ADD CONSTRAINT user_daily_activity_user_id_fkey
-            FOREIGN KEY (user_id) REFERENCES "user" (id) ON DELETE CASCADE
-        "#,
-    )
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "ALTER TABLE {table} ADD CONSTRAINT {constraint} FOREIGN KEY (user_id) REFERENCES \"user\" (id) ON DELETE CASCADE"
+    ))).execute(&mut *tx).await?;
     tx.commit().await?;
-    tracing::info!(orphans, "added the missing user_daily_activity foreign key");
+    tracing::info!(orphans, table, "added a missing user foreign key");
     Ok(())
 }

@@ -93,6 +93,7 @@ jobs:
           SITE: ${{ matrix.site }}
           SITE_URL: ${{ vars.STAGING_SITE_URL || 'https://staging.discalendar.app' }}
           # Repository variables (未設定なら Sentry は無効のままビルドされる)。DSN は秘密情報ではない
+          VAPID_PUBLIC_KEY: ${{ matrix.site && vars.STAGING_VAPID_PUBLIC_KEY || vars.VAPID_PUBLIC_KEY }}
           WEB_SENTRY_DSN: ${{ vars.WEB_SENTRY_DSN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT_WEB: ${{ vars.SENTRY_PROJECT_WEB }}
@@ -110,6 +111,7 @@ jobs:
                 if [ -n "$SITE" ]; then
                   echo "NEXT_PUBLIC_SITE_URL=$SITE_URL"
                 fi
+                echo "NEXT_PUBLIC_VAPID_PUBLIC_KEY=$VAPID_PUBLIC_KEY"
                 echo "NEXT_PUBLIC_SENTRY_DSN=$WEB_SENTRY_DSN"
                 # ソースマップのアップロード先 (secret SENTRY_AUTH_TOKEN があるときだけ使われる)
                 echo "SENTRY_ORG=$SENTRY_ORG"

@@ -10,6 +10,7 @@ import {
   OpenKeyboardShortcutsContext,
 } from "@/components/keyboard-shortcuts-dialog";
 import { Logo } from "@/components/logo";
+import { PushSettingsDialog } from "@/components/push-settings-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -50,6 +51,7 @@ export function DashboardShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
   // カレンダーの表示設定 (#96)。ダイアログはここに置く (ドロワー (Sheet) の中に置くと、
   // 項目を押してドロワーが閉じたときに一緒にアンマウントされて開けない)
+  const [pushSettingsOpen, setPushSettingsOpen] = useState(false);
   const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
   // キーボードショートカットの一覧 (#160) も同じ理由でここに置き、アカウントメニューと
   // カレンダーの "?" キーには context で「開く」だけを渡す
@@ -117,6 +119,7 @@ export function DashboardShell({
             <DashboardNav
               admin={admin}
               onOpenCalendarSettings={() => setCalendarSettingsOpen(true)}
+              onOpenPushSettings={() => setPushSettingsOpen(true)}
             />
           </div>
         </aside>
@@ -136,10 +139,15 @@ export function DashboardShell({
             admin={admin}
             onNavigate={() => setDrawerOpen(false)}
             onOpenCalendarSettings={() => setCalendarSettingsOpen(true)}
+            onOpenPushSettings={() => setPushSettingsOpen(true)}
             className="overflow-y-auto"
           />
         </SheetContent>
       </Sheet>
+      <PushSettingsDialog
+        open={pushSettingsOpen}
+        onOpenChange={setPushSettingsOpen}
+      />
       <CalendarSettingsDialog
         open={calendarSettingsOpen}
         onOpenChange={setCalendarSettingsOpen}

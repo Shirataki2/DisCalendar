@@ -589,6 +589,18 @@ impl DiscordClient {
         }
     }
 
+    /// プッシュ送信直前の所属確認。退出後の通知を防ぐためキャッシュを使わない。
+    pub async fn is_current_member(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<bool, DiscordError> {
+        Ok(matches!(
+            self.fetch_member(guild_id, user_id).await?,
+            MemberLookup::Present(_)
+        ))
+    }
+
     async fn member(&self, guild_id: &str, user_id: &str) -> Result<MemberLookup, DiscordError> {
         let key = (checked_id(guild_id)?, checked_id(user_id)?);
         // 同じ人のプロフィール表示と認可が重なっても外部呼び出しをまとめる。

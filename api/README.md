@@ -154,3 +154,10 @@ migrations/         スキーマ (適用済みのファイルは変更禁止、�
 既存データは NULL のまま残します。表示名は詳細を開いたときに専用エンドポイントで取得し、
 ニックネーム → グローバル表示名 → ユーザー名、アバターはサーバー別 → 全体の順に使います。
 共有ページのレスポンスと iCal には操作者の情報を含めません。
+
+### 個人のプッシュ通知 (#176)
+
+`GET /users/@me/push-subscriptions` は通知範囲と本人の端末一覧 (URL・暗号鍵を除く) を返す。
+`POST` は `{endpoint,p256dh,auth,device_name}` で登録 (最大10台)。`DELETE /users/@me/push-subscriptions/{id}` で本人の端末を解除し、同パス末尾の ID を省いた `DELETE` は `{endpoint}` でログアウトする端末を解除する。
+`PUT /users/@me/push-settings` は `{scope: "all" | "created" | "off"}` を保存する。すべて Better Auth のセッションが必要。
+配信構成・VAPID・運用・実機確認はルート README「端末へのプッシュ通知」を参照。

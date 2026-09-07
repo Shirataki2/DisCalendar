@@ -613,3 +613,23 @@ export interface MemberProfile {
   display_name: string | null;
   avatar_url: string | null;
 }
+
+export type PushScope = "all" | "created" | "off";
+export interface PushDevice {
+  id: number;
+  device_name: string;
+  created_at: string;
+  last_sent_at: string | null;
+  failure_count: number;
+  disabled: boolean;
+}
+export interface PushSettings {
+  scope: PushScope;
+  subscriptions: PushDevice[];
+}
+export interface PushSubscriptionInput {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  device_name: string;
+}

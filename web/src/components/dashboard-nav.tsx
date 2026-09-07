@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BellIcon,
   BookOpenIcon,
   CalendarCogIcon,
   CalendarDaysIcon,
@@ -111,6 +112,7 @@ interface Props {
    * (ここに置くと、スマホのドロワー (Sheet) が閉じたときに一緒にアンマウントされて開けない)
    */
   onOpenCalendarSettings: () => void;
+  onOpenPushSettings: () => void;
   className?: string;
 }
 
@@ -122,6 +124,7 @@ export function DashboardNav({
   admin,
   onNavigate,
   onOpenCalendarSettings,
+  onOpenPushSettings,
   className,
 }: Props) {
   const pathname = usePathname();
@@ -178,6 +181,19 @@ export function DashboardNav({
           >
             <CalendarCogIcon className="size-5 shrink-0" aria-hidden />
             <span className="flex-1 text-left">カレンダーの表示設定</span>
+          </button>
+        </li>
+        <li>
+          <button
+            type="button"
+            className={itemClass}
+            onClick={() => {
+              onOpenPushSettings();
+              onNavigate?.();
+            }}
+          >
+            <BellIcon className="size-5 shrink-0" aria-hidden />
+            <span>プッシュ通知</span>
           </button>
         </li>
         <li>

@@ -1,3 +1,4 @@
+import { createECDH } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
 import {
   API_PORT,
@@ -21,6 +22,9 @@ import { E2E_BOT_TOKEN } from "./e2e/fixtures";
 // その後 e2e/global-setup.ts が Discord API のモックを起動し、DB を初期化してログイン済みの storageState を書く。
 // web / api の Discord API の向き先 (DISCORD_API_BASE_URL) はそのモック。テストは Discord にもネットワークにも出ない
 
+// 購読 UI 用の公開鍵だけを生成する。実機へ送信する秘密鍵はテストに渡さない。
+const pushKey = createECDH("prime256v1");
+const pushPublicKey = pushKey.generateKeys().toString("base64url");
 const CI = !!process.env.CI;
 /**
  * LP / 使い方のスクリーンショット撮影 (pnpm shot)。
@@ -102,6 +106,8 @@ export default defineConfig({
         PORT: String(API_PORT),
         DISCORD_BOT_TOKEN: E2E_BOT_TOKEN,
         ADMIN_DISCORD_USER_IDS: "",
+        VAPID_PRIVATE_KEY: "",
+        VAPID_SUBJECT: "",
         // query! のコンパイル時チェックは .sqlx/ のキャッシュを使う (空の E2E 用 DB に繋がせない)
         SQLX_OFFLINE: "true",
         // 起動ログと想定外のエラーだけ出す (テストが意図的に出す 401 / 403 も WARN で出る)
@@ -130,6 +136,7 @@ export default defineConfig({
         NEXT_TELEMETRY_DISABLED: "1",
         // next dev で出る TanStack Query devtools のボタンがモバイル相当のテストでタップを遮るので消す
         NEXT_PUBLIC_E2E: "1",
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: pushPublicKey,
       },
     },
   ],

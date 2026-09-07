@@ -16,6 +16,7 @@ pub mod ical;
 pub mod logging;
 pub mod models;
 pub mod openapi;
+pub mod push;
 pub mod routes;
 pub mod state;
 
@@ -78,6 +79,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         );
     }
 
+    if let Some(push) = config.push {
+        tokio::spawn(crate::push::run(state.clone(), push));
+    }
     let addr = (config.host.as_str(), config.port);
     tracing::info!(host = %config.host, port = config.port, "starting DisCalendar API");
 

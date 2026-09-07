@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BellIcon,
   CalendarCogIcon,
   CalendarDaysIcon,
   ChevronDownIcon,
@@ -12,6 +13,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { CalendarSettingsDialog } from "@/components/calendar-settings-dialog";
 import { useOpenKeyboardShortcuts } from "@/components/keyboard-shortcuts-dialog";
+import { PushSettingsDialog } from "@/components/push-settings-dialog";
 import { ThemeToggleContent, useThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,6 +41,7 @@ export function UserMenu({ name, image }: Props) {
   const signOut = useSignOut();
   const toggleTheme = useThemeToggle();
   // ダイアログはメニューが閉じても残るよう、メニューの外に置いて開閉だけここで持つ
+  const [pushSettingsOpen, setPushSettingsOpen] = useState(false);
   const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
   // ショートカット一覧 (#160) のダイアログは DashboardShell が持つ (context 経由で開く)
   const openKeyboardShortcuts = useOpenKeyboardShortcuts();
@@ -92,6 +95,10 @@ export function UserMenu({ name, image }: Props) {
             <CalendarCogIcon aria-hidden />
             カレンダーの表示設定
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setPushSettingsOpen(true)}>
+            <BellIcon aria-hidden />
+            プッシュ通知
+          </DropdownMenuItem>
           {/* キーボードが無いスマートフォン幅では出さない */}
           {openKeyboardShortcuts && (
             <DropdownMenuItem
@@ -112,6 +119,10 @@ export function UserMenu({ name, image }: Props) {
         </DropdownMenuContent>
       </DropdownMenu>
       {/* メニューを閉じてもダイアログが残るよう、メニューの外に置く */}
+      <PushSettingsDialog
+        open={pushSettingsOpen}
+        onOpenChange={setPushSettingsOpen}
+      />
       <CalendarSettingsDialog
         open={calendarSettingsOpen}
         onOpenChange={setCalendarSettingsOpen}
