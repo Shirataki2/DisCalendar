@@ -183,7 +183,7 @@ async fn deliver_one(
           AND (p.scope = 'all' OR (p.scope = 'created' AND e.created_by = a."accountId"))
           AND o.fire_at >= $1 - interval '1 hour'
         ORDER BY d.next_attempt_at, d.outbox_id, d.subscription_id LIMIT 1
-        FOR UPDATE OF d, s, p SKIP LOCKED
+        FOR UPDATE OF d SKIP LOCKED
     "#,
     )
     .bind(now_jst())
@@ -530,6 +530,12 @@ mod tests {
             .timeout(Duration::from_secs(1))
             .build()
             .unwrap();
+        // 設定行を別接続がロックしていても、配信の取得を直列化しない。
+        let mut locked_settings = pool.begin().await.unwrap();
+        sqlx::query("SELECT user_id FROM user_push_settings FOR UPDATE")
+            .execute(&mut *locked_settings)
+            .await
+            .unwrap();
         let responsiveness = async {
             requested.notified().await;
             tokio::time::timeout(
@@ -542,7 +548,12 @@ mod tests {
             assert!(!deliver_one(&state, &config, &client).await.unwrap());
             release.notify_one();
         };
-        let (delivered, _) = tokio::join!(deliver_one(&state, &config, &client), responsiveness);
+        let (delivered, _) = tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::join!(deliver_one(&state, &config, &client), responsiveness)
+        })
+        .await
+        .expect("設定行のロックで配信の取得を妨げない");
+        locked_settings.rollback().await.unwrap();
         assert!(delivered.unwrap());
         let (done,failures):(bool,i32)=sqlx::query_as("SELECT d.done,s.failure_count FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id").fetch_one(&pool).await.unwrap();
         assert!(done);
