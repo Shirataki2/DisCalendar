@@ -57,7 +57,10 @@ async fn owns_devices_and_serializes_the_ten_device_limit(pool: PgPool) {
         push::subscribe(&pool, "u1", &b)
     );
     assert_ne!(a.is_ok(), b.is_ok());
-    assert!(push::subscribe(&pool, "u2", &input(0)).await.is_err());
+    assert!(matches!(
+        push::subscribe(&pool, "u2", &input(0)).await,
+        Err(discalendar_api::error::ApiError::Conflict(_))
+    ));
     let settings = push::get(&pool, "u1").await.unwrap();
     assert_eq!(settings.scope, "created");
     assert_eq!(settings.subscriptions.len(), 10);
@@ -89,7 +92,8 @@ async fn owns_devices_and_serializes_the_ten_device_limit(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn fk_is_added_after_better_auth_and_cascades_deletion(pool: PgPool) {
     let mut conn = pool.acquire().await.unwrap();
-    user_activity::ensure_user_fk(&mut conn).await.unwrap();
+    assert!(!user_activity::ensure_user_fk(&mut conn).await.unwrap());
+    let complete = tokio::spawn(user_activity::complete_user_fks(pool.clone()));
     push::subscribe(&pool, "ghost", &input(0)).await.unwrap();
     push::set_scope(&pool, "ghost", &PushScope::All)
         .await
@@ -100,8 +104,11 @@ async fn fk_is_added_after_better_auth_and_cascades_deletion(pool: PgPool) {
     .execute(&pool)
     .await
     .unwrap();
-    user_activity::ensure_user_fk(&mut conn).await.unwrap();
-    user_activity::ensure_user_fk(&mut conn).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), complete)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(user_activity::ensure_user_fk(&mut conn).await.unwrap());
     assert!(
         push::get(&pool, "ghost")
             .await

@@ -46,6 +46,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .context("failed to connect to database")?;
 
     run_startup_migrations(&pool).await?;
+    tokio::spawn(models::user_activity::complete_user_fks(pool.clone()));
     let sql_console_pool = setup_sql_console(&pool, &config).await?;
 
     let state = web::Data::new(AppState {
@@ -198,7 +199,8 @@ async fn run_startup_migrations(pool: &sqlx::PgPool) -> anyhow::Result<()> {
         // では migration 内の DO ブロックが張れないため、起動のたびに確かめて張り直す
         models::user_activity::ensure_user_fk(&mut conn)
             .await
-            .context("failed to ensure the user_daily_activity foreign key")
+            .map(|_| ())
+            .context("failed to ensure user foreign keys")
     }
     .await;
 

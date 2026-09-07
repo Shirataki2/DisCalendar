@@ -121,7 +121,7 @@ pub async fn subscribe(
             .fetch_optional(&mut *tx)
             .await?;
     if owner.as_deref().is_some_and(|owner| owner != user) {
-        return Err(ApiError::BadRequest(
+        return Err(ApiError::Conflict(
             "この端末の購読を解除してから登録し直してください".into(),
         ));
     }
@@ -138,7 +138,7 @@ pub async fn subscribe(
     let saved = sqlx::query("INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device_name) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth, device_name = EXCLUDED.device_name, failure_count = 0, disabled = false WHERE push_subscriptions.user_id = EXCLUDED.user_id")
         .bind(user).bind(&input.endpoint).bind(&input.p256dh).bind(&input.auth).bind(input.device_name.trim()).execute(&mut *tx).await?;
     if saved.rows_affected() == 0 {
-        return Err(ApiError::BadRequest(
+        return Err(ApiError::Conflict(
             "この端末の購読を解除してから登録し直してください".into(),
         ));
     }

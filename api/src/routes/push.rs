@@ -17,7 +17,7 @@ pub async fn list(
 ) -> Result<web::Json<PushSettings>, ApiError> {
     Ok(web::Json(push::get(&state.pool, &user.id).await?))
 }
-#[utoipa::path(tag = "push", request_body = SubscriptionInput, responses((status = 204), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody)))]
+#[utoipa::path(tag = "push", request_body = SubscriptionInput, responses((status = 204), (status = 400, body = ErrorBody), (status = 409, body = ErrorBody), (status = 401, body = ErrorBody)))]
 #[post("/users/@me/push-subscriptions")]
 pub async fn subscribe(
     user: AuthUser,

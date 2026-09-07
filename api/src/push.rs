@@ -221,7 +221,7 @@ async fn deliver_one(
         _ => {
             if matches!(outcome, Outcome::Sent) {
                 sqlx::query("UPDATE push_subscriptions SET last_sent_at = now(), failure_count = 0 WHERE id = $1").bind(row.subscription_id).execute(&mut *tx).await?;
-            } else if matches!(outcome, Outcome::Failed) {
+            } else if matches!(outcome, Outcome::Failed) && row.attempts + 1 >= 5 {
                 sqlx::query("UPDATE push_subscriptions SET failure_count = failure_count + 1, disabled = failure_count + 1 >= 5 WHERE id = $1").bind(row.subscription_id).execute(&mut *tx).await?;
             }
             let done = matches!(outcome, Outcome::Sent | Outcome::Skip) || row.attempts + 1 >= 5;
@@ -389,7 +389,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn rechecks_membership_and_stops_after_five_delivery_failures(pool: PgPool) {
+    async fn rechecks_membership_and_disables_only_after_five_exhausted_deliveries(pool: PgPool) {
         let present = Arc::new(AtomicBool::new(false));
         let server_present = present.clone();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -471,11 +471,28 @@ mod tests {
         assert!(done);
         assert_eq!(failures, 0);
         present.store(true, Ordering::SeqCst);
-        sqlx::query("UPDATE push_deliveries SET done=false,attempts=0")
+        sqlx::query("UPDATE push_deliveries SET done=false,attempts=0,next_attempt_at=now()")
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::raw_sql(r#"
+            INSERT INTO events (guild_id,name,color,is_all_day,start_at,end_at,created_by)
+                SELECT '111','予定','#5865F2',false,now() AT TIME ZONE 'Asia/Tokyo',now() AT TIME ZONE 'Asia/Tokyo','222' FROM generate_series(1,4);
+            INSERT INTO push_outbox (event_id,fire_at,start_at) SELECT id,start_at,start_at FROM events ON CONFLICT DO NOTHING;
+        "#).execute(&pool).await.unwrap();
+        expand(&pool).await.unwrap();
+        // 各通知の初回失敗が同じ tick に重なっても端末を停止しない。
         for _ in 0..5 {
+            assert!(deliver_one(&state, &config, &client).await.unwrap());
+        }
+        let (disabled, failures): (bool, i32) =
+            sqlx::query_as("SELECT disabled,failure_count FROM push_subscriptions")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!disabled);
+        assert_eq!(failures, 0);
+        for _ in 0..20 {
             sqlx::query("UPDATE push_deliveries SET next_attempt_at=now() - interval '1 second'")
                 .execute(&pool)
                 .await

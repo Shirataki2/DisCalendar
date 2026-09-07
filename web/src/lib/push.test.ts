@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { ApiError, api } from "@/lib/api";
-import { unsubscribeCurrentDevice } from "./push";
+import { subscribeDevice, unsubscribeCurrentDevice } from "./push";
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
-  api: { push: { removeCurrent: vi.fn() } },
+  api: { push: { removeCurrent: vi.fn(), subscribe: vi.fn() } },
 }));
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -75,4 +75,52 @@ it("API の解除が失敗しても endpoint を失わず次回に再試行す�
   await unsubscribeCurrentDevice();
   expect(api.push.removeCurrent).toHaveBeenCalledTimes(2);
   expect(subscription.unsubscribe).toHaveBeenCalledOnce();
+});
+
+it("別アカウントの購読が残っていても再登録の操作で復旧する", async () => {
+  const old = {
+    endpoint: "https://fcm.googleapis.com/old",
+    options: {},
+    unsubscribe: vi.fn().mockResolvedValue(true),
+    toJSON: () => ({
+      endpoint: "https://fcm.googleapis.com/old",
+      keys: { p256dh: "key", auth: "auth" },
+    }),
+  };
+  const fresh = {
+    unsubscribe: vi.fn(),
+    toJSON: () => ({
+      endpoint: "https://fcm.googleapis.com/new",
+      keys: { p256dh: "key", auth: "auth" },
+    }),
+  };
+  const subscribe = vi.fn().mockResolvedValue(fresh);
+  vi.stubGlobal("Notification", {
+    requestPermission: vi.fn().mockResolvedValue("granted"),
+  });
+  vi.stubGlobal("navigator", {
+    serviceWorker: {
+      getRegistration: async () => ({
+        active: {},
+        pushManager: {
+          getSubscription: async () =>
+            old.unsubscribe.mock.calls.length ? null : old,
+          subscribe,
+        },
+      }),
+    },
+  });
+  vi.mocked(api.push.subscribe)
+    .mockRejectedValueOnce(new ApiError(409, "conflict", "owner"))
+    .mockResolvedValueOnce(undefined);
+  await expect(subscribeDevice("端末")).rejects.toThrow(
+    "以前のアカウントの購読を解除しました",
+  );
+  expect(old.unsubscribe).toHaveBeenCalledOnce();
+  await subscribeDevice("端末");
+  expect(subscribe).toHaveBeenCalledOnce();
+  expect(api.push.subscribe).toHaveBeenLastCalledWith(
+    expect.objectContaining({ endpoint: "https://fcm.googleapis.com/new" }),
+  );
+  expect(fresh.unsubscribe).not.toHaveBeenCalled();
 });
