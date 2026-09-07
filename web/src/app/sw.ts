@@ -1,11 +1,13 @@
 /// <reference lib="esnext" />
 /// <reference lib="webworker" />
+
 import type {
   PrecacheEntry,
   RuntimeCaching,
   SerwistGlobalConfig,
 } from "serwist";
 import { CacheFirst, ExpirationPlugin, Serwist } from "serwist";
+import { openPush, showPush } from "@/lib/push-worker";
 
 // Service Worker の本体 (旧実装の @nuxtjs/pwa の workbox 設定に相当)。
 // app/serwist/[path]/route.ts (createSerwistRoute) が esbuild でこのファイルを束ね、/serwist/sw.js として配信する。
@@ -59,3 +61,10 @@ const serwist = new Serwist({
 });
 
 serwist.addEventListeners();
+
+self.addEventListener("push", (event) =>
+  event.waitUntil(showPush(self, event.data)),
+);
+self.addEventListener("notificationclick", (event) =>
+  event.waitUntil(openPush(self, event.notification)),
+);

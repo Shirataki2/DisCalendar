@@ -16,6 +16,7 @@ pub mod ical;
 pub mod logging;
 pub mod models;
 pub mod openapi;
+pub mod push;
 pub mod routes;
 pub mod state;
 
@@ -45,6 +46,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .context("failed to connect to database")?;
 
     run_startup_migrations(&pool).await?;
+    tokio::spawn(models::user_activity::complete_user_fks(pool.clone()));
     let sql_console_pool = setup_sql_console(&pool, &config).await?;
 
     let state = web::Data::new(AppState {
@@ -78,6 +80,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         );
     }
 
+    if let Some(push) = config.push {
+        tokio::spawn(crate::push::run(state.clone(), push));
+    }
     let addr = (config.host.as_str(), config.port);
     tracing::info!(host = %config.host, port = config.port, "starting DisCalendar API");
 
@@ -194,7 +199,8 @@ async fn run_startup_migrations(pool: &sqlx::PgPool) -> anyhow::Result<()> {
         // では migration 内の DO ブロックが張れないため、起動のたびに確かめて張り直す
         models::user_activity::ensure_user_fk(&mut conn)
             .await
-            .context("failed to ensure the user_daily_activity foreign key")
+            .map(|_| ())
+            .context("failed to ensure user foreign keys")
     }
     .await;
 

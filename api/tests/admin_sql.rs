@@ -343,6 +343,8 @@ async fn protected_tables_are_rejected_before_execution(pool: PgPool) {
         "SELECT * FROM events e LEFT JOIN session s ON true",
         "SELECT e.id FROM events e WHERE EXISTS (SELECT 1 FROM session)",
         "TABLE account",
+        "SELECT endpoint, p256dh, auth FROM push_subscriptions",
+        "SELECT table_to_xml('push_subscriptions', true, false, '')",
         "SELECT count(*) FROM verification",
         r#"SELECT * FROM U&"s\0065ssion""#,
         "SELECT 1 UNION ALL SELECT 1 FROM account",

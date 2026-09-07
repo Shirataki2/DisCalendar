@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO push_outbox (event_id, fire_at, start_at) SELECT id, $2, $3 FROM events WHERE id = $1 AND EXISTS (SELECT 1 FROM push_subscriptions WHERE NOT disabled) ON CONFLICT (event_id, fire_at) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5d2193eb3fdc8e7f7eae7d7decc3beea242c25eb8c56548860cafae0233270c6"
+}

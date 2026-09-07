@@ -3,6 +3,7 @@ use anyhow::{Context as _, Result};
 /// 環境変数から読む設定。開発時は `api/.env` (dotenvy) から読み込まれる
 #[derive(Debug, Clone)]
 pub struct Config {
+    pub push: Option<crate::push::PushConfig>,
     pub host: String,
     pub port: u16,
     pub database_url: String,
@@ -32,6 +33,7 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self> {
         Ok(Self {
+            push: crate::push::PushConfig::from_env()?,
             host: env_or("HOST", "0.0.0.0"),
             port: env_or("PORT", "8080")
                 .parse()

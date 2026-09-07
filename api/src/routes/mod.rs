@@ -14,6 +14,7 @@ mod guilds;
 mod health;
 mod member;
 mod members;
+mod push;
 mod shares;
 
 pub use member::GuildMember;
@@ -22,6 +23,11 @@ use utoipa_actix_web::{scope, service_config::ServiceConfig};
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(health::index)
         .service(health::healthz)
+        .service(push::list)
+        .service(push::subscribe)
+        .service(push::settings)
+        .service(push::remove)
+        .service(push::remove_current)
         .service(
             scope("/guilds")
                 // `/joined` は `/{guild_id}` より先に登録しないと guild_id として解釈される

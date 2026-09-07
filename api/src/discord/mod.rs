@@ -180,6 +180,7 @@ pub struct DiscordClient {
     guilds: Cache<String, Option<Arc<GuildSnapshot>>>,
     /// (guild_id, user_id) → メンバー情報。退出済みとアクセス不可も区別してキャッシュする。
     members: Cache<(String, String), MemberLookup>,
+    push_members: Cache<(String, String), Option<bool>>,
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
     /// guild_id → 通知先に選べるチャンネルと Bot の投稿可否 (#181)
@@ -314,6 +315,10 @@ impl DiscordClient {
             guilds: Cache::builder()
                 .max_capacity(10_000)
                 .time_to_live(GUILD_TTL)
+                .build(),
+            push_members: Cache::builder()
+                .max_capacity(10_000)
+                .time_to_live(MEMBER_TTL)
                 .build(),
             members: Cache::builder()
                 .max_capacity(100_000)
@@ -587,6 +592,28 @@ impl DiscordClient {
             }) => Ok(MemberLookup::Inaccessible),
             Err(error) => Err(error),
         }
+    }
+
+    /// 配信候補の絞り込み用。所属不明 (None) も60秒保持して障害時の再照会を集約する。
+    pub async fn push_membership(&self, guild_id: &str, user_id: &str) -> Option<bool> {
+        let key = (checked_id(guild_id).ok()?, checked_id(user_id).ok()?);
+        self.push_members
+            .get_with(key, async {
+                self.is_current_member(guild_id, user_id).await.ok()
+            })
+            .await
+    }
+
+    /// プッシュ送信直前の所属確認。退出後の通知を防ぐためキャッシュを使わない。
+    pub async fn is_current_member(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<bool, DiscordError> {
+        Ok(matches!(
+            self.fetch_member(guild_id, user_id).await?,
+            MemberLookup::Present(_)
+        ))
     }
 
     async fn member(&self, guild_id: &str, user_id: &str) -> Result<MemberLookup, DiscordError> {

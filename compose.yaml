@@ -58,6 +58,8 @@ services:
       DATABASE_MAX_CONNECTIONS: ${API_DATABASE_MAX_CONNECTIONS:-5}
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:?set DISCORD_BOT_TOKEN in .env}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       AUTH_COOKIE_PREFIX: better-auth
       # Discord スケジュールイベントの「場所」に入れるリンクの起点 (#94)。
       # staging では web と同じく staging のドメインにする
@@ -95,6 +97,7 @@ services:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://discalendar.app}
         # ブラウザ側のエラー監視 (#17)。DSN は next build 時に焼き込まれる。
         # GHCR のイメージはデプロイ CI (deploy-staging.yml) が Repository variable から渡す
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
         NEXT_PUBLIC_SENTRY_DSN: ${WEB_SENTRY_DSN:-}
         # rewrites の宛先。サービス名 api のままなら指定不要
         # API_URL: http://api:8080

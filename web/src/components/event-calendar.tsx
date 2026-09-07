@@ -9,7 +9,7 @@ import Calendar, {
   type EventClickInfo,
 } from "@fullcalendar/react";
 import { PlusIcon } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   calendarBaseOptions,
   datesSetToRange,
@@ -96,6 +96,16 @@ export function EventCalendar({
   const [actionError, setActionError] = useState<string | null>(null);
   // 初期ビュー (#48 / #96) と週の開始曜日は横断カレンダーと共通 (calendar-base.tsx)
   const { initialView, firstDay, scrollTime } = useCalendarBase();
+  const [initialDate, setInitialDate] = useState<string>();
+  useEffect(() => {
+    const date = new URLSearchParams(window.location.search).get("date");
+    if (
+      date &&
+      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      !Number.isNaN(Date.parse(date))
+    )
+      setInitialDate(date);
+  }, []);
 
   const eventsQuery = useEventsQuery(guildId, range, eventsSource);
   const createEvent = useCreateEvent(guildId, eventsSource);
@@ -272,6 +282,7 @@ export function EventCalendar({
             ref={calendarRef}
             {...calendarBaseOptions}
             initialView={initialView}
+            initialDate={initialDate}
             firstDay={firstDay}
             scrollTime={scrollTime}
             events={events}

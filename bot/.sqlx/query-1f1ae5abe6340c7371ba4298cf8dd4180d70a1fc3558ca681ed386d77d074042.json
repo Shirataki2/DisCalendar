@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM push_outbox WHERE fire_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f1ae5abe6340c7371ba4298cf8dd4180d70a1fc3558ca681ed386d77d074042"
+}

@@ -24,7 +24,7 @@ RUN cargo build --release -p discalendar-api
 FROM debian:bookworm-slim
 # curl は compose の healthcheck (GET /healthz) 用
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends ca-certificates curl libssl3 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/discalendar-api /usr/local/bin/discalendar-api
 ENV HOST=0.0.0.0 PORT=8080
