@@ -60,9 +60,10 @@ pub async fn run(state: web::Data<AppState>, config: PushConfig) {
     };
     let mut interval = tokio::time::interval(Duration::from_secs(15));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut expansion_cursor = 0;
     loop {
         interval.tick().await;
-        if let Err(error) = expand(&state.pool, &state.discord).await {
+        if let Err(error) = expand(&state.pool, &state.discord, &mut expansion_cursor).await {
             tracing::warn!(error = %error, "failed to expand push outbox");
             continue;
         }
@@ -87,16 +88,18 @@ async fn deliver_batch(state: &AppState, config: &PushConfig, client: &reqwest::
     .await;
 }
 
-/// 所属確認はサーバー・利用者単位の既存キャッシュでまとめ、非参加者を配信待ちから除く。
-pub async fn expand(pool: &PgPool, discord: &DiscordClient) -> sqlx::Result<()> {
+/// 所属確認はサーバー・利用者単位でまとめ、参加者だけを配信待ちにする。
+pub async fn expand(pool: &PgPool, discord: &DiscordClient, cursor: &mut i64) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM push_outbox WHERE fire_at < $1 - interval '1 day'")
         .bind(now_jst())
         .execute(pool)
         .await?;
     sqlx::query("UPDATE push_outbox SET expanded = true WHERE NOT expanded AND fire_at < $1 - interval '1 hour'")
         .bind(now_jst()).execute(pool).await?;
-    let pending: Vec<(i64, String)> = sqlx::query_as("SELECT o.id, e.guild_id FROM push_outbox o JOIN events e ON e.id=o.event_id WHERE NOT o.expanded ORDER BY o.id LIMIT 100")
-        .fetch_all(pool).await?;
+    let pending: Vec<(i64, String)> = sqlx::query_as("SELECT o.id, e.guild_id FROM push_outbox o JOIN events e ON e.id=o.event_id WHERE NOT o.expanded ORDER BY (o.id > $1) DESC, o.id LIMIT 100")
+        .bind(*cursor).fetch_all(pool).await?;
+    // 未確定の先頭バッチだけを繰り返さず、末尾まで進んだら先頭へ戻る。
+    *cursor = pending.last().map_or(0, |(id, _)| *id);
     let mut guilds: BTreeMap<String, Vec<i64>> = BTreeMap::new();
     for (id, guild) in pending {
         guilds.entry(guild).or_default().push(id);
@@ -121,14 +124,15 @@ pub async fn expand(pool: &PgPool, discord: &DiscordClient) -> sqlx::Result<()> 
         // 外部通信中は DB 接続を保持しない。同じ人の複数端末もキャッシュで集約する。
         let results = stream::iter(candidates.into_iter().map(|(id, user)| {
             let guild = &guild;
-            async move { (id, discord.is_member(guild, &user).await) }
+            async move { (id, discord.push_membership(guild, &user).await) }
         }))
         .buffer_unordered(10)
         .collect::<Vec<_>>()
         .await;
+        let complete = results.iter().all(|(_, result)| result.is_some());
         let recipients: Vec<i32> = results
             .into_iter()
-            .filter_map(|(id, result)| (!matches!(result, Ok(false))).then_some(id))
+            .filter_map(|(id, result)| matches!(result, Some(true)).then_some(id))
             .collect();
         let mut tx = pool.begin().await?;
         sqlx::query(
@@ -150,11 +154,13 @@ pub async fn expand(pool: &PgPool, discord: &DiscordClient) -> sqlx::Result<()> 
         .bind(now_jst())
         .execute(&mut *tx)
         .await?;
-        // 所属不明の宛先は配信側で再確認・再試行する。展開済みにして後続を塞がない。
-        sqlx::query("UPDATE push_outbox SET expanded=true WHERE id=ANY($1)")
-            .bind(&ids)
-            .execute(&mut *tx)
-            .await?;
+        // 所属不明の候補は利用者単位で再照会し、通知ごとの配信行には展開しない。
+        if complete {
+            sqlx::query("UPDATE push_outbox SET expanded=true WHERE id=ANY($1)")
+                .bind(&ids)
+                .execute(&mut *tx)
+                .await?;
+        }
         tx.commit().await?;
     }
     Ok(())
@@ -552,7 +558,8 @@ mod tests {
             .await
             .unwrap();
         let discord = DiscordClient::new("test", &format!("http://{address}")).unwrap();
-        expand(&pool, &discord).await.unwrap();
+        let mut cursor = 0;
+        expand(&pool, &discord, &mut cursor).await.unwrap();
         present.store(false, Ordering::SeqCst);
         blocked.store(true, Ordering::SeqCst);
         let api_pool = sqlx::postgres::PgPoolOptions::new()
@@ -654,7 +661,7 @@ mod tests {
                 SELECT '111','予定','#5865F2',false,now() AT TIME ZONE 'Asia/Tokyo',now() AT TIME ZONE 'Asia/Tokyo','222' FROM generate_series(1,4);
             INSERT INTO push_outbox (event_id,fire_at,start_at) SELECT id,start_at,start_at FROM events ON CONFLICT DO NOTHING;
         "#).execute(&pool).await.unwrap();
-        expand(&pool, &state.discord).await.unwrap();
+        expand(&pool, &state.discord, &mut cursor).await.unwrap();
         // 各通知の初回失敗が同じ tick に重なっても端末を停止しない。
         for _ in 0..5 {
             assert!(deliver_one(&state, &config, &client).await.unwrap());
@@ -703,7 +710,7 @@ mod tests {
             UPDATE push_subscriptions SET disabled=false,failure_count=0;
             INSERT INTO push_outbox (event_id,fire_at,start_at) SELECT id,start_at,start_at FROM events;
         "#).execute(&pool).await.unwrap();
-        expand(&pool, &state.discord).await.unwrap();
+        expand(&pool, &state.discord, &mut cursor).await.unwrap();
         present.store(false, Ordering::SeqCst);
         blocked.store(true, Ordering::SeqCst);
         let later_deliveries_progress = async {

@@ -11,7 +11,7 @@ use discalendar_api::{
 use sqlx::PgPool;
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::Duration;
 
@@ -170,17 +170,21 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
         .await
         .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
+    let unavailable = Arc::new(AtomicBool::new(true));
+    let server_unavailable = unavailable.clone();
     let server_calls = calls.clone();
     let server_pool = single_pool.clone();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = HttpServer::new(move || {
         let calls = server_calls.clone();
+        let unavailable = server_unavailable.clone();
         let pool = server_pool.clone();
         App::new().route(
             "/guilds/111/members/{id}",
             web::get().to(move |id: web::Path<String>| {
                 let calls = calls.clone();
+                let unavailable = unavailable.clone();
                 let pool = pool.clone();
                 async move {
                     // 所属確認中に唯一の接続を占有していないことも確認する。
@@ -188,7 +192,9 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
                     calls.fetch_add(1, Ordering::SeqCst);
                     match id.as_str() {
                         "6" => HttpResponse::NotFound().finish(),
-                        "7" => HttpResponse::InternalServerError().finish(),
+                        "7" if unavailable.load(Ordering::SeqCst) => {
+                            HttpResponse::InternalServerError().finish()
+                        }
                         _ => HttpResponse::Ok().json(serde_json::json!({"roles":[]})),
                     }
                 }
@@ -202,24 +208,34 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
     tokio::spawn(server);
     let discord =
         discalendar_api::discord::DiscordClient::new("test", &format!("http://{address}")).unwrap();
-    tokio::time::timeout(Duration::from_secs(5), expand(&single_pool, &discord))
-        .await
-        .unwrap()
-        .unwrap();
+    let mut cursor = 0;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        expand(&single_pool, &discord, &mut cursor),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 4); // 100予定でも所属確認は利用者ごとに1回。
     let targets: Vec<String>=sqlx::query_scalar("SELECT s.user_id FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id ORDER BY s.user_id").fetch_all(&pool).await.unwrap();
-    assert_eq!(
-        targets,
-        [vec!["all"; 100], vec!["created"; 100], vec!["retry"; 100]].concat()
-    );
+    assert_eq!(targets, [vec!["all"; 100], vec!["created"; 100]].concat());
     let expanded: i64 = sqlx::query_scalar("SELECT count(*) FROM push_outbox WHERE expanded")
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(expanded, 100);
-    expand(&single_pool, &discord).await.unwrap();
-    expand(&single_pool, &discord).await.unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 5); // 継続的な一時エラーでも101件目の展開が進む。
+    assert_eq!(expanded, 0);
+    expand(&single_pool, &discord, &mut cursor).await.unwrap();
+    expand(&single_pool, &discord, &mut cursor).await.unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 4); // 継続エラーの再照会は利用者ごとに60秒あける。
+    let targets: Vec<String>=sqlx::query_scalar("SELECT s.user_id FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id ORDER BY s.user_id").fetch_all(&pool).await.unwrap();
+    assert_eq!(targets, [vec!["all"; 101], vec!["created"; 101]].concat());
+    // 障害復旧後の再照会を、新しいクライアントでキャッシュ期限を待たずに検証する。
+    unavailable.store(false, Ordering::SeqCst);
+    let discord =
+        discalendar_api::discord::DiscordClient::new("test", &format!("http://{address}")).unwrap();
+    expand(&single_pool, &discord, &mut cursor).await.unwrap();
+    expand(&single_pool, &discord, &mut cursor).await.unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 8);
     let targets: Vec<String>=sqlx::query_scalar("SELECT s.user_id FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id ORDER BY s.user_id").fetch_all(&pool).await.unwrap();
     assert_eq!(
         targets,
