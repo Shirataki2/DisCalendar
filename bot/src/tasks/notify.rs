@@ -178,7 +178,7 @@ async fn run_once(
     let mut all_ok = true;
     for event in &events {
         if !notify_for_event(
-            ctx,
+            &ctx.http,
             data,
             event,
             last_checked,
@@ -196,7 +196,7 @@ async fn run_once(
 
 /// この予定の通知処理が (再試行可能な失敗なく) 完了したら true
 async fn notify_for_event(
-    ctx: &serenity::Context,
+    http: &serenity::Http,
     data: &Data,
     event: &Event,
     last_checked: NaiveDateTime,
@@ -213,8 +213,6 @@ async fn notify_for_event(
 
     // 先に今回送る通知を絞ってから event_settings を引く。全未来予定に対して毎 tick
     // SELECT すると、予定が増えるほど DB 負荷とタスクの所要時間が際限なく伸びてしまう。
-    // 同じ判定窓の再試行で既に送信済みの発火時刻は除く (event_settings 取得の失敗などで
-    // last_checked が進まなかった場合に、他の予定の通知まで重複送信しないため)
     let mut due: Vec<(Notification, NaiveDateTime)> = Vec::new();
     for notification in notifications {
         let minutes = notification.total_minutes();
@@ -222,10 +220,6 @@ async fn notify_for_event(
             continue;
         };
         if !is_due(start, minutes, last_checked, now) {
-            continue;
-        }
-        let key = (event.id, fire);
-        if sent_in_window.contains(&key) {
             continue;
         }
         due.push((notification, fire));
@@ -253,18 +247,25 @@ async fn notify_for_event(
     }
     // Discord のチャンネル未設定・送信失敗とは独立に、同じ発火判定を API へ渡す。
     // UNIQUE(event_id, fire_at) により再試行・Bot 再起動でも同じ通知待ちは増えない。
+    let mut all_enqueued = true;
     for (_, fire) in &due {
         if let Err(error) = sqlx::query!(
             "INSERT INTO push_outbox (event_id, fire_at, start_at) SELECT id, $2, $3 FROM events WHERE id = $1 AND EXISTS (SELECT 1 FROM push_subscriptions WHERE NOT disabled) ON CONFLICT (event_id, fire_at) DO NOTHING",
             event.id, *fire, start
         ).execute(&data.pool).await {
             tracing::error!(event_id = event.id, error = %error, "failed to enqueue push notification");
-            return false;
+            all_enqueued = false;
         }
+    }
+    // Discord 送信済みでも enqueue は再試行する。片方の障害で他方を止めない。
+    let mut due = due;
+    due.retain(|(_, fire)| !sent_in_window.contains(&(event.id, *fire)));
+    if due.is_empty() {
+        return all_enqueued;
     }
     let setting = match event_settings::get(&data.pool, &event.guild_id).await {
         Ok(Some(setting)) => setting,
-        Ok(None) => return true,
+        Ok(None) => return all_enqueued,
         Err(e) => {
             tracing::error!(error = %e, guild_id = event.guild_id, "failed to fetch notification channel");
             // 一時的な DB エラーの可能性があるので、次の tick で同じ判定窓のまま再試行できるよう false を返す
@@ -283,8 +284,8 @@ async fn notify_for_event(
             channel_id = setting.channel_id,
             "invalid channel id in event_settings"
         );
-        // 値そのものが不正なので再試行しても直らない。失敗扱いにしない
-        return true;
+        // Discord は再試行しても直らないが、enqueue の結果は引き継ぐ。
+        return all_enqueued;
     };
 
     let token = match event_share_links::get_token(&data.pool, &event.guild_id, event.id).await {
@@ -296,10 +297,10 @@ async fn notify_for_event(
     };
     let links = NotificationLinks::new(&data.site_base_url, &event.guild_id, token.as_deref());
 
-    let mut all_sent = true;
+    let mut all_sent = all_enqueued;
     for (notification, fire) in due {
         let key = (event.id, fire);
-        if send_notification(ctx, channel_id, event, notification, start, end, &links).await {
+        if send_notification(http, channel_id, event, notification, start, end, &links).await {
             sent_in_window.insert(key);
             failure_counts.remove(&key);
             continue;
@@ -407,7 +408,7 @@ fn is_due(
 /// チャンネル削除・権限剥奪など再試行しても直らない Discord API エラーの場合も、
 /// これ以上 last_checked を止めて他ギルドの通知まで巻き込まないよう true (処理済み) を返す
 async fn send_notification(
-    ctx: &serenity::Context,
+    http: &serenity::Http,
     channel_id: ChannelId,
     event: &Event,
     notification: Notification,
@@ -418,7 +419,7 @@ async fn send_notification(
     let embed = build_embed(event, notification, start, end, links);
     let result = channel_id
         .send_message(
-            &ctx.http,
+            http,
             serenity::CreateMessage::new()
                 .embed(embed)
                 .components(vec![links.buttons()]),
@@ -435,7 +436,7 @@ async fn send_notification(
         // そのまま解釈してしまうので、明示的に許可したメンションを空にして無効化する
         if let Err(e) = channel_id
             .send_message(
-                &ctx.http,
+                http,
                 serenity::CreateMessage::new()
                     .content(content)
                     .allowed_mentions(serenity::CreateAllowedMentions::new()),
@@ -583,6 +584,88 @@ mod tests {
 
     fn dt(s: &str) -> NaiveDateTime {
         s.parse().unwrap()
+    }
+
+    #[sqlx::test(migrations = "../api/migrations")]
+    async fn enqueue_failure_does_not_block_discord_and_retries_after_discord_sent(
+        pool: sqlx::PgPool,
+    ) {
+        sqlx::raw_sql("INSERT INTO guilds (guild_id, name) VALUES ('111', 'テスト'); INSERT INTO event_settings (guild_id, channel_id) VALUES ('111', '222'); INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device_name) VALUES ('user', 'https://fcm.googleapis.com/test', 'test', 'test', '端末'); ALTER TABLE push_outbox RENAME TO unavailable_push_outbox")
+            .execute(&pool).await.unwrap();
+        let start = now_jst();
+        let event = events::create(
+            &pool,
+            &events::NewEvent {
+                guild_id: "111",
+                name: "テスト",
+                description: None,
+                notifications: &[],
+                color: "#0000ff",
+                is_all_day: false,
+                start_at: start,
+                end_at: start + Duration::hours(1),
+                created_at: start,
+                created_by: "333",
+            },
+        )
+        .await
+        .unwrap();
+        let data = Data {
+            pool: pool.clone(),
+            site_base_url: "https://example.com".into(),
+            log_channel_id: None,
+            invite_url: String::new(),
+            support_guild_id: None,
+            guild_sync: Default::default(),
+            tasks_started: Default::default(),
+            presence_tasks: Default::default(),
+        };
+        // Discord へは接続しない。到達不能なローカル宛先への試行回数で送信処理への到達を確認する。
+        let http = serenity::HttpBuilder::new("test")
+            .proxy("http://127.0.0.1:1")
+            .ratelimiter_disabled(true)
+            .build();
+        let mut sent = HashSet::new();
+        let mut failures = HashMap::new();
+        assert!(
+            !notify_for_event(
+                &http,
+                &data,
+                &event,
+                start,
+                start + Duration::minutes(1),
+                &mut sent,
+                &mut failures
+            )
+            .await
+        );
+        assert_eq!(failures.get(&(event.id, start)), Some(&1));
+
+        // Discord が既に送信済みでも、失敗していた enqueue は復旧後に再試行する。
+        sent.insert((event.id, start));
+        failures.clear();
+        sqlx::query("ALTER TABLE unavailable_push_outbox RENAME TO push_outbox")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            notify_for_event(
+                &http,
+                &data,
+                &event,
+                start,
+                start + Duration::minutes(1),
+                &mut sent,
+                &mut failures
+            )
+            .await
+        );
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM push_outbox")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        assert!(failures.is_empty());
     }
 
     #[test]

@@ -67,10 +67,10 @@ export async function unsubscribeCurrentDevice() {
   const registration = await navigator.serviceWorker.getRegistration();
   const subscription = await registration?.pushManager?.getSubscription();
   if (!subscription) return;
-  await subscription.unsubscribe();
   try {
     await api.push.removeCurrent(subscription.endpoint);
   } catch (error) {
     if (!(error instanceof ApiError && error.status === 401)) throw error;
   }
+  await subscription.unsubscribe();
 }
