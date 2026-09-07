@@ -34,6 +34,38 @@ async function expectNavLinks(page: Page) {
   await expect(nav.getByRole("link", { name: "管理コンソール" })).toHaveCount(
     0,
   );
+  await expect(nav.getByRole("heading")).toHaveText([
+    "メイン",
+    "設定",
+    "サポート",
+    "サービス情報",
+  ]);
+  for (const [name, links] of [
+    ["メイン", ["ホーム", "サーバー一覧", "すべての予定"]],
+    ["サポート", ["使い方", "サポートサーバー"]],
+    [
+      "サービス情報",
+      ["更新履歴", "支援", "GitHub", "利用規約", "プライバシーポリシー"],
+    ],
+  ] as const) {
+    await expect(
+      nav.getByRole("region", { name, exact: true }).getByRole("link"),
+    ).toHaveText([...links]);
+  }
+  const settings = nav.getByRole("region", { name: "設定", exact: true });
+  await expect(settings.getByRole("button")).toHaveCount(3);
+  await expect(
+    settings.getByRole("button", { name: "カレンダーの表示設定" }),
+  ).toBeVisible();
+  await expect(
+    settings.getByRole("button", { name: "プッシュ通知" }),
+  ).toBeVisible();
+  await expect(
+    settings.getByRole("button", { name: /テーマに切り替え/ }),
+  ).toBeVisible();
+  await expect(
+    nav.getByRole("region", { name: "管理", exact: true }),
+  ).toHaveCount(0);
   await expect(nav.getByRole("button", { name: "ログアウト" })).toBeVisible();
 }
 
@@ -120,3 +152,42 @@ test.describe("スマホ幅", () => {
     await expect(menu).toBeHidden();
   });
 });
+
+for (const width of [1280, 375]) {
+  test(`${width}px 幅の低い画面でも設定を操作でき、末尾までスクロールできる`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 600 });
+    await page.goto("/dashboard");
+    if (width < 1024) {
+      await page.getByRole("button", { name: "メニュー", exact: true }).click();
+    }
+    const nav = sidebar(page);
+    for (const theme of ["dark", "light"] as const) {
+      if (theme === "light") {
+        await nav
+          .getByRole("button", { name: "ライトテーマに切り替え" })
+          .click();
+      }
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-color-scheme",
+        theme,
+      );
+      await nav
+        .getByRole("heading", { name: "メイン", exact: true })
+        .scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-top.png`) });
+      const logout = nav.getByRole("button", { name: "ログアウト" });
+      await logout.scrollIntoViewIfNeeded();
+      await expect(logout).toBeInViewport();
+      await page.screenshot({
+        path: testInfo.outputPath(`${theme}-bottom.png`),
+      });
+    }
+    await nav.getByRole("button", { name: "プッシュ通知" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "プッシュ通知", exact: true }),
+    ).toBeVisible();
+    if (width < 1024) await expect(nav).toBeHidden();
+  });
+}
