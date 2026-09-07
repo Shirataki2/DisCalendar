@@ -590,6 +590,7 @@ node --input-type=module -e 'import {createECDH} from "node:crypto"; const k=cre
 - GHCR: Repository variables の `VAPID_PUBLIC_KEY` (本番) / `STAGING_VAPID_PUBLIC_KEY` (staging) を web のビルド時に使う。ホストの秘密鍵と組が合う公開鍵を指定し、web を再ビルドしてから API / Bot と一緒にデプロイする。ビルド済み web は実行時に公開鍵を変えても反映されない。staging の変数が空なら本番鍵へフォールバックせず、staging の登録 UI は無効になる。
 - API の秘密鍵・連絡先が両方空なら配信タスクを起動しない。一方だけの設定や不正な鍵は起動時に拒否する。公開鍵が空なら UI は「準備中」を表示する。
 - 鍵を変更すると既存の購読には届かないため、各端末で登録し直す。
+- ブラウザ・プッシュサービス側の購読更新 (`pushsubscriptionchange`) の自動同期は未対応。通知が届かなくなった場合は、設定画面から端末を登録し直す。
 
 暗号化と VAPID には [web-push](https://docs.rs/web-push/0.11.0/web_push/) を使う。HTTP は既存の reqwest (rustls) で送信し、10秒でタイムアウト、リダイレクトを追わない。
 暗号処理の ece が OpenSSL を使うため API の実行イメージに `libssl3` を含む。
@@ -598,7 +599,7 @@ node --input-type=module -e 'import {createECDH} from "node:crypto"; const k=cre
 
 配信は1分のリースで取得し、外部通信中は DB 接続・行ロックを解放する。送信前に解除・オフ・予定変更を再確認し、結果の確定時には試行番号で所有権を確認する。
 通知待ちは `push_outbox`、端末ごとの送信結果は `push_deliveries` に保存し、再起動後も引き継ぐ。
-API は15秒ごとに最大100件を配信し、失敗時は1分以上あけて最大5回試す。404 / 410 は端末の購読を削除し、5回の試行を使い切った通知が5件連続したら、その端末を停止する。
+API は15秒ごとに最大100件を、最大10件の並列処理で配信し、失敗時は1分以上あけて最大5回試す。404 / 410 は端末の購読を削除し、5回の試行を使い切った通知が5件連続したら、その端末を停止する。
 1時間を超えた通知は破棄し、記録は1日後に掃除する。停止中のプッシュサービス側の保持期間も1時間。
 送信直後から DB の記録確定前にプロセスが落ちた場合は再送され得る。端末では同じ予定の tag で表示をまとめる。
 戻す場合は API / Bot を止めてバックアップし、`api/rollback/20260907090000_drop_push_notifications.sql` を実行する (端末情報・範囲・通知待ちは削除され、再登録が必要)。

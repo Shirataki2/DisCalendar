@@ -63,8 +63,15 @@ pub async fn run(state: web::Data<AppState>, config: PushConfig) {
             tracing::warn!(error = %error, "failed to expand push outbox");
             continue;
         }
-        for _ in 0..100 {
-            match deliver_one(&state, &config, &client).await {
+        deliver_batch(&state, &config, &client).await;
+    }
+}
+
+async fn deliver_batch(state: &AppState, config: &PushConfig, client: &reqwest::Client) {
+    // 外部通信を最大10件並行させ、1回の tick は合計100件までに抑える。
+    futures_util::future::join_all((0..10).map(|_| async {
+        for _ in 0..10 {
+            match deliver_one(state, config, client).await {
                 Ok(true) => {}
                 Ok(false) => break,
                 Err(error) => {
@@ -73,7 +80,8 @@ pub async fn run(state: web::Data<AppState>, config: PushConfig) {
                 }
             }
         }
-    }
+    }))
+    .await;
 }
 
 /// 宛先は設定範囲・作成者・登録時刻で絞る。Discord の所属は送信直前に確認する。
@@ -601,6 +609,45 @@ mod tests {
         assert!(disabled);
         assert_eq!(failures, 5);
         assert!(!deliver_one(&state, &config, &client).await.unwrap());
+
+        sqlx::raw_sql(r#"
+            DELETE FROM push_outbox;
+            UPDATE push_subscriptions SET disabled=false,failure_count=0;
+            INSERT INTO push_outbox (event_id,fire_at,start_at) SELECT id,start_at,start_at FROM events;
+        "#).execute(&pool).await.unwrap();
+        expand(&pool).await.unwrap();
+        present.store(false, Ordering::SeqCst);
+        blocked.store(true, Ordering::SeqCst);
+        let later_deliveries_progress = async {
+            requested.notified().await;
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    let done: bool = sqlx::query_scalar(
+                        "SELECT EXISTS (SELECT 1 FROM push_deliveries WHERE done)",
+                    )
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+                    if done {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("最初の外部通信を待つ間にも後続の配信が進む");
+            release.notify_one();
+        };
+        tokio::join!(
+            deliver_batch(&state, &config, &client),
+            later_deliveries_progress
+        );
+        let pending: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM push_deliveries WHERE NOT done)")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!pending);
         handle.stop(true).await;
     }
 }
