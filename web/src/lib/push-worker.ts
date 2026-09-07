@@ -58,7 +58,7 @@ export async function openPush(
       (client) => new URL(client.url).origin === worker.location.origin,
     );
   if (tab) {
-    const navigated = tab.url === url ? tab : await tab.navigate(url);
+    const navigated = await tab.navigate(url);
     if (navigated) {
       await navigated.focus();
       return;

@@ -1,11 +1,14 @@
 //! Bot の通知待ちを端末ごとに配信する。時刻の判定は Bot だけが行う。
 use crate::{
+    discord::DiscordClient,
     models::{now_jst, push::validate_endpoint},
     state::AppState,
 };
 use actix_web::web;
 use chrono::NaiveDateTime;
+use futures_util::{StreamExt, stream};
 use sqlx::PgPool;
+use std::collections::BTreeMap;
 use std::time::Duration;
 use web_push::{ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPushMessageBuilder};
 
@@ -59,7 +62,7 @@ pub async fn run(state: web::Data<AppState>, config: PushConfig) {
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         interval.tick().await;
-        if let Err(error) = expand(&state.pool).await {
+        if let Err(error) = expand(&state.pool, &state.discord).await {
             tracing::warn!(error = %error, "failed to expand push outbox");
             continue;
         }
@@ -84,42 +87,80 @@ async fn deliver_batch(state: &AppState, config: &PushConfig, client: &reqwest::
     .await;
 }
 
-/// 宛先は設定範囲・作成者・登録時刻で絞る。Discord の所属は送信直前に確認する。
-pub async fn expand(pool: &PgPool) -> sqlx::Result<()> {
-    let mut tx = pool.begin().await?;
+/// 所属確認はサーバー・利用者単位の既存キャッシュでまとめ、参加者だけを配信待ちにする。
+pub async fn expand(pool: &PgPool, discord: &DiscordClient) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM push_outbox WHERE fire_at < $1 - interval '1 day'")
+        .bind(now_jst())
+        .execute(pool)
+        .await?;
+    sqlx::query("UPDATE push_outbox SET expanded = true WHERE NOT expanded AND fire_at < $1 - interval '1 hour'")
+        .bind(now_jst()).execute(pool).await?;
+    let pending: Vec<(i64, String)> = sqlx::query_as("SELECT o.id, e.guild_id FROM push_outbox o JOIN events e ON e.id=o.event_id WHERE NOT o.expanded ORDER BY o.id LIMIT 100")
+        .fetch_all(pool).await?;
+    let mut guilds: BTreeMap<String, Vec<i64>> = BTreeMap::new();
+    for (id, guild) in pending {
+        guilds.entry(guild).or_default().push(id);
+    }
+    for (guild, ids) in guilds {
+        let candidates: Vec<(i32, String)> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT s.id, a."accountId" FROM push_subscriptions s
+            JOIN user_push_settings p ON p.user_id=s.user_id
+            JOIN "account" a ON a."userId"=s.user_id AND a."providerId"='discord'
+            WHERE NOT s.disabled AND EXISTS (
+                SELECT 1 FROM push_outbox o JOIN events e ON e.id=o.event_id
+                JOIN guilds g ON g.guild_id=e.guild_id
+                WHERE o.id=ANY($1) AND s.created_at <= o.fire_at AT TIME ZONE 'Asia/Tokyo'
+                AND (p.scope='all' OR (p.scope='created' AND e.created_by=a."accountId"))
+            )
+        "#,
+        )
+        .bind(&ids)
+        .fetch_all(pool)
+        .await?;
+        // 外部通信中は DB 接続を保持しない。同じ人の複数端末もキャッシュで集約する。
+        let results = stream::iter(candidates.into_iter().map(|(id, user)| {
+            let guild = &guild;
+            async move { (id, discord.is_member(guild, &user).await) }
+        }))
+        .buffer_unordered(10)
+        .collect::<Vec<_>>()
+        .await;
+        let complete = results.iter().all(|(_, result)| result.is_ok());
+        let members: Vec<i32> = results
+            .into_iter()
+            .filter_map(|(id, result)| matches!(result, Ok(true)).then_some(id))
+            .collect();
+        let mut tx = pool.begin().await?;
+        sqlx::query(
+            r#"
+            INSERT INTO push_deliveries (outbox_id, subscription_id)
+            SELECT DISTINCT o.id, s.id FROM push_outbox o
+            JOIN events e ON e.id=o.event_id JOIN guilds g ON g.guild_id=e.guild_id
+            JOIN push_subscriptions s ON s.id=ANY($2) AND NOT s.disabled
+            JOIN user_push_settings p ON p.user_id=s.user_id
+            JOIN "account" a ON a."userId"=s.user_id AND a."providerId"='discord'
+            WHERE o.id=ANY($1) AND o.fire_at >= $3 - interval '1 hour'
+              AND s.created_at <= o.fire_at AT TIME ZONE 'Asia/Tokyo'
+              AND (p.scope='all' OR (p.scope='created' AND e.created_by=a."accountId"))
+            ON CONFLICT DO NOTHING
+        "#,
+        )
+        .bind(&ids)
+        .bind(&members)
         .bind(now_jst())
         .execute(&mut *tx)
         .await?;
-    let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM push_outbox WHERE NOT expanded ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED")
-        .fetch_all(&mut *tx).await?;
-    if ids.is_empty() {
-        return tx.commit().await;
+        // 一時的な所属確認エラーは次の tick で再試行し、確認できた宛先は先に配信する。
+        if complete {
+            sqlx::query("UPDATE push_outbox SET expanded=true WHERE id=ANY($1)")
+                .bind(&ids)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
     }
-    sqlx::query(
-        r#"
-        INSERT INTO push_deliveries (outbox_id, subscription_id)
-        SELECT DISTINCT o.id, s.id FROM push_outbox o
-        JOIN events e ON e.id = o.event_id
-        JOIN guilds g ON g.guild_id = e.guild_id
-        JOIN push_subscriptions s ON NOT s.disabled
-        JOIN user_push_settings p ON p.user_id = s.user_id
-        JOIN "account" a ON a."userId" = s.user_id AND a."providerId" = 'discord'
-        WHERE o.id = ANY($1) AND o.fire_at >= $2 - interval '1 hour'
-          AND s.created_at <= o.fire_at AT TIME ZONE 'Asia/Tokyo'
-          AND (p.scope = 'all' OR (p.scope = 'created' AND e.created_by = a."accountId"))
-        ON CONFLICT DO NOTHING
-    "#,
-    )
-    .bind(&ids)
-    .bind(now_jst())
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query("UPDATE push_outbox SET expanded = true WHERE id = ANY($1)")
-        .bind(&ids)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await
+    Ok(())
 }
 
 #[derive(sqlx::FromRow)]
@@ -247,12 +288,17 @@ async fn deliver_one(
             }
         }
     };
-    let mut tx = state.pool.begin().await?;
+    finish_delivery(&state.pool, &row, outcome).await?;
+    Ok(true)
+}
+
+async fn finish_delivery(pool: &PgPool, row: &Delivery, outcome: Outcome) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
     let owned: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM push_deliveries WHERE outbox_id=$1 AND subscription_id=$2 AND attempts=$3 AND NOT done FOR UPDATE)")
         .bind(row.outbox_id).bind(row.subscription_id).bind(row.attempts + 1).fetch_one(&mut *tx).await?;
     if !owned {
         tx.commit().await?;
-        return Ok(true);
+        return Ok(());
     }
     match outcome {
         Outcome::Gone => {
@@ -263,7 +309,7 @@ async fn deliver_one(
         }
         _ => {
             if matches!(outcome, Outcome::Sent) {
-                sqlx::query("UPDATE push_subscriptions SET last_sent_at = now(), failure_count = 0 WHERE id = $1").bind(row.subscription_id).execute(&mut *tx).await?;
+                sqlx::query("UPDATE push_subscriptions SET last_sent_at = now(), failure_count = 0, disabled = false WHERE id = $1").bind(row.subscription_id).execute(&mut *tx).await?;
             } else if matches!(outcome, Outcome::Failed) && row.attempts + 1 >= 5 {
                 sqlx::query("UPDATE push_subscriptions SET failure_count = failure_count + 1, disabled = failure_count + 1 >= 5 WHERE id = $1").bind(row.subscription_id).execute(&mut *tx).await?;
             }
@@ -272,8 +318,7 @@ async fn deliver_one(
                 .bind(row.outbox_id).bind(row.subscription_id).bind(done).execute(&mut *tx).await?;
         }
     }
-    tx.commit().await?;
-    Ok(true)
+    tx.commit().await
 }
 enum Outcome {
     Sent,
@@ -433,9 +478,9 @@ mod tests {
 
     #[sqlx::test(migrations = "./migrations")]
     async fn rechecks_membership_and_disables_only_after_five_exhausted_deliveries(pool: PgPool) {
-        let present = Arc::new(AtomicBool::new(false));
+        let present = Arc::new(AtomicBool::new(true));
         let server_present = present.clone();
-        let blocked = Arc::new(AtomicBool::new(true));
+        let blocked = Arc::new(AtomicBool::new(false));
         let server_blocked = blocked.clone();
         let requested = Arc::new(tokio::sync::Notify::new());
         let release = Arc::new(tokio::sync::Notify::new());
@@ -502,7 +547,10 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        expand(&pool).await.unwrap();
+        let discord = DiscordClient::new("test", &format!("http://{address}")).unwrap();
+        expand(&pool, &discord).await.unwrap();
+        present.store(false, Ordering::SeqCst);
+        blocked.store(true, Ordering::SeqCst);
         let api_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .connect_with((*pool.connect_options()).clone())
@@ -512,8 +560,7 @@ mod tests {
             pool: api_pool.clone(),
             sql_console_pool: pool.clone(),
             sql_known_words: Default::default(),
-            discord: crate::discord::DiscordClient::new("test", &format!("http://{address}"))
-                .unwrap(),
+            discord,
             site_base_url: "https://discalendar.app".into(),
             event_update_locks: Default::default(),
             auth: crate::auth::AuthConfig {
@@ -593,7 +640,7 @@ mod tests {
                 SELECT '111','予定','#5865F2',false,now() AT TIME ZONE 'Asia/Tokyo',now() AT TIME ZONE 'Asia/Tokyo','222' FROM generate_series(1,4);
             INSERT INTO push_outbox (event_id,fire_at,start_at) SELECT id,start_at,start_at FROM events ON CONFLICT DO NOTHING;
         "#).execute(&pool).await.unwrap();
-        expand(&pool).await.unwrap();
+        expand(&pool, &state.discord).await.unwrap();
         // 各通知の初回失敗が同じ tick に重なっても端末を停止しない。
         for _ in 0..5 {
             assert!(deliver_one(&state, &config, &client).await.unwrap());
@@ -619,6 +666,22 @@ mod tests {
                 .unwrap();
         assert!(disabled);
         assert_eq!(failures, 5);
+        // 別の配信が停止状態を記録したあと、進行中の送信が成功した場合は復帰する。
+        let (outbox_id, subscription_id): (i64, i32) = sqlx::query_as("UPDATE push_deliveries SET done=false,attempts=1 WHERE outbox_id=(SELECT min(id) FROM push_outbox) RETURNING outbox_id,subscription_id")
+            .fetch_one(&pool).await.unwrap();
+        let mut completed = delivery(String::new(), String::new());
+        completed.outbox_id = outbox_id;
+        completed.subscription_id = subscription_id;
+        finish_delivery(&pool, &completed, Outcome::Sent)
+            .await
+            .unwrap();
+        let (disabled, failures): (bool, i32) =
+            sqlx::query_as("SELECT disabled,failure_count FROM push_subscriptions")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!disabled);
+        assert_eq!(failures, 0);
         assert!(!deliver_one(&state, &config, &client).await.unwrap());
 
         sqlx::raw_sql(r#"
@@ -626,7 +689,7 @@ mod tests {
             UPDATE push_subscriptions SET disabled=false,failure_count=0;
             INSERT INTO push_outbox (event_id,fire_at,start_at) SELECT id,start_at,start_at FROM events;
         "#).execute(&pool).await.unwrap();
-        expand(&pool).await.unwrap();
+        expand(&pool, &state.discord).await.unwrap();
         present.store(false, Ordering::SeqCst);
         blocked.store(true, Ordering::SeqCst);
         let later_deliveries_progress = async {

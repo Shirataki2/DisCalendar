@@ -589,6 +589,14 @@ impl DiscordClient {
         }
     }
 
+    /// 配信候補の絞り込み用。送信直前は is_current_member で再確認する。
+    pub async fn is_member(&self, guild_id: &str, user_id: &str) -> Result<bool, DiscordError> {
+        Ok(matches!(
+            self.member(guild_id, user_id).await?,
+            MemberLookup::Present(_)
+        ))
+    }
+
     /// プッシュ送信直前の所属確認。退出後の通知を防ぐためキャッシュを使わない。
     pub async fn is_current_member(
         &self,

@@ -1,4 +1,5 @@
 //! 購読の本人境界・上限・外部キー・配信対象を実 DB で確認する。
+use actix_web::{App, HttpResponse, HttpServer, web};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use discalendar_api::{
     models::{
@@ -8,6 +9,11 @@ use discalendar_api::{
     push::expand,
 };
 use sqlx::PgPool;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
+use std::time::Duration;
 
 fn input(id: usize) -> SubscriptionInput {
     let mut public = [1; 65];
@@ -136,11 +142,11 @@ async fn fk_is_added_after_better_auth_and_cascades_deletion(pool: PgPool) {
 async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: PgPool) {
     sqlx::raw_sql(r#"
       CREATE TABLE "account" ("userId" TEXT, "providerId" TEXT, "accountId" TEXT);
-      INSERT INTO "account" VALUES ('all','discord','1'),('created','discord','2'),('other','discord','3'),('off','discord','4'),('new','discord','5');
+      INSERT INTO "account" VALUES ('all','discord','1'),('created','discord','2'),('other','discord','3'),('off','discord','4'),('new','discord','5'),('nonmember','discord','6'),('retry','discord','7');
       INSERT INTO guilds (guild_id,name,locale) VALUES ('111','サーバー','ja');
       INSERT INTO guild_config (guild_id,restricted) VALUES ('111',true);
       INSERT INTO events (guild_id,name,color,is_all_day,start_at,end_at,created_by)
-        VALUES ('111','予定','#5865F2',false,now() AT TIME ZONE 'Asia/Tokyo',now() AT TIME ZONE 'Asia/Tokyo','2');
+        SELECT '111','予定','#5865F2',false,now() AT TIME ZONE 'Asia/Tokyo',now() AT TIME ZONE 'Asia/Tokyo','2' FROM generate_series(1,2);
     "#).execute(&pool).await.unwrap();
     for (n, user, scope) in [
         (0, "all", PushScope::All),
@@ -148,6 +154,8 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
         (2, "other", PushScope::Created),
         (3, "off", PushScope::Off),
         (4, "new", PushScope::All),
+        (5, "nonmember", PushScope::All),
+        (6, "retry", PushScope::All),
     ] {
         push::subscribe(&pool, user, &input(n)).await.unwrap();
         push::set_scope(&pool, user, &scope).await.unwrap();
@@ -156,10 +164,75 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
       UPDATE push_subscriptions SET created_at = now() - interval '1 hour' WHERE user_id <> 'new';
       INSERT INTO push_outbox (event_id,fire_at,start_at) SELECT id, (now() AT TIME ZONE 'Asia/Tokyo') - interval '1 minute', start_at FROM events;
     "#).execute(&pool).await.unwrap();
-    expand(&pool).await.unwrap();
-    expand(&pool).await.unwrap();
+    let single_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with((*pool.connect_options()).clone())
+        .await
+        .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let transient = Arc::new(AtomicBool::new(true));
+    let server_calls = calls.clone();
+    let server_pool = single_pool.clone();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = HttpServer::new(move || {
+        let calls = server_calls.clone();
+        let pool = server_pool.clone();
+        let transient = transient.clone();
+        App::new().route(
+            "/guilds/111/members/{id}",
+            web::get().to(move |id: web::Path<String>| {
+                let calls = calls.clone();
+                let pool = pool.clone();
+                let transient = transient.clone();
+                async move {
+                    // 所属確認中に唯一の接続を占有していないことも確認する。
+                    sqlx::query("SELECT 1").execute(&pool).await.unwrap();
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    match id.as_str() {
+                        "6" => HttpResponse::NotFound().finish(),
+                        "7" if transient.swap(false, Ordering::SeqCst) => {
+                            HttpResponse::InternalServerError().finish()
+                        }
+                        _ => HttpResponse::Ok().json(serde_json::json!({"roles":[]})),
+                    }
+                }
+            }),
+        )
+    })
+    .listen(listener)
+    .unwrap()
+    .run();
+    let handle = server.handle();
+    tokio::spawn(server);
+    let discord =
+        discalendar_api::discord::DiscordClient::new("test", &format!("http://{address}")).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), expand(&single_pool, &discord))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 4); // 2予定でも所属確認は利用者ごとに1回。
     let targets: Vec<String>=sqlx::query_scalar("SELECT s.user_id FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id ORDER BY s.user_id").fetch_all(&pool).await.unwrap();
-    assert_eq!(targets, vec!["all", "created"]);
+    assert_eq!(targets, vec!["all", "all", "created", "created"]);
+    let expanded: bool = sqlx::query_scalar("SELECT bool_or(expanded) FROM push_outbox")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(!expanded);
+    expand(&single_pool, &discord).await.unwrap();
+    expand(&single_pool, &discord).await.unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 5); // 一時エラーだけ再照会する。
+    let targets: Vec<String>=sqlx::query_scalar("SELECT s.user_id FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id ORDER BY s.user_id").fetch_all(&pool).await.unwrap();
+    assert_eq!(
+        targets,
+        vec!["all", "all", "created", "created", "retry", "retry"]
+    );
+    let expanded: bool = sqlx::query_scalar("SELECT bool_and(expanded) FROM push_outbox")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(expanded);
+    handle.stop(true).await;
     push::remove_endpoint(&pool, "all", &input(0).endpoint)
         .await
         .unwrap();
@@ -167,7 +240,7 @@ async fn outbox_targets_scope_creator_and_registration_time_idempotently(pool: P
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(count, 1);
+    assert_eq!(count, 4);
     sqlx::query("DELETE FROM events")
         .execute(&pool)
         .await

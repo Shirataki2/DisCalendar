@@ -52,19 +52,23 @@ describe("プッシュ通知", () => {
       expect(notificationUrl(bad, origin)).toBe(`${origin}/dashboard`);
     expect(notificationUrl(url, origin)).toBe(url);
   });
-  it("開いているタブを該当日に移動して前面に出す", async () => {
-    const focus = vi.fn();
-    const navigate = vi.fn().mockResolvedValue({ focus });
-    const { worker, openWindow } = fixture([
-      { url: `${origin}/dashboard`, navigate },
-    ]);
-    const close = vi.fn();
-    await openPush(worker, { data: { url }, close } as unknown as Notification);
-    expect(navigate).toHaveBeenCalledWith(url);
-    expect(focus).toHaveBeenCalledOnce();
-    expect(close).toHaveBeenCalledOnce();
-    expect(openWindow).not.toHaveBeenCalled();
-  });
+  it.each([`${origin}/dashboard`, url])(
+    "開いているタブ %s を該当日に移動して前面に出す",
+    async (tabUrl) => {
+      const focus = vi.fn();
+      const navigate = vi.fn().mockResolvedValue({ focus });
+      const { worker, openWindow } = fixture([{ url: tabUrl, navigate }]);
+      const close = vi.fn();
+      await openPush(worker, {
+        data: { url },
+        close,
+      } as unknown as Notification);
+      expect(navigate).toHaveBeenCalledWith(url);
+      expect(focus).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledOnce();
+      expect(openWindow).not.toHaveBeenCalled();
+    },
+  );
   it("タブがなければ開く", async () => {
     const { worker, openWindow } = fixture();
     await openPush(worker, {
