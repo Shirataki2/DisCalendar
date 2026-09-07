@@ -587,7 +587,7 @@ node --input-type=module -e 'import {createECDH} from "node:crypto"; const k=cre
 
 - ローカル: 公開鍵を `web/.env.local` の `NEXT_PUBLIC_VAPID_PUBLIC_KEY`、秘密鍵を `api/.env` の `VAPID_PRIVATE_KEY` に設定する。`VAPID_SUBJECT` は運営者の `mailto:連絡先` または HTTPS URL。
 - compose: 同じ3変数をホストの `.env` に置く。公開鍵は web の `build.args`、秘密鍵と連絡先は api の実行環境にだけ渡される。
-- GHCR: Repository variables の `VAPID_PUBLIC_KEY` (本番) / `STAGING_VAPID_PUBLIC_KEY` (staging) を web のビルド時に使う。ホストの秘密鍵と組が合う公開鍵を指定し、web を再ビルドしてから API / Bot と一緒にデプロイする。ビルド済み web は実行時に公開鍵を変えても反映されない。
+- GHCR: Repository variables の `VAPID_PUBLIC_KEY` (本番) / `STAGING_VAPID_PUBLIC_KEY` (staging) を web のビルド時に使う。ホストの秘密鍵と組が合う公開鍵を指定し、web を再ビルドしてから API / Bot と一緒にデプロイする。ビルド済み web は実行時に公開鍵を変えても反映されない。staging の変数が空なら本番鍵へフォールバックせず、staging の登録 UI は無効になる。
 - API の秘密鍵・連絡先が両方空なら配信タスクを起動しない。一方だけの設定や不正な鍵は起動時に拒否する。公開鍵が空なら UI は「準備中」を表示する。
 - 鍵を変更すると既存の購読には届かないため、各端末で登録し直す。
 
@@ -596,6 +596,7 @@ node --input-type=module -e 'import {createECDH} from "node:crypto"; const k=cre
 送信先は Chrome / Firefox / Safari / Edge のプッシュサービスに限定し、任意の URL や内部ネットワークには送らない。
 `push_subscriptions` は SQL コンソールの保護テーブルに含め、一覧 API も URL と鍵を返さない。
 
+配信は1分のリースで取得し、外部通信中は DB 接続・行ロックを解放する。送信前に解除・オフ・予定変更を再確認し、結果の確定時には試行番号で所有権を確認する。
 通知待ちは `push_outbox`、端末ごとの送信結果は `push_deliveries` に保存し、再起動後も引き継ぐ。
 API は15秒ごとに最大100件を配信し、失敗時は1分以上あけて最大5回試す。404 / 410 は端末の購読を削除し、5回の試行を使い切った通知が5件連続したら、その端末を停止する。
 1時間を超えた通知は破棄し、記録は1日後に掃除する。停止中のプッシュサービス側の保持期間も1時間。

@@ -62,7 +62,13 @@ export async function subscribeDevice(deviceName: string) {
         "以前のアカウントの購読を解除しました。もう一度「この端末で受け取る」を押してください。",
       );
     }
-    if (!existing) await subscription.unsubscribe();
+    if (
+      !existing &&
+      error instanceof ApiError &&
+      error.status >= 400 &&
+      error.status < 500
+    )
+      await subscription.unsubscribe();
     throw error;
   }
 }

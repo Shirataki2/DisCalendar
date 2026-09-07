@@ -185,6 +185,10 @@ async fn deliver_one(
         tx.commit().await?;
         return Ok(false);
     };
+    // 1分のリースでこの試行を確保し、外部通信中は接続も行ロックも保持しない。
+    sqlx::query("UPDATE push_deliveries SET attempts = attempts + 1, next_attempt_at = now() + interval '1 minute' WHERE outbox_id = $1 AND subscription_id = $2")
+        .bind(row.outbox_id).bind(row.subscription_id).execute(&mut *tx).await?;
+    tx.commit().await?;
     let start = if row.is_all_day {
         row.start_at.date().and_time(chrono::NaiveTime::MIN)
     } else {
@@ -208,9 +212,40 @@ async fn deliver_one(
         {
             Ok(false) => Outcome::Skip,
             Err(_) => Outcome::Retry,
-            Ok(true) => send(client, config, &row).await,
+            Ok(true) => {
+                // 所属確認の待機中に解除・オフ・予定変更があれば送らない。
+                let valid: bool = sqlx::query_scalar(r#"
+                    SELECT EXISTS (
+                        SELECT 1 FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id
+                        JOIN user_push_settings p ON p.user_id=s.user_id
+                        JOIN "account" a ON a."userId"=s.user_id AND a."providerId"='discord' AND a."accountId"=$8
+                        JOIN events e ON e.id=$3 JOIN guilds g ON g.guild_id=e.guild_id
+                        LEFT JOIN guild_config c ON c.guild_id=e.guild_id
+                        WHERE d.outbox_id=$1 AND d.subscription_id=$2 AND NOT d.done AND d.attempts=$4
+                          AND NOT s.disabled AND s.endpoint=$5 AND s.p256dh=$6 AND s.auth=$7
+                          AND (p.scope='all' OR (p.scope='created' AND e.created_by=$8))
+                          AND e.start_at=$9 AND e.notifications=$10 AND e.is_all_day=$11
+                          AND COALESCE(c.notify_at_start,true)=$12
+                    )
+                "#).bind(row.outbox_id).bind(row.subscription_id).bind(row.event_id)
+                    .bind(row.attempts + 1).bind(&row.endpoint).bind(&row.p256dh).bind(&row.auth)
+                    .bind(&row.discord_id).bind(row.start_at).bind(&row.notifications).bind(row.is_all_day)
+                    .bind(row.notify_at_start).fetch_one(&state.pool).await?;
+                if valid {
+                    send(client, config, &row).await
+                } else {
+                    Outcome::Skip
+                }
+            }
         }
     };
+    let mut tx = state.pool.begin().await?;
+    let owned: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM push_deliveries WHERE outbox_id=$1 AND subscription_id=$2 AND attempts=$3 AND NOT done FOR UPDATE)")
+        .bind(row.outbox_id).bind(row.subscription_id).bind(row.attempts + 1).fetch_one(&mut *tx).await?;
+    if !owned {
+        tx.commit().await?;
+        return Ok(true);
+    }
     match outcome {
         Outcome::Gone => {
             sqlx::query("DELETE FROM push_subscriptions WHERE id = $1")
@@ -225,7 +260,7 @@ async fn deliver_one(
                 sqlx::query("UPDATE push_subscriptions SET failure_count = failure_count + 1, disabled = failure_count + 1 >= 5 WHERE id = $1").bind(row.subscription_id).execute(&mut *tx).await?;
             }
             let done = matches!(outcome, Outcome::Sent | Outcome::Skip) || row.attempts + 1 >= 5;
-            sqlx::query("UPDATE push_deliveries SET attempts = attempts + 1, done = $3, next_attempt_at = now() + interval '1 minute' WHERE outbox_id = $1 AND subscription_id = $2")
+            sqlx::query("UPDATE push_deliveries SET done = $3, next_attempt_at = now() + interval '1 minute' WHERE outbox_id = $1 AND subscription_id = $2")
                 .bind(row.outbox_id).bind(row.subscription_id).bind(done).execute(&mut *tx).await?;
         }
     }
@@ -392,15 +427,31 @@ mod tests {
     async fn rechecks_membership_and_disables_only_after_five_exhausted_deliveries(pool: PgPool) {
         let present = Arc::new(AtomicBool::new(false));
         let server_present = present.clone();
+        let blocked = Arc::new(AtomicBool::new(true));
+        let server_blocked = blocked.clone();
+        let requested = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let server_requested = requested.clone();
+        let server_release = release.clone();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = HttpServer::new(move || {
             let present = server_present.clone();
+            let blocked = server_blocked.clone();
+            let requested = server_requested.clone();
+            let release = server_release.clone();
             App::new().route(
                 "/guilds/111/members/222",
                 web::get().to(move || {
                     let present = present.load(Ordering::SeqCst);
+                    let blocked = blocked.swap(false, Ordering::SeqCst);
+                    let requested = requested.clone();
+                    let release = release.clone();
                     async move {
+                        if blocked {
+                            requested.notify_one();
+                            release.notified().await;
+                        }
                         if present {
                             HttpResponse::Ok().json(serde_json::json!({"roles":[]}))
                         } else {
@@ -444,8 +495,13 @@ mod tests {
             .await
             .unwrap();
         expand(&pool).await.unwrap();
+        let api_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with((*pool.connect_options()).clone())
+            .await
+            .unwrap();
         let state = AppState {
-            pool: pool.clone(),
+            pool: api_pool.clone(),
             sql_console_pool: pool.clone(),
             sql_known_words: Default::default(),
             discord: crate::discord::DiscordClient::new("test", &format!("http://{address}"))
@@ -466,11 +522,49 @@ mod tests {
             .timeout(Duration::from_secs(1))
             .build()
             .unwrap();
-        assert!(deliver_one(&state, &config, &client).await.unwrap());
+        let responsiveness = async {
+            requested.notified().await;
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                sqlx::query("SELECT 1").execute(&api_pool),
+            )
+            .await
+            .expect("外部通信中も API の DB 接続を取得できる")
+            .unwrap();
+            assert!(!deliver_one(&state, &config, &client).await.unwrap());
+            release.notify_one();
+        };
+        let (delivered, _) = tokio::join!(deliver_one(&state, &config, &client), responsiveness);
+        assert!(delivered.unwrap());
         let (done,failures):(bool,i32)=sqlx::query_as("SELECT d.done,s.failure_count FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id").fetch_one(&pool).await.unwrap();
         assert!(done);
         assert_eq!(failures, 0);
         present.store(true, Ordering::SeqCst);
+        blocked.store(true, Ordering::SeqCst);
+        sqlx::query("UPDATE push_deliveries SET done=false,attempts=0,next_attempt_at=now()")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let disable_while_checking_membership = async {
+            requested.notified().await;
+            crate::models::push::set_scope(&api_pool, "u1", &crate::models::push::PushScope::Off)
+                .await
+                .unwrap();
+            release.notify_one();
+        };
+        let (delivered, _) = tokio::join!(
+            deliver_one(&state, &config, &client),
+            disable_while_checking_membership
+        );
+        assert!(delivered.unwrap());
+        let done: bool = sqlx::query_scalar("SELECT done FROM push_deliveries")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(done); // 送信していたら通信失敗になり再試行待ちのままになる。
+        crate::models::push::set_scope(&pool, "u1", &crate::models::push::PushScope::All)
+            .await
+            .unwrap();
         sqlx::query("UPDATE push_deliveries SET done=false,attempts=0,next_attempt_at=now()")
             .execute(&pool)
             .await

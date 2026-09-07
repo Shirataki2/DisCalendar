@@ -124,3 +124,44 @@ it("別アカウントの購読が残っていても再登録の操作で復旧�
   );
   expect(fresh.unsubscribe).not.toHaveBeenCalled();
 });
+
+it.each([new Error("offline"), new ApiError(503, "unavailable", "retry")])(
+  "登録結果が不明な場合は新規購読を保持して同じ endpoint で再試行する (%s)",
+  async (error) => {
+    let current: unknown = null;
+    const subscription = {
+      options: {},
+      unsubscribe: vi.fn(),
+      toJSON: () => ({
+        endpoint: "https://fcm.googleapis.com/retained",
+        keys: { p256dh: "key", auth: "auth" },
+      }),
+    };
+    const subscribe = vi.fn().mockImplementation(async () => {
+      current = subscription;
+      return subscription;
+    });
+    vi.stubGlobal("Notification", {
+      requestPermission: vi.fn().mockResolvedValue("granted"),
+    });
+    vi.stubGlobal("navigator", {
+      serviceWorker: {
+        getRegistration: async () => ({
+          active: {},
+          pushManager: { getSubscription: async () => current, subscribe },
+        }),
+      },
+    });
+    vi.mocked(api.push.subscribe)
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce(undefined);
+    await expect(subscribeDevice("端末")).rejects.toBe(error);
+    expect(subscription.unsubscribe).not.toHaveBeenCalled();
+    await subscribeDevice("端末");
+    expect(subscribe).toHaveBeenCalledOnce();
+    expect(api.push.subscribe).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.push.subscribe).mock.calls[0]).toEqual(
+      vi.mocked(api.push.subscribe).mock.calls[1],
+    );
+  },
+);
