@@ -342,3 +342,32 @@ test.describe("通知10件の表示", () => {
     });
   });
 });
+
+test("複数日の終日範囲でも深夜の繰越を往復でき、時間指定の往復は日付を変えない", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date("2026-09-09T23:00:00+09:00"));
+  await page.goto(`/dashboard/${guildId}`);
+  await setCreationDefaults(page);
+  const first = await dayCell(page, new Date(2026, 8, 15)).boundingBox();
+  const last = await dayCell(page, new Date(2026, 8, 16)).boundingBox();
+  if (!first || !last) throw new Error("選択する日付が表示されていません");
+  await page.mouse.move(first.x + 12, first.y + 45);
+  await page.mouse.down();
+  await page.mouse.move(last.x + 12, last.y + 45, { steps: 15 });
+  await page.mouse.up();
+  const dialog = page.getByRole("dialog", { name: "予定を作成" });
+  const allDay = dialog.getByRole("checkbox", { name: "終日", exact: true });
+  await expect(allDay).toBeChecked();
+  await expect(dialog.getByLabel("終了日")).toContainText("2026/09/16");
+  await allDay.uncheck();
+  await expect(dialog.getByLabel("終了日")).toContainText("2026/09/17");
+  await allDay.check();
+  await expect(dialog.getByLabel("終了日")).toContainText("2026/09/16");
+  await dialog.getByRole("button", { name: "キャンセル" }).click();
+  await page.getByRole("button", { name: "新規作成" }).click();
+  await expect(dialog.getByLabel("終了日")).toContainText("2026/09/10");
+  await allDay.check();
+  await allDay.uncheck();
+  await expect(dialog.getByLabel("終了日")).toContainText("2026/09/10");
+});

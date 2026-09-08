@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { addDays, isBefore, isSameDay } from "date-fns";
+import { addDays, isBefore } from "date-fns";
 import { useEffect, useRef, useState } from "react";
 import {
   type Control,
@@ -282,13 +282,10 @@ function EventForm({
                     id="event-form-all-day"
                     checked={field.value}
                     onCheckedChange={(checked) => {
-                      // 単日の終日予定を時間指定に戻すとき、深夜をまたぐ既定時間の終了日を補う。
+                      // 終日から始めたフォームの既定時刻だけ繰り越す。時間指定の既存日時には加算しない。
                       if (
                         !checked &&
-                        isSameDay(
-                          getValues("startDate"),
-                          getValues("endDate"),
-                        ) &&
+                        initialValues.isAllDay &&
                         getValues("endTime") < getValues("startTime")
                       ) {
                         endDateBeforeRollover.current = getValues("endDate");
