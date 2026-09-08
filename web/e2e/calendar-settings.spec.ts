@@ -260,6 +260,11 @@ for (const hasTouch of [false, true]) {
         .uncheck();
       await expect(dialog.getByLabel("開始時刻")).toHaveValue("23:00");
       await expect(dialog.getByLabel("終了時刻")).toHaveValue("00:00");
+      await dialog.getByRole("checkbox", { name: "終日", exact: true }).check();
+      await expect(dialog.getByLabel("終了日")).toContainText(`2026/09/${day}`);
+      await dialog
+        .getByRole("checkbox", { name: "終日", exact: true })
+        .uncheck();
       await dialog.getByLabel("タイトル").fill(`深夜の既定値 ${hasTouch}`);
       const response = page.waitForResponse(
         (res) =>

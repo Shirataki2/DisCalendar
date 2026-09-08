@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { addDays, isBefore, isSameDay } from "date-fns";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type Control,
   Controller,
@@ -162,6 +162,7 @@ function EventForm({
     control,
     name: ["isAllDay", "name", "description", "startDate", "startTime"],
   });
+  const endDateBeforeRollover = useRef<Date | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Discord 連携 (#94): 開始が過去 (現在を含む) だと Discord はイベントを作れない。
@@ -191,6 +192,7 @@ function EventForm({
 
   // 開始日を終了日より後にしたら終了日も合わせる (旧フォームの onStartDateChanged)
   const handleStartDateChange = (date: Date) => {
+    endDateBeforeRollover.current = null;
     setValue("startDate", date, { shouldDirty: true, shouldValidate: true });
     if (isBefore(getValues("endDate"), date)) {
       setValue("endDate", date, { shouldDirty: true, shouldValidate: true });
@@ -289,9 +291,17 @@ function EventForm({
                         ) &&
                         getValues("endTime") < getValues("startTime")
                       ) {
+                        endDateBeforeRollover.current = getValues("endDate");
                         setValue("endDate", addDays(getValues("endDate"), 1), {
                           shouldDirty: true,
                         });
+                      }
+                      if (checked && endDateBeforeRollover.current) {
+                        // 日付を手で変えていなければ、自動補完だけを取り消す。
+                        setValue("endDate", endDateBeforeRollover.current, {
+                          shouldDirty: true,
+                        });
+                        endDateBeforeRollover.current = null;
                       }
                       field.onChange(checked);
                     }}
@@ -311,7 +321,10 @@ function EventForm({
                   <DatePicker
                     id="event-form-end-date"
                     value={field.value}
-                    onChange={field.onChange}
+                    onChange={(date) => {
+                      endDateBeforeRollover.current = null;
+                      field.onChange(date);
+                    }}
                     invalid={!!errors.endDate}
                   />
                 )}
