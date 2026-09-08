@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { isBefore } from "date-fns";
+import { addDays, isBefore, isSameDay } from "date-fns";
 import { useEffect, useState } from "react";
 import {
   type Control,
@@ -279,7 +279,22 @@ function EventForm({
                   <Checkbox
                     id="event-form-all-day"
                     checked={field.value}
-                    onCheckedChange={(checked) => field.onChange(checked)}
+                    onCheckedChange={(checked) => {
+                      // 単日の終日予定を時間指定に戻すとき、深夜をまたぐ既定時間の終了日を補う。
+                      if (
+                        !checked &&
+                        isSameDay(
+                          getValues("startDate"),
+                          getValues("endDate"),
+                        ) &&
+                        getValues("endTime") < getValues("startTime")
+                      ) {
+                        setValue("endDate", addDays(getValues("endDate"), 1), {
+                          shouldDirty: true,
+                        });
+                      }
+                      field.onChange(checked);
+                    }}
                   />
                 )}
               />

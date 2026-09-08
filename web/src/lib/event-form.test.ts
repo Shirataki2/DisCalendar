@@ -314,12 +314,12 @@ describe("newEventFormValues", () => {
     ]);
   });
 
-  it("終了がなければ 1 時間後", () => {
+  it("終了がなければ 30 分後", () => {
     expect(newEventFormValues(day(23, 23, 30), null, false)).toMatchObject({
       startDate: day(23),
       startTime: "23:30",
       endDate: day(24),
-      endTime: "00:30",
+      endTime: "00:00",
     });
   });
 
@@ -370,5 +370,55 @@ describe("defaultEventFormValues", () => {
     // 初期値はフォームの値として複製する (設定のキャッシュをフォームが書き換えない)
     const values = defaultEventFormValues(day(23), thirty);
     expect(values.notifications[0]).not.toBe(thirty[0]);
+  });
+});
+
+describe("個人設定を使った新規作成", () => {
+  const defaults = {
+    defaultColor: "#2196F3",
+    defaultDurationMinutes: 60 as const,
+    defaultNotifications: [],
+  };
+  it("個人通知はサーバーより優先し、日付をまたいで1時間後にする", () => {
+    expect(
+      defaultEventFormValues(
+        day(23, 23, 45),
+        [{ num: 1, unit: "days" }],
+        defaults,
+      ),
+    ).toMatchObject({
+      color: "#2196F3",
+      notifications: [],
+      startTime: "23:00",
+      endDate: day(24),
+      endTime: "00:00",
+    });
+  });
+  it("範囲選択は終了を優先する", () => {
+    expect(
+      newEventFormValues(day(23, 9), day(23, 12), false, undefined, defaults)
+        .endTime,
+    ).toBe("12:00");
+    expect(
+      newEventFormValues(day(23, 9), null, false, undefined, defaults).endTime,
+    ).toBe("10:00");
+  });
+  it("個人未指定ならサーバー通知、サーバー未取得なら従来値を使う", () => {
+    const inherited = { ...defaults, defaultNotifications: null };
+    expect(
+      defaultEventFormValues(day(23), [], inherited).notifications,
+    ).toEqual([]);
+    expect(
+      defaultEventFormValues(day(23), undefined, inherited).notifications,
+    ).toHaveLength(2);
+  });
+  it("個人通知もコピーする", () => {
+    const notifications = [{ num: 30, unit: "minutes" as const }];
+    const values = defaultEventFormValues(day(23), undefined, {
+      ...defaults,
+      defaultNotifications: notifications,
+    });
+    expect(values.notifications).toEqual(notifications);
+    expect(values.notifications[0]).not.toBe(notifications[0]);
   });
 });

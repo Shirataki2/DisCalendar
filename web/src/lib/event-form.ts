@@ -1,5 +1,4 @@
 import {
-  addHours,
   addMinutes,
   format,
   isBefore,
@@ -93,6 +92,28 @@ export const notificationSchema = z.object({
   ] as const satisfies readonly NotificationUnit[]),
 });
 
+/** 色・通知の検証は予定と個人設定で共用する。 */
+export const colorSchema = z
+  .string()
+  .regex(HEX_COLOR_PATTERN, "色は #RRGGBB 形式で指定してください");
+export const notificationsSchema = z
+  .array(notificationSchema)
+  .max(NOTIFICATIONS_MAX, `通知は${NOTIFICATIONS_MAX}件まで設定できます`);
+export const EVENT_DURATION_MINUTES = [30, 60, 90, 120, 180] as const;
+export const eventCreationDefaultsSchema = z.object({
+  defaultColor: colorSchema,
+  defaultNotifications: notificationsSchema.nullable(),
+  defaultDurationMinutes: z.union(
+    EVENT_DURATION_MINUTES.map((minutes) => z.literal(minutes)),
+  ),
+});
+export type EventCreationDefaults = z.infer<typeof eventCreationDefaultsSchema>;
+export const DEFAULT_EVENT_CREATION_SETTINGS: EventCreationDefaults = {
+  defaultColor: DEFAULT_COLOR,
+  defaultNotifications: null,
+  defaultDurationMinutes: 30,
+};
+
 export const eventFormSchema = z
   .object({
     name: z
@@ -110,12 +131,8 @@ export const eventFormSchema = z
     endDate: z.date({ error: "終了日を選択してください" }),
     /** "HH:mm"。終日のときは使わない */
     endTime: z.string(),
-    color: z
-      .string()
-      .regex(HEX_COLOR_PATTERN, "色は #RRGGBB 形式で指定してください"),
-    notifications: z
-      .array(notificationSchema)
-      .max(NOTIFICATIONS_MAX, `通知は${NOTIFICATIONS_MAX}件まで設定できます`),
+    color: colorSchema,
+    notifications: notificationsSchema,
     description: z
       .string()
       .max(
@@ -269,36 +286,42 @@ export function eventToFormValues(event: ApiEvent): EventFormValues {
  * カレンダー上で範囲選択したときの初期値。
  * end は FullCalendar 流儀の「含まない」(終日なら翌日 0:00) なので、終日は 1 日戻す。
  * `defaultNotifications` はサーバー設定の「新しい予定の既定の事前通知」(#181)。
- * 渡されなければ (管理コンソールなど) 旧フォームの既定を使う
+ * 個人設定に通知の指定があれば優先し、両方未指定なら従来の既定を使う
  */
 export function newEventFormValues(
   start: Date,
   end: Date | null,
   allDay: boolean,
   defaultNotifications: readonly Notification[] = DEFAULT_NOTIFICATIONS,
+  defaults: EventCreationDefaults = DEFAULT_EVENT_CREATION_SETTINGS,
 ): EventFormValues {
   const base = {
     name: "",
     description: "",
-    color: DEFAULT_COLOR,
-    notifications: defaultNotifications.map(({ num, unit }) => ({ num, unit })),
+    color: defaults.defaultColor,
+    notifications: (defaults.defaultNotifications ?? defaultNotifications).map(
+      ({ num, unit }) => ({ num, unit }),
+    ),
     isAllDay: allDay,
     discordEvent: false,
   };
   if (allDay) {
     const first = startOfDay(start);
     const last = end ? subDays(startOfDay(end), 1) : first;
-    // 「終日」を外したときのために、時刻は旧フォームと同じ既定 (今の HH:00 〜 HH:30) を入れておく
+    // 終日の日付範囲は維持し、解除時に使う時刻だけ個人設定の長さにする
     const now = startOfHour(new Date());
     return {
       ...base,
       startDate: first,
       endDate: max([first, last]),
       startTime: format(now, "HH:mm"),
-      endTime: format(addMinutes(now, 30), "HH:mm"),
+      endTime: format(
+        addMinutes(now, defaults.defaultDurationMinutes),
+        "HH:mm",
+      ),
     };
   }
-  const endAt = end ?? addHours(start, 1);
+  const endAt = end ?? addMinutes(start, defaults.defaultDurationMinutes);
   return {
     ...base,
     startDate: startOfDay(start),
@@ -308,16 +331,12 @@ export function newEventFormValues(
   };
 }
 
-/** 「新規作成」ボタンからの既定値 (旧フォーム: 今日の HH:00 〜 HH:30) */
+/** 「新規作成」ボタンの初期値。今の正時から個人設定の長さ (未指定なら30分)。 */
 export function defaultEventFormValues(
   now = new Date(),
   defaultNotifications?: readonly Notification[],
+  defaults: EventCreationDefaults = DEFAULT_EVENT_CREATION_SETTINGS,
 ): EventFormValues {
   const start = startOfHour(now);
-  return newEventFormValues(
-    start,
-    addMinutes(start, 30),
-    false,
-    defaultNotifications,
-  );
+  return newEventFormValues(start, null, false, defaultNotifications, defaults);
 }
