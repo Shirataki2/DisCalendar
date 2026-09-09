@@ -1,10 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { calendarToday, createEvent, dayCell, eventOn } from "./calendar";
+import {
+  calendarToday,
+  createEvent,
+  dayCell,
+  eventOn,
+  neighborDay,
+} from "./calendar";
 import { E2E_GUILDS } from "./fixtures";
 
 // モバイル (タッチ操作) のカレンダー UX (#14)。
 // スマホ相当のビューポート + タッチイベントで、タップがデスクトップのクリックと同じ入口
-// (日付タップ → 作成ダイアログ、予定タップ → 概要ポップオーバー) につながることを確認する。
+// (日付タップ → クイック追加、予定タップ → 概要ポップオーバー) につながることを確認する。
 // タッチでは日付の select が長押し必須なので、タップは dateClick (タッチのときだけ有効) で拾っている。
 // 長押しドラッグでの移動・リサイズは Playwright のタッチ API では再現できないため実機確認に委ねる
 
@@ -14,30 +20,44 @@ test.use({ viewport: { width: 375, height: 812 }, hasTouch: true });
 const stamp = Date.now().toString(36);
 const title = `E2E モバイル ${stamp}`;
 
-/** DatePicker のボタンに出る "yyyy/MM/dd" 部分 */
+/** クイック追加の期間に出る "yyyy/MM/dd" */
 function formatSlash(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${date.getFullYear()}/${m}/${d}`;
 }
 
-test("日付をタップすると、その日を開始日にした作成ダイアログが開く", async ({
-  page,
-}) => {
+test("日付をタップすると、その日のクイック追加が開く", async ({ page }) => {
   await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
   await expect(page.getByRole("grid")).toBeVisible();
 
   const today = await calendarToday(page);
   await dayCell(page, today).tap();
 
-  const dialog = page.getByRole("dialog", { name: "予定を作成" });
-  await expect(dialog).toBeVisible();
-  // 月表示のタップなので終日の予定になる
-  await expect(dialog.getByLabel("開始日")).toContainText(formatSlash(today));
-  // getByLabel だと Base UI の checkbox と隠しネイティブ input の両方に当たるので role で絞る
-  await expect(dialog.getByRole("checkbox", { name: "終日" })).toBeChecked();
-  await dialog.getByRole("button", { name: "キャンセル" }).tap();
-  await expect(dialog).toBeHidden();
+  const quickAdd = page.getByRole("dialog", { name: "予定をクイック追加" });
+  await expect(quickAdd).toBeVisible();
+  await expect(quickAdd).toContainText(formatSlash(today));
+  await expect(quickAdd.getByLabel("タイトル")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(quickAdd).toBeHidden();
+
+  await dayCell(page, today).tap();
+  await quickAdd.getByLabel("タイトル").fill("破棄するモバイル予定");
+  const anotherDay = await neighborDay(page, today);
+  const outside = await dayCell(page, anotherDay).boundingBox();
+  if (!outside) throw new Error("タップ先の日付が表示されていません");
+  await page.touchscreen.tap(outside.x + 12, outside.y + 45);
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  await expect(quickAdd).toBeHidden();
+  await expect(eventOn(page, "破棄するモバイル予定")).toHaveCount(0);
+
+  await dayCell(page, anotherDay).tap();
+  await expect(quickAdd).toContainText(formatSlash(anotherDay));
 });
 
 test("予定をタップすると概要ポップオーバーが開き、タッチで削除まで行える", async ({
@@ -61,7 +81,7 @@ test("予定をタップすると概要ポップオーバーが開き、タッ�
   await expect(eventOn(page, title)).toHaveCount(0);
 });
 
-test("編集権限がないギルドでは日付をタップしても作成ダイアログが開かない", async ({
+test("編集権限がないギルドでは日付をタップしてもクイック追加が開かない", async ({
   page,
 }) => {
   await page.goto(`/dashboard/${E2E_GUILDS.member.id}`);

@@ -12,12 +12,16 @@ import { E2E_GUILDS } from "./fixtures";
 
 test.describe.configure({ mode: "serial" });
 
-/** 明日のセルから作成ダイアログを開く (終日予定になり、開始が未来なので連携できる) */
+/** 明日のセルから詳細作成ダイアログを開く (終日予定になり、開始が未来なので連携できる) */
 async function openCreateDialog(page: Page) {
   const tomorrow = addDays(await calendarToday(page), 1);
   const box = await dayCell(page, tomorrow).boundingBox();
   if (!box) throw new Error("日付セルが表示されていません");
   await page.mouse.click(box.x + box.width / 2, box.y + box.height - 10);
+  await page
+    .getByRole("dialog", { name: "予定をクイック追加" })
+    .getByRole("button", { name: "詳細を入力" })
+    .click();
   const dialog = page.getByRole("dialog", { name: "予定を作成" });
   await expect(dialog).toBeVisible();
   return dialog;
