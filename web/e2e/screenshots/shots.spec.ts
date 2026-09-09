@@ -108,6 +108,10 @@ test.describe("ダイアログ", () => {
     const cell = await dayCell(page, tomorrow).boundingBox();
     if (!cell) throw new Error("翌日のセルが表示されていません");
     await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height - 10);
+    await page
+      .getByRole("dialog", { name: "予定をクイック追加" })
+      .getByRole("button", { name: "詳細を入力" })
+      .click();
 
     const dialog = page.getByRole("dialog", { name: "予定を作成" });
     await expect(dialog).toBeVisible();

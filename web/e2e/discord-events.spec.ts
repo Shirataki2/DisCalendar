@@ -18,13 +18,17 @@ const stamp = Date.now().toString(36);
 const linkedTitle = `E2E Discord 連携 ${stamp}`;
 
 /**
- * 日付セルの下端付近をクリックして作成ダイアログを開く
+ * 日付セルの下端付近をクリックして詳細作成ダイアログを開く
  * (セルの中央だと、他のテストが同じ日に置いた予定に当たることがある)
  */
 async function clickDayCell(page: Page, date: Date) {
   const box = await dayCell(page, date).boundingBox();
   if (!box) throw new Error("日付セルが表示されていません");
   await page.mouse.click(box.x + box.width / 2, box.y + box.height - 10);
+  await page
+    .getByRole("dialog", { name: "予定をクイック追加" })
+    .getByRole("button", { name: "詳細を入力" })
+    .click();
 }
 
 test("チェックを入れて作成すると連携され、編集ダイアログを開き直してもチェックが残る", async ({

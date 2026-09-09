@@ -251,6 +251,10 @@ for (const hasTouch of [false, true]) {
       const cell = dayCell(page, new Date(2026, 8, day));
       if (hasTouch) await cell.tap({ position: { x: 12, y: 45 } });
       else await cell.click({ position: { x: 12, y: 45 } });
+      await page
+        .getByRole("dialog", { name: "予定をクイック追加" })
+        .getByRole("button", { name: "詳細を入力" })
+        .click();
       const dialog = page.getByRole("dialog", { name: "予定を作成" });
       await expect(
         dialog.getByRole("checkbox", { name: "終日", exact: true }),
@@ -296,6 +300,10 @@ test("時間枠のクリックは1時間、ドラッグは選んだ範囲を使�
   const x = box.x + box.width / 2;
   const y = box.y + box.height / 4;
   await page.mouse.click(x, y);
+  await page
+    .getByRole("dialog", { name: "予定をクイック追加" })
+    .getByRole("button", { name: "詳細を入力" })
+    .click();
   const dialog = page.getByRole("dialog", { name: "予定を作成" });
   await expect(dialog.getByLabel("開始時刻")).toHaveValue("10:00");
   await expect(dialog.getByLabel("終了時刻")).toHaveValue("11:00");
@@ -311,6 +319,10 @@ test("時間枠のクリックは1時間、ドラッグは選んだ範囲を使�
   // 15分刻みなので、11:30の枠まで選ぶと終了は11:45になる。
   await page.mouse.move(x, target.y + target.height / 4, { steps: 15 });
   await page.mouse.up();
+  await page
+    .getByRole("dialog", { name: "予定をクイック追加" })
+    .getByRole("button", { name: "詳細を入力" })
+    .click();
   await expect(dialog.getByLabel("開始時刻")).toHaveValue("10:00");
   await expect(dialog.getByLabel("終了時刻")).toHaveValue("11:45");
 });
@@ -356,6 +368,10 @@ test("複数日の終日範囲でも深夜の繰越を往復でき、時間指�
   await page.mouse.down();
   await page.mouse.move(last.x + 12, last.y + 45, { steps: 15 });
   await page.mouse.up();
+  await page
+    .getByRole("dialog", { name: "予定をクイック追加" })
+    .getByRole("button", { name: "詳細を入力" })
+    .click();
   const dialog = page.getByRole("dialog", { name: "予定を作成" });
   const allDay = dialog.getByRole("checkbox", { name: "終日", exact: true });
   await expect(allDay).toBeChecked();
