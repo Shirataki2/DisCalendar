@@ -11,7 +11,13 @@ import Calendar, {
 } from "@fullcalendar/react";
 import { addDays } from "date-fns";
 import { PlusIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   calendarBaseOptions,
   datesSetToRange,
@@ -40,7 +46,10 @@ import {
   PopoverDescription,
   PopoverTitle,
 } from "@/components/ui/popover";
-import { readCalendarSettings } from "@/hooks/use-calendar-settings";
+import {
+  readCalendarSettings,
+  useCalendarSettings,
+} from "@/hooks/use-calendar-settings";
 import { useCalendarShortcuts } from "@/hooks/use-calendar-shortcuts";
 import { useLastValue } from "@/hooks/use-last-value";
 import { describeApiError } from "@/lib/api";
@@ -216,6 +225,7 @@ export function EventCalendar({
   eventsSource = dashboardEventsSource,
   discordSync,
 }: Props) {
+  const { settings } = useCalendarSettings();
   const calendarRef = useRef<CalendarRef>(null);
   const quickAddId = useRef(0);
   const [range, setRange] = useState<EventRange | null>(null);
@@ -459,7 +469,14 @@ export function EventCalendar({
         )}
       </div>
       {/* calendar-shell は globals.css の微調整の起点 (FullCalendar のクラス名はハッシュで指せない) */}
-      <div className="calendar-shell min-h-0 flex-1">
+      <div
+        className="calendar-shell min-h-0 flex-1"
+        style={
+          {
+            "--fc-classic-highlight": `color-mix(in srgb, ${settings.defaultColor} 20%, transparent)`,
+          } as CSSProperties
+        }
+      >
         {initialView && (
           <Calendar
             ref={calendarRef}
@@ -472,6 +489,7 @@ export function EventCalendar({
             editable={canEdit}
             selectable={canEdit}
             selectMirror
+            eventColor={settings.defaultColor}
             datesSet={handleDatesSet}
             selectMinDistance={5}
             select={handleSelect}
