@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { calendarToday, createEvent, dayCell, eventOn } from "./calendar";
+import {
+  calendarToday,
+  createEvent,
+  dayCell,
+  eventOn,
+  neighborDay,
+} from "./calendar";
 import { E2E_GUILDS } from "./fixtures";
 
 // モバイル (タッチ操作) のカレンダー UX (#14)。
@@ -34,6 +40,24 @@ test("日付をタップすると、その日のクイック追加が開く", as
   await expect(quickAdd.getByLabel("タイトル")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(quickAdd).toBeHidden();
+
+  await dayCell(page, today).tap();
+  await quickAdd.getByLabel("タイトル").fill("破棄するモバイル予定");
+  const anotherDay = await neighborDay(page, today);
+  const outside = await dayCell(page, anotherDay).boundingBox();
+  if (!outside) throw new Error("タップ先の日付が表示されていません");
+  await page.touchscreen.tap(outside.x + 12, outside.y + 45);
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  await expect(quickAdd).toBeHidden();
+  await expect(eventOn(page, "破棄するモバイル予定")).toHaveCount(0);
+
+  await dayCell(page, anotherDay).tap();
+  await expect(quickAdd).toContainText(formatSlash(anotherDay));
 });
 
 test("予定をタップすると概要ポップオーバーが開き、タッチで削除まで行える", async ({

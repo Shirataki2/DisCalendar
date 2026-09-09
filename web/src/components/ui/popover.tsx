@@ -20,14 +20,16 @@ function PopoverContent({
   side = "bottom",
   sideOffset = 4,
   anchor,
+  backdrop = false,
   ...props
 }: PopoverPrimitive.Popup.Props &
   Pick<
     PopoverPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset" | "anchor"
-  >) {
+  > & { backdrop?: boolean }) {
   return (
     <PopoverPrimitive.Portal>
+      {backdrop && <PopoverPrimitive.Backdrop className="fixed inset-0 z-40" />}
       <PopoverPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}

@@ -59,11 +59,10 @@ test("月の日付をクリックしてタイトルを Enter で作成できる"
   await expect(eventOn(dayCell(page, today), title)).toBeVisible();
 });
 
-test("空のタイトルを検証し、Esc と別の日付の選択で取り消せる", async ({
+test("空のタイトルを検証し、Esc と外部クリックで取り消せる", async ({
   page,
 }) => {
   const today = await calendarToday(page);
-  const anotherDay = await neighborDay(page, today);
   const quickAdd = page.getByRole("dialog", { name: "予定をクイック追加" });
 
   await dayCell(page, today).click({ position: { x: 12, y: 45 } });
@@ -80,15 +79,38 @@ test("空のタイトルを検証し、Esc と別の日付の選択で取り消�
   await page.keyboard.press("Escape");
   await expect(quickAdd).toBeHidden();
 
-  await dayCell(page, today).click({ position: { x: 12, y: 45 } });
+  await page.getByRole("tab", { name: "日", exact: true }).click();
+  const startSlot = page.locator('[data-time="10:00:00"]').last();
+  await startSlot.scrollIntoViewIfNeeded();
+  const start = await startSlot.boundingBox();
+  const end = await page.locator('[data-time="10:30:00"]').last().boundingBox();
+  const outside = await page
+    .locator('[data-time="11:00:00"]')
+    .last()
+    .boundingBox();
+  if (!start || !end || !outside)
+    throw new Error("選択する時間枠が表示されていません");
+
+  const x = start.x + start.width / 2;
+  await page.mouse.move(x, start.y + start.height / 4);
+  await page.mouse.down();
+  await page.mouse.move(x, end.y + end.height / 4, { steps: 15 });
+  await page.mouse.up();
   await quickAdd.getByLabel("タイトル").fill("破棄するタイトル");
-  await expect(eventOn(dayCell(page, today), "破棄するタイトル")).toBeVisible();
-  await dayCell(page, anotherDay).click({ position: { x: 12, y: 45 } });
-  await expect(eventOn(page, "破棄するタイトル")).toHaveCount(0);
-  await expect(quickAdd.getByLabel("タイトル")).toHaveValue("");
-  await expect(quickAdd).toContainText(
-    isoDate(anotherDay).replaceAll("-", "/"),
+  await expect(eventOn(page, "破棄するタイトル")).toBeVisible();
+  const outsideX = outside.x + outside.width - 40;
+  await page.mouse.click(outsideX, outside.y + outside.height / 4);
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
   );
+  await expect(eventOn(page, "破棄するタイトル")).toHaveCount(0);
+  await expect(quickAdd).toBeHidden();
+
+  await page.mouse.click(outsideX, outside.y + outside.height / 4);
+  await expect(quickAdd).toBeVisible();
 });
 
 test("詳細入力へタイトルと日時を引き継ぐ", async ({ page }) => {

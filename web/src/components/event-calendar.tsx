@@ -155,6 +155,7 @@ function QuickAddPopover({
       }}
     >
       <PopoverContent
+        backdrop
         anchor={state.anchor}
         align="start"
         sideOffset={8}
