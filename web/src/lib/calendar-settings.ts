@@ -1,3 +1,9 @@
+import {
+  DEFAULT_EVENT_CREATION_SETTINGS,
+  type EventCreationDefaults,
+  eventCreationDefaultsSchema,
+} from "@/lib/event-form";
+
 /**
  * カレンダーの表示設定 (#96)。テーマ (#58) と同じ「ブラウザに記憶する個人設定」で、
  * localStorage に端末ごとに保存する (DB には持たない)。
@@ -31,13 +37,14 @@ export type CalendarInitialView = CalendarView | "last";
 /** 週の開始曜日 (FullCalendar の firstDay)。0 = 日曜、1 = 月曜 */
 export type CalendarFirstDay = 0 | 1;
 
-export interface CalendarSettings {
+export interface CalendarSettings extends EventCreationDefaults {
   initialView: CalendarInitialView;
   firstDay: CalendarFirstDay;
 }
 
 /** 既定値は設定を追加する前の挙動 (月表示・日曜始まり) と同じにする */
 export const DEFAULT_CALENDAR_SETTINGS: CalendarSettings = {
+  ...DEFAULT_EVENT_CREATION_SETTINGS,
   initialView: "dayGridMonth",
   firstDay: 0,
 };
@@ -71,13 +78,32 @@ export function parseCalendarSettings(raw: string | null): CalendarSettings {
     return settings;
   }
   if (typeof parsed !== "object" || parsed === null) return settings;
-  const { initialView, firstDay } = parsed as Record<string, unknown>;
+  const {
+    initialView,
+    firstDay,
+    defaultColor,
+    defaultNotifications,
+    defaultDurationMinutes,
+  } = parsed as Record<string, unknown>;
   if (initialView === "last" || isCalendarView(initialView)) {
     settings.initialView = initialView;
   }
   if (firstDay === 0 || firstDay === 1) {
     settings.firstDay = firstDay;
   }
+  const color =
+    eventCreationDefaultsSchema.shape.defaultColor.safeParse(defaultColor);
+  const notifications =
+    eventCreationDefaultsSchema.shape.defaultNotifications.safeParse(
+      defaultNotifications,
+    );
+  const duration =
+    eventCreationDefaultsSchema.shape.defaultDurationMinutes.safeParse(
+      defaultDurationMinutes,
+    );
+  if (color.success) settings.defaultColor = color.data;
+  if (notifications.success) settings.defaultNotifications = notifications.data;
+  if (duration.success) settings.defaultDurationMinutes = duration.data;
   return settings;
 }
 

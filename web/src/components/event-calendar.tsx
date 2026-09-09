@@ -31,6 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { readCalendarSettings } from "@/hooks/use-calendar-settings";
 import { useCalendarShortcuts } from "@/hooks/use-calendar-shortcuts";
 import { useLastValue } from "@/hooks/use-last-value";
 import { describeApiError } from "@/lib/api";
@@ -164,9 +165,15 @@ export function EventCalendar({
     setDialog({ mode: "create", values });
   };
 
-  // 「新規作成」ボタンとショートカットからの初期値 (事前通知はサーバー設定の既定、#181)
+  // 「新規作成」ボタンとショートカットからの初期値。操作時点の個人設定を使う。
   const openCreateDefault = () =>
-    openCreate(defaultEventFormValues(new Date(), defaultNotifications));
+    openCreate(
+      defaultEventFormValues(
+        new Date(),
+        defaultNotifications,
+        readCalendarSettings(),
+      ),
+    );
 
   // キーボードショートカット (#160)。"n" は「新規作成」ボタンと同じで、閲覧のみなら効かない
   useCalendarShortcuts({
@@ -182,21 +189,23 @@ export function EventCalendar({
         info.end,
         info.allDay,
         defaultNotifications,
+        readCalendarSettings(),
       ),
     );
   };
 
-  // タッチのタップで日付から作成する (#14)。タッチでは select が長押し必須なので、タップは dateClick で拾う。
-  // マウスのクリックは select が拾うので、ここで扱うと二重に開いてしまう (jsEvent の実体はタッチ由来なら
-  // TouchEvent)。dateClick は selectable と無関係に発火するため、編集可否も自前で確認する
+  // クリックは終了未指定、ドラッグは select の範囲を使う。
+  // selectMinDistance で単なるクリックによる select の二重発火を避ける。
   const handleDateClick = (info: DateClickInfo) => {
     if (!canEdit) return;
-    if (
-      !(typeof TouchEvent !== "undefined" && info.jsEvent instanceof TouchEvent)
-    )
-      return;
     openCreate(
-      newEventFormValues(info.date, null, info.allDay, defaultNotifications),
+      newEventFormValues(
+        info.date,
+        null,
+        info.allDay,
+        defaultNotifications,
+        readCalendarSettings(),
+      ),
     );
   };
 
@@ -290,6 +299,7 @@ export function EventCalendar({
             selectable={canEdit}
             selectMirror
             datesSet={handleDatesSet}
+            selectMinDistance={5}
             select={handleSelect}
             dateClick={handleDateClick}
             eventClick={handleEventClick}
