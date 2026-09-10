@@ -62,8 +62,12 @@ test("共有の発行・匿名閲覧・編集・失効・削除と認可", async
     expect(html).toContain('name="robots" content="noindex, nofollow"');
     const imageUrl = html.match(/property="og:image" content="([^"]+)"/)?.[1];
     expect(imageUrl).toBeTruthy();
-    expect(imageUrl).toMatch(/^https:\/\/discalendar\.app\/share\//);
-    const imagePath = new URL(imageUrl as string).pathname;
+    const { origin, pathname: imagePath } = new URL(imageUrl as string);
+    expect(imagePath).toBe(`${publicPath}/opengraph-image`);
+    // next dev は metadataBase より localhost を優先するため、本番ホストは CI で検証する。
+    if (process.env.CI) {
+      expect(origin).toBe("https://discalendar.app");
+    }
     const image = await anonymous.get(imagePath);
     expect(image.status()).toBe(200);
     expect(image.headers()["content-type"]).toContain("image/png");
