@@ -141,3 +141,32 @@ pub async fn list_all_future(pool: &PgPool, now: NaiveDateTime) -> sqlx::Result<
     .fetch_all(pool)
     .await
 }
+
+/// JST の期間 [start, end) に重なる予定。終日予定の終了日は含む。
+pub async fn list_period(
+    pool: &PgPool,
+    guild_id: &str,
+    start: NaiveDateTime,
+    end: NaiveDateTime,
+) -> sqlx::Result<Vec<Event>> {
+    sqlx::query_as!(Event, r#"
+        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        FROM events WHERE guild_id = $1 AND start_at < $3
+          AND (end_at > $2 OR (end_at = $2 AND (is_all_day OR start_at = end_at)))
+        ORDER BY start_at, id
+    "#, guild_id, start, end).fetch_all(pool).await
+}
+
+/// 現在以降で最も早い開始時刻の予定を、同時刻の分も全て取得する。
+pub async fn list_next(
+    pool: &PgPool,
+    guild_id: &str,
+    now: NaiveDateTime,
+) -> sqlx::Result<Vec<Event>> {
+    sqlx::query_as!(Event, r#"
+        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        FROM events WHERE guild_id = $1
+          AND start_at = (SELECT MIN(start_at) FROM events WHERE guild_id = $1 AND start_at >= $2)
+        ORDER BY start_at, id
+    "#, guild_id, now).fetch_all(pool).await
+}

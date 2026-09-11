@@ -1,3 +1,4 @@
+use chrono::{Datelike, Duration, NaiveDateTime};
 use poise::serenity_prelude::CreateEmbed;
 
 use super::format_datetime;
@@ -30,9 +31,15 @@ pub async fn list(
     // DB を読む前に「処理中」を返し、3 秒の初回応答期限を過ぎて interaction が失敗扱いになるのを防ぐ
     ctx.defer().await?;
 
+    let now = now_jst();
     let events = match range {
-        EventRange::Past => events::list_past(pool, &guild_id, now_jst()).await?,
-        EventRange::Future => events::list_future(pool, &guild_id, now_jst()).await?,
+        EventRange::Past => events::list_past(pool, &guild_id, now).await?,
+        EventRange::Future => events::list_future(pool, &guild_id, now).await?,
+        EventRange::Today | EventRange::Week => {
+            let (start, end) = range.period(now);
+            events::list_period(pool, &guild_id, start, end).await?
+        }
+        EventRange::Next => events::list_next(pool, &guild_id, now).await?,
         EventRange::All => events::list_all(pool, &guild_id).await?,
     };
     if events.is_empty() {
@@ -77,11 +84,31 @@ pub enum EventRange {
     Future,
     #[name = "全て"]
     All,
+    #[name = "今日"]
+    Today,
+    #[name = "今週"]
+    Week,
+    #[name = "次の予定"]
+    Next,
 }
 
 impl EventRange {
+    /// JST の月曜始まり。終了境界は翌日または翌週月曜の 0 時。
+    fn period(self, now: NaiveDateTime) -> (NaiveDateTime, NaiveDateTime) {
+        let midnight = now.date().and_time(chrono::NaiveTime::MIN);
+        if self == Self::Week {
+            let start = midnight - Duration::days(now.weekday().num_days_from_monday().into());
+            (start, start + Duration::days(7))
+        } else {
+            (midnight, midnight + Duration::days(1))
+        }
+    }
+
     fn empty_message(self) -> &'static str {
         match self {
+            Self::Today => "今日の予定はありません",
+            Self::Week => "今週の予定はありません",
+            Self::Next => "これから開催される予定はありません",
             Self::Past => "過去の予定はありません",
             Self::Future => "これから開催される予定はありません",
             Self::All => "登録されている予定はありません",
@@ -94,6 +121,21 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn periods_use_jst_midnight_and_monday_across_years() {
+        for now in ["2026-12-28T00:00:00", "2027-01-03T23:59:59"] {
+            let (start, end) = EventRange::Week.period(now.parse().unwrap());
+            assert_eq!(start, "2026-12-28T00:00:00".parse().unwrap());
+            assert_eq!(end, "2027-01-04T00:00:00".parse().unwrap());
+        }
+        let (start, end) = EventRange::Today.period("2026-12-31T23:59:59".parse().unwrap());
+        assert_eq!(start, "2026-12-31T00:00:00".parse().unwrap());
+        assert_eq!(end, "2027-01-01T00:00:00".parse().unwrap());
+        for range in [EventRange::Today, EventRange::Week, EventRange::Next] {
+            assert!(range.empty_message().contains("予定はありません"));
+        }
+    }
 
     fn event(notifications: serde_json::Value, all_day: bool) -> Event {
         Event {

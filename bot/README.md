@@ -30,6 +30,11 @@ DisCalendar の Discord Bot (Rust / poise 0.6 / serenity 0.12 / sqlx 0.9 / Postg
 予定の保存形式 (タイムゾーンなしの JST、通知は `[{ "num": 30, "unit": "minutes" }]` の JSONB、
 終日予定は開始日 0:00 〜 終了日 0:00) は api (`api/README.md`) と同じで、`models/notifications.rs` が api 側と同じ読み書きを持つ。
 
+`/list range:今日` は JST の当日、`/list range:今週` は月曜から日曜に重なる予定を表示します。
+日付をまたぐ予定と終日予定（終了日を含む）も対象です。時刻付き予定は期間開始ちょうどに終了したものを除きます。
+`/list range:次の予定` は現在以降で最も開始が近い予定を、同時刻の分も全て表示します。
+対象がなければ日本語で案内し、多数あるときは従来のページ送りを使います。
+
 ## 旧実装からの変更点
 
 | 項目 | 旧 | 新 |
