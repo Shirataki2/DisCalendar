@@ -183,7 +183,10 @@ SQL の実行 (成功・失敗とも) と定型操作はすべて `admin_audit_l
 
 api と同じ DB と Bot トークンを使う。起動すると Discord に接続し、参加中のサーバーを `guilds` テーブルに反映する
 （Bot をサーバーに招待・退出させるとテーブルが更新される）。
-スラッシュコマンド (`/help` `/create` `/list` `/init` `/invite`) は、Bot のオーナーがテスト用サーバーで
+通知が届かない場合、管理権限を持つ利用者は `/settings` で通知先・開始時刻の通知・既定の事前通知と、Bot の現在の投稿権限を確認できます。
+結果は本人だけに表示され、設定変更やテスト投稿は行いません。取得できない情報は確認不能として案内し、権限が揃っていても通知配信全体の正常性を保証するものではありません。
+
+スラッシュコマンド (`/help` `/create` `/quick` `/list` `/init` `/settings` `/invite`) は、Bot のオーナーがテスト用サーバーで
 `@DisCalendar register` と送って「Register in guild」を押すと使えるようになる（詳細は [bot/README.md](bot/README.md)）。
 
 ```sh
