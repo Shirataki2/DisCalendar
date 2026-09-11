@@ -48,3 +48,21 @@ async fn editor_roles_match_api_authorization(pool: PgPool) {
         assert_eq!(config.can_edit_events(manager, &roles), expected);
     }
 }
+
+/// 確認画面を出してから保存するまでに設定が変わっても、保存直前の読み取りで拒否する。
+#[sqlx::test(migrations = "../api/migrations")]
+async fn creation_permission_reflects_settings_changed_during_confirmation(pool: PgPool) {
+    let roles = vec!["123".to_owned()];
+    assert!(
+        guild_config::get(&pool, GUILD)
+            .await
+            .unwrap()
+            .can_edit_events(false, &roles)
+    );
+    sqlx::query("INSERT INTO guild_config (guild_id, restricted, editor_role_ids) VALUES ($1, TRUE, ARRAY['456'])")
+        .bind(GUILD).execute(&pool).await.unwrap();
+    let config = guild_config::get(&pool, GUILD).await.unwrap();
+    assert!(!config.can_edit_events(false, &roles));
+    assert!(config.can_edit_events(true, &roles));
+    assert!(config.can_edit_events(false, &["456".to_owned()]));
+}
