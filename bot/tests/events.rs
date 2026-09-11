@@ -165,3 +165,92 @@ async fn reads_events_saved_by_web(pool: PgPool) {
         vec![Notification::new(1, NotificationUnit::Weeks)]
     );
 }
+
+#[sqlx::test(migrations = "../api/migrations")]
+async fn period_and_next_respect_boundaries_and_guild(pool: PgPool) {
+    let start = dt("2026-09-11T00:00:00");
+    let end = dt("2026-09-12T00:00:00");
+    assert!(
+        events::list_period(&pool, GUILD, start, end)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        events::list_next(&pool, GUILD, start)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    for (name, from, to, all_day) in [
+        (
+            "終了済み",
+            "2026-09-10T23:00:00",
+            "2026-09-11T00:00:00",
+            false,
+        ),
+        (
+            "日付またぎ",
+            "2026-09-10T23:00:00",
+            "2026-09-11T01:00:00",
+            false,
+        ),
+        (
+            "終日最終日",
+            "2026-09-10T00:00:00",
+            "2026-09-11T00:00:00",
+            true,
+        ),
+        (
+            "終日当日",
+            "2026-09-11T00:00:00",
+            "2026-09-11T00:00:00",
+            true,
+        ),
+        (
+            "同時刻",
+            "2026-09-11T00:00:00",
+            "2026-09-11T00:00:00",
+            false,
+        ),
+        ("翌日", "2026-09-12T00:00:00", "2026-09-12T01:00:00", false),
+    ] {
+        events::create(
+            &pool,
+            &NewEvent {
+                is_all_day: all_day,
+                ..new_event(GUILD, name, from, to)
+            },
+        )
+        .await
+        .unwrap();
+    }
+    events::create(
+        &pool,
+        &new_event(
+            OTHER_GUILD,
+            "他",
+            "2026-09-11T00:00:00",
+            "2026-09-11T01:00:00",
+        ),
+    )
+    .await
+    .unwrap();
+    let names = |events: Vec<events::Event>| events.into_iter().map(|e| e.name).collect::<Vec<_>>();
+    assert_eq!(
+        names(events::list_period(&pool, GUILD, start, end).await.unwrap()),
+        ["終日最終日", "日付またぎ", "終日当日", "同時刻"]
+    );
+    assert_eq!(
+        names(events::list_next(&pool, GUILD, start).await.unwrap()),
+        ["終日当日", "同時刻"]
+    );
+    assert_eq!(
+        names(
+            events::list_next(&pool, GUILD, start + chrono::Duration::seconds(1))
+                .await
+                .unwrap()
+        ),
+        ["翌日"]
+    );
+}
