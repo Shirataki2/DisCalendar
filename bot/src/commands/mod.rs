@@ -1,6 +1,6 @@
 //! スラッシュコマンド (旧 `commands/` 相当)。
 //!
-//! ユーザー向けのコマンド (help / create / list / init / invite) はスラッシュコマンドのみ。
+//! ユーザー向けのコマンド (help / create / quick / list / init / invite) はスラッシュコマンドのみ。
 //! 旧版の `cal ...` プレフィックスは MESSAGE_CONTENT 特権インテントがないとメッセージ本文が届かないので設けない。
 //! `register` (スラッシュコマンドの登録、オーナー専用) だけはメンション (`@DisCalendar register`) で呼ぶ
 //! プレフィックスコマンド (Bot 宛てのメンションがあるメッセージは本文が届く)
@@ -24,6 +24,7 @@ pub fn all() -> Vec<poise::Command<Data, BotError>> {
     vec![
         help::help(),
         create::create(),
+        create::quick(),
         list::list(),
         init::init(),
         invite::invite(),
@@ -57,7 +58,7 @@ mod tests {
             .collect();
         assert_eq!(
             slash.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-            ["help", "create", "list", "init", "invite"]
+            ["help", "create", "quick", "list", "init", "invite"]
         );
         for command in &slash {
             let description = command.description.as_deref().unwrap_or("");
@@ -105,10 +106,10 @@ mod tests {
                 );
             }
         }
-        // Discord に送る定義が組み立てられる (slash の 5 つ)
+        // Discord に送る定義が組み立てられる (slash の 6 つ)
         assert_eq!(
             poise::builtins::create_application_commands(&commands).len(),
-            5
+            6
         );
     }
 
@@ -152,7 +153,7 @@ mod tests {
                 "notify_4",
             ]
         );
-        for guild_only in ["list", "init"] {
+        for guild_only in ["quick", "list", "init"] {
             assert!(
                 commands
                     .iter()

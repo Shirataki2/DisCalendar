@@ -6,8 +6,8 @@
 //! ここで作った予定は web のカレンダーにそのまま表示される
 #![allow(clippy::too_many_arguments)]
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use poise::serenity_prelude::{CreateEmbed, Timestamp};
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use poise::serenity_prelude::{self as serenity, CreateEmbed, Timestamp};
 
 use super::format_datetime;
 use crate::{
@@ -79,12 +79,6 @@ pub async fn create(
     #[description = "事前通知 (3 つ目)"] notify_3: Option<NotifyBefore>,
     #[description = "事前通知 (4 つ目)"] notify_4: Option<NotifyBefore>,
 ) -> Result<(), BotError> {
-    let Some(guild_id) = ctx.guild_id() else {
-        return Err(BotError::user("このコマンドはサーバー内でのみ実行できます"));
-    };
-    let guild_id = guild_id.to_string();
-    let pool = &ctx.data().pool;
-
     // 入力の検証は I/O なしで済むので先に行う (エラーは本人にだけ見える初回応答になる)
     let input = EventInput {
         name,
@@ -105,6 +99,17 @@ pub async fn create(
     // defer 後の返信は公開メッセージになる (ephemeral 指定は初回応答の種別に従う) が、
     // 保存だけ成功して利用者には失敗に見える (再試行で重複登録される) 事態を防ぐ方を優先する
     ctx.defer().await?;
+
+    save(ctx, validated).await
+}
+
+/// `/create` と `/quick` の共通保存経路。確認待ちの後も最新の設定で認可する。
+async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotError> {
+    let Some(guild_id) = ctx.guild_id() else {
+        return Err(BotError::user("このコマンドはサーバー内でのみ実行できます"));
+    };
+    let guild_id = guild_id.to_string();
+    let pool = &ctx.data().pool;
 
     // restricted モードのサーバーでは管理権限または編集ロールを持つユーザーが予定を作れる (api の `ensure_can_edit` と同じ)
     let config = guild_config::get(pool, &guild_id).await?;
@@ -176,6 +181,138 @@ pub async fn create(
     )
     .await?;
     Ok(())
+}
+
+/// 少ない入力で予定を作成します（保存前に日時を確認）
+#[poise::command(slash_command, guild_only)]
+pub async fn quick(
+    ctx: Context<'_>,
+    #[description = "予定の名称 (32 文字まで)"]
+    #[max_length = 32]
+    name: String,
+    #[description = "日本時間の日付: 今日・明日・YYYY-MM-DD"] date: String,
+    #[description = "日本時間の開始時刻: HH:mm (例: 21:00)"] time: String,
+    #[description = "所要時間 (分)。省略時は 60 分、1〜10080 分"] duration: Option<i64>,
+) -> Result<(), BotError> {
+    let validated = quick_input(name, &date, &time, duration, now_jst())?;
+    let confirm_id = format!("{}:quick:confirm", ctx.id());
+    let cancel_id = format!("{}:quick:cancel", ctx.id());
+    let reply = ctx.send(poise::CreateReply::default()
+        .ephemeral(true)
+        .embed(CreateEmbed::new().title(&validated.name).description(format!(
+            "開始: {} JST\n終了: {} JST\n所要時間: {} 分（省略時は 60 分）\n事前通知: なし（開始時の通知はサーバー設定に従います）\nこの内容で保存しますか？（2 分以内）",
+            validated.start.format("%Y-%m-%d %H:%M"),
+            validated.end.format("%Y-%m-%d %H:%M"),
+            (validated.end - validated.start).num_minutes(),
+        )))
+        .components(vec![serenity::CreateActionRow::Buttons(vec![
+            serenity::CreateButton::new(&confirm_id).label("作成する").style(serenity::ButtonStyle::Success),
+            serenity::CreateButton::new(&cancel_id).label("キャンセル").style(serenity::ButtonStyle::Secondary),
+        ])])).await?;
+    let press = serenity::ComponentInteractionCollector::new(ctx.serenity_context())
+        .author_id(ctx.author().id)
+        .channel_id(ctx.channel_id())
+        .message_id(reply.message().await?.id)
+        .filter({
+            let confirm_id = confirm_id.clone();
+            move |press| press.data.custom_id == confirm_id || press.data.custom_id == cancel_id
+        })
+        .timeout(std::time::Duration::from_secs(120))
+        .await;
+    let confirmed = if let Some(press) = press {
+        press
+            .create_response(ctx.http(), serenity::CreateInteractionResponse::Acknowledge)
+            .await?;
+        press.data.custom_id == confirm_id
+    } else {
+        false
+    };
+    reply
+        .edit(
+            ctx,
+            poise::CreateReply::default()
+                .content(if confirmed {
+                    "保存しています…"
+                } else {
+                    "作成を取り消しました。再度 /quick で入力できます"
+                })
+                .components(vec![]),
+        )
+        .await?;
+    if confirmed {
+        let result = save(ctx, validated).await;
+        reply
+            .edit(
+                ctx,
+                poise::CreateReply::default()
+                    .content(if result.is_ok() {
+                        "作成処理が完了しました"
+                    } else {
+                        "作成処理を完了できませんでした。エラーの案内を確認してください"
+                    })
+                    .components(vec![]),
+            )
+            .await?;
+        result?;
+    }
+    Ok(())
+}
+
+fn quick_input(
+    name: String,
+    date: &str,
+    time: &str,
+    duration: Option<i64>,
+    now: NaiveDateTime,
+) -> Result<ValidatedEvent, BotError> {
+    let date_error = || {
+        BotError::user(
+            "日付は「今日」「明日」または YYYY-MM-DD（1970〜2099 年の実在する日付）で入力してください",
+        )
+    };
+    let date = match date {
+        "今日" => now.date(),
+        "明日" => now.date().succ_opt().ok_or_else(date_error)?,
+        value => NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .ok()
+            .filter(|date| date.format("%Y-%m-%d").to_string() == value)
+            .ok_or_else(date_error)?,
+    };
+    if !DateTimeInput::YEARS.contains(&date.year()) {
+        return Err(date_error());
+    }
+    let time = NaiveTime::parse_from_str(time, "%H:%M")
+        .ok()
+        .filter(|parsed| parsed.format("%H:%M").to_string() == time)
+        .ok_or_else(|| {
+            BotError::user("時刻は 00:00〜23:59 の HH:mm で入力してください（例: 21:00）")
+        })?;
+    let minutes = duration.unwrap_or(60);
+    if !(1..=10080).contains(&minutes) {
+        return Err(BotError::user(
+            "所要時間は 1〜10080 分（7 日）の整数で指定してください。省略すると 60 分です",
+        ));
+    }
+    let start = date.and_time(time);
+    let end = start
+        .checked_add_signed(Duration::minutes(minutes))
+        .ok_or_else(date_error)?;
+    if !DateTimeInput::YEARS.contains(&end.year()) {
+        return Err(date_error());
+    }
+    let parts = |dt: NaiveDateTime| {
+        DateTimeInput::new(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute())
+    };
+    EventInput {
+        name,
+        description: None,
+        start: parts(start),
+        end: parts(end),
+        is_all_day: false,
+        color: Color::default(),
+        notifications: vec![],
+    }
+    .validate()
 }
 
 /// コマンドの引数をまとめたもの。`validate` で保存できる形にする
@@ -413,6 +550,59 @@ mod tests {
     use poise::ChoiceParameter as _;
 
     use super::*;
+
+    #[test]
+    fn quick_resolves_dates_and_reuses_create_defaults() {
+        let now = "2026-12-31T23:59:59".parse().unwrap();
+        for (date, expected) in [
+            ("今日", "2026-12-31T23:30:00"),
+            ("明日", "2027-01-01T23:30:00"),
+            ("2028-02-29", "2028-02-29T23:30:00"),
+        ] {
+            let value = quick_input(" 定例 ".into(), date, "23:30", None, now).unwrap();
+            assert_eq!(value.start, expected.parse::<NaiveDateTime>().unwrap());
+            assert_eq!(value.end, value.start + Duration::hours(1));
+            assert_eq!(value.name, "定例");
+            assert_eq!(value.color, Color::Blue);
+            assert!(value.notifications.is_empty());
+            assert!(!value.is_all_day);
+        }
+        for minutes in [1, 90, 10080] {
+            let value = quick_input("定例".into(), "今日", "00:00", Some(minutes), now).unwrap();
+            assert_eq!((value.end - value.start).num_minutes(), minutes);
+        }
+    }
+
+    #[test]
+    fn quick_rejects_invalid_dates_times_durations_and_names() {
+        let now = "2026-09-11T00:00:00".parse().unwrap();
+        for date in [
+            "昨日",
+            "2026-02-29",
+            "2026-2-03",
+            "1969-12-31",
+            "2100-01-01",
+            "2026-13-01",
+        ] {
+            assert_user_error(quick_input("定例".into(), date, "21:00", None, now), "日付");
+        }
+        for time in ["24:00", "21:60", "9:00", "21:0", "21:00:00", ""] {
+            assert_user_error(quick_input("定例".into(), "今日", time, None, now), "HH:mm");
+        }
+        for minutes in [i64::MIN, -1, 0, 10081, i64::MAX] {
+            assert_user_error(
+                quick_input("定例".into(), "今日", "21:00", Some(minutes), now),
+                "所要時間",
+            );
+        }
+        for name in [" ".into(), "あ".repeat(33)] {
+            assert_user_error(quick_input(name, "今日", "21:00", None, now), "名称");
+        }
+        assert_user_error(
+            quick_input("定例".into(), "2099-12-31", "23:30", None, now),
+            "日付",
+        );
+    }
 
     fn input() -> EventInput {
         EventInput {
