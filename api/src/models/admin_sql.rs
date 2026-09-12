@@ -488,7 +488,7 @@ async fn acquire_console_connection(
             Ok(Err(error)) => {
                 // ロールが無い / パスワードが違う等。設定の問題なので利用者に案内する
                 return Err(SqlError::Unavailable(format!(
-                    "SQL コンソール用の DB 接続 (ロール {}) を開けません ({error})。README の手順でロールを用意してください",
+                    "SQL コンソール用の DB 接続 (ロール {}) を開けません ({error})。docs/admin.md の手順でロールを用意してください",
                     console.connect_options().get_username()
                 )));
             }
@@ -652,7 +652,7 @@ async fn verify_console_role(conn: &mut PgConnection, expected_role: &str) -> Re
         || track_activities != "off"
     {
         return Err(SqlError::Unavailable(format!(
-            "SQL コンソール用の DB 接続の設定が正しくありません (session_user: {session_user}, 期待: {expected_role}, 特権属性: {privileged}, connection limit: {conn_limit}, 所属ロール数: {memberships}, 読める保護テーブル: {readable:?}, track_activities: {track_activities})。README の手順でロールを直してください"
+            "SQL コンソール用の DB 接続の設定が正しくありません (session_user: {session_user}, 期待: {expected_role}, 特権属性: {privileged}, connection limit: {conn_limit}, 所属ロール数: {memberships}, 読める保護テーブル: {readable:?}, track_activities: {track_activities})。docs/admin.md の手順でロールを直してください"
         )));
     }
     Ok(())

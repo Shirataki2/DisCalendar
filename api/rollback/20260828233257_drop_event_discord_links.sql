@@ -10,9 +10,9 @@
 -- 対応付けを消しても Discord 側のスケジュールイベント自体は消えない。予定との紐付けが
 -- 失われるだけなので、不要になったイベントは Discord 側で手動で削除する。
 -- 再びロールフォワードしても対応付けは戻らない (連携し直すには予定を編集してオプションを
--- 入れ直す)。必要なら先にダンプを取る (README「DB のバックアップと復元」)。
+-- 入れ直す)。必要なら先にダンプを取る (docs/operations.md「DB のバックアップと復元」)。
 --
--- 手順 (compose の環境。README「マイグレーションが入った版から戻す」と同じ要領):
+-- 手順 (compose の環境。docs/operations.md「マイグレーションが入った版から戻す」と同じ要領):
 --
 --   1. api を止める:       docker compose stop api
 --   2. 先にダンプを取る:   docker compose exec -T db pg_dump -U discalendar -d discalendar -Fc > 戻す前.dump

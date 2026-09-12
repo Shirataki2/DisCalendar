@@ -11,7 +11,7 @@
 -- フォワードしてもカラムが空で戻るだけなので、backfill は
 -- `api/scripts/backfill_guilds_joined_at.py` で改めて流し直す。
 --
--- 手順 (compose の環境。README「マイグレーションが入った版から戻す」と同じ要領)。
+-- 手順 (compose の環境。docs/operations.md「マイグレーションが入った版から戻す」と同じ要領)。
 -- 現行 bot は参加・更新のたびに joined_at へ書き込むので、api だけでなく bot も止めてから
 -- カラムを落とす (動かしたままだと旧イメージに置き換わるまで GuildCreate/GuildUpdate の
 -- クエリが失敗し続ける):
