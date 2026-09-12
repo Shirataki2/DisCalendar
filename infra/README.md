@@ -296,5 +296,5 @@ sudo BACKUP_ENV_FILE=/etc/discalendar/production.env /opt/discalendar-backup/r2.
 
 ### 復元
 
-手順はルート [README.md](../README.md) の「DB のバックアップと復元」を参照。
+手順は[デプロイと運用の「DB のバックアップと復元」](../docs/operations.md#db-のバックアップと復元)を参照。
 R2 から落としたダンプを、**空の DB に対して** `pg_restore` する (api を起動する前に行う)。
