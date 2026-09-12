@@ -9,7 +9,7 @@
 -- 自分の migrations/ に無いバージョンが `_sqlx_migrations` にあるだけで起動に失敗する。
 -- そのため型と記録の両方を戻す。
 --
--- 手順 (compose の環境。README「DB のバックアップと復元」と同じ要領):
+-- 手順 (compose の環境。docs/operations.md「DB のバックアップと復元」と同じ要領):
 --
 --   1. api / bot を止める (web は落としたままでよい): docker compose stop api bot
 --   2. 先にダンプを取る:                              docker compose exec -T db pg_dump -U discalendar -d discalendar -Fc > 戻す前.dump

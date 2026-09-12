@@ -14,7 +14,7 @@ import {
 } from "./e2e/env";
 import { E2E_BOT_TOKEN } from "./e2e/fixtures";
 
-// E2E テスト (Playwright)。実行: pnpm e2e (手順と環境変数は README の「テスト」)
+// E2E テスト (Playwright)。実行: pnpm e2e (手順と環境変数は docs/development.md の「テスト」)
 //
 // 起動するもの (webServer、この順に起動して待つ):
 // 1. api (Rust)  … cargo run (CI は E2E_API_COMMAND でビルド済みバイナリ)。起動前に e2e/ensure-db.mjs で DB と Better Auth のテーブルを用意する
