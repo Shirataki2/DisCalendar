@@ -11,7 +11,10 @@ pub mod scheduled_events;
 use std::{
     collections::HashMap,
     hash::{Hash as _, Hasher as _},
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicU32, Ordering},
+    },
     time::Duration,
 };
 
@@ -143,6 +146,8 @@ pub struct GuildSnapshot {
     pub role_permissions: HashMap<String, u64>,
     /// @everyone と managed を除いた、編集許可に選べるロール
     pub editor_roles: Vec<GuildRole>,
+    /// @everyone 以外のメンション先。Discord 管理ロールも含む。
+    pub mention_roles: Vec<GuildRole>,
 }
 
 impl GuildSnapshot {
@@ -180,6 +185,8 @@ pub struct DiscordClient {
     guilds: Cache<String, Option<Arc<GuildSnapshot>>>,
     /// (guild_id, user_id) → メンバー情報。退出済みとアクセス不可も区別してキャッシュする。
     members: Cache<(String, String), MemberLookup>,
+    /// 任意メンバー照会の利用者別予算 (60 秒で最大120人分)。
+    mention_lookups: Cache<String, Arc<AtomicU32>>,
     push_members: Cache<(String, String), Option<bool>>,
     /// Bot の参加ギルド一覧 (管理コンソールの差分検出用)。全ギルドを何ページも取る重い呼び出しなので短時間だけ持つ
     bot_guilds: Cache<(), Arc<Vec<BotGuild>>>,
@@ -296,6 +303,19 @@ struct ApiPartialGuild {
 }
 
 impl DiscordClient {
+    /// 表示名照会と予定保存で共通の予算を使い、別経路からの迂回を防ぐ。
+    /// ponytail: 単一 API プロセス用。複数台にする場合は共有ストアへ移す。
+    pub async fn reserve_mention_lookups(&self, actor_id: &str, count: u32) -> bool {
+        let used = self
+            .mention_lookups
+            .get_with(actor_id.to_owned(), async { Arc::new(AtomicU32::new(0)) })
+            .await;
+        used.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+            used.checked_add(count).filter(|total| *total <= 120)
+        })
+        .is_ok()
+    }
+
     /// `api_base` は Discord API のベース URL (`DISCORD_API_BASE_URL`)。
     /// 本番では [`DEFAULT_API_BASE`] で、E2E テスト (web/e2e) ではモックサーバーの URL を渡す
     pub fn new(bot_token: &str, api_base: &str) -> anyhow::Result<Self> {
@@ -326,6 +346,10 @@ impl DiscordClient {
             members: Cache::builder()
                 .max_capacity(100_000)
                 .time_to_live(MEMBER_TTL)
+                .build(),
+            mention_lookups: Cache::builder()
+                .max_capacity(100_000)
+                .time_to_live(Duration::from_secs(60))
                 .build(),
             bot_guilds: Cache::builder()
                 .max_capacity(1)
@@ -542,22 +566,35 @@ impl DiscordClient {
             .get_json::<ApiGuild>(&format!("/guilds/{}", checked_id(guild_id)?))
             .await?
             .map(|g| {
-                let mut editor_roles: Vec<_> = g
+                let mut roles: Vec<_> = g
                     .roles
                     .iter()
-                    .filter(|r| r.id != g.id && !r.managed)
-                    .map(|r| GuildRole {
-                        id: r.id.clone(),
-                        name: r.name.clone(),
-                        color: r.color,
-                        position: r.position,
-                        mentionable: r.mentionable,
+                    .filter(|r| r.id != g.id)
+                    .map(|r| {
+                        (
+                            GuildRole {
+                                id: r.id.clone(),
+                                name: r.name.clone(),
+                                color: r.color,
+                                position: r.position,
+                                mentionable: r.mentionable,
+                            },
+                            r.managed,
+                        )
                     })
                     .collect();
-                editor_roles
-                    .sort_by(|a, b| b.position.cmp(&a.position).then_with(|| a.id.cmp(&b.id)));
+                roles.sort_by(|(a, _), (b, _)| {
+                    b.position.cmp(&a.position).then_with(|| a.id.cmp(&b.id))
+                });
+                let editor_roles = roles
+                    .iter()
+                    .filter(|(_, managed)| !managed)
+                    .map(|(role, _)| role.clone())
+                    .collect();
+                let mention_roles = roles.into_iter().map(|(role, _)| role).collect();
                 Arc::new(GuildSnapshot {
                     editor_roles,
+                    mention_roles,
                     id: g.id,
                     name: g.name,
                     icon: g.icon,
@@ -816,6 +853,57 @@ mod tests {
         let profile = member.profile("111", "333");
         assert_eq!(profile.display_name.as_deref(), Some("username"));
         assert_eq!(profile.avatar_url, None);
+    }
+
+    #[tokio::test]
+    async fn mention_limits_are_atomic_and_admins_can_edit_without_membership() {
+        use super::{DiscordClient, GuildSnapshot, MemberLookup};
+        use crate::models::notification_mentions::{NotificationMention, validate_targets};
+        use std::{collections::HashMap, sync::Arc};
+        let client = DiscordClient::new("test-token", "http://127.0.0.1:1").unwrap();
+        let results = futures_util::future::join_all(
+            (0..13).map(|_| client.reserve_mention_lookups("actor", 10)),
+        )
+        .await;
+        assert_eq!(results.into_iter().filter(|allowed| *allowed).count(), 12);
+        assert!(!client.reserve_mention_lookups("actor", 1).await);
+        assert!(client.reserve_mention_lookups("other-actor", 120).await);
+        client
+            .guilds
+            .insert(
+                "1".into(),
+                Some(Arc::new(GuildSnapshot {
+                    id: "1".into(),
+                    name: "テスト".into(),
+                    icon: None,
+                    owner_id: "9".into(),
+                    role_permissions: HashMap::new(),
+                    editor_roles: vec![],
+                    mention_roles: vec![],
+                })),
+            )
+            .await;
+        client
+            .members
+            .insert(("1".into(), "2".into()), MemberLookup::Missing)
+            .await;
+        let mentions = [NotificationMention::Everyone];
+        assert!(
+            validate_targets(&client, "1", None, Some(&mentions))
+                .await
+                .is_ok()
+        );
+        assert!(
+            validate_targets(&client, "1", Some("2"), Some(&mentions))
+                .await
+                .is_err()
+        );
+        let invalid = [NotificationMention::Role { id: "3".into() }];
+        assert!(
+            validate_targets(&client, "1", None, Some(&invalid))
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

@@ -35,7 +35,7 @@ export function NotificationMentionsField({ guildId }: { guildId: string }) {
     formState: { errors, isSubmitting },
   } = useFormContext<EventFormValues>();
   const mentions = useWatch({ control, name: "notificationMentions" }) ?? [];
-  const roles = useGuildRolesQuery(guildId, true);
+  const roles = useGuildRolesQuery(guildId, true, true);
   const permissions = useMyPermissionsQuery(guildId);
   const canMentionEveryone =
     permissions.data?.administrator ||

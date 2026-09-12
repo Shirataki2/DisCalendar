@@ -237,7 +237,7 @@ pub async fn create(
     crate::models::notification_mentions::validate_targets(
         &state.discord,
         member.guild_id(),
-        &member.user.discord_user_id,
+        Some(&member.user.discord_user_id),
         body.notification_mentions.as_deref(),
     )
     .await?;
@@ -356,7 +356,7 @@ pub async fn update(
         crate::models::notification_mentions::validate_targets(
             &state.discord,
             guild_id,
-            &member.user.discord_user_id,
+            Some(&member.user.discord_user_id),
             body.notification_mentions.as_deref(),
         )
         .await?;

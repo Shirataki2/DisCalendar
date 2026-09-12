@@ -89,6 +89,13 @@ pub async fn mention_profiles(
             "メンション先は10件以内のユーザーIDで指定してください".into(),
         ));
     }
+    if !state
+        .discord
+        .reserve_mention_lookups(&member.user.discord_user_id, ids.len() as u32)
+        .await
+    {
+        return Err(ApiError::TooManyRequests);
+    }
     let resolved = stream::iter(ids)
         .map(|id| {
             let discord = &state.discord;

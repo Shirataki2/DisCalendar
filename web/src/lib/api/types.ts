@@ -588,6 +588,7 @@ export type ApiErrorKind =
   | "bad_request"
   | "conflict"
   | "rate_limited"
+  | "too_many_requests"
   | "unavailable"
   | "discord_error"
   | "database_error"

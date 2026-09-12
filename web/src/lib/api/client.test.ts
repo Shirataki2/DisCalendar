@@ -99,6 +99,11 @@ describe("describeApiError", () => {
       "Discord API の制限中です。しばらく待ってから再度お試しください",
     ],
     [
+      "too_many_requests",
+      429,
+      "メンバーの確認が多すぎます。1分ほど待ってから再試行してください",
+    ],
+    [
       "discord_error",
       502,
       "Discord との通信に失敗しました。時間をおいて再度お試しください",

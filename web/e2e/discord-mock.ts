@@ -161,6 +161,7 @@ function botGuild(guild: E2EGuild) {
               color: 0,
               position: 1,
               managed: true,
+              mentionable: true,
               permissions: "17592186044416",
             },
           ]

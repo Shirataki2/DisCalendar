@@ -174,11 +174,17 @@ export function useMemberProfilesQuery(
 }
 
 /** 設定ダイアログを開いている間に取得する。Discord 側はギルドの既存キャッシュを共有する。 */
-export function useGuildRolesQuery(guildId: string, enabled: boolean) {
+export function useGuildRolesQuery(
+  guildId: string,
+  enabled: boolean,
+  forMentions = false,
+) {
   return useQuery({
     enabled,
-    queryKey: queryKeys.guild.roles(guildId),
-    queryFn: ({ signal }) => api.guilds.roles(guildId, signal),
+    queryKey: forMentions
+      ? [...queryKeys.guild.roles(guildId), "mentions"]
+      : queryKeys.guild.roles(guildId),
+    queryFn: ({ signal }) => api.guilds.roles(guildId, signal, forMentions),
     refetchOnMount: "always",
     retry: false,
   });

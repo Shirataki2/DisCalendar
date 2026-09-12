@@ -340,6 +340,7 @@ mod tests {
         let viewer = |roles: &[&str], permissions: u64| MemberAccess {
             guild: Arc::new(super::super::GuildSnapshot {
                 editor_roles: vec![],
+                mention_roles: vec![],
                 id: "g".to_owned(),
                 name: "guild".to_owned(),
                 icon: None,
@@ -433,6 +434,7 @@ mod tests {
         let stale_viewer = MemberAccess {
             guild: Arc::new(super::super::GuildSnapshot {
                 editor_roles: vec![],
+                mention_roles: vec![],
                 id: "111".to_owned(),
                 name: "guild".to_owned(),
                 icon: None,

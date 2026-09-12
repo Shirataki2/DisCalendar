@@ -95,6 +95,8 @@ export function describeApiError(error: unknown): string {
       return "他の更新と同時に行われたため保存できませんでした。もう一度お試しください";
     case "rate_limited":
       return "Discord API の制限中です。しばらく待ってから再度お試しください";
+    case "too_many_requests":
+      return "メンバーの確認が多すぎます。1分ほど待ってから再試行してください";
     case "unavailable":
       return `この機能は現在使えません (${error.message})`;
     case "discord_error":

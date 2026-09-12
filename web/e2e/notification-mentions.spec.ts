@@ -2,7 +2,12 @@ import { expect, test } from "@playwright/test";
 import { Pool } from "pg";
 import { openEventPopover } from "./calendar";
 import { DATABASE_URL } from "./env";
-import { E2E_EDITOR_ROLES, E2E_GUILDS, E2E_USER } from "./fixtures";
+import {
+  E2E_BOT_ROLE_ID,
+  E2E_EDITOR_ROLES,
+  E2E_GUILDS,
+  E2E_USER,
+} from "./fixtures";
 
 const createdEventPaths: string[] = [];
 test.afterEach(async ({ request }) => {
@@ -152,6 +157,30 @@ test("API 直呼びでも権限・所属・ID・上限を検証する", async ({
     },
   );
   expect(personal.status()).toBe(201);
+  const rolesUrl = `/local/api/guilds/${E2E_GUILDS.noUserEventsPerm.id}/roles`;
+  const editorRoles = await (await page.request.get(rolesUrl)).json();
+  const mentionRoles = await (
+    await page.request.get(`${rolesUrl}?for_mentions=true`)
+  ).json();
+  expect(
+    editorRoles.some((role: { id: string }) => role.id === E2E_BOT_ROLE_ID),
+  ).toBe(false);
+  expect(
+    mentionRoles.some((role: { id: string }) => role.id === E2E_BOT_ROLE_ID),
+  ).toBe(true);
+  const managed = await page.request.post(
+    `/local/api/events/${E2E_GUILDS.noUserEventsPerm.id}`,
+    {
+      data: {
+        ...input,
+        notification_mentions: [{ type: "role", id: E2E_BOT_ROLE_ID }],
+      },
+    },
+  );
+  expect(managed.status()).toBe(201);
+  createdEventPaths.push(
+    `${E2E_GUILDS.noUserEventsPerm.id}/${(await managed.json()).id}`,
+  );
   const personalEvent = await personal.json();
   const personalPath = `${E2E_GUILDS.noUserEventsPerm.id}/${personalEvent.id}`;
   createdEventPaths.push(personalPath);
@@ -204,4 +233,21 @@ test("API 直呼びでも権限・所属・ID・上限を検証する", async ({
     `/local/api/guilds/${E2E_GUILDS.member.id}/mention-members?ids=${E2E_USER.discordId}`,
   );
   expect(restricted.status()).toBe(403);
+});
+
+test("任意のメンバーIDを連続照会すると429で制限する", async ({ request }) => {
+  let status = 200;
+  for (let batch = 0; batch < 15 && status !== 429; batch++) {
+    // Snowflake を number にしないよう、一意な文字列から作る。
+    const query = Array.from(
+      { length: 10 },
+      (_, i) => `90000000000000${String(batch).padStart(2, "0")}${i}`,
+    ).join(",");
+    const response = await request.get(
+      `/local/api/guilds/${E2E_GUILDS.admin.id}/mention-members?ids=${query}`,
+    );
+    status = response.status();
+    expect([200, 429]).toContain(status);
+  }
+  expect(status).toBe(429);
 });

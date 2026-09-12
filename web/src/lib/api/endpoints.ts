@@ -114,8 +114,11 @@ export function createApi(request: ApiFetcher) {
           { signal },
         );
       },
-      roles: (guildId: string, signal?: AbortSignal) =>
-        request<GuildRole[]>(`/guilds/${guildId}/roles`, { signal }),
+      roles: (guildId: string, signal?: AbortSignal, forMentions = false) =>
+        request<GuildRole[]>(
+          `/guilds/${guildId}/roles${forMentions ? "?for_mentions=true" : ""}`,
+          { signal },
+        ),
       members: (guildId: string, ids: string[], signal?: AbortSignal) => {
         const query = new URLSearchParams({ ids: ids.join(",") });
         return request<MemberProfile[]>(`/guilds/${guildId}/members?${query}`, {

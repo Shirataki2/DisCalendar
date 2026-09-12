@@ -214,15 +214,29 @@ pub async fn refresh_my_permissions(
     )))
 }
 
-/// ギルドの編集許可に選べるロール。所属メンバーのみ取得できる。
+#[derive(Deserialize, IntoParams)]
+pub struct RolesQuery {
+    /// メンション用には Discord 管理ロールも含める。
+    #[serde(default)]
+    for_mentions: bool,
+}
+
+/// ギルドの編集許可・メンション先に選べるロール。所属メンバーのみ取得できる。
 #[utoipa::path(
     tag = "guilds",
-    params(("guild_id" = String, Path, description = "ギルド ID")),
+    params(RolesQuery, ("guild_id" = String, Path, description = "ギルド ID")),
     responses((status = 200, body = Vec<GuildRole>), (status = 401, body = ErrorBody), (status = 403, body = ErrorBody))
 )]
 #[get("/{guild_id}/roles")]
-pub async fn roles(member: GuildMember) -> web::Json<Vec<GuildRole>> {
-    web::Json(member.access.guild.editor_roles.clone())
+pub async fn roles(
+    member: GuildMember,
+    query: web::Query<RolesQuery>,
+) -> web::Json<Vec<GuildRole>> {
+    web::Json(if query.for_mentions {
+        member.access.guild.mention_roles.clone()
+    } else {
+        member.access.guild.editor_roles.clone()
+    })
 }
 
 /// 通知先に選べるチャンネル (テキスト / アナウンス) の一覧と、Bot がそこに投稿できるか (#181)。

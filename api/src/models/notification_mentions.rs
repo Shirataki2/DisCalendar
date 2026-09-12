@@ -37,24 +37,38 @@ pub fn validate(mentions: &[NotificationMention]) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// 通常・管理 API の両方で、Bot を使ったメンション権限の迂回を防ぐ。
+/// メンション先を検証する。actor_id の省略は認証済み AdminUser の代理操作だけに許可する。
 pub async fn validate_targets(
     discord: &DiscordClient,
     guild_id: &str,
-    actor_id: &str,
+    actor_id: Option<&str>,
     mentions: Option<&[NotificationMention]>,
 ) -> Result<(), ApiError> {
     let Some(mentions) = mentions.filter(|m| !m.is_empty()) else {
         return Ok(());
     };
     validate(mentions)?;
-    let access = discord
-        .member_access(guild_id, actor_id)
-        .await?
-        .ok_or_else(|| {
-            ApiError::Forbidden("メンションの指定にはサーバーへの参加が必要です".into())
-        })?;
-    let can_mention_everyone = access.permissions.has(Permissions::MENTION_EVERYONE);
+    // 運営管理者は対象サーバーに参加せず代理編集できる。対象自体の所属は必ず検証する。
+    let (guild, can_mention_everyone) = if let Some(actor_id) = actor_id {
+        let access = discord
+            .member_access(guild_id, actor_id)
+            .await?
+            .ok_or_else(|| {
+                ApiError::Forbidden("メンションの指定にはサーバーへの参加が必要です".into())
+            })?;
+        (
+            access.guild,
+            access.permissions.has(Permissions::MENTION_EVERYONE),
+        )
+    } else {
+        (
+            discord
+                .guild(guild_id)
+                .await?
+                .ok_or_else(|| ApiError::BadRequest("Bot がサーバーに参加していません".into()))?,
+            true,
+        )
+    };
     for mention in mentions {
         match mention {
             NotificationMention::Everyone if !can_mention_everyone => {
@@ -63,9 +77,8 @@ pub async fn validate_targets(
                 ));
             }
             NotificationMention::Role { id } => {
-                let role = access
-                    .guild
-                    .editor_roles
+                let role = guild
+                    .mention_roles
                     .iter()
                     .find(|r| r.id == *id)
                     .ok_or_else(|| {
@@ -79,6 +92,16 @@ pub async fn validate_targets(
             }
             NotificationMention::Everyone | NotificationMention::User { .. } => {}
         }
+    }
+    let user_count = mentions
+        .iter()
+        .filter(|m| matches!(m, NotificationMention::User { .. }))
+        .count() as u32;
+    if let Some(actor_id) = actor_id
+        && user_count > 0
+        && !discord.reserve_mention_lookups(actor_id, user_count).await
+    {
+        return Err(ApiError::TooManyRequests);
     }
     let members: Vec<bool> = stream::iter(mentions.iter().filter_map(|mention| match mention {
         NotificationMention::User { id } => Some(id),
