@@ -7,6 +7,7 @@ use sha2::Sha256;
 use sqlx::{PgPool, Row};
 use std::{fmt::Write as _, time::Duration};
 
+pub const WORKER_COUNT: u32 = 8;
 pub const FAILURE_LIMIT: i32 = 10;
 pub const MAX_ATTEMPTS: i32 = 3;
 
@@ -82,7 +83,6 @@ pub async fn run(pool: PgPool, site: String) {
 pub async fn deliver_one(pool: &PgPool, site: &str) -> sqlx::Result<bool> {
     let mut tx = pool.begin().await?;
     // 行ロックはクラッシュ時に解放される。別ワーカーは別 Webhook を処理できる。
-    // ponytail: 1 ワーカーにつき同時配信 1 件。配信遅延が増えたらワーカー数を増やす。
     let row = sqlx::query("SELECT w.id AS webhook_id, w.url, w.kind AS mode, w.secret, w.consecutive_failures, w.enabled, w.generation AS current_generation, o.generation,
         o.id, o.kind, o.payload, o.actor_id, o.occurred_at, o.attempts
         FROM guild_webhooks w JOIN guild_webhook_outbox o ON o.webhook_id = w.id

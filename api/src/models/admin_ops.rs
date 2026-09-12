@@ -66,6 +66,7 @@ pub async fn delete_guild_events(
             INSERT INTO guild_webhook_outbox (webhook_id,event_id,kind,payload,actor_id,generation)
             SELECT w.id,d.id,'event.deleted',to_jsonb(d),$2,w.generation FROM deleted d
             JOIN guild_webhooks w ON w.guild_id=d.guild_id AND w.enabled
+            FOR KEY SHARE OF w
         ) SELECT count(*) FROM deleted"
     ).bind(guild_id).bind(actor_id).fetch_one(&mut *conn).await?;
     Ok((snapshot, deleted as u64))

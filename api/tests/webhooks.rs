@@ -130,3 +130,72 @@ async fn bulk_delete_keeps_every_snapshot_and_discards_old_generations(pool: PgP
         .unwrap();
     assert_eq!(attempts, 0);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn deleting_a_webhook_concurrently_does_not_abort_event_save(pool: PgPool) {
+    sqlx::query("INSERT INTO guilds (guild_id,name) VALUES ('111','Webhook')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO guild_webhooks (guild_id,url,kind,secret,created_by) VALUES ('111','https://example.com','json','test-only','222')").execute(&pool).await.unwrap();
+    let event: i32 = sqlx::query_scalar("INSERT INTO events (guild_id,name,start_at,end_at) VALUES ('111','保存する予定',now(),now()) RETURNING id").fetch_one(&pool).await.unwrap();
+    let mut deleting = pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM guild_webhooks WHERE guild_id='111'")
+        .execute(&mut *deleting)
+        .await
+        .unwrap();
+    let mut saving = pool.begin().await.unwrap();
+    {
+        let enqueue = webhook_outbox::enqueue(&mut saving, "111", event, "event.created", "222");
+        tokio::pin!(enqueue);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), &mut enqueue)
+                .await
+                .is_err()
+        );
+        deleting.commit().await.unwrap();
+        enqueue.await.unwrap();
+    }
+    saving.commit().await.unwrap();
+    let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM guild_webhook_outbox")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(queued, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn workers_skip_busy_webhooks(pool: PgPool) {
+    sqlx::query("INSERT INTO guilds (guild_id,name) VALUES ('111','Webhook')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let hooks: Vec<i64> = sqlx::query_scalar("INSERT INTO guild_webhooks (guild_id,url,kind,secret,created_by) SELECT '111','http://127.0.0.1','json','test-only','222' FROM generate_series(1,2) RETURNING id").fetch_all(&pool).await.unwrap();
+    sqlx::query("INSERT INTO guild_webhook_outbox (webhook_id,kind,payload,actor_id) SELECT id,'webhook.test','null','222' FROM guild_webhooks").execute(&pool).await.unwrap();
+    let mut busy = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM guild_webhooks WHERE id=$1 FOR NO KEY UPDATE")
+        .bind(hooks[0])
+        .execute(&mut *busy)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM guild_webhook_outbox WHERE webhook_id=$1 FOR UPDATE")
+        .bind(hooks[0])
+        .execute(&mut *busy)
+        .await
+        .unwrap();
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            webhooks::deliver_one(&pool, "https://discalendar.app")
+        )
+        .await
+        .unwrap()
+        .unwrap()
+    );
+    let delivered: Vec<i64> = sqlx::query_scalar("SELECT webhook_id FROM guild_webhook_deliveries")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(delivered, vec![hooks[1]]);
+    busy.rollback().await.unwrap();
+}

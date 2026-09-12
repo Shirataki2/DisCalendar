@@ -617,7 +617,7 @@ E2E はプッシュサービスだけを代替し、Chromium の通知許可、�
 サーバー管理者が設定画面で最大 5 件の送信先を登録できる。利用方法・本文・署名検証は
 [使い方](web/src/content/docs/webhooks.mdx) を参照。
 api の通常操作・管理コンソールと bot の作成処理が、予定変更と同じトランザクションで
-`guild_webhook_outbox` に予約し、api のワーカーが配信する。Webhook ごとに直列化し、
+`guild_webhook_outbox` に予約し、api の8ワーカーが専用 DB プール (最大8接続) で並列配信する。同じ Webhook 内は直列化し、
 最大 3 回 (5 秒・30 秒後)、1 回 10 秒で試す。試行が 10 回連続で失敗すると無効化して
 `webhook disabled after consecutive failures` を WARN に残す。専用の Grafana アラートは追加していない。
 

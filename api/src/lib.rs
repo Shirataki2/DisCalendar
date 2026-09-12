@@ -88,12 +88,14 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
     // 外部送信中も通常 API の接続枠を消費しない (通常プールが1接続でも保存を待たせない)。
     let webhook_pool = PgPoolOptions::new()
-        .max_connections(1)
+        .max_connections(crate::webhooks::WORKER_COUNT)
         .connect_lazy_with(state.pool.connect_options().as_ref().clone());
-    tokio::spawn(crate::webhooks::run(
-        webhook_pool,
-        state.site_base_url.clone(),
-    ));
+    for _ in 0..crate::webhooks::WORKER_COUNT {
+        tokio::spawn(crate::webhooks::run(
+            webhook_pool.clone(),
+            state.site_base_url.clone(),
+        ));
+    }
     if let Some(push) = config.push {
         tokio::spawn(crate::push::run(state.clone(), push));
     }

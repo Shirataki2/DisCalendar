@@ -10,6 +10,7 @@ pub async fn enqueue(
     kind: &str,
     actor_id: &str,
 ) -> sqlx::Result<()> {
+    // 同時削除された Webhook はロック取得後に除外する。FK 検査だけだと予定保存が失敗する。
     sqlx::query(
         "INSERT INTO guild_webhook_outbox (webhook_id, event_id, kind, payload, actor_id, generation)
          SELECT w.id, e.id, $3, to_jsonb(e) || jsonb_build_object(
@@ -17,7 +18,8 @@ pub async fn enqueue(
          FROM events e
          JOIN guild_webhooks w ON w.guild_id = e.guild_id AND w.enabled
          LEFT JOIN event_discord_links l ON l.event_id = e.id
-         WHERE e.guild_id = $1 AND e.id = $2",
+         WHERE e.guild_id = $1 AND e.id = $2
+         FOR KEY SHARE OF w",
     )
     .bind(guild_id)
     .bind(event_id)
