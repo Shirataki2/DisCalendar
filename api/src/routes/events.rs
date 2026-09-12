@@ -328,13 +328,6 @@ pub async fn update(
 ) -> Result<web::Json<Event>, ApiError> {
     ensure_can_edit(&state.pool, &member).await?;
     body.validate()?;
-    crate::models::notification_mentions::validate_targets(
-        &state.discord,
-        member.guild_id(),
-        &member.user.discord_user_id,
-        body.notification_mentions.as_deref(),
-    )
-    .await?;
     let guild_id = member.guild_id();
 
     // 同じ予定への更新は、連携の有無に関わらず最初から直列化する (#94)。
@@ -354,6 +347,19 @@ pub async fn update(
         let old = events::find_by_id(&state.pool, guild_id, path.event_id)
             .await?
             .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+        let mut body = body.0.clone();
+        // 省略された対象も検証し、検証した値を明示して保存する。
+        // 並行更新でメンション先が変わっても、未検証の値を COALESCE で引き継がない。
+        body.notification_mentions.get_or_insert_with(|| {
+            serde_json::from_value(old.notification_mentions.clone()).unwrap_or_default()
+        });
+        crate::models::notification_mentions::validate_targets(
+            &state.discord,
+            guild_id,
+            &member.user.discord_user_id,
+            body.notification_mentions.as_deref(),
+        )
+        .await?;
 
         // 更新では省略 (フラグを知らない古いクライアント) は「現在の連携状態を保持」として扱う
         // (既定 false にすると、古いタブからの編集・ドラッグで既存の連携が意図せず外れてしまう)

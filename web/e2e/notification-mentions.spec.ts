@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { Pool } from "pg";
 import { openEventPopover } from "./calendar";
+import { DATABASE_URL } from "./env";
 import { E2E_EDITOR_ROLES, E2E_GUILDS, E2E_USER } from "./fixtures";
 
 const createdEventPaths: string[] = [];
@@ -150,9 +152,40 @@ test("API 直呼びでも権限・所属・ID・上限を検証する", async ({
     },
   );
   expect(personal.status()).toBe(201);
-  createdEventPaths.push(
-    `${E2E_GUILDS.noUserEventsPerm.id}/${(await personal.json()).id}`,
-  );
+  const personalEvent = await personal.json();
+  const personalPath = `${E2E_GUILDS.noUserEventsPerm.id}/${personalEvent.id}`;
+  createdEventPaths.push(personalPath);
+  const pool = new Pool({ connectionString: DATABASE_URL });
+  try {
+    for (const mention of [
+      { type: "everyone" },
+      { type: "role", id: E2E_EDITOR_ROLES[0].id },
+    ]) {
+      // 別の管理者が保存した一斉メンションを、省略した更新で再利用させない。
+      await pool.query(
+        "UPDATE events SET notification_mentions=$1 WHERE id=$2",
+        [JSON.stringify([mention]), personalEvent.id],
+      );
+      const update = await page.request.put(
+        `/local/api/events/${personalPath}`,
+        {
+          data: { ...input, notifications: [{ num: 30, unit: "minutes" }] },
+        },
+      );
+      expect(update.status()).toBe(403);
+      expect((await update.json()).message).toContain("メンション");
+      const clear = await page.request.put(
+        `/local/api/events/${personalPath}`,
+        {
+          data: { ...input, notification_mentions: [] },
+        },
+      );
+      expect(clear.status()).toBe(200);
+      expect((await clear.json()).notification_mentions).toEqual([]);
+    }
+  } finally {
+    await pool.end();
+  }
   for (const mentions of [
     [{ type: "user", id: "999999999999999999" }],
     [{ type: "role", id: "999999999999999999" }],

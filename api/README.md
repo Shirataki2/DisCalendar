@@ -168,5 +168,6 @@ migrations/         スキーマ (適用済みのファイルは変更禁止、�
 省略時は作成では空、更新では現在値を保持し、空配列で解除する。`notifications` の JSON は変更しない。
 開始時刻の通知はサーバー設定で独立して生成されるため、事前通知が空でも保持できる専用カラムとした。
 通常・管理 API ともに、指定したユーザーの所属とロールの存在を確認する。@everyone とメンション不可のロールは、操作者にギルドレベルの `MENTION_EVERYONE` 権限が必要。
+更新時はメンション先を省略しても保存済みの対象を検証する。権限が足りない場合は対象を解除して更新する。
 `GET /guilds/{guild_id}/roles` は `mentionable` も返す。`GET /guilds/{guild_id}/mention-members?ids=...` は予定の編集権限が必要で、最大10人の表示名を解決する。Bot の特権インテントの追加は不要。
 戻す場合は `api/rollback/20260912090000_drop_event_notification_mentions.sql` を使用する (メンション先は失われる)。

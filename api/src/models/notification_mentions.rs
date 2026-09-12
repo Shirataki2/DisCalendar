@@ -1,4 +1,5 @@
 //! 予定単位の通知メンション。Bot の同名モジュールと JSON 形式を揃える。
+use futures_util::{StreamExt, TryStreamExt, stream};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -76,15 +77,21 @@ pub async fn validate_targets(
                     ));
                 }
             }
-            NotificationMention::User { id } => {
-                if !discord.is_current_member(guild_id, id).await? {
-                    return Err(ApiError::BadRequest(
-                        "メンション先のユーザーがサーバーに参加していません".into(),
-                    ));
-                }
-            }
-            NotificationMention::Everyone => {}
+            NotificationMention::Everyone | NotificationMention::User { .. } => {}
         }
+    }
+    let members: Vec<bool> = stream::iter(mentions.iter().filter_map(|mention| match mention {
+        NotificationMention::User { id } => Some(id),
+        _ => None,
+    }))
+    .map(|id| discord.is_current_member(guild_id, id))
+    .buffered(4)
+    .try_collect()
+    .await?;
+    if members.contains(&false) {
+        return Err(ApiError::BadRequest(
+            "メンション先のユーザーがサーバーに参加していません".into(),
+        ));
     }
     Ok(())
 }

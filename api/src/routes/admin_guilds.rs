@@ -249,6 +249,15 @@ pub async fn update_event(
 ) -> Result<web::Json<Event>, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
     body.validate()?;
+    let mut body = body.into_inner();
+    if body.notification_mentions.is_none() {
+        let old = events::find_by_id(&state.pool, guild_id, path.event_id)
+            .await?
+            .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+        body.notification_mentions =
+            Some(serde_json::from_value(old.notification_mentions).unwrap_or_default());
+    }
+    // 外部 API の応答を待つ間は DB の行ロックを保持しない。
     crate::models::notification_mentions::validate_targets(
         &state.discord,
         guild_id,

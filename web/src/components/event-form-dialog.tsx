@@ -209,11 +209,8 @@ function EventForm({
     try {
       // 開いたまま開始時刻をまたぐことがあるので、連携の可否は送信直前にも確かめる
       const input = eventFormToApiInput(withCheckedDiscordEvent(values));
-      // 日時だけの編集や管理画面では、保存済みのメンション先をそのまま維持する。
-      if (
-        !mentionGuildId ||
-        (isEdit && !form.formState.dirtyFields.notificationMentions)
-      ) {
+      // メンション先を表示しない管理画面では保存済みの指定を維持する。
+      if (!mentionGuildId) {
         delete input.notification_mentions;
       }
       await onSubmit(input);

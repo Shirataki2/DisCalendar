@@ -89,7 +89,7 @@ impl From<EventRow> for Event {
 }
 
 /// 予定の作成・更新リクエスト
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct EventInput {
     #[schema(example = "定例ミーティング", max_length = 32)]
     pub name: String,
