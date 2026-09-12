@@ -11,6 +11,9 @@ publish.workspace = true
 name = "discalendar-api"
 path = "src/main.rs"
 
+[features]
+webhook-e2e = []
+
 [dependencies]
 actix-web = { version = "4.14", default-features = false, features = ["macros", "cookies", "compress-gzip"] }
 tokio.workspace = true

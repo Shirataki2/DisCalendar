@@ -16,6 +16,7 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY api ./api
 # workspace の members をすべて置かないと cargo が manifest を読めないので bot も入れる
 COPY bot ./bot
+COPY shared ./shared
 ENV SQLX_OFFLINE=true \
     GIT_SHA=${GIT_SHA} \
     IMAGE_TAG=${IMAGE_TAG}

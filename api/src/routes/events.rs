@@ -250,14 +250,24 @@ pub async fn create(
     let guild_id = member.guild_id();
 
     if !discord_scheduled_event {
+        let mut tx = state.pool.begin().await?;
         let row = events::create(
-            &state.pool,
+            &mut *tx,
             guild_id,
             &body,
             now_jst(),
             &member.user.discord_user_id,
         )
         .await?;
+        crate::webhook_outbox::enqueue(
+            &mut tx,
+            guild_id,
+            row.id,
+            "event.created",
+            &member.user.discord_user_id,
+        )
+        .await?;
+        tx.commit().await?;
         tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event created");
         return Ok(HttpResponse::Created().json(Event::from(row)));
     }
@@ -288,6 +298,14 @@ pub async fn create(
         )
         .await?;
         event_links::insert(&mut *tx, guild_id, row.id, &scheduled_event_id, now_jst()).await?;
+        crate::webhook_outbox::enqueue(
+            &mut tx,
+            guild_id,
+            row.id,
+            "event.created",
+            &member.user.discord_user_id,
+        )
+        .await?;
         tx.commit().await?;
         Ok(row)
     }
@@ -377,8 +395,9 @@ pub async fn update(
         // 連携を足していたら更新は起きない (`update_if_unlinked` が `None`) ので、
         // 連携ありの経路でやり直す (そのまま書くと、連携先に反映されない値が入ってしまう)
         if old.discord_scheduled_event_id.is_none() && !discord_scheduled_event {
+            let mut tx = state.pool.begin().await?;
             if let Some(row) = events::update_if_unlinked(
-                &state.pool,
+                &mut *tx,
                 guild_id,
                 path.event_id,
                 &body,
@@ -387,9 +406,19 @@ pub async fn update(
             )
             .await?
             {
+                crate::webhook_outbox::enqueue(
+                    &mut tx,
+                    guild_id,
+                    row.id,
+                    "event.updated",
+                    &member.user.discord_user_id,
+                )
+                .await?;
+                tx.commit().await?;
                 tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event updated");
                 return Ok(web::Json(Event::from(row)));
             }
+            tx.rollback().await?;
             // 予定自体が消えていたなら 404、連携が増えていたならやり直し
             if events::find_by_id(&state.pool, guild_id, path.event_id)
                 .await?
@@ -506,6 +535,14 @@ pub async fn update(
                 }
                 _ => {}
             }
+            crate::webhook_outbox::enqueue(
+                &mut tx,
+                guild_id,
+                row.id,
+                "event.updated",
+                &member.user.discord_user_id,
+            )
+            .await?;
             tx.commit().await?;
             row.discord_scheduled_event_id = desired.clone();
             Ok(Some((row, replaced)))
@@ -585,6 +622,14 @@ pub async fn delete(
     let row = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
         .await?
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+    crate::webhook_outbox::enqueue(
+        &mut tx,
+        guild_id,
+        path.event_id,
+        "event.deleted",
+        &member.user.discord_user_id,
+    )
+    .await?;
     events::delete(&mut *tx, guild_id, path.event_id).await?;
     if let Err(err) = tx.commit().await {
         // COMMIT の応答だけ失われて、実際には消えていることがある。その場合に何もしないと

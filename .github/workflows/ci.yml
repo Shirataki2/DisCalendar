@@ -35,6 +35,7 @@ jobs:
             rust:
               - "api/**"
               - "bot/**"
+              - "shared/**"
               - "Cargo.toml"
               - "Cargo.lock"
               - "rust-toolchain.toml"
@@ -172,7 +173,7 @@ jobs:
           rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
       - name: api をビルド
-        run: cargo build -p discalendar-api
+        run: cargo build -p discalendar-api --features webhook-e2e
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: web/package.json

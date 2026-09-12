@@ -1,0 +1,106 @@
+## Webhook を登録する
+
+サーバー設定の「Webhook」で URL と種類を選び、「Webhook を登録」を押します。
+登録・閲覧・操作にはサーバー管理権限が必要です。1 サーバーに 5 件まで登録できます。
+操作はその場で反映され、サーバー設定の「保存」を押す必要はありません。
+
+**説明を含む予定の内容と、操作した Discord ユーザー ID が登録先へ送られます。**
+信頼できる送信先を指定し、送信先での保管・公開範囲を確認してください。
+HTTPS を推奨します。ローカルネットワークや特殊用途のアドレスは指定できません。
+
+登録時に表示される署名用シークレットは、安全な場所に保存してください。
+一度しか表示されません。紛失した場合は再生成し、受信側の設定も更新します。
+一覧では URL のパス・クエリを伏せます。URL の変更は削除して再登録してください。
+
+「テスト送信」で接続を確認できます（有効な Webhook ごとに 1 分に 1 回）。
+直近 20 回の試行について、日時・種類・HTTP ステータス・エラーが表示されます。
+ログは設定画面を開いている間、5 秒ごとに更新されます。
+
+## Discord の別チャンネル・別サーバーに通知する
+
+Discord の送信先チャンネルで Webhook を作成し、URL をコピーします。
+種類を「Discord Webhook 互換」にして登録してください。
+`https://discord.com/api/webhooks/...` と `discordapp.com`、`canary.discord.com`、`ptb.discord.com` の同じ形式に対応します。
+予定の名前・説明・日時・色・カレンダーへのリンクを embed で送ります。メンションは発生しません。
+Discord モードでは署名を付けません。URL 自体が投稿権限を持つ秘密情報なので、公開しないでください。
+
+## 汎用 JSON の本文
+
+Web・Bot の `/create` / `/quick`・管理コンソールからの作成・変更・削除（全予定削除を含む）が対象です。
+送信する種類は `event.created` / `event.updated` / `event.deleted` です。
+テスト送信は `webhook.test` で、`event` は `null` になります。
+
+```json
+{
+  "delivery_id": "123",
+  "type": "event.created",
+  "occurred_at": "2026-09-13T01:00:00Z",
+  "actor_id": "123456789012345678",
+  "event": {
+    "id": 42,
+    "guild_id": "782502586817314816",
+    "name": "定例ミーティング",
+    "description": "今週の相談",
+    "notifications": [],
+    "notification_mentions": [],
+    "color": "#5865F2",
+    "is_all_day": false,
+    "start_at": "2026-09-14T10:00:00",
+    "end_at": "2026-09-14T11:00:00",
+    "created_at": "2026-09-13T10:00:00",
+    "created_by": "123456789012345678",
+    "updated_by": null,
+    "updated_at": null,
+    "discord_scheduled_event_id": null
+  }
+}
+```
+
+`event` は予定 API と同じ形です。削除では削除直前の内容を送ります。
+Discord の ID と配信 ID は文字列として扱ってください。
+`occurred_at` は UTC、予定内の日時はタイムゾーンなしの日本時間（JST）です。
+終日予定の終了日はその日を含みます。
+
+## 署名を検証する
+
+次のヘッダを付けて POST します。
+
+- `X-DisCalendar-Delivery`: 配信 ID
+- `X-DisCalendar-Event`: 種類
+- `X-DisCalendar-Signature`: `sha256=` に続けた HMAC-SHA256 の小文字16進表記
+
+HMAC の鍵には、表示されたシークレットを**文字列のまま**使います（16進デコードしません）。
+本文は JSON に変換する前の、生のバイト列で検証します。空白やキーの順番を変えると一致しません。
+Node.js の例です。
+
+```js
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verify(rawBody, signature, secret) {
+  const expected = Buffer.from(
+    `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}`,
+  );
+  const actual = Buffer.from(signature ?? "");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+```
+
+検証に成功してから JSON を読み、本文とヘッダの配信 ID・種類が一致することも確認してください。
+同じ配信が複数回届くことがあります。配信 ID を保存し、処理済みの配信では副作用を繰り返さないでください。
+保存期間に合わせて `occurred_at` の古い配信も拒否すると、リプレイを防げます。
+
+## 再試行と無効化
+
+予定の保存後に非同期で送信します。送信先の遅延やエラーで予定の保存は待たされません。
+1 回の送信は DNS の解決を含めて最大 10 秒。2xx を成功とし、リダイレクトは追いません。
+初回を含めて最大 3 回試し、失敗後は 5 秒、30 秒の間隔を空けます。
+サーバー再起動後も未完了の配信を再開します。
+
+Webhook ごとに予約順で送信し、再試行中は後続の配信を待たせます。
+異なる Webhook の到着順や、複数の予定を同時操作したときの順序は保証しません。
+配信試行が 10 回連続で失敗すると自動的に無効になり、設定画面に理由が表示されます。
+成功すると連続失敗回数は 0 に戻ります。
+
+手動・自動で無効にすると未配信の予約を破棄します。無効な間の変更は保存しません。
+送信先を直してから「有効にする」で再開してください。過去の変更は再送されません。
+シークレット再生成後の送信・再試行は新しいシークレットで署名します。

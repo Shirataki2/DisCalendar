@@ -254,3 +254,35 @@ async fn period_and_next_respect_boundaries_and_guild(pool: PgPool) {
         ["翌日"]
     );
 }
+
+#[sqlx::test(migrations = "../api/migrations")]
+async fn bot_creation_queues_webhook_in_the_same_transaction(pool: PgPool) {
+    sqlx::query("INSERT INTO guilds (guild_id,name) VALUES ($1,'Webhook')")
+        .bind(GUILD)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO guild_webhooks (guild_id,url,kind,secret,created_by) VALUES ($1,'https://example.com','json','test-only','333')")
+        .bind(GUILD).execute(&pool).await.unwrap();
+    let event = events::create(
+        &pool,
+        &new_event(
+            GUILD,
+            "Bot の予定",
+            "2026-10-01T10:00:00",
+            "2026-10-01T11:00:00",
+        ),
+    )
+    .await
+    .unwrap();
+    let (kind, actor, payload): (String, String, serde_json::Value) =
+        sqlx::query_as("SELECT kind,actor_id,payload FROM guild_webhook_outbox WHERE event_id=$1")
+            .bind(event.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(kind, "event.created");
+    assert_eq!(actor, "333");
+    assert_eq!(payload["name"], "Bot の予定");
+    assert_eq!(payload["notifications"], serde_json::json!([]));
+}

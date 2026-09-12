@@ -1,11 +1,10 @@
 //! Discord の通知・コマンドで共有する日時表示。DB の日時はタイムゾーンなしの JST。
 
-use chrono::{NaiveDateTime, TimeZone};
-
-use crate::models::jst;
+use chrono::{FixedOffset, NaiveDateTime, TimeZone};
 
 fn timestamp(datetime: NaiveDateTime, style: char) -> String {
-    let unix = jst()
+    let unix = FixedOffset::east_opt(9 * 3600)
+        .expect("valid offset")
         .from_local_datetime(&datetime)
         .single()
         .expect("JST has no ambiguous or nonexistent local times")

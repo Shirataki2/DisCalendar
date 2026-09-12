@@ -56,6 +56,12 @@ export const DOC_PAGES: readonly DocPage[] = [
       "サーバーの予定を Google カレンダー・Apple カレンダー・Outlook などで購読する方法と、フィード URL の発行・再発行・無効化について。",
   },
   {
+    slug: "webhooks",
+    title: "予定の変更を外部に通知する",
+    description:
+      "Webhook の登録、Discord への通知、JSON 本文と署名の検証方法。",
+  },
+  {
     slug: "commands",
     title: "利用可能なコマンド",
     description:

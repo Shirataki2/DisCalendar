@@ -40,7 +40,8 @@ const sharedEnv = {
 };
 
 const apiCommand =
-  process.env.E2E_API_COMMAND ?? "cargo run -p discalendar-api";
+  process.env.E2E_API_COMMAND ??
+  "cargo run -p discalendar-api --features webhook-e2e";
 // CI では本番相当のビルドで動かす。output: "standalone" でも next start は動く (警告は出る。
 // standalone の server.js は public/ と .next/static のコピーが要るので、ここでは使わない)
 const webCommand =

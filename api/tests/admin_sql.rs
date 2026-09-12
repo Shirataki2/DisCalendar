@@ -345,6 +345,8 @@ async fn protected_tables_are_rejected_before_execution(pool: PgPool) {
         "SELECT e.id FROM events e WHERE EXISTS (SELECT 1 FROM session)",
         "TABLE account",
         "SELECT endpoint, p256dh, auth FROM push_subscriptions",
+        "SELECT url, secret FROM guild_webhooks",
+        "SELECT table_to_xml('guild_webhooks', true, false, '')",
         "SELECT table_to_xml('push_subscriptions', true, false, '')",
         "SELECT count(*) FROM verification",
         r#"SELECT * FROM U&"s\0065ssion""#,
@@ -699,7 +701,7 @@ async fn delete_guild_events_removes_only_that_guild(pool: PgPool) {
     .unwrap();
 
     let mut tx = pool.begin().await.unwrap();
-    let (snapshot, deleted) = admin_ops::delete_guild_events(&mut tx, GUILD)
+    let (snapshot, deleted) = admin_ops::delete_guild_events(&mut tx, GUILD, "222")
         .await
         .unwrap();
     tx.commit().await.unwrap();
@@ -717,7 +719,7 @@ async fn delete_guild_events_removes_only_that_guild(pool: PgPool) {
 
     // 予定が無いギルドは 0 件
     let mut tx = pool.begin().await.unwrap();
-    let (snapshot, deleted) = admin_ops::delete_guild_events(&mut tx, GUILD)
+    let (snapshot, deleted) = admin_ops::delete_guild_events(&mut tx, GUILD, "222")
         .await
         .unwrap();
     assert!(snapshot.is_empty());
@@ -738,7 +740,7 @@ async fn delete_guild_events_snapshot_is_bounded(pool: PgPool) {
     .await
     .unwrap();
     let mut tx = pool.begin().await.unwrap();
-    let (snapshot, deleted) = admin_ops::delete_guild_events(&mut tx, GUILD)
+    let (snapshot, deleted) = admin_ops::delete_guild_events(&mut tx, GUILD, "222")
         .await
         .unwrap();
     tx.commit().await.unwrap();

@@ -91,15 +91,21 @@ const ACQUIRE_RETRY_INTERVAL: Duration = Duration::from_millis(200);
 pub const KNOWN_WORDS_TTL: Duration = Duration::from_secs(600);
 /// 読み取りを禁止するテーブル (Better Auth のトークン類を持つ)。このロールには権限を与えず、
 /// さらに実行計画にこれらが出てくる文は実行前に拒否する (スキーマに関係なく名前で判定)
-pub const PROTECTED_TABLES: [&str; 4] =
-    ["account", "session", "verification", "push_subscriptions"];
-/// 実行計画で見つけたら拒否する名前 ([`PROTECTED_TABLES`] + プランナ統計。`pg_stats` 系はビューなので
-/// 計画上は `pg_statistic*` として現れるが、念のため名前も入れる)
-const REJECTED_RELATIONS: [&str; 9] = [
+pub const PROTECTED_TABLES: [&str; 5] = [
     "account",
     "session",
     "verification",
     "push_subscriptions",
+    "guild_webhooks",
+];
+/// 実行計画で見つけたら拒否する名前 ([`PROTECTED_TABLES`] + プランナ統計。`pg_stats` 系はビューなので
+/// 計画上は `pg_statistic*` として現れるが、念のため名前も入れる)
+const REJECTED_RELATIONS: [&str; 10] = [
+    "account",
+    "session",
+    "verification",
+    "push_subscriptions",
+    "guild_webhooks",
     "pg_statistic",
     "pg_statistic_ext_data",
     "pg_stats",

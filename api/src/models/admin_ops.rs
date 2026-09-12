@@ -36,6 +36,7 @@ pub async fn lock_guild_events<'e>(
 pub async fn delete_guild_events(
     conn: &mut PgConnection,
     guild_id: &str,
+    actor_id: &str,
 ) -> sqlx::Result<(Vec<EventRow>, u64)> {
     let snapshot = sqlx::query_as!(
         EventRow,
@@ -55,11 +56,20 @@ pub async fn delete_guild_events(
     )
     .fetch_all(&mut *conn)
     .await?;
-    let deleted = sqlx::query!("DELETE FROM events WHERE guild_id = $1", guild_id)
-        .execute(&mut *conn)
-        .await?
-        .rows_affected();
-    Ok((snapshot, deleted))
+    // DELETE が実際に消した全行から予約する。先に SELECT するだけだと、並行作成が
+    // SELECT と DELETE の間にコミットされた場合に、その削除の通知だけ漏れてしまう。
+    let deleted: i64 = sqlx::query_scalar(
+        "WITH deleted AS (
+            DELETE FROM events e WHERE guild_id=$1
+            RETURNING e.*, (SELECT scheduled_event_id FROM event_discord_links WHERE event_id=e.id) AS discord_scheduled_event_id
+        ), queued AS (
+            INSERT INTO guild_webhook_outbox (webhook_id,event_id,kind,payload,actor_id,generation)
+            SELECT w.id,d.id,'event.deleted',to_jsonb(d),$2,w.generation FROM deleted d
+            JOIN guild_webhooks w ON w.guild_id=d.guild_id AND w.enabled
+            FOR KEY SHARE OF w
+        ) SELECT count(*) FROM deleted"
+    ).bind(guild_id).bind(actor_id).fetch_one(&mut *conn).await?;
+    Ok((snapshot, deleted as u64))
 }
 
 /// Better Auth の `session` のうち期限切れのものを消し、件数を返す。

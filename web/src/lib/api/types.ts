@@ -641,3 +641,22 @@ export interface PushSubscriptionInput {
   auth: string;
   device_name: string;
 }
+
+/** Webhook の一覧には URL のパス・クエリ、署名用シークレットを含めない。 */
+export interface GuildWebhook {
+  id: string;
+  url: string;
+  kind: "json" | "discord";
+  enabled: boolean;
+  consecutive_failures: number;
+  disabled_reason: string | null;
+  created_by: string;
+  created_at: string;
+  deliveries: {
+    delivery_id: string;
+    kind: string;
+    attempted_at: string;
+    status: number | null;
+    error: string | null;
+  }[];
+}
