@@ -37,6 +37,14 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - Issue 着手から PR・レビュー対応までの手順は `.agents/skills/issue-driven-dev/`、worktree や `target/` の後片付けは `.agents/skills/cleanup-workspace/` にまとめてある。
   `.agents/skills/` は Codex のエントリポイントで、Claude Code と共有する詳細手順の正本は `.claude/skills/`
 
+## コミットメッセージ
+
+- 1 行目に変更内容を端的に表すタイトルを日本語で書く。
+- 2 行目以降に変更の概要を日本語で書く。箇条書き・文章のどちらでもよい。
+- AI と共著したコミットでは、概要の後に空行を挟み、最後の行に使用した AI に応じた以下の共著者情報を記載する。
+  - Claude: `Co-Authored-By: Claude <noreply@anthropic.com>`
+  - Codex: `Co-Authored-By: Codex <267193182+codex@users.noreply.github.com>`
+
 ## AI エージェントのローカル / クラウド環境
 
 - Codex デスクトップアプリの managed worktree は `.worktreeinclude` に従って ignored な `.env` をコピーし、Local environment の
