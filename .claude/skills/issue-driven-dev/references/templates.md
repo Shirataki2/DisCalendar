@@ -140,5 +140,5 @@ web の `NEXT_PUBLIC_*` は `next build` 時にインライン化されるため
 | `web/Dockerfile` | ビルド時に必要なら `ARG` を build ステージに追加 |
 | `.github/workflows/deploy-staging.yml` | staging のビルド引数 / 環境変数 (Repository variables / secrets) |
 | `.github/workflows/ci.yml` | CI のビルドに必要ならダミー値 (`BETTER_AUTH_SECRET` と同様) |
-| ルート `README.md` | 設定手順 (ドキュメントの正はここ) |
+| ルート `README.md` からリンクした `docs/`・各サービスの README | 該当する設定手順 |
 | `api/src/config.rs` 相当 / `bot` の設定読み込み | Rust 側は起動時の読み込みと必須チェック |

@@ -9,9 +9,9 @@
 --
 -- 落とすと発行済みのフィード URL はすべて無効になる (外部カレンダー側の購読は取得エラーになる)。
 -- 再びロールフォワードしてもトークンは戻らないので、利用者はサーバー設定から発行し直して
--- 外部カレンダーに登録し直す必要がある。必要なら先にダンプを取る (README「DB のバックアップと復元」)。
+-- 外部カレンダーに登録し直す必要がある。必要なら先にダンプを取る (docs/operations.md「DB のバックアップと復元」)。
 --
--- 手順 (compose の環境。README「マイグレーションが入った版から戻す」と同じ要領):
+-- 手順 (compose の環境。docs/operations.md「マイグレーションが入った版から戻す」と同じ要領):
 --
 --   1. api を止める:       docker compose stop api
 --   2. 先にダンプを取る:   docker compose exec -T db pg_dump -U discalendar -d discalendar -Fc > 戻す前.dump

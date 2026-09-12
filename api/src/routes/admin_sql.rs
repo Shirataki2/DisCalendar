@@ -75,7 +75,7 @@ pub struct SqlRequest {
         (status = 400, description = "実行できない文 / Postgres のエラー (メッセージにそのまま入る)", body = ErrorBody),
         (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody),
-        (status = 503, description = "SQL コンソール用の DB ロールが使えない (README の手順で作成する)", body = ErrorBody),
+        (status = 503, description = "SQL コンソール用の DB ロールが使えない (docs/admin.md の手順で作成する)", body = ErrorBody),
     )
 )]
 #[post("/sql")]

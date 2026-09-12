@@ -97,7 +97,7 @@ release.yml がやること (数十秒):
 
 Actions → **"Deploy production"** → Run workflow → `image_tag` に **`v3.1.0`** を入れて実行する
 (Environment `production` の承認が要る)。ホスト上の `.env` の `IMAGE_TAG` が書き換わり、`docker compose pull && up -d` が走って
-db / api / web が healthy になるまで待つ。詳細は [README の「本番 (discalendar.app) へのデプロイ」](../../../README.md)。
+db / api / web が healthy になるまで待つ。詳細は [デプロイと運用の「本番 (discalendar.app) へのデプロイ」](../../../docs/operations.md#本番-discalendarapp-へのデプロイ)。
 
 反映後の確認:
 
@@ -118,9 +118,8 @@ curl -fsS https://discalendar.app/ > /dev/null && echo ok
 - **DB マイグレーションが入った版から戻すときは、イメージより先に DB を戻す**。古い api / bot は変更後のスキーマを
   読めないうえ、`sqlx::migrate!` は既定で「自分の `migrations/` に無いバージョンが `_sqlx_migrations` にある」だけで
   起動に失敗する。戻す SQL は `api/rollback/<version>_*.sql` にあり (自動実行はされない)、手順はファイル冒頭に書いてある。
-  流れは「api / bot を止める → ダンプを取る → SQL を流す → 前の版のタグでデプロイ」。詳細は README の
-  「マイグレーションが入った版から戻す」
-- イメージのロールバックで直らないもの (データの問題など) は、README の「DB のバックアップと復元」を見る
+  流れは「api / bot を止める → ダンプを取る → SQL を流す → 前の版のタグでデプロイ」。詳細は [マイグレーションが入った版から戻す](../../../docs/operations.md#マイグレーションが入った版から戻す)
+- イメージのロールバックで直らないもの (データの問題など) は、[DB のバックアップと復元](../../../docs/operations.md#db-のバックアップと復元)を見る
 
 ## 落とし穴
 
@@ -137,7 +136,7 @@ curl -fsS https://discalendar.app/ > /dev/null && echo ok
 - **`v*` タグの作成はルールセットで制限しておく** (Settings → Rules → Rulesets → Tag ruleset で `v*` に "Restrict creations")。
   タグから起動するワークフローは**そのタグのコミットにある `release.yml`** が動くので、main に入っていない改変版を
   タグ付きで push されると write 権限のトークンで Release / GHCR を操作できてしまう。main のブランチ保護では塞げない
-- 本番と staging は同じホストにいる。`.env` の `COMPOSE_PROJECT_NAME` / `WEB_PORT` を混同しない (README)
+- 本番と staging は同じホストにいる。`.env` の `COMPOSE_PROJECT_NAME` / `WEB_PORT` を混同しない ([デプロイと運用](../../../docs/operations.md))
 
 ## 関連
 

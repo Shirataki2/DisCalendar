@@ -8,9 +8,9 @@
 -- 失敗するため、テーブルと記録の両方を戻す。
 --
 -- 積み上げた利用の記録はこのファイルを流すと消える。再びロールフォワードしても戻らないので、
--- 必要なら先にダンプを取る (README「DB のバックアップと復元」)。
+-- 必要なら先にダンプを取る (docs/operations.md「DB のバックアップと復元」)。
 --
--- 手順 (compose の環境。README「マイグレーションが入った版から戻す」と同じ要領):
+-- 手順 (compose の環境。docs/operations.md「マイグレーションが入った版から戻す」と同じ要領):
 --
 --   1. api を止める:       docker compose stop api
 --   2. 先にダンプを取る:   docker compose exec -T db pg_dump -U discalendar -d discalendar -Fc > 戻す前.dump

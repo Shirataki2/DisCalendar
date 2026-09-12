@@ -18,7 +18,7 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 ## コマンド
 
 - web (`web/` で実行): `pnpm lint` (Biome) / `pnpm exec tsc --noEmit` / `pnpm test` (Vitest) / `pnpm build`。
-  E2E は `pnpm e2e` (Playwright。api + Postgres + Next を自動で立てる。Discord はモック。手順は README の「テスト」)
+  E2E は `pnpm e2e` (Playwright。api + Postgres + Next を自動で立てる。Discord はモック。手順は [開発・テスト環境](docs/development.md#テスト))
 - api / bot (ルートで実行): `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` (Postgres が必要)。
   `query!` を追加・変更したら該当クレートのディレクトリで `cargo sqlx prepare -- --all-targets` を実行し、
   `api/.sqlx/` / `bot/.sqlx/` を更新する (CI は `SQLX_OFFLINE=true`)
@@ -57,7 +57,7 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 claude.ai/code や `claude --cloud` のセッション (環境変数 `CLAUDE_CODE_REMOTE=true`) は Anthropic 管理の VM にこのリポジトリを clone して動く。
 Codex cloud もタスクごとの隔離環境に clone して動く。セッション開始時に共通スクリプトが Postgres の起動と `api/migrations` の適用・
 `web/` の `pnpm install`・ダミー値の `.env` 生成を行い、結果を `[agent-setup] ...` で報告する (Postgres が「未準備」なら、その指示に従って直してから
-`cargo test` / `cargo sqlx prepare` に進む)。環境 (Environment) 側の設定手順は [README.md](README.md) の「AI エージェントの環境を整える」。
+`cargo test` / `cargo sqlx prepare` に進む)。環境 (Environment) 側の設定手順は [開発・テスト環境](docs/development.md#ai-エージェントの環境を整える)。
 
 - **旧実装 `tmp/DisCalendarV2/` は無い** (git 管理外)。挙動の根拠が要るときは `docs/`・Issue・PR の記述で代用し、確認できなければ PR 本文にその旨を書く
 - **対話ブラウザと Discord ログインでの動作確認はできない**。検証は CI 相当のコマンド (`pnpm lint` / `tsc` / `pnpm build`、
@@ -75,7 +75,7 @@ PR レビュー (Codex / Claude) では以下を優先し、指摘は日本語�
   旧 Bot / 旧 Web との共有による凍結 (カラム型・通知設定の保存形式) は #15 で解除済みだが、
   `events` などは api と bot が同じ形で読み書きするので、変えるときは両方の対応と `.sqlx/` の更新を同じ PR に含める。
   既存データの持ち方が変わる変更 (型変換など) は、**対になる戻し方を `api/rollback/<version>_*.sql` に用意する**
-  (イメージを戻しても DB は戻らず、古い api は起動すらできない。README の「マイグレーションが入った版から戻す」)
+  (イメージを戻しても DB は戻らず、古い api は起動すらできない。[マイグレーションが入った版から戻す](docs/operations.md#マイグレーションが入った版から戻す))
 - **P0: 認可の迂回**。api 側の権限チェック (restricted モード、`can_manage_server`、`guild_id` + `event_id` での絞り込み) や
   Better Auth セッション検証を弱める変更。web 側の表示制御だけで済ませてはいけない
 - **P0: 秘密情報**。`.env*` の内容、Bot トークン、セッション cookie の値、`BETTER_AUTH_SECRET` をコード・ログ・テスト・コミットに含める変更
