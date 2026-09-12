@@ -76,7 +76,8 @@ pub async fn delete_guild_events(
     event_links::lock_guild(&mut *tx, guild_id).await?;
     admin_ops::lock_guild_events(&mut *tx, guild_id).await?;
     let scheduled_event_ids = event_links::list_scheduled_event_ids(&mut *tx, guild_id).await?;
-    let (snapshot_rows, count) = admin_ops::delete_guild_events(&mut tx, guild_id).await?;
+    let (snapshot_rows, count) =
+        admin_ops::delete_guild_events(&mut tx, guild_id, &admin.discord_user_id).await?;
     // スナップショットは API 形式 (Event) に加えて notifications の生データも残す
     // (壊れた要素は Event への変換で捨てられるため、削除した実データを復元・調査できるように)
     let sampled: Vec<EventSnapshot> = snapshot_rows

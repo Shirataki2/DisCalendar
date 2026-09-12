@@ -18,6 +18,7 @@ import type {
   GuildConfigInput,
   GuildFeed,
   GuildRole,
+  GuildWebhook,
   MemberProfile,
   MyPermissions,
   OpsResult,
@@ -100,6 +101,36 @@ export function createApi(request: ApiFetcher) {
       revoke: (guildId: string, eventId: number) =>
         request<void>(`/events/${guildId}/${eventId}/share`, {
           method: "DELETE",
+        }),
+    },
+    webhooks: {
+      list: (guildId: string) =>
+        request<GuildWebhook[]>(`/guilds/${guildId}/webhooks`),
+      create: (
+        guildId: string,
+        body: { url: string; kind: "json" | "discord" },
+      ) =>
+        request<{ id: string; secret: string }>(`/guilds/${guildId}/webhooks`, {
+          method: "POST",
+          body,
+        }),
+      setEnabled: (guildId: string, id: string, enabled: boolean) =>
+        request<void>(`/guilds/${guildId}/webhooks/${id}`, {
+          method: "PUT",
+          body: { enabled },
+        }),
+      remove: (guildId: string, id: string) =>
+        request<void>(`/guilds/${guildId}/webhooks/${id}`, {
+          method: "DELETE",
+        }),
+      rotate: (guildId: string, id: string) =>
+        request<{ secret: string }>(
+          `/guilds/${guildId}/webhooks/${id}/secret`,
+          { method: "POST" },
+        ),
+      test: (guildId: string, id: string) =>
+        request<void>(`/guilds/${guildId}/webhooks/${id}/test`, {
+          method: "POST",
         }),
     },
     guilds: {

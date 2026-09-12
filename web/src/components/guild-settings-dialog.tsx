@@ -54,6 +54,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { WebhookSettings } from "@/components/webhook-settings";
 import { describeApiError } from "@/lib/api";
 import type {
   GuildChannel,
@@ -404,6 +405,8 @@ function GuildSettingsForm({
           canManage={canManage}
           onError={setError}
         />
+
+        {canManage && <WebhookSettings guildId={guildId} />}
 
         {syncFailed && (
           <p role="alert" className="text-sm text-destructive">

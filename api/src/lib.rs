@@ -11,14 +11,20 @@ pub mod auth;
 pub mod build_info;
 pub mod config;
 pub mod discord;
+#[path = "../../shared/discord_datetime.rs"]
+pub mod discord_datetime;
 pub mod error;
 pub mod ical;
 pub mod logging;
 pub mod models;
 pub mod openapi;
+pub mod outbound_http;
 pub mod push;
 pub mod routes;
 pub mod state;
+#[path = "../../shared/webhook_outbox.rs"]
+pub mod webhook_outbox;
+pub mod webhooks;
 
 use actix_web::{App, HttpServer, middleware, web};
 use anyhow::Context as _;
@@ -80,6 +86,14 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         );
     }
 
+    // 外部送信中も通常 API の接続枠を消費しない (通常プールが1接続でも保存を待たせない)。
+    let webhook_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_lazy_with(state.pool.connect_options().as_ref().clone());
+    tokio::spawn(crate::webhooks::run(
+        webhook_pool,
+        state.site_base_url.clone(),
+    ));
     if let Some(push) = config.push {
         tokio::spawn(crate::push::run(state.clone(), push));
     }

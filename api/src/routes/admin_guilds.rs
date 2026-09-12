@@ -222,6 +222,14 @@ pub async fn create_event(
         },
     )
     .await?;
+    crate::webhook_outbox::enqueue(
+        &mut tx,
+        guild_id,
+        event.id,
+        "event.created",
+        &admin.discord_user_id,
+    )
+    .await?;
     tx.commit().await?;
     tracing::info!(guild_id, event_id = event.id, admin = %admin.discord_user_id, "event created by admin");
     Ok(HttpResponse::Created().json(event))
@@ -290,6 +298,14 @@ pub async fn update_event(
         },
     )
     .await?;
+    crate::webhook_outbox::enqueue(
+        &mut tx,
+        guild_id,
+        after.id,
+        "event.updated",
+        &admin.discord_user_id,
+    )
+    .await?;
     tx.commit().await?;
     tracing::info!(guild_id, event_id = after.id, admin = %admin.discord_user_id, "event updated by admin");
     Ok(web::Json(after))
@@ -319,6 +335,14 @@ pub async fn delete_event(
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+    crate::webhook_outbox::enqueue(
+        &mut tx,
+        guild_id,
+        path.event_id,
+        "event.deleted",
+        &admin.discord_user_id,
+    )
+    .await?;
     if !events::delete(&mut *tx, guild_id, path.event_id).await? {
         return Err(ApiError::NotFound("event not found".into()));
     }

@@ -16,6 +16,7 @@ mod member;
 mod members;
 mod push;
 mod shares;
+mod webhooks;
 
 pub use member::GuildMember;
 use utoipa_actix_web::{scope, service_config::ServiceConfig};
@@ -45,7 +46,13 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 // iCal フィードの発行状況と発行・無効化 (#95)
                 .service(feeds::get_feed)
                 .service(feeds::issue_feed)
-                .service(feeds::revoke_feed),
+                .service(feeds::revoke_feed)
+                .service(webhooks::list)
+                .service(webhooks::create)
+                .service(webhooks::set_enabled)
+                .service(webhooks::remove)
+                .service(webhooks::rotate)
+                .service(webhooks::test_send),
         )
         // iCal フィードの配信 (#95)。認証なしのデータ取得ルート (トークンが URL に入る)
         .service(feeds::download_feed)

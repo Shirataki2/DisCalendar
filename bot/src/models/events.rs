@@ -53,7 +53,9 @@ pub struct NewEvent<'a> {
 }
 
 pub async fn create(pool: &PgPool, event: &NewEvent<'_>) -> sqlx::Result<Event> {
+    let mut tx = pool.begin().await?;
     let notifications = Notification::encode_all(event.notifications);
+    let row =
     sqlx::query_as!(
         Event,
         r#"
@@ -72,8 +74,18 @@ pub async fn create(pool: &PgPool, event: &NewEvent<'_>) -> sqlx::Result<Event> 
         event.created_at,
         event.created_by
     )
-    .fetch_one(pool)
-    .await
+    .fetch_one(&mut *tx)
+    .await?;
+    crate::webhook_outbox::enqueue(
+        &mut tx,
+        event.guild_id,
+        row.id,
+        "event.created",
+        event.created_by,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(row)
 }
 
 /// ギルドの全予定 (開始日時順)

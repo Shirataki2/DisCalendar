@@ -10,12 +10,15 @@ pub mod checks;
 pub mod commands;
 pub mod config;
 pub mod data;
+#[path = "../../shared/discord_datetime.rs"]
 pub mod datetime;
 pub mod error;
 pub mod event;
 pub mod models;
 pub mod paginator;
 pub mod tasks;
+#[path = "../../shared/webhook_outbox.rs"]
+pub mod webhook_outbox;
 
 use anyhow::Context as _;
 use poise::serenity_prelude as serenity;

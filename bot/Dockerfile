@@ -9,6 +9,7 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 # workspace の members をすべて置かないと cargo が manifest を読めないので api も入れる
 COPY api ./api
 COPY bot ./bot
+COPY shared ./shared
 ENV SQLX_OFFLINE=true
 RUN cargo build --release -p discalendar-bot
 
