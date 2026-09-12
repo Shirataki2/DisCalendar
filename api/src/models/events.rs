@@ -4,7 +4,10 @@ use serde_json::Value;
 use sqlx::{PgExecutor, PgPool};
 use utoipa::ToSchema;
 
-use super::notifications::Notification;
+use super::{
+    notification_mentions::{self, NotificationMention},
+    notifications::Notification,
+};
 use crate::error::ApiError;
 
 /// タイトルの最大文字数 (旧 Web のフォームと同じ)
@@ -21,6 +24,7 @@ pub struct EventRow {
     pub description: Option<String>,
     /// DB に入っている JSONB そのまま (`Notification::decode_all` で読む)
     pub notifications: Value,
+    pub notification_mentions: Value,
     pub color: String,
     pub is_all_day: bool,
     pub start_at: NaiveDateTime,
@@ -44,6 +48,7 @@ pub struct Event {
     pub name: String,
     pub description: Option<String>,
     pub notifications: Vec<Notification>,
+    pub notification_mentions: Vec<NotificationMention>,
     #[schema(example = "#2196F3")]
     pub color: String,
     pub is_all_day: bool,
@@ -68,6 +73,8 @@ impl From<EventRow> for Event {
             name: row.name,
             description: row.description,
             notifications: Notification::decode_all(&row.notifications),
+            notification_mentions: serde_json::from_value(row.notification_mentions)
+                .unwrap_or_default(),
             color: row.color,
             is_all_day: row.is_all_day,
             start_at: row.start_at,
@@ -90,6 +97,9 @@ pub struct EventInput {
     pub description: Option<String>,
     #[serde(default)]
     pub notifications: Vec<Notification>,
+    /// 省略時は作成では空、更新では現在の指定を保持する。
+    #[serde(default)]
+    pub notification_mentions: Option<Vec<NotificationMention>>,
     /// `#RRGGBB`
     #[schema(example = "#2196F3")]
     pub color: String,
@@ -139,6 +149,9 @@ impl EventInput {
             return Err(ApiError::BadRequest(format!(
                 "at most {NOTIFICATIONS_MAX} notifications are allowed"
             )));
+        }
+        if let Some(mentions) = &self.notification_mentions {
+            notification_mentions::validate(mentions)?;
         }
         Ok(())
     }
@@ -205,7 +218,7 @@ pub async fn list_between(
     sqlx::query_as!(
         EventRow,
         r#"
-        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
+        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,
                e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
@@ -233,7 +246,7 @@ pub async fn list_between_guilds(
     sqlx::query_as!(
         EventRow,
         r#"
-        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
+        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,
                e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
@@ -262,7 +275,7 @@ pub async fn list_for_feed(
     sqlx::query_as!(
         EventRow,
         r#"
-        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
+        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,
                e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
@@ -307,12 +320,16 @@ pub async fn create<'e>(
     created_by: &str,
 ) -> sqlx::Result<EventRow> {
     let notifications = Notification::encode_all(&input.notifications);
+    let mentions = input
+        .notification_mentions
+        .as_ref()
+        .map(|m| serde_json::to_value(m).expect("mentions are serializable"));
     sqlx::query_as!(
         EventRow,
         r#"
-        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
+        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, notification_mentions)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11::jsonb, '[]'::jsonb))
+        RETURNING id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
         "#,
         guild_id,
@@ -324,7 +341,8 @@ pub async fn create<'e>(
         input.start_at,
         input.end_at,
         created_at,
-        created_by
+        created_by,
+        mentions
     )
     .fetch_one(executor)
     .await
@@ -337,7 +355,7 @@ pub async fn find_by_id(pool: &PgPool, guild_id: &str, id: i32) -> sqlx::Result<
     sqlx::query_as!(
         EventRow,
         r#"
-        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,
+        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,
                e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
@@ -367,7 +385,7 @@ pub async fn find_by_id_for_update(
     let row = sqlx::query_as!(
         EventRow,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day,
+        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day,
                start_at, end_at, created_at, created_by, updated_by, updated_at,
                NULL::text AS "discord_scheduled_event_id?"
         FROM events
@@ -400,14 +418,18 @@ pub async fn update_if_unlinked<'e>(
     updated_at: NaiveDateTime,
 ) -> sqlx::Result<Option<EventRow>> {
     let notifications = Notification::encode_all(&input.notifications);
+    let mentions = input
+        .notification_mentions
+        .as_ref()
+        .map(|m| serde_json::to_value(m).expect("mentions are serializable"));
     sqlx::query_as!(
         EventRow,
         r#"
         UPDATE events
-        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9, updated_by = $10, updated_at = $11
+        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9, updated_by = $10, updated_at = $11, notification_mentions = COALESCE($12::jsonb, notification_mentions)
         WHERE id = $1 AND guild_id = $2
           AND NOT EXISTS (SELECT 1 FROM event_discord_links l WHERE l.event_id = events.id)
-        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
+        RETURNING id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
         "#,
         id,
@@ -420,7 +442,8 @@ pub async fn update_if_unlinked<'e>(
         input.start_at,
         input.end_at,
         updated_by,
-        updated_at
+        updated_at,
+        mentions
     )
     .fetch_optional(executor)
     .await
@@ -438,13 +461,17 @@ pub async fn update<'e>(
     updated_at: NaiveDateTime,
 ) -> sqlx::Result<Option<EventRow>> {
     let notifications = Notification::encode_all(&input.notifications);
+    let mentions = input
+        .notification_mentions
+        .as_ref()
+        .map(|m| serde_json::to_value(m).expect("mentions are serializable"));
     sqlx::query_as!(
         EventRow,
         r#"
         UPDATE events
-        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9, updated_by = $10, updated_at = $11
+        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9, updated_by = $10, updated_at = $11, notification_mentions = COALESCE($12::jsonb, notification_mentions)
         WHERE id = $1 AND guild_id = $2
-        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
+        RETURNING id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
         "#,
         id,
@@ -457,7 +484,8 @@ pub async fn update<'e>(
         input.start_at,
         input.end_at,
         updated_by,
-        updated_at
+        updated_at,
+        mentions
     )
     .fetch_optional(executor)
     .await
@@ -489,6 +517,7 @@ mod tests {
             name: "test".into(),
             description: None,
             notifications: vec![],
+            notification_mentions: None,
             color: "#2196F3".into(),
             is_all_day: false,
             start_at: "2026-08-22T10:00:00".parse().unwrap(),

@@ -18,6 +18,7 @@ pub struct Event {
     pub description: Option<String>,
     /// DB に入っている JSONB そのまま (`Notification::decode_all` で読む)
     pub notifications: Value,
+    pub notification_mentions: Value,
     /// `#RRGGBB`
     pub color: String,
     /// 終日予定。`start_at` は開始日の 0:00、`end_at` は終了日 (含む) の 0:00 (web と同じ表現)
@@ -58,7 +59,7 @@ pub async fn create(pool: &PgPool, event: &NewEvent<'_>) -> sqlx::Result<Event> 
         r#"
         INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        RETURNING id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         "#,
         event.guild_id,
         event.name,
@@ -80,7 +81,7 @@ pub async fn list_all(pool: &PgPool, guild_id: &str) -> sqlx::Result<Vec<Event>>
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 ORDER BY start_at, id
         "#,
         guild_id
@@ -98,7 +99,7 @@ pub async fn list_past(
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 AND start_at <= $2 ORDER BY start_at, id
         "#,
         guild_id,
@@ -117,7 +118,7 @@ pub async fn list_future(
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 AND start_at >= $2 ORDER BY start_at, id
         "#,
         guild_id,
@@ -133,7 +134,7 @@ pub async fn list_all_future(pool: &PgPool, now: NaiveDateTime) -> sqlx::Result<
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE start_at >= $1 ORDER BY start_at, id
         "#,
         now
@@ -150,7 +151,7 @@ pub async fn list_period(
     end: NaiveDateTime,
 ) -> sqlx::Result<Vec<Event>> {
     sqlx::query_as!(Event, r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 AND start_at < $3
           AND (end_at > $2 OR (end_at = $2 AND (is_all_day OR start_at = end_at)))
         ORDER BY start_at, id
@@ -164,7 +165,7 @@ pub async fn list_next(
     now: NaiveDateTime,
 ) -> sqlx::Result<Vec<Event>> {
     sqlx::query_as!(Event, r#"
-        SELECT id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1
           AND start_at = (SELECT MIN(start_at) FROM events WHERE guild_id = $1 AND start_at >= $2)
         ORDER BY start_at, id

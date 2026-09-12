@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n        RETURNING id, guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at\n        ",
+  "query": "\n        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at\n        FROM events WHERE start_at >= $1 ORDER BY start_at, id\n        ",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,17 @@
       },
       {
         "ordinal": 5,
+        "name": "notification_mentions",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "notification_mentions"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "color",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "is_all_day",
         "type_info": "Bool",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "start_at",
         "type_info": "Timestamp",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "end_at",
         "type_info": "Timestamp",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamp",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "created_by",
         "type_info": "Text",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "updated_by",
         "type_info": "Text",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "updated_at",
         "type_info": "Timestamp",
         "origin": {
@@ -149,16 +160,7 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Text",
-        "Jsonb",
-        "Text",
-        "Bool",
-        "Timestamp",
-        "Timestamp",
-        "Timestamp",
-        "Text"
+        "Timestamp"
       ]
     },
     "nullable": [
@@ -172,10 +174,11 @@
       false,
       false,
       false,
+      false,
       true,
       true,
       true
     ]
   },
-  "hash": "5eb88ff16bc97d18a69e07c8e6ea787c13ce63cc776e599dd638370adc3e17a7"
+  "hash": "b7e0f7547c3dbc78232907d83f49da091597a09e1cc8218b6f39d65277e61c06"
 }

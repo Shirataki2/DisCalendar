@@ -15,6 +15,7 @@ async fn share_lifecycle_and_public_fields(pool: PgPool) {
         name: "共有予定".into(),
         description: Some("説明".into()),
         notifications: vec![],
+        notification_mentions: None,
         color: "#5865F2".into(),
         is_all_day: false,
         start_at: "2026-09-05T10:00:00".parse().unwrap(),

@@ -214,6 +214,7 @@ pub struct GuildRole {
     pub name: String,
     pub color: u32,
     pub position: i32,
+    pub mentionable: bool,
 }
 
 #[derive(Deserialize)]
@@ -222,6 +223,8 @@ struct ApiRole {
     color: u32,
     position: i32,
     managed: bool,
+    #[serde(default)]
+    mentionable: bool,
     id: String,
     /// Discord は permissions を文字列化した整数で返す
     permissions: String,
@@ -548,6 +551,7 @@ impl DiscordClient {
                         name: r.name.clone(),
                         color: r.color,
                         position: r.position,
+                        mentionable: r.mentionable,
                     })
                     .collect();
                 editor_roles

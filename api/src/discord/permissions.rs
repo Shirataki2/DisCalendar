@@ -19,6 +19,7 @@ impl Permissions {
     pub const VIEW_CHANNEL: u64 = 1 << 10;
     pub const SEND_MESSAGES: u64 = 1 << 11;
     pub const MANAGE_MESSAGES: u64 = 1 << 13;
+    pub const MENTION_EVERYONE: u64 = 1 << 17;
     pub const EMBED_LINKS: u64 = 1 << 14;
     pub const MANAGE_ROLES: u64 = 1 << 28;
     pub const CREATE_EVENTS: u64 = 1 << 44;

@@ -8,6 +8,7 @@ pub mod event_share_links;
 pub mod events;
 pub mod guild_config;
 pub mod guilds;
+pub mod notification_mentions;
 pub mod notifications;
 
 use chrono::{FixedOffset, NaiveDateTime, Utc};

@@ -9,12 +9,17 @@ export interface Notification {
   unit: NotificationUnit;
 }
 
+export type NotificationMention =
+  | { type: "everyone" }
+  | { type: "role" | "user"; id: string };
+
 export interface ApiEvent {
   id: number;
   guild_id: string;
   name: string;
   description: string | null;
   notifications: Notification[];
+  notification_mentions?: NotificationMention[];
   /** #RRGGBB */
   color: string;
   is_all_day: boolean;
@@ -33,6 +38,7 @@ export interface ApiEventInput {
   name: string;
   description?: string | null;
   notifications: Notification[];
+  notification_mentions?: NotificationMention[];
   color: string;
   is_all_day: boolean;
   start_at: string;
@@ -55,6 +61,7 @@ export interface Guild {
 }
 
 export interface GuildRole {
+  mentionable?: boolean;
   id: string;
   name: string;
   color: number;

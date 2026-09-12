@@ -69,6 +69,38 @@ pub async fn profiles(
     Ok(web::Json(profiles))
 }
 
+/// メンション先の確認。予定の編集権限を持つ利用者だけが任意のメンバー ID を解決できる。
+#[utoipa::path(
+    tag = "guilds",
+    params(MembersQuery, ("guild_id" = String, Path, description = "ギルド ID")),
+    responses((status = 200, body = Vec<MemberProfile>), (status = 400, body = ErrorBody),
+              (status = 401, body = ErrorBody), (status = 403, body = ErrorBody))
+)]
+#[get("/{guild_id}/mention-members")]
+pub async fn mention_profiles(
+    member: GuildMember,
+    query: web::Query<MembersQuery>,
+    state: web::Data<AppState>,
+) -> Result<web::Json<Vec<MemberProfile>>, ApiError> {
+    super::events::ensure_can_edit(&state.pool, &member).await?;
+    let ids = parse_ids(&query.ids)?;
+    if ids.len() > 10 || ids.iter().any(|id| id == "0") {
+        return Err(ApiError::BadRequest(
+            "メンション先は10件以内のユーザーIDで指定してください".into(),
+        ));
+    }
+    let resolved = stream::iter(ids)
+        .map(|id| {
+            let discord = &state.discord;
+            let guild_id = member.guild_id();
+            async move { discord.member_profile(guild_id, &id).await }
+        })
+        .buffered(4)
+        .try_collect()
+        .await?;
+    Ok(web::Json(resolved))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -84,6 +84,15 @@ export default defineConfig({
           // フォーム部品の表記はこれで決まり (use.locale は Intl にしか効かない)、
           // 日本語なら 24 時間制の "20:00"、既定の英語だと "08:00 PM" になる
           args: SCREENSHOT ? ["--lang=ja-JP"] : [],
+          // Linux では言語フラグだけでなく環境のロケールも揃える必要がある
+          env: SCREENSHOT
+            ? {
+                ...process.env,
+                LANG: "ja_JP.UTF-8",
+                LC_ALL: "ja_JP.UTF-8",
+                LANGUAGE: "ja_JP:ja",
+              }
+            : undefined,
         },
       },
     },

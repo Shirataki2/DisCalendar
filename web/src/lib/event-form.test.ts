@@ -422,3 +422,47 @@ describe("個人設定を使った新規作成", () => {
     expect(values.notifications[0]).not.toBe(notifications[0]);
   });
 });
+
+it("通知メンションを編集・複製・送信で保持し、不正なIDと重複・上限超過を拒否する", () => {
+  const notificationMentions = [
+    { type: "everyone" as const },
+    { type: "role" as const, id: "123456789012345678" },
+    { type: "user" as const, id: "234567890123456789" },
+  ];
+  const values = { ...valid, notificationMentions, notifications: [] };
+  expect(eventFormSchema.safeParse(values).success).toBe(true);
+  const input = eventFormToApiInput(values);
+  expect(input.notification_mentions).toEqual(notificationMentions);
+  const event: ApiEvent = {
+    ...input,
+    id: 1,
+    guild_id: "123",
+    description: null,
+    created_at: input.start_at,
+    created_by: null,
+    updated_by: null,
+    updated_at: null,
+    discord_scheduled_event_id: null,
+  };
+  expect(eventToFormValues(event).notificationMentions).toEqual(
+    notificationMentions,
+  );
+  for (const id of ["0", "01", "-1", "18446744073709551616", "1><@everyone"]) {
+    expect(
+      eventFormSchema.safeParse({
+        ...values,
+        notificationMentions: [{ type: "user", id }],
+      }).success,
+    ).toBe(false);
+  }
+  for (const count of [2, 11]) {
+    expect(
+      eventFormSchema.safeParse({
+        ...values,
+        notificationMentions: Array.from({ length: count }, () => ({
+          type: "everyone",
+        })),
+      }).success,
+    ).toBe(false);
+  }
+});

@@ -103,6 +103,17 @@ export function createApi(request: ApiFetcher) {
         }),
     },
     guilds: {
+      mentionMembers: (
+        guildId: string,
+        ids: string[],
+        signal?: AbortSignal,
+      ) => {
+        const query = new URLSearchParams({ ids: ids.join(",") });
+        return request<MemberProfile[]>(
+          `/guilds/${guildId}/mention-members?${query}`,
+          { signal },
+        );
+      },
       roles: (guildId: string, signal?: AbortSignal) =>
         request<GuildRole[]>(`/guilds/${guildId}/roles`, { signal }),
       members: (guildId: string, ids: string[], signal?: AbortSignal) => {

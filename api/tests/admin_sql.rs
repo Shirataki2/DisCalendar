@@ -32,6 +32,7 @@ fn input(name: &str) -> EventInput {
         name: name.to_owned(),
         description: None,
         notifications: vec![],
+        notification_mentions: None,
         color: "#2196F3".to_owned(),
         is_all_day: false,
         start_at: dt("2026-08-22T10:00:00"),

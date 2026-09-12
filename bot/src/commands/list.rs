@@ -139,6 +139,7 @@ mod tests {
 
     fn event(notifications: serde_json::Value, all_day: bool) -> Event {
         Event {
+            notification_mentions: serde_json::json!([]),
             id: 1,
             guild_id: "1".to_owned(),
             name: "定例".to_owned(),

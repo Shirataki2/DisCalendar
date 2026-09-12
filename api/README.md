@@ -161,3 +161,12 @@ migrations/         スキーマ (適用済みのファイルは変更禁止、�
 `POST` は `{endpoint,p256dh,auth,device_name}` で登録 (最大10台)。`DELETE /users/@me/push-subscriptions/{id}` で本人の端末を解除し、同パス末尾の ID を省いた `DELETE` は `{endpoint}` でログアウトする端末を解除する。
 `PUT /users/@me/push-settings` は `{scope: "all" | "created" | "off"}` を保存する。すべて Better Auth のセッションが必要。
 配信構成・VAPID・運用・実機確認はルート README「端末へのプッシュ通知」を参照。
+
+### 予定の通知メンション (#93)
+
+`EventInput.notification_mentions` は `[{"type":"everyone"},{"type":"role","id":"..."},{"type":"user","id":"..."}]` (合計10件、重複不可、IDは文字列)。`events.notification_mentions` に保存し、事前通知と開始時刻の通知の両方に使う。
+省略時は作成では空、更新では現在値を保持し、空配列で解除する。`notifications` の JSON は変更しない。
+開始時刻の通知はサーバー設定で独立して生成されるため、事前通知が空でも保持できる専用カラムとした。
+通常・管理 API ともに、指定したユーザーの所属とロールの存在を確認する。@everyone とメンション不可のロールは、操作者にギルドレベルの `MENTION_EVERYONE` 権限が必要。
+`GET /guilds/{guild_id}/roles` は `mentionable` も返す。`GET /guilds/{guild_id}/mention-members?ids=...` は予定の編集権限が必要で、最大10人の表示名を解決する。Bot の特権インテントの追加は不要。
+戻す場合は `api/rollback/20260912090000_drop_event_notification_mentions.sql` を使用する (メンション先は失われる)。

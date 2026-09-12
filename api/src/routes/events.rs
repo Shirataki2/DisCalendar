@@ -234,6 +234,13 @@ pub async fn create(
 ) -> Result<HttpResponse, ApiError> {
     ensure_can_edit(&state.pool, &member).await?;
     body.validate()?;
+    crate::models::notification_mentions::validate_targets(
+        &state.discord,
+        member.guild_id(),
+        &member.user.discord_user_id,
+        body.notification_mentions.as_deref(),
+    )
+    .await?;
     // 作成では省略 (フラグを知らない古いクライアント) は「作らない」として扱う
     let discord_scheduled_event = body.discord_scheduled_event.unwrap_or(false);
     events::validate_discord_flag(&body, discord_scheduled_event, now_jst())?;
@@ -321,6 +328,13 @@ pub async fn update(
 ) -> Result<web::Json<Event>, ApiError> {
     ensure_can_edit(&state.pool, &member).await?;
     body.validate()?;
+    crate::models::notification_mentions::validate_targets(
+        &state.discord,
+        member.guild_id(),
+        &member.user.discord_user_id,
+        body.notification_mentions.as_deref(),
+    )
+    .await?;
     let guild_id = member.guild_id();
 
     // 同じ予定への更新は、連携の有無に関わらず最初から直列化する (#94)。

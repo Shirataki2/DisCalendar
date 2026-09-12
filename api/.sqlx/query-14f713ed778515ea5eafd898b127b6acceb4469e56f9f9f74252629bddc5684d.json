@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.color, e.is_all_day,\n               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,\n               l.scheduled_event_id AS \"discord_scheduled_event_id?\"\n        FROM events e\n        LEFT JOIN event_discord_links l ON l.event_id = e.id\n        WHERE e.guild_id = $1 AND e.start_at < $3 AND e.end_at >= $2\n        ORDER BY e.start_at, e.id\n        ",
+  "query": "\n        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,\n               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,\n               l.scheduled_event_id AS \"discord_scheduled_event_id?\"\n        FROM events e\n        LEFT JOIN event_discord_links l ON l.event_id = e.id\n        WHERE e.id = $1 AND e.guild_id = $2\n        ",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,17 @@
       },
       {
         "ordinal": 5,
+        "name": "notification_mentions",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "notification_mentions"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "color",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "is_all_day",
         "type_info": "Bool",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "start_at",
         "type_info": "Timestamp",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "end_at",
         "type_info": "Timestamp",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamp",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "created_by",
         "type_info": "Text",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "updated_by",
         "type_info": "Text",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "updated_at",
         "type_info": "Timestamp",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "discord_scheduled_event_id?",
         "type_info": "Text",
         "origin": {
@@ -160,9 +171,8 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Timestamp",
-        "Timestamp"
+        "Int4",
+        "Text"
       ]
     },
     "nullable": [
@@ -176,11 +186,12 @@
       false,
       false,
       false,
+      false,
       true,
       true,
       true,
-      false
+      true
     ]
   },
-  "hash": "d08687be4c282a15faf0e9111e9234490f455b70b445c1e87666278243533797"
+  "hash": "14f713ed778515ea5eafd898b127b6acceb4469e56f9f9f74252629bddc5684d"
 }

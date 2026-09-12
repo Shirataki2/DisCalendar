@@ -34,6 +34,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(guilds::joined)
                 .service(guilds::get_guild)
                 .service(members::profiles)
+                .service(members::mention_profiles)
                 .service(guilds::my_permissions)
                 .service(guilds::refresh_my_permissions)
                 // 通知先に選べるチャンネル (#181)

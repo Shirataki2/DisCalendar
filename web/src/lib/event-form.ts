@@ -114,6 +114,34 @@ export const DEFAULT_EVENT_CREATION_SETTINGS: EventCreationDefaults = {
   defaultDurationMinutes: 30,
 };
 
+export const MENTIONS_MAX = 10;
+export const mentionIdSchema = z
+  .string()
+  .refine(
+    (id) =>
+      /^[1-9][0-9]{0,19}$/.test(id) &&
+      BigInt(id) <= BigInt("18446744073709551615"),
+    "正しいユーザーIDを入力してください",
+  );
+const notificationMentionsSchema = z
+  .array(
+    z.discriminatedUnion("type", [
+      z.object({ type: z.literal("everyone") }),
+      z.object({ type: z.literal("role"), id: mentionIdSchema }),
+      z.object({ type: z.literal("user"), id: mentionIdSchema }),
+    ]),
+  )
+  .max(MENTIONS_MAX, "メンション先は10件以内で指定してください")
+  .refine(
+    (mentions) =>
+      new Set(
+        mentions.map((m) =>
+          m.type === "everyone" ? m.type : `${m.type}:${m.id}`,
+        ),
+      ).size === mentions.length,
+    "メンション先が重複しています",
+  );
+
 export const eventFormSchema = z
   .object({
     name: z
@@ -133,6 +161,7 @@ export const eventFormSchema = z
     endTime: z.string(),
     color: colorSchema,
     notifications: notificationsSchema,
+    notificationMentions: notificationMentionsSchema.optional(),
     description: z
       .string()
       .max(
@@ -252,6 +281,7 @@ export function eventFormToApiInput(values: EventFormValues): ApiEventInput {
     name: values.name,
     description: description ? description : null,
     notifications: values.notifications,
+    notification_mentions: values.notificationMentions,
     color: values.color.toUpperCase(),
     is_all_day: values.isAllDay,
     start_at: toApiDateTime(start),
@@ -277,6 +307,9 @@ export function eventToFormValues(event: ApiEvent): EventFormValues {
     startTime: format(start, "HH:mm"),
     endDate: startOfDay(end),
     endTime: format(end, "HH:mm"),
+    notificationMentions: event.notification_mentions?.map((mention) => ({
+      ...mention,
+    })),
     notifications: event.notifications.map(({ num, unit }) => ({ num, unit })),
     discordEvent: event.discord_scheduled_event_id !== null,
   };
