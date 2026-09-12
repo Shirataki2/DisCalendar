@@ -195,3 +195,10 @@ assets/             icon_updater が使う日付入りアイコン画像 (01.png
 
 `notify` は Discord 送信と同じ判定結果を `push_outbox` に重複しないよう記録する。Discord のチャンネル未設定や送信失敗とは独立し、購読端末がある場合に記録する。
 API が通知範囲と現在の所属を確認して配信するため、Bot は Better Auth のテーブルや VAPID 秘密鍵を扱わない。構成・設定はルート README「端末へのプッシュ通知」を参照。
+
+### 通知のメンション (#93)
+
+Web で選んだ予定単位の `events.notification_mentions` を、事前通知と開始時刻通知の本文に含める。
+`allowed_mentions` は選択された対象だけを許可し、プレーンテキストへのフォールバックでも予定名・説明中のメンションは無効化する。
+メンション権限の最終判定は [Discord](https://docs.discord.com/developers/resources/message#allowed-mentions-object) が行う。Bot に `MENTION_EVERYONE` がなければ @everyone は通知されず、ロールは `mentionable` のものだけが通知される。予定の通知そのものは送信する。
+DB の値が壊れている場合もメンションだけを外して通知を継続する。`/create`・`/quick` の予定は既定でメンションなし。

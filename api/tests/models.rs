@@ -31,6 +31,7 @@ fn input(name: &str, start: &str, end: &str) -> EventInput {
         start_at: dt(start),
         end_at: dt(end),
         discord_scheduled_event: None,
+        notification_mentions: None,
     }
 }
 
@@ -1051,4 +1052,54 @@ async fn editor_roles_preserve_partial_updates_and_control_editing(pool: PgPool)
     let cleared = guilds::get_config(&pool, GUILD).await.unwrap();
     assert!(cleared.editor_role_ids.is_empty());
     assert!(!cleared.can_edit_events(false, &["123".into()]));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn notification_mentions_survive_all_update_paths_and_omission(pool: PgPool) {
+    use discalendar_api::models::{events::Event, notification_mentions::NotificationMention};
+    let mut input = input("mentions", "2026-09-12T10:00:00", "2026-09-12T11:00:00");
+    input.notifications.clear();
+    input.notification_mentions = Some(vec![
+        NotificationMention::Everyone,
+        NotificationMention::User {
+            id: OTHER_GUILD.into(),
+        },
+    ]);
+    let expected = serde_json::to_value(&input.notification_mentions).unwrap();
+    let created = events::create(&pool, GUILD, &input, input.start_at, GUILD)
+        .await
+        .unwrap();
+    assert_eq!(created.notification_mentions, expected);
+    assert_eq!(
+        Event::from(created).notification_mentions,
+        input.notification_mentions.clone().unwrap()
+    );
+    let listed = events::list_between(&pool, GUILD, input.start_at, input.end_at)
+        .await
+        .unwrap();
+    let id = listed[0].id;
+    assert_eq!(listed[0].notification_mentions, expected);
+    input.notification_mentions = None;
+    let updated = events::update_if_unlinked(&pool, GUILD, id, &input, GUILD, input.end_at)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.notification_mentions, expected);
+    assert!(
+        events::update(&pool, OTHER_GUILD, id, &input, GUILD, input.end_at)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    input.notification_mentions = Some(vec![]);
+    let cleared = events::update(&pool, GUILD, id, &input, GUILD, input.end_at)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cleared.notification_mentions, serde_json::json!([]));
+    input.notification_mentions = None;
+    let legacy = events::create(&pool, GUILD, &input, input.start_at, GUILD)
+        .await
+        .unwrap();
+    assert_eq!(legacy.notification_mentions, serde_json::json!([]));
 }

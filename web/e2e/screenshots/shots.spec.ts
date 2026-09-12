@@ -81,7 +81,7 @@ test.describe("カレンダー", () => {
 
 test.describe("ダイアログ", () => {
   // 予定のフォームとサーバー設定 (通知の節 #181 で伸びた) は縦に長いので、スクロールバーが出ない高さにする
-  test.use({ viewport: { width: 1400, height: 1200 }, deviceScaleFactor: 2 });
+  test.use({ viewport: { width: 1400, height: 1600 }, deviceScaleFactor: 2 });
 
   test("lp/dialog.png (予定の編集)", async ({ page }) => {
     await openCalendar(page);

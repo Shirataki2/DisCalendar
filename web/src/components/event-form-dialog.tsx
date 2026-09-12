@@ -13,6 +13,7 @@ import {
 import { EventShareControls } from "@/components/event-share-controls";
 import { ColorPicker } from "@/components/form/color-picker";
 import { DatePicker } from "@/components/form/date-picker";
+import { NotificationMentionsField } from "@/components/form/notification-mentions-field";
 import { NotificationsField } from "@/components/form/notifications-field";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,6 +55,7 @@ export type EventDialogState =
   | { mode: "edit"; event: ApiEvent };
 
 interface Props {
+  mentionGuildId?: string;
   /** null なら閉じている */
   state: EventDialogState | null;
   /** 通常のサーバーカレンダーで、編集権限があるときだけ共有操作を出す。 */
@@ -94,6 +96,7 @@ export function EventFormDialog({
   onDelete,
   discordSync,
   allowShare,
+  mentionGuildId,
 }: Props) {
   // 閉じるアニメーションの間も直前の内容を出しておく
   const shown = useLastValue(state);
@@ -118,6 +121,7 @@ export function EventFormDialog({
             onDelete={onDelete}
             discordSync={discordSync}
             allowShare={allowShare}
+            mentionGuildId={mentionGuildId}
           />
         )}
       </DialogContent>
@@ -138,6 +142,7 @@ function EventForm({
   onDelete,
   discordSync,
   allowShare,
+  mentionGuildId,
 }: FormProps) {
   const isEdit = state.mode === "edit";
   const initialValues = isEdit ? eventToFormValues(state.event) : state.values;
@@ -203,7 +208,12 @@ function EventForm({
     setSubmitError(null);
     try {
       // 開いたまま開始時刻をまたぐことがあるので、連携の可否は送信直前にも確かめる
-      await onSubmit(eventFormToApiInput(withCheckedDiscordEvent(values)));
+      const input = eventFormToApiInput(withCheckedDiscordEvent(values));
+      // メンション先を表示しない管理画面では保存済みの指定を維持する。
+      if (!mentionGuildId) {
+        delete input.notification_mentions;
+      }
+      await onSubmit(input);
       onClose();
     } catch (error) {
       setSubmitError(describeApiError(error));
@@ -360,6 +370,9 @@ function EventForm({
 
           {/* 通知の一覧はサーバー設定の「既定の事前通知」(#181) と同じ部品 */}
           <NotificationsField label="通知" />
+          {mentionGuildId && (
+            <NotificationMentionsField guildId={mentionGuildId} />
+          )}
 
           <Field data-invalid={errors.description ? true : undefined}>
             <FieldLabel htmlFor="event-form-description">説明</FieldLabel>

@@ -157,6 +157,7 @@ test("ロール一覧と設定APIの入力検証・部分更新", async ({ page 
     name: role.name,
     color: role.color,
     position: role.position,
+    mentionable: false,
   });
   expect(list.map((r: { position: number }) => r.position)).toEqual(
     list

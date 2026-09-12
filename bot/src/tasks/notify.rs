@@ -417,11 +417,15 @@ async fn send_notification(
     links: &NotificationLinks,
 ) -> bool {
     let embed = build_embed(event, notification, start, end, links);
+    let (mentions, allowed) =
+        crate::models::notification_mentions::message_mentions(&event.notification_mentions);
     let result = channel_id
         .send_message(
             http,
             serenity::CreateMessage::new()
                 .embed(embed)
+                .content(&mentions)
+                .allowed_mentions(allowed.clone())
                 .components(vec![links.buttons()]),
         )
         .await;
@@ -432,14 +436,18 @@ async fn send_notification(
             "failed to send notification embed, falling back to plain text"
         );
         let content = build_plain_text(event, notification, start, end, links);
-        // embed と違い、プレーンテキストは予定名・説明中の @everyone やロール/ユーザーメンションを
-        // そのまま解釈してしまうので、明示的に許可したメンションを空にして無効化する
+        let content = if mentions.is_empty() {
+            content
+        } else {
+            format!("{mentions}\n{content}")
+        };
+        // 自由入力中のメンションは build_plain_text で無効化し、選択された対象だけを許可する
         if let Err(e) = channel_id
             .send_message(
                 http,
                 serenity::CreateMessage::new()
                     .content(content)
-                    .allowed_mentions(serenity::CreateAllowedMentions::new()),
+                    .allowed_mentions(allowed),
             )
             .await
         {
@@ -564,7 +572,7 @@ fn build_plain_text(
     let _ = writeln!(content, ":bell: {}\n", author_text(notification));
     let _ = writeln!(content, "**{}**", event.name);
     if let Some(description) = &event.description {
-        let _ = writeln!(content, "{description}\n");
+        let _ = writeln!(content, "{}\n", description);
     }
     let _ = writeln!(
         content,
@@ -576,6 +584,9 @@ fn build_plain_text(
         let _ = writeln!(content, "詳細を見る: {url}");
     }
     content
+        .replace("@everyone", "@\u{200b}everyone")
+        .replace("@here", "@\u{200b}here")
+        .replace("<@", "<@\u{200b}")
 }
 
 #[cfg(test)]
@@ -905,6 +916,7 @@ mod tests {
             name: "終日".to_owned(),
             description: None,
             notifications: serde_json::json!([]),
+            notification_mentions: serde_json::json!([]),
             color: "#0000ff".to_owned(),
             is_all_day: true,
             start_at: dt("2026-08-23T15:30:00"),
@@ -928,6 +940,7 @@ mod tests {
             name: "通常".to_owned(),
             description: None,
             notifications: serde_json::json!([]),
+            notification_mentions: serde_json::json!([]),
             color: "#0000ff".to_owned(),
             is_all_day: false,
             start_at: dt("2026-08-23T10:00:00"),
@@ -1020,12 +1033,13 @@ mod tests {
 
     #[test]
     fn notification_embed_and_plain_text_include_dates_and_links() {
-        let event = Event {
+        let mut event = Event {
             id: 1,
             guild_id: "123".to_owned(),
             name: "定例".to_owned(),
             description: Some("説明".to_owned()),
             notifications: serde_json::json!([]),
+            notification_mentions: serde_json::json!([]),
             color: "#2196F3".to_owned(),
             is_all_day: false,
             start_at: dt("2026-08-23T10:00:00"),
@@ -1059,5 +1073,16 @@ mod tests {
                 assert!(text.contains(url));
             }
         }
+        event.name = "@everyone @here".into();
+        event.description = Some("<@123> <@!123> <@&456>".into());
+        let links = NotificationLinks::new("https://discalendar.app", &event.guild_id, None);
+        let text = build_plain_text(&event, notification, event.start_at, event.end_at, &links);
+        assert!(
+            !text.contains("@everyone")
+                && !text.contains("@here")
+                && !text.contains("<@123>")
+                && !text.contains("<@!123>")
+                && !text.contains("<@&456>")
+        );
     }
 }

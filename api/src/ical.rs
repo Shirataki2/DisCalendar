@@ -179,6 +179,7 @@ mod tests {
             name: "定例ミーティング".into(),
             description: Some("議題;\n1, 2\\3".into()),
             notifications: serde_json::json!([]),
+            notification_mentions: serde_json::json!([]),
             color: "#2196F3".into(),
             is_all_day,
             start_at: start.parse().unwrap(),

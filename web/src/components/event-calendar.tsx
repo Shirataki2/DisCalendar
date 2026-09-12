@@ -523,6 +523,9 @@ export function EventCalendar({
         />
       )}
       <EventFormDialog
+        mentionGuildId={
+          eventsSource === dashboardEventsSource ? guildId : undefined
+        }
         state={dialog}
         allowShare={canEdit && eventsSource === dashboardEventsSource}
         onClose={() => setDialog(null)}

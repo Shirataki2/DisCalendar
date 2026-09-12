@@ -23,6 +23,8 @@ pub enum ApiError {
     /// 同じ資源への並行更新とぶつかって完了できなかった (やり直せば通る)
     #[error("{0}")]
     Conflict(String),
+    #[error("メンバーの確認が多すぎます。1分ほど待ってから再試行してください")]
+    TooManyRequests,
     #[error("Discord API is rate limited, retry later")]
     RateLimited,
     /// 機能が設定不備などで使えない (SQL コンソール用の DB ロールが無い等)。メッセージは利用者に見せる
@@ -58,6 +60,7 @@ impl ApiError {
             Self::NotFound(_) => "not_found",
             Self::BadRequest(_) => "bad_request",
             Self::Conflict(_) => "conflict",
+            Self::TooManyRequests => "too_many_requests",
             Self::RateLimited => "rate_limited",
             Self::Unavailable(_) => "unavailable",
             Self::Discord(_) => "discord_error",
@@ -87,6 +90,7 @@ impl ResponseError for ApiError {
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
             Self::RateLimited | Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Discord(_) => StatusCode::BAD_GATEWAY,
             Self::Database(_) | Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
