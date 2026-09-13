@@ -1,0 +1,15 @@
+{
+  "name": "discalendar-mcp-poc",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node check.mjs" },
+  "dependencies": {
+    "@better-auth/cimd": "1.7.4",
+    "@better-auth/mcp": "1.7.4",
+    "@better-auth/oauth-provider": "1.7.4",
+    "@modelcontextprotocol/server": "2.0.0",
+    "better-auth": "1.7.4",
+    "zod": "4.4.3"
+  },
+  "packageManager": "pnpm@10.32.1"
+}
