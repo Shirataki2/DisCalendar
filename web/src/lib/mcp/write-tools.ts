@@ -56,6 +56,23 @@ const fields = z
   .strict();
 const partial = fields.partial();
 
+// unionの各分岐をJSON Schemaにも載せ、クライアントへ日時とフラグの関係を伝える。
+const timed = {
+  start_at: z.iso.datetime({ offset: true }),
+  end_at: z.iso.datetime({ offset: true }),
+};
+const allDay = { start_at: z.iso.date(), end_at: z.iso.date() };
+const createFields = partial.required({ name: true, color: true });
+const createChanges = z.union([
+  createFields.extend({ is_all_day: z.literal(false).optional(), ...timed }),
+  createFields.extend({ is_all_day: z.literal(true), ...allDay }),
+]);
+const updateChanges = z.union([
+  partial.omit({ is_all_day: true }),
+  partial.extend({ is_all_day: z.literal(false), ...timed }),
+  partial.extend({ is_all_day: z.literal(true), ...allDay }),
+]);
+
 export function registerWriteTools(server: McpServer, request: Request) {
   async function execute(action: string, input: object) {
     try {
@@ -113,12 +130,7 @@ export function registerWriteTools(server: McpServer, request: Request) {
       inputSchema: z
         .object({
           ...identity,
-          changes: partial.required({
-            name: true,
-            color: true,
-            start_at: true,
-            end_at: true,
-          }),
+          changes: createChanges,
         })
         .strict(),
       annotations: {
@@ -133,9 +145,9 @@ export function registerWriteTools(server: McpServer, request: Request) {
   server.registerTool(
     "update_event",
     {
-      description: `events:updateとget_eventのexpected_versionが必要。省略項目は保持し、説明・通知・メンション・Discord連携のnullは消去します。${description}`,
+      description: `events:updateとget_eventのexpected_versionが必要。is_all_dayを明示する場合は、その形式のstart_atとend_atを両方指定してください。省略項目は保持し、説明・通知・メンション・Discord連携のnullは消去します。${description}`,
       inputSchema: z
-        .object({ ...identity, ...version, changes: partial })
+        .object({ ...identity, ...version, changes: updateChanges })
         .strict(),
       annotations: {
         readOnlyHint: false,

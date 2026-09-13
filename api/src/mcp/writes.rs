@@ -406,12 +406,12 @@ async fn write(
         )
         .await;
         result["discord"] = json!(side_effect_status(&outcome));
+        // 対応付けの保存に失敗しても、POST応答から判明した新しいIDを保持する。
+        result["discord_event_id"] = sqlx::query_scalar::<_, Option<String>>("SELECT discord_event_id FROM mcp_event_operations WHERE user_id=$1 AND client_id=$2 AND guild_id=$3 AND key_hash=$4")
+            .bind(&user.sub).bind(&user.client_id).bind(&input.guild_id).bind(&key).fetch_one(&state.pool).await?.into();
         if action != "delete"
             && let Some(row) = events::find_by_id(&state.pool, &input.guild_id, event_id).await?
         {
-            if row.discord_scheduled_event_id.is_some() {
-                result["discord_event_id"] = json!(row.discord_scheduled_event_id);
-            }
             result["event"] = output_event(row)?;
         }
         let mut tx = state.pool.begin().await?;
@@ -442,10 +442,10 @@ fn check_discord_permissions(
 pub(crate) async fn ensure_resolved<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     guild_id: &str,
-    event_id: i32,
+    event_id: impl Into<Option<i32>>,
 ) -> Result<(), ApiError> {
-    let unknown: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM mcp_event_operations WHERE event_id=$1 AND guild_id=$2 AND (discord_state='unknown' OR (discord_state='failed' AND NOT requires_bot_create AND discord_event_id IS NOT NULL)))")
-        .bind(event_id).bind(guild_id).fetch_one(executor).await?;
+    let unknown: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM mcp_event_operations WHERE ($1::integer IS NULL OR event_id=$1) AND guild_id=$2 AND (discord_state='unknown' OR (discord_state='failed' AND NOT requires_bot_create AND discord_event_id IS NOT NULL)))")
+        .bind(event_id.into()).bind(guild_id).fetch_one(executor).await?;
     if unknown {
         return Err(ApiError::Conflict(
             "Discord outcome is unknown or cleanup failed; an operator must reconcile it before editing".into(),
@@ -543,6 +543,9 @@ async fn reflect(
             .discord
             .create_scheduled_event(guild, &payload)
             .await?;
+        // リンク保存とは別に確定し、リンクの失敗・ロールバックでも照合用IDを残す。
+        sqlx::query("UPDATE mcp_event_operations SET discord_event_id=$5, result=jsonb_set(result,'{discord_event_id}',to_jsonb($5::text)) WHERE user_id=$1 AND client_id=$2 AND guild_id=$3 AND key_hash=$4")
+            .bind(&user.sub).bind(&user.client_id).bind(guild).bind(key(input)?).bind(&sid).execute(&state.pool).await?;
         let mut tx = state.pool.begin().await?;
         if linked.is_some() {
             event_links::set_scheduled_event_id(&mut *tx, guild, id, &sid).await?;
@@ -1085,6 +1088,92 @@ mod tests {
             );
             assert_eq!(sent.load(Ordering::SeqCst), calls);
         }
+        // リンク保存をDB側で拒否しても、判明したDiscord IDは別に永続化される。
+        mode.store(0, Ordering::SeqCst);
+        sqlx::raw_sql("CREATE FUNCTION reject_test_link() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test link failure'; END $$; CREATE TRIGGER reject_test_link BEFORE INSERT OR UPDATE ON event_discord_links FOR EACH ROW EXECUTE FUNCTION reject_test_link()")
+            .execute(&pool).await.unwrap();
+        let mut linked = changes.clone();
+        linked["discord_scheduled_event"] = json!(true);
+        let failed_link = result(
+            write(
+                user(),
+                input("link-save-failed", linked.clone()),
+                state.clone(),
+                "create",
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(failed_link["discord"], "unknown");
+        assert_eq!(failed_link["discord_event_id"], "777");
+        assert!(failed_link["event"]["discord_scheduled_event_id"].is_null());
+        let calls = sent.load(Ordering::SeqCst);
+        assert_eq!(
+            result(
+                write(
+                    user(),
+                    input("link-save-failed", linked),
+                    state.clone(),
+                    "create"
+                )
+                .await
+                .unwrap()
+            )
+            .await,
+            failed_link
+        );
+        assert_eq!(sent.load(Ordering::SeqCst), calls);
+        // 再作成でも古いIDで新しいIDを上書きしない。
+        sqlx::raw_sql("DROP TRIGGER reject_test_link ON event_discord_links")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut linked = changes.clone();
+        linked["discord_scheduled_event"] = json!(true);
+        let source = result(
+            write(
+                user(),
+                input("recreate-save-source", linked),
+                state.clone(),
+                "create",
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        let source_id = source["event_id"].as_i64().unwrap() as i32;
+        crate::models::event_links::set_scheduled_event_id(&pool, "111", source_id, "778")
+            .await
+            .unwrap();
+        sqlx::raw_sql("CREATE TRIGGER reject_test_link BEFORE INSERT OR UPDATE ON event_discord_links FOR EACH ROW EXECUTE FUNCTION reject_test_link()")
+            .execute(&pool).await.unwrap();
+        let source_row = events::find_by_id(&pool, "111", source_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut patch = input("recreate-save-failed", json!({"name":"再作成の保存失敗"}));
+        patch.event_id = Some(source_id);
+        patch.expected_version = Some(super::super::event_version(&source_row).unwrap());
+        mode.store(10, Ordering::SeqCst);
+        let failed_link =
+            result(write(user(), patch, state.clone(), "update").await.unwrap()).await;
+        assert_eq!(failed_link["discord"], "unknown");
+        assert_eq!(failed_link["discord_event_id"], "777");
+        assert_eq!(failed_link["event"]["discord_scheduled_event_id"], "778");
+        let persisted: String = sqlx::query_scalar(
+            "SELECT discord_event_id FROM mcp_event_operations WHERE key_hash=$1",
+        )
+        .bind(hash(b"recreate-save-failed"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(persisted, "777");
+        sqlx::raw_sql("DROP TRIGGER reject_test_link ON event_discord_links; DROP FUNCTION reject_test_link()")
+            .execute(&pool).await.unwrap();
+        // ギルド全体の削除も、対応付けのないunknownと後始末失敗を見逃さない。
+        assert!(ensure_resolved(&pool, "111", None).await.is_err());
+        assert!(ensure_resolved(&pool, "222", None).await.is_ok());
         // Discord操作中にハンドラを停止する。DBとunknownが残り、再実行しない。
         mode.store(9, Ordering::SeqCst);
         let mut linked = changes.clone();
