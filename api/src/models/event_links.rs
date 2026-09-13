@@ -135,14 +135,26 @@ pub async fn list_scheduled_event_ids<'e>(
     Ok(rows.into_iter().map(|r| r.scheduled_event_id).collect())
 }
 
+// ponytail: プロセス全体で最大5接続。処理量が必要になったら専用プールと設定値へ移す。
+static WRITER_CONNECTIONS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(5);
+
+pub struct WriterGuard {
+    // 宣言順にdropし、接続を閉じてから枠を返す。
+    _connection: sqlx::PgConnection,
+    _permit: tokio::sync::SemaphorePermit<'static>,
+}
+
 /// 外部API呼び出しからDB確定・補償まで、複数プロセスのwriterを直列化する。
 /// 待機中にプールを埋めないよう、競合時は即座に409で返す。
 /// ponytail: ギルド単位の直列化。競合が増えたら予定単位と一括削除用の共有ロックに分ける。
 pub async fn lock_writer(
     pool: &sqlx::PgPool,
     guild_id: &str,
-) -> Result<sqlx::PgConnection, crate::error::ApiError> {
+) -> Result<WriterGuard, crate::error::ApiError> {
     use sqlx::Connection as _;
+    let permit = WRITER_CONNECTIONS.try_acquire().map_err(|_| {
+        crate::error::ApiError::Conflict("event writer capacity reached; retry later".into())
+    })?;
     // 通常プールが1接続でも内側のトランザクションを進められる専用接続。
     // プールに戻さず、キャンセル・panicでも接続終了でセッションロックを解放する。
     let mut conn = sqlx::PgConnection::connect_with(pool.connect_options().as_ref()).await?;
@@ -156,5 +168,8 @@ pub async fn lock_writer(
             "another event operation is in progress; retry later".into(),
         ));
     }
-    Ok(conn)
+    Ok(WriterGuard {
+        _connection: conn,
+        _permit: permit,
+    })
 }

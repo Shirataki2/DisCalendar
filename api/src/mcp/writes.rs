@@ -397,11 +397,12 @@ async fn write(
     if desired || linked.is_some() {
         let outcome = reflect(
             &state,
-            &input.guild_id,
+            &user,
+            &input,
             event_id,
             body.as_ref(),
-            desired,
             linked.as_deref(),
+            access.permissions.create_events(),
         )
         .await;
         result["discord"] = json!(side_effect_status(&outcome));
@@ -457,7 +458,7 @@ fn side_effect_status(outcome: &Result<(), ApiError>) -> &'static str {
     use crate::discord::DiscordError;
     match outcome {
         Ok(()) => "succeeded",
-        Err(ApiError::RateLimited | ApiError::Conflict(_)) => "failed",
+        Err(ApiError::RateLimited | ApiError::Conflict(_) | ApiError::Forbidden(_)) => "failed",
         Err(ApiError::Discord(DiscordError::GuildGone)) => "failed",
         Err(ApiError::Discord(DiscordError::Status { status, .. })) if status.is_client_error() => {
             "failed"
@@ -501,15 +502,16 @@ async fn purge_expired(pool: &PgPool) -> Result<(), ApiError> {
 
 async fn reflect(
     state: &AppState,
-    guild: &str,
+    user: &McpUser,
+    input: &WriteInput,
     id: i32,
     body: Option<&EventInput>,
-    desired: bool,
     linked: Option<&str>,
+    user_can_create: bool,
 ) -> Result<(), ApiError> {
     use crate::{discord::scheduled_events::ScheduledEventPayload, models::event_links};
-    if desired {
-        let body = body.expect("linked writes have event input");
+    let guild = &input.guild_id;
+    if let Some(body) = body.filter(|b| b.discord_scheduled_event == Some(true)) {
         let payload = ScheduledEventPayload::new(
             &state.site_base_url,
             guild,
@@ -519,21 +521,38 @@ async fn reflect(
             body.start_at,
             body.end_at,
         );
-        if let Some(sid) = linked {
-            if !state
+        if let Some(sid) = linked
+            && state
                 .discord
                 .modify_scheduled_event(guild, sid, &payload)
                 .await?
-            {
-                return Err(ApiError::Conflict("Discord event missing".into()));
-            }
-        } else {
-            let sid = state
-                .discord
-                .create_scheduled_event(guild, &payload)
-                .await?;
-            event_links::insert(&state.pool, guild, id, &sid, now_jst()).await?;
+        {
+            return Ok(());
         }
+        // 404後の再作成にも本人の作成権限が必要。再送時の認可にも残す。
+        if !user_can_create {
+            return Err(ApiError::Forbidden(
+                "Discord Create Events permission required".into(),
+            ));
+        }
+        if linked.is_some() {
+            sqlx::query("UPDATE mcp_event_operations SET requires_discord_create=true WHERE user_id=$1 AND client_id=$2 AND guild_id=$3 AND key_hash=$4")
+                .bind(&user.sub).bind(&user.client_id).bind(guild).bind(key(input)?).execute(&state.pool).await?;
+        }
+        let sid = state
+            .discord
+            .create_scheduled_event(guild, &payload)
+            .await?;
+        let mut tx = state.pool.begin().await?;
+        if linked.is_some() {
+            event_links::set_scheduled_event_id(&mut *tx, guild, id, &sid).await?;
+        } else {
+            event_links::insert(&mut *tx, guild, id, &sid, now_jst()).await?;
+        }
+        // 保存時の通知とは別に、確定した連携IDを同じトランザクションで通知する。
+        crate::webhook_outbox::enqueue(&mut tx, guild, id, "event.updated", &user.discord_user_id)
+            .await?;
+        tx.commit().await?;
     } else if let Some(sid) = linked
         && !state.discord.delete_scheduled_event(guild, sid).await?
     {
@@ -621,6 +640,8 @@ mod tests {
                     if path == "/users/@me" { return HttpResponse::Ok().json(json!({"id":"444"})); }
                     if path.contains("scheduled-events") {
                         mock.1.fetch_add(1, Ordering::SeqCst);
+                        if mode >= 10 && req.method() == actix_web::http::Method::PATCH { return HttpResponse::NotFound().finish(); }
+                        if mode == 11 { return HttpResponse::Ok().body("invalid response"); }
                         if mode == 7 { return HttpResponse::Forbidden().finish(); }
                         if mode == 8 { return HttpResponse::Ok().body("invalid response"); }
                         if mode == 9 { std::future::pending::<()>().await; }
@@ -637,6 +658,11 @@ mod tests {
         let handle = server.handle();
         tokio::spawn(server);
         let state = test_state(pool.clone(), &origin);
+        sqlx::query("INSERT INTO guilds (guild_id,name,locale) VALUES ('111','Webhook','ja')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO guild_webhooks (guild_id,url,kind,secret,created_by) VALUES ('111','http://127.0.0.1','json','test-only','333')").execute(&pool).await.unwrap();
         let changes = json!({"name":"元の予定","color":"#123456","description":"保持する説明","notifications":[{"num":30,"unit":"minutes"}],"start_at":"2099-09-13T01:00:00Z","end_at":"2099-09-13T11:00:00+09:00"});
         let first = result(
             write(
@@ -867,6 +893,15 @@ mod tests {
         assert_eq!(linked_result["discord"], "succeeded");
         assert_eq!(linked_result["event"]["discord_scheduled_event_id"], "777");
         let linked_id = linked_result["event_id"].as_i64().unwrap() as i32;
+        // 作成時のnullとは別に、確定したIDの更新通知が永続化される。
+        let snapshot: Value = sqlx::query_scalar(
+            "SELECT payload FROM guild_webhook_outbox WHERE event_id=$1 ORDER BY id DESC LIMIT 1",
+        )
+        .bind(linked_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(snapshot["discord_scheduled_event_id"], "777");
         let mut patch = input("linked-patch", json!({"name":"連携を保持"}));
         patch.event_id = Some(linked_id);
         patch.expected_version = linked_result["event"]["version"]
@@ -875,6 +910,74 @@ mod tests {
         let linked_updated =
             result(write(user(), patch, state.clone(), "update").await.unwrap()).await;
         assert_eq!(linked_updated["event"]["discord_scheduled_event_id"], "777");
+        mode.store(10, Ordering::SeqCst);
+        let mut patch = input("recreate", json!({"name":"再作成"}));
+        patch.event_id = Some(linked_id);
+        patch.expected_version = linked_updated["event"]["version"]
+            .as_str()
+            .map(str::to_owned);
+        // 古いIDを別値にして、リンク差し替えとWebhookを検証する。
+        crate::models::event_links::set_scheduled_event_id(&pool, "111", linked_id, "778")
+            .await
+            .unwrap();
+        let recreation_row = events::find_by_id(&pool, "111", linked_id)
+            .await
+            .unwrap()
+            .unwrap();
+        patch.expected_version = Some(super::super::event_version(&recreation_row).unwrap());
+        let denied_body = merge(&patch.changes, Some(&recreation_row)).unwrap();
+        let calls = sent.load(Ordering::SeqCst);
+        assert!(matches!(
+            reflect(
+                &state,
+                &user(),
+                &patch,
+                linked_id,
+                Some(&denied_body),
+                Some("778"),
+                false
+            )
+            .await,
+            Err(ApiError::Forbidden(_))
+        ));
+        assert_eq!(
+            sent.load(Ordering::SeqCst),
+            calls + 1,
+            "作成権限がなければPATCHの404後にPOSTしない"
+        );
+        let original: WriteInput = serde_json::from_value(json!({"guild_id":"111","idempotency_key":"recreate","event_id":linked_id,"expected_version":patch.expected_version,"changes":patch.changes})).unwrap();
+        let calls = sent.load(Ordering::SeqCst);
+        let linked_updated =
+            result(write(user(), patch, state.clone(), "update").await.unwrap()).await;
+        assert_eq!(linked_updated["discord"], "succeeded");
+        assert_eq!(linked_updated["event"]["discord_scheduled_event_id"], "777");
+        assert_eq!(sent.load(Ordering::SeqCst), calls + 2);
+        assert_eq!(
+            result(
+                write(user(), original, state.clone(), "update")
+                    .await
+                    .unwrap()
+            )
+            .await,
+            linked_updated
+        );
+        assert_eq!(sent.load(Ordering::SeqCst), calls + 2);
+        let snapshot: Value = sqlx::query_scalar(
+            "SELECT payload FROM guild_webhook_outbox WHERE event_id=$1 ORDER BY id DESC LIMIT 1",
+        )
+        .bind(linked_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(snapshot["discord_scheduled_event_id"], "777");
+        assert!(
+            lookup(&pool, &user(), "111", &hash(b"recreate"))
+                .await
+                .unwrap()
+                .unwrap()
+                .requires_discord_create
+        );
+        mode.store(0, Ordering::SeqCst);
         let mut patch = input("unlink", json!({"discord_scheduled_event":null}));
         patch.event_id = Some(linked_id);
         patch.expected_version = linked_updated["event"]["version"]
@@ -883,6 +986,46 @@ mod tests {
         let unlinked = result(write(user(), patch, state.clone(), "update").await.unwrap()).await;
         assert_eq!(unlinked["discord"], "succeeded");
         assert!(unlinked["event"]["discord_scheduled_event_id"].is_null());
+        let mut patch = input("relink", json!({"discord_scheduled_event":true}));
+        patch.event_id = Some(linked_id);
+        patch.expected_version = unlinked["event"]["version"].as_str().map(str::to_owned);
+        let relinked = result(write(user(), patch, state.clone(), "update").await.unwrap()).await;
+        let snapshot: Value = sqlx::query_scalar(
+            "SELECT payload FROM guild_webhook_outbox WHERE event_id=$1 ORDER BY id DESC LIMIT 1",
+        )
+        .bind(linked_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(snapshot["discord_scheduled_event_id"], "777");
+        // 再作成のPOST応答が不正でも、同じキーの再送でPOSTし直さない。
+        mode.store(11, Ordering::SeqCst);
+        let make_patch = || {
+            let mut patch = input("recreate-unknown", json!({"name":"応答不明"}));
+            patch.event_id = Some(linked_id);
+            patch.expected_version = relinked["event"]["version"].as_str().map(str::to_owned);
+            patch
+        };
+        let calls = sent.load(Ordering::SeqCst);
+        let unknown = result(
+            write(user(), make_patch(), state.clone(), "update")
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(unknown["discord"], "unknown");
+        assert_eq!(
+            result(
+                write(user(), make_patch(), state.clone(), "update")
+                    .await
+                    .unwrap()
+            )
+            .await,
+            unknown
+        );
+        assert_eq!(sent.load(Ordering::SeqCst), calls + 2);
+        assert!(ensure_resolved(&pool, "111", linked_id).await.is_err());
+        mode.store(0, Ordering::SeqCst);
         let mut linked = changes.clone();
         linked["discord_scheduled_event"] = json!(true);
         let linked_result = result(
