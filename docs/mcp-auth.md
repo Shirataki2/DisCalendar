@@ -1,7 +1,7 @@
 # MCP OAuth の検証環境 (#217)
 
 設計の参照元は [#221 / ad43db9](https://github.com/Shirataki2/DisCalendar/pull/221)。
-本実装は一般公開前の認証検証用。予定CRUDは #218 / #219、公開準備は #220 で扱う。
+本実装は一般公開前の認証検証用。予定の読み取りは [mcp-read.md](mcp-read.md)、書き込みは #219、公開準備は #220 で扱う。
 実クライアントでのDiscordログイン完了は未検証であり、#217 の完了を意味しない。
 
 ## 構成と停止
@@ -101,10 +101,10 @@ strict-originはRefererをオリジンだけに限定し、フォームPOSTのOr
 - Rustは固定設定したこのURLだけを呼び、レスポンスをキャッシュしない。issuer/resource/期限を照合し、必要scope・対象guild・現在のDiscord/DisCalendar権限を追加検証する。
 - 通信路はHTTPSまたは同一ホストの保護されたloopback。資格情報はDiscordトークンやBetter Auth secretと共有しない。
 
-公式の `requireMcpAuth` で署名・issuer・audience・期限を確認した後、接続と利用者・クライアントの一致、Discord連携の存続、scopeの包含、失効をDBで確認する。
+公式の `requireMcpAuth` で署名・issuer・audience・期限を確認した後、接続と利用者・クライアントの一致、Discord連携の存続、失効をDBで確認し、scopeはトークンと接続の現在値の共通部分に限定する。
 JWT単独検証では即時失効を保証しない。
 プラグイン標準の `/api/auth/oauth2/introspect` はJWTの `sid` に紐付くWebセッションを検証するため、Webログアウト後も接続を維持する本契約には使わない。
-Rustのextractor・HTTP結合実装は #218 に残る。DPoP-boundトークンは、このBearer専用内部検証口では受け付けない。
+Rustのextractor・HTTP結合実装と検証方法は [mcp-read.md](mcp-read.md) を参照。DPoP-boundトークンは、このBearer専用内部検証口では受け付けない。
 
 ## 検証結果と再実行
 

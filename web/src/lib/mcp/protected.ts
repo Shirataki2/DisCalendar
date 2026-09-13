@@ -24,8 +24,7 @@ export function connectionMatches(
     claims.sub === connection.user_id &&
     claims.connection_id === connection.id &&
     claims.azp === connection.client_id &&
-    typeof claims.scope === "string" &&
-    claims.scope.split(" ").every((s) => connection.scopes.includes(s))
+    typeof claims.scope === "string"
   );
 }
 
@@ -68,7 +67,13 @@ export async function protectedMcp(
         "UPDATE mcp_connections SET last_used_at = now() WHERE id = $1",
         [connection.id],
       );
-      return handler(req, connection, claims);
+      return handler(req, connection, {
+        ...claims,
+        scope: (claims.scope as string)
+          .split(" ")
+          .filter((s) => connection.scopes.includes(s))
+          .join(" "),
+      });
     },
     { resource: mcpResource() },
   );

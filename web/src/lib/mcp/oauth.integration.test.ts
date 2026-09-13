@@ -419,7 +419,6 @@ suite(
       { iss: "https://wrong.example" },
       { aud: "https://wrong.example/mcp" },
       { connection_id: "missing" },
-      { scope: "events:delete" },
     ]) {
       const { token } = await auth.api.signJWT({
         body: { payload: { ...claims, ...invalid } },
@@ -491,6 +490,33 @@ suite(
     });
     expect(result.status).toBe(200);
     expect(await result.text()).toContain("guild_ids");
+  },
+);
+
+suite(
+  "現在のscopeを縮小すると既存トークンの実効scopeも次の操作から縮小する",
+  async () => {
+    const { tokens } = await issue([
+      "guilds:read",
+      "events:read",
+      "offline_access",
+    ]);
+    const claims = JSON.parse(
+      Buffer.from(tokens.access_token.split(".")[1], "base64url").toString(),
+    );
+    await store.authPool.query(
+      "UPDATE mcp_connections SET scopes = $1 WHERE id = $2",
+      [["guilds:read"], claims.connection_id],
+    );
+    const response = await protectedMcp(
+      new Request(resource, {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      }),
+      async (_req, _connection, effective) =>
+        Response.json({ scope: effective.scope }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ scope: "guilds:read" });
   },
 );
 

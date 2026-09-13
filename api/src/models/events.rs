@@ -16,7 +16,7 @@ pub const DESCRIPTION_MAX_CHARS: usize = 1000;
 pub const NOTIFICATIONS_MAX: usize = 10;
 
 /// `events` テーブルの行
-#[derive(Debug)]
+#[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct EventRow {
     pub id: i32,
     pub guild_id: String,
