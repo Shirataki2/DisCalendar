@@ -20,6 +20,13 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      {
+        source: "/mcp/:path*",
+        headers: [
+          { key: "Cache-Control", value: "no-store" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+        ],
+      },
       // Service Worker (app/serwist/[path]/route.ts) は静的に生成されるため Next が s-maxage=31536000 を付けるが、
       // URL が変わらない sw.js を CDN (Cloudflare) に長期間キャッシュされると、デプロイしても古い SW が配られ続ける。
       // 常に再検証させる (ブラウザは SW スクリプトの取得で HTTP キャッシュを元々バイパスする)

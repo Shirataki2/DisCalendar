@@ -128,3 +128,8 @@ GitHub App の接続など Claude 固有の設定は [Configure cloud environmen
 最初のセッションでは `rustup --version` / `sqlx --version` / `pnpm -v` / `psql --version` を確認し、`[agent-setup]` ログで
 PostgreSQL のマイグレーションと `pnpm install` が完了したことを確かめる。クラウドには実トークンを入れないため、Discord ログイン、
 Bot の実機確認、対話ブラウザでの見た目確認はローカルへ引き継ぐ。clone 内に追加の worktree は作らない。
+
+### MCP OAuth の検証
+
+一般公開前のOAuth・接続管理の検証は、[MCP OAuth の検証環境](mcp-auth.md)を参照。
+専用DBでのみ有効化し、通常の起動時マイグレーションではMCPのDDLを適用しない。

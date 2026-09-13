@@ -1,9 +1,11 @@
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
-import { Pool } from "pg";
+import { mcpEnabled } from "./mcp/config";
+import { mcpPlugins } from "./mcp/plugins";
+import { authPool } from "./mcp/store";
 
-export const auth = betterAuth({
-  database: new Pool({ connectionString: process.env.DATABASE_URL }),
+export const baseAuthOptions = {
+  database: authPool,
   socialProviders: {
     discord: {
       clientId: process.env.DISCORD_CLIENT_ID as string,
@@ -13,7 +15,11 @@ export const auth = betterAuth({
       scope: ["guilds"],
     },
   },
-  plugins: [nextCookies()],
+};
+
+export const auth = betterAuth({
+  ...baseAuthOptions,
+  plugins: [...(mcpEnabled() ? mcpPlugins() : []), nextCookies()],
 });
 
 export type Session = typeof auth.$Infer.Session;

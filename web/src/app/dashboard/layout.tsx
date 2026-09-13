@@ -4,6 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { UserMenu } from "@/components/user-menu";
 import { getAdminMe } from "@/lib/admin";
 import { isSidebarOpen, SIDEBAR_COOKIE } from "@/lib/dashboard-sidebar";
+import { mcpEnabled } from "@/lib/mcp/config";
 import { requireSession } from "@/lib/session";
 
 /**
@@ -28,6 +29,7 @@ export default async function DashboardLayout({
         )}
         user={
           <UserMenu
+            mcpAvailable={mcpEnabled()}
             name={session.user.name}
             image={session.user.image ?? null}
           />
