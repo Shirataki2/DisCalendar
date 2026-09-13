@@ -428,6 +428,8 @@ mod tests {
         for bad in ["2026-09-13", "2026-09-13T00:00:00", "invalid"] {
             assert!(parse_time(bad).is_err());
         }
+        let secret = URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>());
+        let wrong_secret = URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>());
         let mut expected = Cursor {
             sub: "u1".into(),
             connection_id: "c1".into(),
@@ -438,11 +440,11 @@ mod tests {
             after: None,
         };
         expected.after = Some((start, 1));
-        let token = encode_cursor(&expected, "secret").unwrap();
+        let token = encode_cursor(&expected, &secret).unwrap();
         expected.after = None;
-        assert!(decode_cursor(&token, &expected, "secret").is_ok());
-        assert!(decode_cursor(&token, &expected, "wrong").is_err());
-        assert!(decode_cursor(&format!("{token}x"), &expected, "secret").is_err());
+        assert!(decode_cursor(&token, &expected, &secret).is_ok());
+        assert!(decode_cursor(&token, &expected, &wrong_secret).is_err());
+        assert!(decode_cursor(&format!("{token}x"), &expected, &secret).is_err());
         for field in ["sub", "connection_id", "guild_id", "start", "end", "limit"] {
             let mut changed = serde_json::to_value(&expected).unwrap();
             changed[field] = match field {
@@ -451,7 +453,7 @@ mod tests {
                 _ => json!("other"),
             };
             assert!(
-                decode_cursor(&token, &serde_json::from_value(changed).unwrap(), "secret").is_err()
+                decode_cursor(&token, &serde_json::from_value(changed).unwrap(), &secret).is_err()
             );
         }
     }
