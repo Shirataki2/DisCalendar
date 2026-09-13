@@ -2,6 +2,7 @@ import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { protectedMcp } from "@/lib/mcp/protected";
 import { registerReadTools } from "@/lib/mcp/read-tools";
+import { registerWriteTools } from "@/lib/mcp/write-tools";
 import pkg from "../../../package.json";
 
 export const runtime = "nodejs";
@@ -38,6 +39,7 @@ export async function POST(request: Request) {
         }),
       );
       registerReadTools(server, req);
+      registerWriteTools(server, req);
       return server;
     });
     return handler.fetch(req);

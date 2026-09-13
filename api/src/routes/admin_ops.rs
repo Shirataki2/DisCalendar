@@ -57,6 +57,7 @@ pub struct OpsResult {
         (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody),
         (status = 404, description = "存在しない (したことのない) ギルド", body = ErrorBody),
+        (status = 409, description = "未解決のDiscord操作または並行書き込みがある", body = ErrorBody),
     )
 )]
 #[post("/ops/delete-guild-events")]
@@ -66,8 +67,10 @@ pub async fn delete_guild_events(
     state: web::Data<AppState>,
 ) -> Result<web::Json<OpsResult>, ApiError> {
     let guild_id = validated_guild_id(&body.guild_id)?;
+    let _writer = event_links::lock_writer(&state.pool, guild_id).await?;
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
+    crate::mcp::ensure_resolved(&mut *tx, guild_id, None).await?;
     // 連携している Discord スケジュールイベントを控えておく (#94)。
     // 控えてから削除するまでに連携が増えて取り残さないよう、まずギルド単位の勧告ロックで
     // 連携付きの新規作成 (新しい行は行ロックでは待たせられない) と排他し、

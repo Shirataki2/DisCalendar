@@ -1,7 +1,7 @@
 # MCP の予定読み取り (#218)
 
 検証環境限定。OAuth・同意・接続解除は [mcp-auth.md](mcp-auth.md) を参照。
-書き込みは #219、一般公開は #220。実DiscordログインからCodexのツール実行までの確認は別途必要。
+書き込みは [mcp-write.md](mcp-write.md)、一般公開は #220。実DiscordログインからCodexのツール実行までの確認は別途必要。
 
 ## 起動と認証境界
 

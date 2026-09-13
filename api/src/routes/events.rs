@@ -232,6 +232,7 @@ pub async fn create(
     body: web::Json<EventInput>,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, ApiError> {
+    let _writer = event_links::lock_writer(&state.pool, member.guild_id()).await?;
     ensure_can_edit(&state.pool, &member).await?;
     body.validate()?;
     crate::models::notification_mentions::validate_targets(
@@ -344,7 +345,9 @@ pub async fn update(
     body: web::Json<EventInput>,
     state: web::Data<AppState>,
 ) -> Result<web::Json<Event>, ApiError> {
+    let _writer = event_links::lock_writer(&state.pool, member.guild_id()).await?;
     ensure_can_edit(&state.pool, &member).await?;
+    crate::mcp::ensure_resolved(&state.pool, member.guild_id(), path.event_id).await?;
     body.validate()?;
     let guild_id = member.guild_id();
 
@@ -613,7 +616,9 @@ pub async fn delete(
     path: web::Path<EventPath>,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, ApiError> {
+    let _writer = event_links::lock_writer(&state.pool, member.guild_id()).await?;
     ensure_can_edit(&state.pool, &member).await?;
+    crate::mcp::ensure_resolved(&state.pool, member.guild_id(), path.event_id).await?;
     let guild_id = member.guild_id();
 
     // 対応付け (#94) を読んでから消すため、行をロックして削除する。

@@ -1,7 +1,7 @@
-//! MCP 専用の読み取り境界。Web の AuthUser には OAuth を受け付けさせない。
+//! MCP 専用の認証・予定操作境界。Web の AuthUser には OAuth を受け付けさせない。
 use std::{future::Future, pin::Pin, time::Duration};
 
-use actix_web::{FromRequest, HttpRequest, HttpResponse, dev::Payload, web};
+use actix_web::{FromRequest, HttpMessage as _, HttpRequest, HttpResponse, dev::Payload, web};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Datelike as _, FixedOffset, NaiveDateTime, Utc};
 use futures_util::{StreamExt as _, TryStreamExt as _, stream};
@@ -81,7 +81,15 @@ struct Introspection {
     guild_ids: Vec<String>,
 }
 
+mod writes;
+pub(crate) use writes::ensure_resolved;
+pub async fn run_retention(pool: sqlx::PgPool) {
+    writes::retention(pool).await;
+}
+
 pub struct McpUser {
+    request_id: String,
+    client_id: String,
     sub: String,
     connection_id: String,
     discord_user_id: String,
@@ -174,6 +182,12 @@ impl FromRequest for McpUser {
             .fetch_optional(&state.pool)
             .await?;
             Ok(Self {
+                request_id: req
+                    .extensions()
+                    .get::<tracing_actix_web::RequestId>()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| URL_SAFE_NO_PAD.encode(rand::random::<[u8; 16]>())),
+                client_id: claims.client_id,
                 sub: claims.sub,
                 connection_id: claims.connection_id,
                 discord_user_id: discord_user_id.ok_or(ApiError::Unauthorized)?,
@@ -214,7 +228,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .app_data(web::JsonConfig::default().limit(8192))
             .route("/guilds", web::post().to(list_guilds))
             .route("/events/list", web::post().to(list_events))
-            .route("/events/get", web::post().to(get_event)),
+            .route("/events/get", web::post().to(get_event))
+            .configure(writes::configure),
     );
 }
 
@@ -405,14 +420,18 @@ pub async fn list_rows(
     .await
 }
 
-pub fn output_event(row: EventRow) -> Result<serde_json::Value, ApiError> {
-    // 生の保存内容全体をハッシュ化する。updated_at が NULL / 同値でも内容の変更を検出する。
-    let version = format!(
+/// 生の保存値全体をハッシュ化し、updated_atがNULLでも変更を検出する。
+fn event_version(row: &EventRow) -> Result<String, ApiError> {
+    Ok(format!(
         "sha256-v1:{}",
         URL_SAFE_NO_PAD.encode(Sha256::digest(
-            serde_json::to_vec(&row).map_err(anyhow::Error::from)?
+            serde_json::to_vec(row).map_err(anyhow::Error::from)?
         ))
-    );
+    ))
+}
+
+pub fn output_event(row: EventRow) -> Result<serde_json::Value, ApiError> {
+    let version = event_version(&row)?;
     let event = Event::from(row);
     let mut value = serde_json::to_value(&event).map_err(anyhow::Error::from)?;
     let offset = FixedOffset::east_opt(9 * 3600).expect("JST offset");
@@ -611,6 +630,22 @@ mod tests {
                 .set_json(body)
                 .to_request()
         };
+        for path in [
+            "/mcp/events/create",
+            "/mcp/events/update",
+            "/mcp/events/delete",
+            "/mcp/events/operation",
+        ] {
+            let response = test::call_service(
+                &app,
+                request(
+                    path,
+                    json!({"guild_id":"111","idempotency_key":"read-token"}),
+                ),
+            )
+            .await;
+            assert_eq!(response.status(), actix_web::http::StatusCode::FORBIDDEN);
+        }
         let response = test::call_service(&app, request("/mcp/guilds", json!({}))).await;
         assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
         assert_eq!(
@@ -833,7 +868,8 @@ mod tests {
         assert!(
             logs.contains("ERROR")
                 && logs.contains("status=503")
-                && logs.contains("failure_kind=\"connect\""),
+                && (logs.contains("failure_kind=\"connect\"")
+                    || logs.contains("failure_kind=\"transport\"")),
             "{logs}"
         );
         assert!(!logs.contains("oauth-test") && !logs.contains("01234567890123456789012345678901"));

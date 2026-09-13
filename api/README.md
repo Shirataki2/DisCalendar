@@ -173,7 +173,8 @@ migrations/         スキーマ (適用済みのファイルは変更禁止、�
 `GET /guilds/{guild_id}/mention-members?ids=...` は予定の編集権限が必要で、最大10人の表示名を解決する。通常利用者の表示名照会と予定保存による所属確認は共通で、60秒間に120人分まで (利用者単位、超過時429)。Bot の特権インテントの追加は不要。
 戻す場合は `api/rollback/20260912090000_drop_event_notification_mentions.sql` を使用する (メンション先は失われる)。
 
-## MCP読み取り（検証環境限定）
+## MCP予定操作（検証環境限定）
 
 専用OAuthトークンで許可済みサーバーと予定を読み取るルートは [MCP読み取り契約](../docs/mcp-read.md) を参照。
+作成・部分更新・削除と結果照会は [MCP書き込み契約](../docs/mcp-write.md) を参照。
 `MCP_ENABLED` は既定で停止、通常のWebセッション認証とは分離する。
