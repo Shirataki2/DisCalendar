@@ -31,14 +31,13 @@ import { ROUTES } from "@/lib/site";
 interface Props {
   name: string;
   image: string | null;
-  mcpAvailable?: boolean;
 }
 
 /**
  * ヘッダ右端のアカウントメニュー (旧実装の AccountMenu.vue 相当)。
  * アバターを押すとドロップダウンで「サーバー一覧」「すべての予定」「カレンダーの表示設定」「テーマ切替」「ログアウト」を出す
  */
-export function UserMenu({ name, image, mcpAvailable = false }: Props) {
+export function UserMenu({ name, image }: Props) {
   const signOut = useSignOut();
   const toggleTheme = useThemeToggle();
   // ダイアログはメニューが閉じても残るよう、メニューの外に置いて開閉だけここで持つ
@@ -110,11 +109,9 @@ export function UserMenu({ name, image, mcpAvailable = false }: Props) {
               キーボードショートカット
             </DropdownMenuItem>
           )}
-          {mcpAvailable && (
-            <DropdownMenuItem render={<Link href="/mcp/connections" />}>
-              MCP 接続管理
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem render={<Link href="/mcp/connections" />}>
+            MCP 接続管理
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={toggleTheme}>
             <ThemeToggleContent />
           </DropdownMenuItem>

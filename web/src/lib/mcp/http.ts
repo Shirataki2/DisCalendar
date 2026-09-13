@@ -104,8 +104,7 @@ export async function oauthHandler(input: Request) {
       if (
         token.revoked &&
         (!token.rotationReplayExpiresAt ||
-          token.rotationReplayExpiresAt < new Date()) &&
-        body.client_id === token.clientId
+          token.rotationReplayExpiresAt < new Date())
       ) {
         // プラグインの猶予外再利用は利用者・クライアント全体を失効する。JWT にも同じ範囲を反映する。
         await revokeConnections(token.userId, undefined, token.clientId);

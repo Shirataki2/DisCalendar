@@ -230,13 +230,16 @@ async function read(token: string) {
       Response.json({ id: connection.id, guild_ids: connection.guild_ids }),
   );
 }
-async function refresh(token: string) {
+async function refresh(
+  token: string,
+  requestedClientId: string | null = clientId,
+) {
   return http.oauthHandler(
     request(
       "/api/auth/oauth2/token",
       new URLSearchParams({
         grant_type: "refresh_token",
-        client_id: clientId,
+        ...(requestedClientId === null ? {} : { client_id: requestedClientId }),
         refresh_token: token,
         resource,
       }),
@@ -373,26 +376,36 @@ suite(
   },
 );
 
-suite("更新の並行利用・猶予内再送・猶予外再利用の失効範囲", async () => {
-  const { tokens } = await issue();
-  const results = await Promise.all([
-    refresh(tokens.refresh_token),
-    refresh(tokens.refresh_token),
-  ]);
-  expect(results.some((r) => r.status === 200)).toBe(true);
-  expect(results.every((r) => r.status === 200 || r.status === 400)).toBe(true);
-  const success = await results.find((r) => r.status === 200)?.json();
-  const replay = await refresh(tokens.refresh_token);
-  expect(replay.status).toBe(200);
-  expect((await replay.json()).refresh_token).toBe(success.refresh_token);
-  await store.authPool.query(
-    `UPDATE "oauthRefreshToken" SET "rotationReplayExpiresAt" = now() - interval '1 second' WHERE token = $1`,
-    [store.hashOAuthToken(tokens.refresh_token)],
-  );
-  expect((await refresh(tokens.refresh_token)).status).toBe(400);
-  expect((await read(success.access_token)).status).toBe(401);
-  expect((await refresh(success.refresh_token)).status).toBe(400);
-});
+suite.each([clientId, null, "https://other.example/client.json"])(
+  "更新の並行利用・猶予外再利用の失効（client_id=%s）",
+  async (requestedClientId) => {
+    const { tokens } = await issue();
+    const second = await issue();
+    const results = await Promise.all([
+      refresh(tokens.refresh_token),
+      refresh(tokens.refresh_token),
+    ]);
+    expect(results.some((r) => r.status === 200)).toBe(true);
+    expect(results.every((r) => r.status === 200 || r.status === 400)).toBe(
+      true,
+    );
+    const success = await results.find((r) => r.status === 200)?.json();
+    const replay = await refresh(tokens.refresh_token);
+    expect(replay.status).toBe(200);
+    expect((await replay.json()).refresh_token).toBe(success.refresh_token);
+    await store.authPool.query(
+      `UPDATE "oauthRefreshToken" SET "rotationReplayExpiresAt" = now() - interval '1 second' WHERE token = $1`,
+      [store.hashOAuthToken(tokens.refresh_token)],
+    );
+    expect(
+      (await refresh(tokens.refresh_token, requestedClientId)).status,
+    ).toBe(400);
+    expect((await read(second.tokens.access_token)).status).toBe(401);
+    expect((await refresh(second.tokens.refresh_token)).status).toBe(400);
+    expect((await read(success.access_token)).status).toBe(401);
+    expect((await refresh(success.refresh_token)).status).toBe(400);
+  },
+);
 
 suite(
   "期限切れ・誤issuer/audience・接続のないJWT・introspectionの認証を拒否",
