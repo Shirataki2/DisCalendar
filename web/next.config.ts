@@ -24,7 +24,8 @@ const nextConfig: NextConfig = {
         source: "/mcp/:path*",
         headers: [
           { key: "Cache-Control", value: "no-store" },
-          { key: "Referrer-Policy", value: "no-referrer" },
+          // フォーム POST の Origin を維持し、署名付きクエリは Referer に含めない。
+          { key: "Referrer-Policy", value: "strict-origin" },
         ],
       },
       // Service Worker (app/serwist/[path]/route.ts) は静的に生成されるため Next が s-maxage=31536000 を付けるが、

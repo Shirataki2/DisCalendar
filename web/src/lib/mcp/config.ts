@@ -24,7 +24,7 @@ export function mcpOrigin() {
 export const mcpResource = () => `${mcpOrigin()}/mcp`;
 export const noStore = {
   "Cache-Control": "no-store",
-  "Referrer-Policy": "no-referrer",
+  "Referrer-Policy": "strict-origin",
 };
 
 export function consentSelection(

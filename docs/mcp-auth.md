@@ -84,7 +84,8 @@ Webログアウトだけでは許可を削除しない。
 更新時の事前確認は、猶予内再送がカスタムclaim生成を通らず応答を返す経路にも適用する。
 
 OAuth本文は16 KiB、MCP本文は64 KiB、introspectionのトークンは8 KiB、同意対象は100サーバーまで。
-OAuth/MCP/同意ページにno-storeとno-referrerを付け、Cookie・トークン・署名付きqueryをアプリの監査ログへ出力しない。
+OAuth/MCP/同意ページにno-storeとstrict-originを付け、Cookie・トークン・署名付きqueryをアプリの監査ログへ出力しない。
+strict-originはRefererをオリジンだけに限定し、フォームPOSTのOriginを維持する。no-referrerではOriginがnullになり、同意・接続解除の同一オリジン検証に失敗するため使用しない。Originがnull・欠落・別オリジンの要求は引き続き拒否する。
 検証サーバーのアクセスログにも認可URLやqueryが含まれうるため、実資格情報で運用する前にログ収集側で除外する。
 
 ## Rustへ引き渡す認証契約
