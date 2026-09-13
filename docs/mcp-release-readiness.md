@@ -78,6 +78,12 @@ Originがある場合は同一originのみ許可。Codexの非ブラウザ通信
 
 設定変更後は該当する全web/apiプロセスを再起動し、実経路で確認する。停止前に実行中の操作を確認する。
 
+compose運用では、ホストのルート `.env` に `MCP_NEW_CONNECTIONS_ENABLED=false` を設定し、
+`docker compose up -d --no-deps web` でwebコンテナへ反映する。`docker compose restart` だけでは環境変数は更新されない。
+標準デプロイの `.github/scripts/deploy.sh` も `docker compose up -d` を使うため、この設定を反映する。
+確認は `docker compose exec web printenv MCP_NEW_CONNECTIONS_ENABLED` でこのフラグだけを表示する。
+再開時は `true` に戻して同じ手順を実施する。MCP本体の有効化と専用DBの準備は別途必要。
+
 | 操作 | 設定/手段 | 維持するもの |
 | --- | --- | --- |
 | 新規接続停止 | webのMCP_NEW_CONNECTIONS_ENABLED=false（既定は受付）。認可・ログイン開始・同意・認可コード交換を停止 | 既存アクセストークン、更新トークン、Webログイン、接続解除 |
