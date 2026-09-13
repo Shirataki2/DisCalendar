@@ -38,3 +38,22 @@ test("MCPのフォームPOSTはOriginを維持し、Refererにクエリを含め
     expect(response.headers()["referrer-policy"]).toBe("strict-origin");
   }
 });
+
+test("公開rewriteでもMCPトークンから通常APIへ権限を拡張できない", async ({
+  request,
+}) => {
+  const headers = { Authorization: "Bearer oauth.test.token" };
+  for (const path of [
+    "/local/api/admin/me",
+    "/local/api/guilds/111/config",
+    "/local/api/events/111",
+  ]) {
+    expect((await request.get(path, { headers })).status()).toBe(401);
+  }
+  // E2E既定はMCP停止中。内部パスもデータを返さない。
+  expect(
+    (
+      await request.post("/local/api/mcp/guilds", { headers, data: {} })
+    ).status(),
+  ).toBe(404);
+});

@@ -16,6 +16,7 @@ pub mod discord_datetime;
 pub mod error;
 pub mod ical;
 pub mod logging;
+pub mod mcp;
 pub mod models;
 pub mod openapi;
 pub mod outbound_http;
@@ -45,6 +46,7 @@ use crate::{
 
 /// DB 接続・マイグレーション・HTTP サーバー起動までを行う
 pub async fn run(config: Config) -> anyhow::Result<()> {
+    let mcp = web::Data::new(mcp::McpConfig::from_env()?);
     let pool = PgPoolOptions::new()
         .max_connections(config.max_db_connections)
         .connect(&config.database_url)
@@ -125,12 +127,14 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                     )
             })
             .app_data(state.clone())
+            .app_data(mcp.clone())
             .app_data(json_config())
             .app_data(path_config())
             .app_data(query_config())
             .configure(routes::configure)
             .openapi_service(|api| SwaggerUi::new("/docs/{_:.*}").url("/openapi.json", api))
             .into_app()
+            .configure(mcp::configure)
     })
     .bind(addr)
     .with_context(|| format!("failed to bind {}:{}", config.host, config.port))?
