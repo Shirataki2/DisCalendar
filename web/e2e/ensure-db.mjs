@@ -7,6 +7,7 @@
 // Playwright の webServer.command から素の node で動かすため、TypeScript ではなく .mjs にしている
 import { getMigrations } from "better-auth/db/migration";
 import { Client, Pool } from "pg";
+import { accountIssuerCompatibility } from "../src/lib/auth-schema.mjs";
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -44,6 +45,7 @@ async function migrateBetterAuth(databaseUrl) {
   try {
     const { toBeCreated, toBeAdded, runMigrations } = await getMigrations({
       database: pool,
+      plugins: [accountIssuerCompatibility],
     });
     if (toBeCreated.length > 0 || toBeAdded.length > 0) {
       await runMigrations();

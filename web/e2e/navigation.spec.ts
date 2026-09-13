@@ -191,3 +191,17 @@ for (const width of [1280, 375]) {
     if (width < 1024) await expect(nav).toBeHidden();
   });
 }
+
+// 通常のE2EではMCPは停止・専用DDLも未適用。解除用の入口は停止状態に依存させない。
+test("MCP停止中もアカウントメニューから接続管理を開ける", async ({ page }) => {
+  await page.goto("/dashboard");
+  await page.getByRole("button", { name: "アカウントメニュー" }).click();
+  await page.getByRole("menuitem", { name: "MCP 接続管理" }).click();
+  await expect(page).toHaveURL("/mcp/connections");
+  await expect(
+    page.getByRole("heading", { name: "MCP 接続管理" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("MCPは現在停止中です。既存の接続は解除できます。"),
+  ).toBeVisible();
+});

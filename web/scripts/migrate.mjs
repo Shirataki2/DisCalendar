@@ -4,6 +4,7 @@
 // 実行: pnpm db:migrate
 import { getMigrations } from "better-auth/db/migration";
 import { Pool } from "pg";
+import { accountIssuerCompatibility } from "../src/lib/auth-schema.mjs";
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -14,6 +15,7 @@ if (!url) {
 const pool = new Pool({ connectionString: url });
 const { toBeCreated, toBeAdded, runMigrations } = await getMigrations({
   database: pool,
+  plugins: [accountIssuerCompatibility],
 });
 
 if (toBeCreated.length === 0 && toBeAdded.length === 0) {

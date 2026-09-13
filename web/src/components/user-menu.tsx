@@ -109,6 +109,9 @@ export function UserMenu({ name, image }: Props) {
               キーボードショートカット
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem render={<Link href="/mcp/connections" />}>
+            MCP 接続管理
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={toggleTheme}>
             <ThemeToggleContent />
           </DropdownMenuItem>
