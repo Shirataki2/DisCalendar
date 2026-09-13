@@ -28,6 +28,15 @@ HTTPSを使う。ローカル開発のみloopback HTTPを許容する。
 本番DBや本番Botを検証に使用しない。compose・本番デプロイへの有効化設定は追加していない。
 `MCP_ENABLED` と `MCP_INTROSPECTION_SECRET` はサーバー実行時の変数であり、ビルド引数や `NEXT_PUBLIC_*` にはしない。
 
+## 既存認証DBとの互換性
+
+Better Auth 1.7.3以降は `account.issuer` を書かなくなったが、既存1.7.2のDBにはNOT NULL列と `(issuer, accountId)` の一意制約がある。
+[公式アップグレードガイド](https://better-auth.com/docs/guides/1-7-upgrade-guide)の制約緩和とは別に、このアプリでは既存列・既存データ・一意制約を維持する。
+共有の `auth-schema.mjs` でissuerを宣言し、Discord専用の既定値 `local:oauth:discord` をアダプターから書く。
+これによりDBの列削除・型変換や本番の事前DDLを必要とせず、旧版への切り戻しも妨げない。
+起動時migration・手動migration・E2EのDB準備で同じ定義を使用する。Discord以外の認証プロバイダーを追加するときは、この既定値も見直すこと。
+結合テストではDB側のDEFAULTを外し、1.7.2と同じNOT NULL制約下でアカウント作成できることを確認する。
+
 ## 専用DBの準備
 
 既存の開発・本番DBとは異なる検証用DBとDiscord OAuthアプリを用意し、検証用の `DATABASE_URL` を指定する。

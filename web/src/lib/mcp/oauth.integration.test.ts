@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { signSessionCookie } from "../../../e2e/seed";
+import { accountIssuerCompatibility } from "../auth-schema.mjs";
 
 const mocks = vi.hoisted(() => ({
   headers: new Headers(),
@@ -58,12 +59,21 @@ beforeAll(async () => {
   await store.authPool.query(
     "DROP SCHEMA public CASCADE; CREATE SCHEMA public",
   );
-  await (await getMigrations({ database: store.authPool })).runMigrations();
+  await (
+    await getMigrations({
+      database: store.authPool,
+      plugins: [accountIssuerCompatibility],
+    })
+  ).runMigrations();
   await store.authPool.query(
     readFileSync("migrations/mcp/001_oauth.sql", "utf8"),
   );
   await store.authPool.query(
     readFileSync("migrations/mcp/002_connections.sql", "utf8"),
+  );
+  // 1.7.2 と同じ、DB既定値のない NOT NULL 列でも新規アカウントを書けることを確認する。
+  await store.authPool.query(
+    `ALTER TABLE account ALTER COLUMN issuer DROP DEFAULT`,
   );
   auth = (await import("../auth")).auth;
   http = await import("./http");
@@ -88,6 +98,13 @@ beforeAll(async () => {
     providerId: "discord",
     accountId: "111111111111111111",
   });
+  expect(
+    (
+      await store.authPool.query(
+        `SELECT issuer FROM account WHERE id = 'mcp-discord'`,
+      )
+    ).rows[0].issuer,
+  ).toBe("local:oauth:discord");
   const session = await ctx.internalAdapter.createSession("mcp-user", false);
   cookie = `better-auth.session_token=${signSessionCookie(session.token, secret)}`;
   vi.stubGlobal(

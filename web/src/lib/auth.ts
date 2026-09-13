@@ -1,11 +1,13 @@
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
+import { accountIssuerCompatibility } from "./auth-schema.mjs";
 import { mcpEnabled } from "./mcp/config";
 import { mcpPlugins } from "./mcp/plugins";
 import { authPool } from "./mcp/store";
 
 export const baseAuthOptions = {
   database: authPool,
+  plugins: [accountIssuerCompatibility],
   socialProviders: {
     discord: {
       clientId: process.env.DISCORD_CLIENT_ID as string,
@@ -19,7 +21,11 @@ export const baseAuthOptions = {
 
 export const auth = betterAuth({
   ...baseAuthOptions,
-  plugins: [...(mcpEnabled() ? mcpPlugins() : []), nextCookies()],
+  plugins: [
+    ...baseAuthOptions.plugins,
+    ...(mcpEnabled() ? mcpPlugins() : []),
+    nextCookies(),
+  ],
 });
 
 export type Session = typeof auth.$Infer.Session;
