@@ -62,6 +62,12 @@ export const DOC_PAGES: readonly DocPage[] = [
       "Webhook の登録、Discord への通知、JSON 本文と署名の検証方法。",
   },
   {
+    slug: "mcp",
+    title: "Codexとの接続",
+    description:
+      "検証環境限定のMCP接続。権限選択、予定操作、接続解除と困ったときの対応。",
+  },
+  {
     slug: "commands",
     title: "利用可能なコマンド",
     description:

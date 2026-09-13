@@ -1,9 +1,9 @@
 import { auth } from "@/lib/auth";
-import { mcpEnabled, noStore } from "@/lib/mcp/config";
+import { mcpConnectionsEnabled, noStore } from "@/lib/mcp/config";
 import { boundedRequest, privateResponse, sameOrigin } from "@/lib/mcp/http";
 
 export async function POST(request: Request) {
-  if (!mcpEnabled())
+  if (!mcpConnectionsEnabled())
     return new Response(null, { status: 404, headers: noStore });
   if (!sameOrigin(request))
     return new Response(null, { status: 403, headers: noStore });

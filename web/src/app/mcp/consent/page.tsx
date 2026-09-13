@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getUserGuilds } from "@/lib/discord";
 import { loadJoinedGuildIds } from "@/lib/joined-guilds";
-import { MCP_SCOPES, mcpEnabled } from "@/lib/mcp/config";
+import { MCP_SCOPES, mcpConnectionsEnabled } from "@/lib/mcp/config";
 
 export default async function McpConsentPage({
   searchParams,
@@ -12,7 +12,7 @@ export default async function McpConsentPage({
 }) {
   // 停止状態をビルド時の404として固定せず、実行時に判定する。
   const requestHeaders = await headers();
-  if (!mcpEnabled()) notFound();
+  if (!mcpConnectionsEnabled()) notFound();
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(await searchParams)) {
     for (const item of Array.isArray(value)
@@ -40,7 +40,7 @@ export default async function McpConsentPage({
         として許可します。選択したサーバー名や予定のタイトル・説明・日時が接続先に公開されます。DiscordのトークンやWebのログイン情報は渡しません。
       </p>
       <p>
-        作成・変更・削除を許可すると、DisCalendarは操作ごとの確認を求めません。接続先の確認設定は変わりません。現在は接続内容の確認のみ利用できます。予定の操作にはまだ対応していません。
+        作成・変更・削除を許可すると、DisCalendarは操作ごとの確認を求めません。接続先の確認設定は変わりません。許可した範囲で予定の閲覧・作成・変更・削除ができます。
       </p>
       <form action="/mcp/consent/submit" method="post" className="space-y-6">
         <input type="hidden" name="oauth_query" value={params.toString()} />

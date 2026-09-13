@@ -1,7 +1,7 @@
 # MCP OAuth の検証環境 (#217)
 
 設計の参照元は [#221 / ad43db9](https://github.com/Shirataki2/DisCalendar/pull/221)。
-本実装は一般公開前の認証検証用。予定の読み取りは [mcp-read.md](mcp-read.md)、書き込みは [mcp-write.md](mcp-write.md)、公開準備は #220 で扱う。
+本実装は一般公開前の認証検証用。予定の読み取りは [mcp-read.md](mcp-read.md)、書き込みは [mcp-write.md](mcp-write.md)、公開準備は [#220 の検証・運用手順](mcp-release-readiness.md) で扱う。
 実クライアントでのDiscordログイン完了は未検証であり、#217 の完了を意味しない。
 
 ## 構成と停止
@@ -9,6 +9,7 @@
 既存のBetter AuthにJWT・`mcp()`・CIMDを組み込み、`oauthProvider()`は重複登録しない。
 `MCP_ENABLED` が厳密に `true` の場合だけ認可、トークン更新、MCP、metadataを有効にする。
 未設定は全停止。停止中も `/mcp/connections` から既存接続を解除でき、通常のDiscordログインは継続する。
+新規接続のみ停止する場合は `MCP_NEW_CONNECTIONS_ENABLED=false` にする。既存接続の利用・更新と解除は継続する。
 設定変更後はNext.jsを再起動する。再開すると未解除の接続は有効に戻るため、侵害対応では停止だけでなく解除する。
 
 | 項目 | 設定 |
