@@ -4,6 +4,7 @@ use std::{future::Future, pin::Pin, time::Duration};
 use actix_web::{FromRequest, HttpRequest, HttpResponse, dev::Payload, web};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Datelike as _, FixedOffset, NaiveDateTime, Utc};
+use futures_util::{StreamExt as _, TryStreamExt as _, stream};
 use hmac::{Hmac, KeyInit as _, Mac as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -113,8 +114,22 @@ impl FromRequest for McpUser {
                 .json(&serde_json::json!({"token": token}))
                 .send()
                 .await
-                .map_err(|_| ApiError::Unavailable("MCP authentication unavailable".into()))?;
+                .map_err(|error| {
+                    let failure_kind = if error.is_timeout() {
+                        "timeout"
+                    } else if error.is_connect() {
+                        "connect"
+                    } else {
+                        "transport"
+                    };
+                    tracing::error!(failure_kind, "MCP introspection request failed");
+                    ApiError::Unavailable("MCP authentication unavailable".into())
+                })?;
             if !response.status().is_success() {
+                tracing::error!(
+                    status = response.status().as_u16(),
+                    "MCP introspection returned an unsuccessful status"
+                );
                 return Err(ApiError::Unavailable(
                     "MCP authentication unavailable".into(),
                 ));
@@ -144,10 +159,20 @@ impl FromRequest for McpUser {
             let state = req
                 .app_data::<web::Data<AppState>>()
                 .ok_or(ApiError::Unauthorized)?;
-            // ユーザー指定の Discord ID は使わず、検証済み sub の連携アカウントから解決する。
+            // 同意時に接続へ固定したアカウントだけを使う。他の連携アカウントへ代替しない。
             let discord_user_id: Option<String> = sqlx::query_scalar(
-                "SELECT \"accountId\" FROM account WHERE \"userId\" = $1 AND \"providerId\" = 'discord'")
-                .bind(&claims.sub).fetch_optional(&state.pool).await?;
+                r#"
+                SELECT a."accountId" FROM mcp_connections c
+                JOIN account a ON a.id = c.discord_account_id
+                  AND a."userId" = c.user_id AND a."providerId" = 'discord'
+                WHERE c.id = $1 AND c.user_id = $2 AND c.client_id = $3 AND c.revoked_at IS NULL
+            "#,
+            )
+            .bind(&claims.connection_id)
+            .bind(&claims.sub)
+            .bind(&claims.client_id)
+            .fetch_optional(&state.pool)
+            .await?;
             Ok(Self {
                 sub: claims.sub,
                 connection_id: claims.connection_id,
@@ -195,16 +220,17 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 async fn list_guilds(user: McpUser, state: web::Data<AppState>) -> Result<HttpResponse, ApiError> {
     user.require_scope("guilds:read")?;
-    let mut guilds = Vec::new();
-    for id in &user.guild_ids {
-        if let Some(access) = state
-            .discord
-            .member_access(id, &user.discord_user_id)
-            .await?
-        {
-            guilds.push(serde_json::json!({"guild_id": id, "name": access.guild.name}));
-        }
-    }
+    // 横断カレンダーと同じ4並列。結果の順序は同意したサーバーの順を維持する。
+    let checked: Vec<_> = stream::iter(&user.guild_ids)
+        .map(|id| state.discord.member_access(id, &user.discord_user_id))
+        .buffered(4)
+        .try_collect()
+        .await?;
+    let guilds: Vec<_> = checked
+        .into_iter()
+        .flatten()
+        .map(|access| serde_json::json!({"guild_id": access.guild.id, "name": access.guild.name}))
+        .collect();
     Ok(HttpResponse::Ok().json(serde_json::json!({"guilds": guilds})))
 }
 
@@ -418,7 +444,11 @@ mod tests {
     use super::*;
     use actix_web::{App, HttpServer, test};
     use serde_json::json;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use tracing::instrument::WithSubscriber as _;
     use utoipa_actix_web::AppExt as _;
 
     #[actix_web::test]
@@ -462,8 +492,10 @@ mod tests {
     async fn http_auth_and_reads(pool: sqlx::PgPool) {
         sqlx::raw_sql(
             r#"
-            CREATE TABLE "account" ("userId" TEXT, "providerId" TEXT, "accountId" TEXT);
-            INSERT INTO account VALUES ('u1', 'discord', '333'), ('u2', 'discord', '444');
+            CREATE TABLE "account" (id TEXT PRIMARY KEY, "userId" TEXT, "providerId" TEXT, "accountId" TEXT);
+            INSERT INTO account VALUES ('other', 'u1', 'discord', '444'), ('fixed', 'u1', 'discord', '333'), ('second-user', 'u2', 'discord', '444');
+            CREATE TABLE mcp_connections (id TEXT PRIMARY KEY, user_id TEXT, client_id TEXT, discord_account_id TEXT, revoked_at TIMESTAMPTZ);
+            INSERT INTO mcp_connections VALUES ('c1', 'u1', 'client', 'fixed', NULL);
             INSERT INTO events (guild_id, name, start_at, end_at, is_all_day) VALUES
               ('111', '終日', '2026-09-13', '2026-09-13', true),
               ('111', '境界で終了', '2026-09-13 01:00', '2026-09-13 12:00', false),
@@ -483,9 +515,12 @@ mod tests {
             "exp":Utc::now().timestamp()+900,"scope":"guilds:read events:read","guild_ids":["111","222","333"]});
         let claims = Arc::new(Mutex::new(valid.clone()));
         let mock_claims = claims.clone();
+        let concurrent = web::Data::new((AtomicUsize::new(0), AtomicUsize::new(0)));
+        let mock_concurrent = concurrent.clone();
         let server = HttpServer::new(move || {
             let claims = mock_claims.clone();
             App::new()
+                .app_data(mock_concurrent.clone())
                 .route(
                     "/mcp/introspect",
                     web::post().to(
@@ -510,8 +545,15 @@ mod tests {
                 )
                 .route(
                     "/guilds/{guild_id}",
-                    web::get().to(|id: web::Path<String>| async move {
-                        if id.as_str() != "111" && id.as_str() != "333" {
+                    web::get().to(|id: web::Path<String>, concurrent: web::Data<(AtomicUsize, AtomicUsize)>| async move {
+                        let large_list = id.parse::<u32>().is_ok_and(|id| (1000..1100).contains(&id));
+                        if large_list {
+                            let active = concurrent.0.fetch_add(1, Ordering::SeqCst) + 1;
+                            concurrent.1.fetch_max(active, Ordering::SeqCst);
+                            tokio::time::sleep(Duration::from_millis(320)).await;
+                            concurrent.0.fetch_sub(1, Ordering::SeqCst);
+                        }
+                        if !large_list && id.as_str() != "111" && id.as_str() != "333" {
                             return HttpResponse::NotFound().finish();
                         }
                         HttpResponse::Ok().json(
@@ -522,7 +564,7 @@ mod tests {
                 .route(
                     "/guilds/{guild_id}/members/{user_id}",
                     web::get().to(|path: web::Path<(String, String)>| async move {
-                        if path.0 != "111" || path.1 != "333" {
+                        if (path.0 != "111" && !path.0.parse::<u32>().is_ok_and(|id| (1000..1100).contains(&id))) || path.1 != "333" {
                             return HttpResponse::NotFound().finish();
                         }
                         HttpResponse::Ok().json(json!({"roles":[],"user":{"username":"member"}}))
@@ -575,6 +617,22 @@ mod tests {
             test::read_body_json::<serde_json::Value, _>(response).await["guilds"],
             json!([{"guild_id":"111","name":"サーバー"}])
         );
+        let mut many = valid.clone();
+        many["guild_ids"] = json!((1000..1100).map(|id| id.to_string()).collect::<Vec<_>>());
+        *claims.lock().unwrap() = many;
+        // 直列ならギルド取得だけで32秒。冷えたキャッシュの100件も30秒の上限内で返す。
+        let response = tokio::time::timeout(
+            Duration::from_secs(20),
+            test::call_service(&app, request("/mcp/guilds", json!({}))),
+        )
+        .await
+        .unwrap();
+        let listed: serde_json::Value = test::read_body_json(response).await;
+        assert_eq!(listed["guilds"].as_array().unwrap().len(), 100);
+        assert_eq!(listed["guilds"][0]["guild_id"], "1000");
+        assert_eq!(listed["guilds"][99]["guild_id"], "1099");
+        assert!((2..=4).contains(&concurrent.1.load(Ordering::SeqCst)));
+        *claims.lock().unwrap() = valid.clone();
         for path in ["/admin/me", "/guilds/111/config", "/events/111"] {
             let response = test::call_service(
                 &app,
@@ -682,7 +740,7 @@ mod tests {
             ("aud", json!(["wrong"]), 401),
             ("active", json!(false), 401),
             ("sub", json!("missing"), 401),
-            ("sub", json!("u2"), 403),
+            ("sub", json!("u2"), 401),
         ] {
             let mut invalid = valid.clone();
             invalid[key] = value;
@@ -698,6 +756,35 @@ mod tests {
                 "{key}"
             );
         }
+        // 同じ利用者の別アカウントが所属していても、固定アカウントが非メンバーなら拒否する。
+        *claims.lock().unwrap() = valid.clone();
+        sqlx::query("UPDATE mcp_connections SET discord_account_id = 'other' WHERE id = 'c1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            test::call_service(
+                &app,
+                request("/mcp/events/get", json!({"guild_id":"111","event_id":1}))
+            )
+            .await
+            .status(),
+            403
+        );
+        sqlx::query("DELETE FROM account WHERE id = 'other'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            test::call_service(&app, request("/mcp/guilds", json!({})))
+                .await
+                .status(),
+            401
+        );
+        sqlx::query("UPDATE mcp_connections SET discord_account_id = 'fixed' WHERE id = 'c1'")
+            .execute(&pool)
+            .await
+            .unwrap();
         // 同じトークンの次の操作も必ず検証口を通る。
         *claims.lock().unwrap() = json!({"active":false});
         assert_eq!(
@@ -706,13 +793,49 @@ mod tests {
                 .status(),
             401
         );
+        #[derive(Clone)]
+        struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for LogBuffer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let writer = LogBuffer(logs.clone());
+        let subscriber = tracing::Dispatch::new(
+            tracing_subscriber::fmt()
+                .without_time()
+                .with_ansi(false)
+                .with_writer(move || writer.clone())
+                .finish(),
+        );
         *claims.lock().unwrap() = serde_json::Value::Null;
         assert_eq!(
             test::call_service(&app, request("/mcp/guilds", json!({})))
+                .with_subscriber(subscriber.clone())
                 .await
                 .status(),
             503
         );
         handle.stop(true).await;
+        assert_eq!(
+            test::call_service(&app, request("/mcp/guilds", json!({})))
+                .with_subscriber(subscriber)
+                .await
+                .status(),
+            503
+        );
+        let logs = String::from_utf8(logs.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains("ERROR")
+                && logs.contains("status=503")
+                && logs.contains("failure_kind=\"connect\""),
+            "{logs}"
+        );
+        assert!(!logs.contains("oauth-test") && !logs.contains("01234567890123456789012345678901"));
     }
 }

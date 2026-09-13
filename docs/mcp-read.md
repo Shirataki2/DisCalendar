@@ -15,8 +15,10 @@ webは既存の `API_URL` に接続する。検証時は同一ホストのloopba
 Next.jsの `/mcp` はBearerだけをRustへ渡し、Cookieや利用者IDは渡さない。
 Rustの `McpUser` は毎回固定URLの `/mcp/introspect` を専用資格情報で呼び、
 active・issuer・resource・期限・接続ID・client IDを確認する。
-検証済み `sub` と共有DBのDiscord accountから本人を解決し、入力の利用者IDは受け付けない。
-判定失敗、停止、失効、通信障害は拒否する。リダイレクトを追わず、資格情報・応答本文はログに出さない。
+検証済み `connection_id`・`sub`・`client_id` と共有DBの接続を照合し、
+同意時に `discord_account_id` へ固定したDiscord accountだけから本人を解決する。
+同じ利用者の別アカウントへ代替せず、入力の利用者IDは受け付けない。
+判定失敗、停止、失効、通信障害は拒否する。introspectionの通信失敗種別・HTTPエラーステータスはERRORに記録する。リダイレクトを追わず、資格情報・応答本文はログに出さない。
 
 実効scopeはトークンと接続の現在のscopeの共通部分。同意時のサーバー集合は拡張せず、
 操作ごとに既存 `DiscordClient::member_access` で本人の所属とBotの参加を確認する。
@@ -41,6 +43,7 @@ MCPは同じJSONを `structuredContent` とtext contentに返す。
 | get_event | `/mcp/events/get` | `{guild_id, event_id}` | `{event: {...}}` | events:read |
 
 `list_guilds` は同意済みサーバーのうち現在利用できるものだけを返す（最大同意100件）。
+所属確認は最大4並列で実行し、同意した順序を維持する。
 Discord障害で所属を判定できなければ一覧全体が失敗し、部分的な一覧を成功扱いにしない。
 予定は常に `guild_id + event_id` で絞る。許可外・非メンバー・Bot未参加は403、
 許可されたサーバー内に該当予定がなければ404。Snowflakeは常に文字列、予定IDは正の32bit整数。

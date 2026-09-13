@@ -107,7 +107,7 @@ impl ResponseError for ApiError {
             Self::Internal(e) => tracing::error!(error = ?e, "internal error"),
             // Discord クライアント側のログは WARN なので、503 を返すことはここで残す
             Self::RateLimited => tracing::error!("discord api is rate limited"),
-            // Unavailable は唯一の生成元 (routes/admin_sql.rs) が理由付きで ERROR を出しているので、
+            // Unavailable は生成元が理由付きで ERROR を出しているので、
             // ここで出すと同じ障害が二重にイベント化される
             _ => {}
         }
