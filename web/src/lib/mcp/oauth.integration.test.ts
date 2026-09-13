@@ -106,8 +106,7 @@ beforeAll(async () => {
           scope: "identify email guilds",
         });
       if (
-        decodeURI(request.url).replace("%40", "@") ===
-        "https://discord.com/api/users/@me"
+        decodeURIComponent(request.url) === "https://discord.com/api/users/@me"
       )
         return Response.json({
           id: "111111111111111111",
