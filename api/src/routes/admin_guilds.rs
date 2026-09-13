@@ -196,6 +196,7 @@ pub async fn create_event(
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
+    let _writer = crate::models::event_links::lock_writer(&state.pool, guild_id).await?;
     body.validate()?;
     crate::models::notification_mentions::validate_targets(
         &state.discord,
@@ -256,6 +257,7 @@ pub async fn update_event(
     state: web::Data<AppState>,
 ) -> Result<web::Json<Event>, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
+    let _writer = crate::models::event_links::lock_writer(&state.pool, guild_id).await?;
     body.validate()?;
     // 運営管理者の代理編集では、省略されたメンションは DB の現在値を維持する。
     crate::models::notification_mentions::validate_targets(
@@ -330,6 +332,7 @@ pub async fn delete_event(
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
+    let _writer = crate::models::event_links::lock_writer(&state.pool, guild_id).await?;
     let mut tx = state.pool.begin().await?;
     let before = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
         .await?

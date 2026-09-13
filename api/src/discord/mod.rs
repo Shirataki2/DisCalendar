@@ -397,6 +397,58 @@ impl DiscordClient {
             .is_some_and(|access| access.permissions.create_events()))
     }
 
+    /// MCP の書き込み直前の認可。キャッシュも更新間隔制限も使わず、取得失敗は拒否する。
+    pub async fn fresh_write_access(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<Option<(MemberAccess, bool)>, DiscordError> {
+        let Some(guild) = self.fetch_guild(guild_id).await? else {
+            return Ok(None);
+        };
+        let MemberLookup::Present(member) = self.fetch_member(guild_id, user_id).await? else {
+            return Ok(None);
+        };
+        let bot_id = self.bot_user_id().await?;
+        let MemberLookup::Present(bot) = self.fetch_member(guild_id, &bot_id).await? else {
+            return Ok(None);
+        };
+        let permissions = compute_base_permissions(
+            &guild.id,
+            &guild.owner_id,
+            user_id,
+            &guild.role_permissions,
+            &member.roles,
+        );
+        let bot_can_create = compute_base_permissions(
+            &guild.id,
+            &guild.owner_id,
+            &bot_id,
+            &guild.role_permissions,
+            &bot.roles,
+        )
+        .create_events();
+        // 後続の既存メンション検証も、今回確認したロールを参照する。
+        self.guilds
+            .insert(guild_id.to_owned(), Some(guild.clone()))
+            .await;
+        self.members
+            .insert(
+                (guild_id.to_owned(), user_id.to_owned()),
+                MemberLookup::Present(member.clone()),
+            )
+            .await;
+        Ok(Some((
+            MemberAccess {
+                guild,
+                user_id: user_id.to_owned(),
+                roles: member.roles.clone(),
+                permissions,
+            },
+            bot_can_create,
+        )))
+    }
+
     /// Discord 側で権限を直した直後に反映させるため、権限キャッシュを取り直す (#122)。
     ///
     /// 取り直すのはギルド情報 (ロールごとの権限) と、`user_id` および Bot 自身のメンバー情報。

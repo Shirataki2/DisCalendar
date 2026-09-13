@@ -69,6 +69,39 @@ pub async fn validate_targets(
             true,
         )
     };
+    validate_roles(mentions, &guild, can_mention_everyone)?;
+    let user_count = mentions
+        .iter()
+        .filter(|m| matches!(m, NotificationMention::User { .. }))
+        .count() as u32;
+    if let Some(actor_id) = actor_id
+        && user_count > 0
+        && !discord.reserve_mention_lookups(actor_id, user_count).await
+    {
+        return Err(ApiError::TooManyRequests);
+    }
+    let members: Vec<bool> = stream::iter(mentions.iter().filter_map(|mention| match mention {
+        NotificationMention::User { id } => Some(id),
+        _ => None,
+    }))
+    .map(|id| discord.is_current_member(guild_id, id))
+    .buffered(4)
+    .try_collect()
+    .await?;
+    if members.contains(&false) {
+        return Err(ApiError::BadRequest(
+            "メンション先のユーザーがサーバーに参加していません".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// 認可時に取得したギルド・権限のスナップショットでメンションを検証する。
+pub(crate) fn validate_roles(
+    mentions: &[NotificationMention],
+    guild: &crate::discord::GuildSnapshot,
+    can_mention_everyone: bool,
+) -> Result<(), ApiError> {
     for mention in mentions {
         match mention {
             NotificationMention::Everyone if !can_mention_everyone => {
@@ -92,29 +125,6 @@ pub async fn validate_targets(
             }
             NotificationMention::Everyone | NotificationMention::User { .. } => {}
         }
-    }
-    let user_count = mentions
-        .iter()
-        .filter(|m| matches!(m, NotificationMention::User { .. }))
-        .count() as u32;
-    if let Some(actor_id) = actor_id
-        && user_count > 0
-        && !discord.reserve_mention_lookups(actor_id, user_count).await
-    {
-        return Err(ApiError::TooManyRequests);
-    }
-    let members: Vec<bool> = stream::iter(mentions.iter().filter_map(|mention| match mention {
-        NotificationMention::User { id } => Some(id),
-        _ => None,
-    }))
-    .map(|id| discord.is_current_member(guild_id, id))
-    .buffered(4)
-    .try_collect()
-    .await?;
-    if members.contains(&false) {
-        return Err(ApiError::BadRequest(
-            "メンション先のユーザーがサーバーに参加していません".into(),
-        ));
     }
     Ok(())
 }

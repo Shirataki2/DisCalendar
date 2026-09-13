@@ -55,6 +55,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
     run_startup_migrations(&pool).await?;
     tokio::spawn(models::user_activity::complete_user_fks(pool.clone()));
+    tokio::spawn(mcp::run_retention(pool.clone()));
     let sql_console_pool = setup_sql_console(&pool, &config).await?;
 
     let state = web::Data::new(AppState {

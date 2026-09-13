@@ -66,6 +66,7 @@ pub async fn delete_guild_events(
     state: web::Data<AppState>,
 ) -> Result<web::Json<OpsResult>, ApiError> {
     let guild_id = validated_guild_id(&body.guild_id)?;
+    let _writer = event_links::lock_writer(&state.pool, guild_id).await?;
     let mut tx = state.pool.begin().await?;
     ensure_guild_known(&mut *tx, guild_id).await?;
     // 連携している Discord スケジュールイベントを控えておく (#94)。

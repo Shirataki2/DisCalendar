@@ -1,7 +1,7 @@
 # MCP OAuth の検証環境 (#217)
 
 設計の参照元は [#221 / ad43db9](https://github.com/Shirataki2/DisCalendar/pull/221)。
-本実装は一般公開前の認証検証用。予定の読み取りは [mcp-read.md](mcp-read.md)、書き込みは #219、公開準備は #220 で扱う。
+本実装は一般公開前の認証検証用。予定の読み取りは [mcp-read.md](mcp-read.md)、書き込みは [mcp-write.md](mcp-write.md)、公開準備は #220 で扱う。
 実クライアントでのDiscordログイン完了は未検証であり、#217 の完了を意味しない。
 
 ## 構成と停止

@@ -134,3 +134,27 @@ pub async fn list_scheduled_event_ids<'e>(
     .await?;
     Ok(rows.into_iter().map(|r| r.scheduled_event_id).collect())
 }
+
+/// 外部API呼び出しからDB確定・補償まで、複数プロセスのwriterを直列化する。
+/// 待機中にプールを埋めないよう、競合時は即座に409で返す。
+/// ponytail: ギルド単位の直列化。競合が増えたら予定単位と一括削除用の共有ロックに分ける。
+pub async fn lock_writer(
+    pool: &sqlx::PgPool,
+    guild_id: &str,
+) -> Result<sqlx::PgConnection, crate::error::ApiError> {
+    use sqlx::Connection as _;
+    // 通常プールが1接続でも内側のトランザクションを進められる専用接続。
+    // プールに戻さず、キャンセル・panicでも接続終了でセッションロックを解放する。
+    let mut conn = sqlx::PgConnection::connect_with(pool.connect_options().as_ref()).await?;
+    let locked: bool =
+        sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtext('event_writer'), hashtext($1))")
+            .bind(guild_id)
+            .fetch_one(&mut conn)
+            .await?;
+    if !locked {
+        return Err(crate::error::ApiError::Conflict(
+            "another event operation is in progress; retry later".into(),
+        ));
+    }
+    Ok(conn)
+}
