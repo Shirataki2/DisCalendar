@@ -2,12 +2,16 @@ import { randomUUID } from "node:crypto";
 import { auth } from "@/lib/auth";
 import { getUserGuilds } from "@/lib/discord";
 import { loadJoinedGuildIds } from "@/lib/joined-guilds";
-import { consentSelection, mcpEnabled, noStore } from "@/lib/mcp/config";
+import {
+  consentSelection,
+  mcpConnectionsEnabled,
+  noStore,
+} from "@/lib/mcp/config";
 import { boundedRequest, sameOrigin } from "@/lib/mcp/http";
 import { authPool, consentContext } from "@/lib/mcp/store";
 
 export async function POST(request: Request) {
-  if (!mcpEnabled())
+  if (!mcpConnectionsEnabled())
     return new Response(null, { status: 404, headers: noStore });
   if (!sameOrigin(request))
     return new Response(null, { status: 403, headers: noStore });

@@ -148,7 +148,7 @@ afterAll(async () => {
 });
 
 function request(path: string, body?: URLSearchParams, signedIn = true) {
-  const headers = new Headers({ Origin: origin });
+  const headers = new Headers({ Origin: origin, Host: new URL(origin).host });
   if (signedIn) headers.set("Cookie", cookie);
   if (body) headers.set("Content-Type", "application/x-www-form-urlencoded");
   mocks.headers = headers;
@@ -225,7 +225,9 @@ async function issue(scopes = ["guilds:read", "offline_access"]) {
 }
 async function read(token: string) {
   return protectedMcp(
-    new Request(resource, { headers: { Authorization: `Bearer ${token}` } }),
+    new Request(resource, {
+      headers: { Host: new URL(origin).host, Authorization: `Bearer ${token}` },
+    }),
     async (_req, connection) =>
       Response.json({ id: connection.id, guild_ids: connection.guild_ids }),
   );
@@ -456,6 +458,79 @@ suite(
   },
 );
 
+suite("MCPとOAuthは偽装Host・外部Originを拒否してno-storeを返す", async () => {
+  const post = (await import("../../app/mcp/route")).POST;
+  for (const headers of [
+    new Headers({ Host: "other.example" }),
+    new Headers({
+      Host: new URL(origin).host,
+      Origin: "https://other.example",
+    }),
+    new Headers({ Host: new URL(origin).host, Origin: "null" }),
+  ]) {
+    const mcpResponse = await post(
+      new Request(resource, { method: "POST", headers }),
+    );
+    const oauthResponse = await http.oauthHandler(
+      new Request(`${origin}/.well-known/oauth-protected-resource/mcp`, {
+        headers,
+      }),
+    );
+    for (const response of [mcpResponse, oauthResponse]) {
+      expect(response.status).toBe(403);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+  }
+});
+
+suite(
+  "新規接続停止中も既存接続の読み取り・更新・解除とWebセッションを維持する",
+  async () => {
+    const { tokens } = await issue();
+    vi.stubEnv("MCP_NEW_CONNECTIONS_ENABLED", "false");
+    try {
+      expect((await authorize()).response.status).toBe(503);
+      expect(
+        (
+          await http.oauthHandler(
+            request(
+              "/api/auth/oauth2/token",
+              new URLSearchParams({ grant_type: "authorization_code" }),
+            ),
+          )
+        ).status,
+      ).toBe(503);
+      expect(
+        (await submit(request("/mcp/consent/submit", new URLSearchParams())))
+          .status,
+      ).toBe(404);
+      expect((await read(tokens.access_token)).status).toBe(200);
+      expect((await refresh(tokens.refresh_token)).status).toBe(200);
+      expect(
+        await auth.api.getSession({ headers: request("/").headers }),
+      ).not.toBeNull();
+      const claims = JSON.parse(
+        Buffer.from(tokens.access_token.split(".")[1], "base64url").toString(),
+      );
+      const revoke = (await import("../../app/mcp/connections/revoke/route"))
+        .POST;
+      expect(
+        (
+          await revoke(
+            request(
+              "/mcp/connections/revoke",
+              new URLSearchParams({ id: claims.connection_id }),
+            ),
+          )
+        ).status,
+      ).toBe(303);
+      expect((await read(tokens.access_token)).status).toBe(401);
+    } finally {
+      vi.stubEnv("MCP_NEW_CONNECTIONS_ENABLED", "true");
+    }
+  },
+);
+
 suite(
   "公式SDKのinitialize・tools/list・connection_infoを認証付きで呼べる",
   async () => {
@@ -466,6 +541,7 @@ suite(
         new Request(resource, {
           method: "POST",
           headers: {
+            Host: new URL(origin).host,
             Authorization: `Bearer ${tokens.access_token}`,
             "Content-Type": "application/json",
             Accept: "application/json, text/event-stream",
@@ -510,7 +586,10 @@ suite(
     );
     const response = await protectedMcp(
       new Request(resource, {
-        headers: { Authorization: `Bearer ${tokens.access_token}` },
+        headers: {
+          Host: new URL(origin).host,
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
       }),
       async (_req, _connection, effective) =>
         Response.json({ scope: effective.scope }),

@@ -1,5 +1,11 @@
 import { auth } from "../auth";
-import { mcpEnabled, mcpOrigin, noStore } from "./config";
+import {
+  mcpConnectionsEnabled,
+  mcpEnabled,
+  mcpOrigin,
+  mcpRequestAllowed,
+  noStore,
+} from "./config";
 import {
   activeConnection,
   authPool,
@@ -50,6 +56,13 @@ export async function oauthHandler(input: Request) {
     path === "/api/auth/jwks";
   if (oauth && !mcpEnabled())
     return new Response(null, { status: 404, headers: noStore });
+  if (oauth && !mcpRequestAllowed(input))
+    return new Response(null, { status: 403, headers: noStore });
+  if (path === "/api/auth/oauth2/authorize" && !mcpConnectionsEnabled())
+    return new Response("新規接続は現在停止中です。", {
+      status: 503,
+      headers: noStore,
+    });
   // 同意はサーバー選択を検証する専用エンドポイントからのみ呼ぶ。
   if (
     path === "/api/auth/oauth2/consent" ||
@@ -78,6 +91,12 @@ export async function oauthHandler(input: Request) {
       return Response.json(
         { error: "invalid_request" },
         { status: 400, headers: noStore },
+      );
+    }
+    if (body.grant_type === "authorization_code" && !mcpConnectionsEnabled()) {
+      return Response.json(
+        { error: "temporarily_unavailable" },
+        { status: 503, headers: noStore },
       );
     }
     if (body.grant_type === "refresh_token") {

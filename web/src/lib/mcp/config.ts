@@ -8,6 +8,9 @@ export const MCP_SCOPES = {
 } as const;
 
 export const mcpEnabled = () => process.env.MCP_ENABLED === "true";
+export const mcpConnectionsEnabled = () =>
+  mcpEnabled() && process.env.MCP_NEW_CONNECTIONS_ENABLED !== "false";
+
 export function mcpOrigin() {
   const url = new URL(process.env.BETTER_AUTH_URL ?? "http://localhost:3000");
   if (
@@ -48,4 +51,13 @@ export function consentSelection(
     throw new Error("許可する権限とサーバーを選び直してください。");
   }
   return { scopes, guildIds };
+}
+
+// 非ブラウザクライアントはOriginなしを許可する。転送ヘッダーを信頼判定に使わない。
+export function mcpRequestAllowed(request: Request) {
+  const origin = mcpOrigin();
+  return (
+    request.headers.get("host") === new URL(origin).host &&
+    (!request.headers.has("origin") || request.headers.get("origin") === origin)
+  );
 }
