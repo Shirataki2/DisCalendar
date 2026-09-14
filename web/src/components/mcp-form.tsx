@@ -1,6 +1,12 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 /** 通常のフォームPOSTも残しつつ、処理中と失敗を同じ画面で案内する。 */
 export function McpForm({
@@ -13,6 +19,12 @@ export function McpForm({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const submitting = useRef(false);
+  const feedback = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (!pending && !error) return;
+    feedback.current?.focus();
+    feedback.current?.scrollIntoView({ block: "nearest" });
+  }, [pending, error]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting.current) return;
@@ -51,17 +63,18 @@ export function McpForm({
       <fieldset disabled={pending} className="min-w-0 space-y-6">
         {children}
       </fieldset>
-      {pending && (
-        <p role="status" className="text-sm text-muted-foreground">
-          処理中です。このままお待ちください。
-        </p>
-      )}
-      {error && (
+      {(pending || error) && (
         <p
-          role="alert"
-          className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm"
+          ref={feedback}
+          tabIndex={-1}
+          role={pending ? "status" : "alert"}
+          className={
+            pending
+              ? "text-sm text-muted-foreground"
+              : "rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm"
+          }
         >
-          {error}
+          {pending ? "処理中です。このままお待ちください。" : error}
         </p>
       )}
     </form>

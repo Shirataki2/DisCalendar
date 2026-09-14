@@ -164,6 +164,8 @@ for (const width of [390, 1280]) {
       "処理を完了できませんでした",
     );
     await expect(offline).not.toBeChecked();
+    await expect(page.locator("main").getByRole("alert")).toBeInViewport();
+    await expect(page.locator("main").getByRole("alert")).toBeFocused();
     await page.screenshot({
       path: test.info().outputPath(`error-${width}.png`),
       fullPage: true,
