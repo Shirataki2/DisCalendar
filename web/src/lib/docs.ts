@@ -65,7 +65,7 @@ export const DOC_PAGES: readonly DocPage[] = [
     slug: "mcp",
     title: "Codexとの接続",
     description:
-      "検証環境限定のMCP接続。権限選択、予定操作、接続解除と困ったときの対応。",
+      "CodexとのMCP接続で予定を確認・作成・編集する方法。権限の選択、接続解除と困ったときの対応。",
   },
   {
     slug: "commands",

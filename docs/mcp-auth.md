@@ -1,7 +1,7 @@
-# MCP OAuth の検証環境 (#217)
+# MCP OAuth・接続管理 (#217)
 
 設計の参照元は [#221 / ad43db9](https://github.com/Shirataki2/DisCalendar/pull/221)。
-本実装は一般公開前の認証検証用。予定の読み取りは [mcp-read.md](mcp-read.md)、書き込みは [mcp-write.md](mcp-write.md)、公開準備は [#220 の検証・運用手順](mcp-release-readiness.md) で扱う。
+予定の読み取りは [mcp-read.md](mcp-read.md)、書き込みは [mcp-write.md](mcp-write.md)、公開準備は [#220 の検証・運用手順](mcp-release-readiness.md) で扱う。
 認証実装の #217 は完了済み。実機の最新の確認結果と未検証項目は [公開準備の検証結果](mcp-release-readiness.md) にまとめる。
 
 ## 構成と停止
@@ -141,6 +141,6 @@ codex mcp login discalendar-test --oauth-client-registration cimd \
 ```
 
 2026-09-14 22:00 JST、ステージングの実機確認で15分経過後の更新トークンによる継続利用、接続解除後の操作拒否・Webログイン維持を確認済み（依頼者報告）。
-Codexデスクトップ26.908.40834でも確認済み。対象commitと8項目の結果、CLIの実機結果・交渉仕様版などの残項目は [公開準備の検証結果](mcp-release-readiness.md) を参照。
-#217〜#219は完了済みだが、一般公開・本番反映は #220 の公開準備と別途の指示に従う。
+Codexデスクトップ26.908.40834でも確認済み。対象commitと8項目の結果、交渉仕様版の値などの引き継ぎ項目は [公開準備の検証結果](mcp-release-readiness.md) を参照。
+#216 / #220 は受入れ済み。未完了項目は #228 / #229、一般公開・本番反映は別途の指示で扱う。
 仕様版はSDKで先に制限せず、後続の実接続で受信した `MCP-Protocol-Version` とinitialize応答を記録する。
