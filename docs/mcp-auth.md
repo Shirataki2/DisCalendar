@@ -26,7 +26,7 @@
 
 `BETTER_AUTH_URL` はパス・query・fragmentを含まないoriginにする。
 HTTPSを使う。ローカル開発のみloopback HTTPを許容する。
-本番DBや本番Botを検証に使用しない。compose・本番デプロイへの有効化設定は追加していない。
+本番DBや本番Botを検証に使用しない。composeは既定でMCP無効とし、明示的な有効化手順は下記に記載する。
 `MCP_ENABLED` と `MCP_INTROSPECTION_SECRET` はサーバー実行時の変数であり、ビルド引数や `NEXT_PUBLIC_*` にはしない。
 
 ## 既存認証DBとの互換性
@@ -56,6 +56,27 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/mcp/0
 戻す場合はMCPを停止し、検証DBに `migrations/mcp/rollback.sql` を適用する。
 OAuthの鍵・クライアント・トークン・接続は削除され、再導入後は再同意が必要。
 基本認証のuser/account/session/verificationは残る。
+
+## compose環境での本番有効化
+
+本番では既存の認証DBにMCP専用テーブルを追加する。検証用DBやDiscordアプリを本番へ流用しない。
+依頼者が本番有効化を指示した場合に実施し、#228 / #229 の残検証を完了扱いにはしない。
+
+1. 対象のcomposeプロジェクト名・DB・配布する版を確認し、[運用手順](operations.md#db-のバックアップと復元)に従ってDBをバックアップする。
+2. `MCP_ENABLED=false` のまま、対象リリースの `web/migrations/mcp/001_oauth.sql` と `002_connections.sql` を一度だけ適用する。基本認証テーブルが既にある本番DBに、同じトランザクションで両方を適用する。適用済みの場合は再実行しない。一部だけ存在する場合は止めて状態を調査する。
+
+   ```bash
+   # 対象ホストの本番composeディレクトリで実行。SQLは対象リリースのものを配置しておく。
+   cat web/migrations/mcp/001_oauth.sql web/migrations/mcp/002_connections.sql | \
+     docker compose exec -T db psql -U discalendar -d discalendar -v ON_ERROR_STOP=1 --single-transaction
+   ```
+
+3. ホストの `.env` に `MCP_INTROSPECTION_SECRET`（`openssl rand -hex 32` で生成、画面・ログへ出さない）と `MCP_ENABLED=true` を設定する。共有秘密は環境ごとに分ける。`BETTER_AUTH_URL=https://discalendar.app` がapiの `MCP_AUTH_ORIGIN` にも渡る。
+4. 対象版を Deploy production で配布する。web/apiが再作成され、設定が反映される。設定だけ変更するときも `docker compose up -d --no-deps api web` を使う。
+5. 公開metadataのissuer/resourceが本番originであること、未認証MCPが401で拒否されること、通常ページとDiscordログインを確認する。実Codexで同意・予定の読み取り・接続解除を確認する。
+
+全停止は `.env` の `MCP_ENABLED=false` をweb/apiへ再適用する。停止だけでは既存接続は失効しない。
+DBを戻す場合は先に全接続を失効し、MCPを停止してから対象版のrollbackを使う。バックアップやSQL実行出力に認証情報を含めて公開しない。
 
 ## 同意と失効の境界
 
