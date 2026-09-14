@@ -63,7 +63,7 @@ OAuth専用 `/mcp/login` は署名付き `oauth_query` をプラグインに渡�
 プラグインが署名・期限を検証し、Discordのstate経由で認可へ復帰する。
 通常の `dashboardReturnPath` の制限は維持する。
 
-接続ごとに必ず同意画面を表示し、操作・対象サーバーを未選択から選ぶ。
+接続ごとに必ず同意画面を表示し、要求された選択可能な操作（継続利用を含む）と、その時点で本人とBotが参加するサーバーを初期状態で全選択する。個別変更・全選択・全解除ができ、明示的に「選択した内容を許可」を押すまで接続は保存しない。後から参加したサーバーは自動追加しない。
 クライアントIDはそのまま表示し、未検証のブランド名やロゴに置き換えない。
 同意のPOSTで現在の所属とBot参加を再取得し、要求scopeの部分集合とサーバーIDの包含を検証する。
 この確認に失敗した場合は許可を保存しない。取得処理は既存Discord/APIキャッシュを利用するため、退出の反映には既存のキャッシュ期限がある。
@@ -116,6 +116,8 @@ Rustのextractor・HTTP結合実装と検証方法は [mcp-read.md](mcp-read.md)
 MCP_TEST_DATABASE_URL=postgresql://<user>@127.0.0.1:<port>/mcp_217_test \
   pnpm --dir web exec vitest run src/lib/mcp/oauth.integration.test.ts
 ```
+
+同意画面・接続管理のPC/スマートフォンとキーボード操作は `MCP_ENABLED=true pnpm --dir web e2e e2e/mcp-ui.spec.ts` で確認する。E2E専用DBにMCPのDDLも適用し、Discordはモックを使用する。
 
 通常の `pnpm test` はDB結合テストをskipし、選択値の検証を含むユニットテストを実行する。CIのwebジョブは専用PostgreSQLサービスを使い、結合テストも実行する。
 結合テストはCIMD取得・Discord所属取得だけをモックし、PostgreSQL、プラグイン、署名、認可コード交換、更新、失効を実際に動かす。

@@ -185,6 +185,7 @@ async function consent(
   query: string,
   scopes = ["guilds:read", "offline_access"],
   guildId = mocks.guilds[0].id,
+  json = false,
 ) {
   const form = new URLSearchParams({
     oauth_query: query,
@@ -192,9 +193,11 @@ async function consent(
     guild_id: guildId,
   });
   for (const scope of scopes) form.append("scope", scope);
-  return submit(request("/mcp/consent/submit", form));
+  const req = request("/mcp/consent/submit", form);
+  if (json) req.headers.set("Accept", "application/json");
+  return submit(req);
 }
-async function issue(scopes = ["guilds:read", "offline_access"]) {
+async function issue(scopes = ["guilds:read", "offline_access"], json = false) {
   const flow = await authorize(scopes.join(" "));
   expect(flow.location, await flow.response.clone().text()).toContain(
     "/mcp/consent?",
@@ -202,9 +205,15 @@ async function issue(scopes = ["guilds:read", "offline_access"]) {
   const response = await consent(
     new URL(flow.location ?? "", origin).search.slice(1),
     scopes,
+    mocks.guilds[0].id,
+    json,
   );
-  expect(response.status, await response.clone().text()).toBe(303);
-  const callback = new URL(response.headers.get("location") ?? "");
+  expect(response.status, await response.clone().text()).toBe(json ? 200 : 303);
+  const callback = new URL(
+    json
+      ? (await response.json()).url
+      : (response.headers.get("location") ?? ""),
+  );
   expect(callback.searchParams.get("state")).toBe(flow.params.get("state"));
   expect(callback.searchParams.get("iss")).toBe(`${origin}/api/auth`);
   const exchange = new URLSearchParams({
@@ -598,6 +607,53 @@ suite(
     expect(await response.json()).toEqual({ scope: "guilds:read" });
   },
 );
+
+suite("画面のJSON送信で同意・PKCE交換・拒否・接続解除を維持する", async () => {
+  const { tokens } = await issue(["guilds:read"], true);
+  const connection = await (await read(tokens.access_token)).json();
+  const saved = await store.authPool.query(
+    "SELECT scopes FROM mcp_connections WHERE id = $1",
+    [connection.id],
+  );
+  expect(saved.rows[0].scopes).toEqual(["guilds:read"]);
+  const flow = await authorize();
+  const before = await store.authPool.query(
+    "SELECT count(*) FROM mcp_connections",
+  );
+  const denied = request(
+    "/mcp/consent/submit",
+    new URLSearchParams({
+      oauth_query: new URL(flow.location ?? "", origin).search.slice(1),
+      accept: "false",
+    }),
+  );
+  denied.headers.set("Accept", "application/json");
+  const result = await submit(denied);
+  expect(result.status).toBe(200);
+  expect(new URL((await result.json()).url).searchParams.get("error")).toBe(
+    "access_denied",
+  );
+  expect(
+    (await store.authPool.query("SELECT count(*) FROM mcp_connections")).rows,
+  ).toEqual(before.rows);
+  const revoke = (await import("../../app/mcp/connections/revoke/route")).POST;
+  const req = request(
+    "/mcp/connections/revoke",
+    new URLSearchParams({ id: connection.id }),
+  );
+  req.headers.set("Accept", "application/json");
+  vi.stubEnv("MCP_ENABLED", "false");
+  try {
+    const response = await revoke(req);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ url: "/mcp/connections" });
+    expect(
+      await store.activeConnection(connection.id, "mcp-user"),
+    ).toBeUndefined();
+  } finally {
+    vi.stubEnv("MCP_ENABLED", "true");
+  }
+});
 
 suite("Webログアウトで維持し、Discord連携削除で失効", async () => {
   const { tokens } = await issue();

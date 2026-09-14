@@ -5,6 +5,7 @@
 // 2. Better Auth のテーブル (user / session / account / verification) を作る (scripts/migrate.mjs と同じ)
 //
 // Playwright の webServer.command から素の node で動かすため、TypeScript ではなく .mjs にしている
+import { readFileSync } from "node:fs";
 import { getMigrations } from "better-auth/db/migration";
 import { Client, Pool } from "pg";
 import { accountIssuerCompatibility } from "../src/lib/auth-schema.mjs";
@@ -50,6 +51,34 @@ async function migrateBetterAuth(databaseUrl) {
     if (toBeCreated.length > 0 || toBeAdded.length > 0) {
       await runMigrations();
       console.log("[e2e] Better Auth schema migrated");
+    }
+    // MCP画面の検証時だけ、専用テーブルも本番と同じDDLで準備する。
+    if (process.env.MCP_ENABLED === "true") {
+      if (
+        !(await pool.query("SELECT to_regclass('public.jwks') AS name")).rows[0]
+          .name
+      ) {
+        await pool.query(
+          readFileSync(
+            new URL("../migrations/mcp/001_oauth.sql", import.meta.url),
+            "utf8",
+          ),
+        );
+      }
+      if (
+        !(
+          await pool.query(
+            "SELECT to_regclass('public.mcp_connections') AS name",
+          )
+        ).rows[0].name
+      ) {
+        await pool.query(
+          readFileSync(
+            new URL("../migrations/mcp/002_connections.sql", import.meta.url),
+            "utf8",
+          ),
+        );
+      }
     }
   } finally {
     await pool.end();

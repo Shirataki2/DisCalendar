@@ -1,9 +1,10 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { McpConsentForm } from "@/components/mcp-consent-form";
 import { auth } from "@/lib/auth";
 import { getUserGuilds } from "@/lib/discord";
 import { loadJoinedGuildIds } from "@/lib/joined-guilds";
-import { MCP_SCOPES, mcpConnectionsEnabled } from "@/lib/mcp/config";
+import { mcpConnectionsEnabled } from "@/lib/mcp/config";
 
 export default async function McpConsentPage({
   searchParams,
@@ -28,66 +29,26 @@ export default async function McpConsentPage({
   const guilds = await getUserGuilds();
   const joined = await loadJoinedGuildIds(guilds);
   if (!joined.ok) throw new Error("サーバー一覧を取得できませんでした。");
-  const scopes = (params.get("scope") ?? "").split(" ");
   return (
-    <main className="mx-auto max-w-2xl space-y-6 p-8">
+    <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-8">
       <h1 className="text-2xl font-bold">MCP 接続を許可</h1>
       <p className="break-all">
         接続するクライアント: {params.get("client_id")}
       </p>
-      <p>
+      <p className="text-sm leading-relaxed text-muted-foreground">
         {session.user.name}{" "}
         として許可します。選択したサーバー名や予定のタイトル・説明・日時が接続先に公開されます。DiscordのトークンやWebのログイン情報は渡しません。
       </p>
-      <p>
+      <p className="text-sm leading-relaxed text-muted-foreground">
         作成・変更・削除を許可すると、DisCalendarは操作ごとの確認を求めません。接続先の確認設定は変わりません。許可した範囲で予定の閲覧・作成・変更・削除ができます。
       </p>
-      <form action="/mcp/consent/submit" method="post" className="space-y-6">
-        <input type="hidden" name="oauth_query" value={params.toString()} />
-        <fieldset className="space-y-2">
-          <legend className="font-semibold">許可する操作</legend>
-          {Object.entries(MCP_SCOPES)
-            .filter(([scope]) => scopes.includes(scope))
-            .map(([scope, label]) => (
-              <label key={scope} className="flex gap-2">
-                <input type="checkbox" name="scope" value={scope} />
-                {label}
-              </label>
-            ))}
-        </fieldset>
-        <fieldset className="space-y-2">
-          <legend className="font-semibold">許可するサーバー</legend>
-          {guilds
-            .filter((g) => joined.ids.has(g.id))
-            .map((g) => (
-              <label key={g.id} className="flex gap-2">
-                <input type="checkbox" name="guild_id" value={g.id} />
-                {g.name}
-              </label>
-            ))}
-        </fieldset>
-        <p>
-          後から参加するサーバーは追加されません。接続管理からいつでも解除できます。
-        </p>
-        <div className="flex gap-4">
-          <button
-            type="submit"
-            name="accept"
-            value="true"
-            className="rounded bg-indigo-600 px-5 py-2 text-white"
-          >
-            選択した内容を許可
-          </button>
-          <button
-            type="submit"
-            name="accept"
-            value="false"
-            className="rounded border px-5 py-2"
-          >
-            拒否
-          </button>
-        </div>
-      </form>
+      <McpConsentForm
+        key={params.toString()}
+        query={params.toString()}
+        guilds={guilds
+          .filter((guild) => joined.ids.has(guild.id))
+          .map(({ id, name }) => ({ id, name }))}
+      />
     </main>
   );
 }
