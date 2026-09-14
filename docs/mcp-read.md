@@ -1,7 +1,9 @@
 # MCP の予定読み取り (#218)
 
-検証環境限定。OAuth・同意・接続解除は [mcp-auth.md](mcp-auth.md) を参照。
-書き込みは [mcp-write.md](mcp-write.md)、一般公開は #220。実DiscordログインからCodexのツール実行までの確認は別途必要。
+OAuth・同意・接続解除は [mcp-auth.md](mcp-auth.md) を参照。
+書き込みは [mcp-write.md](mcp-write.md)。
+実Codex・Discordでの最新の確認結果と未検証項目は [公開準備の検証結果](mcp-release-readiness.md) を参照。
+#216 / #220 は受入れ済み。未完了項目は #228 / #229、一般公開・本番反映は別途の指示に従う。
 
 ## 起動と認証境界
 
@@ -90,5 +92,5 @@ nullableなupdated_at単独には依存せず、NULLのまま予定内容が変�
 - `e2e/mcp-origin.spec.ts` は実Next.jsの公開rewriteを経由した通常APIと停止中の内部ルートの拒否を確認する。
 - 新しいSQLはパラメーター付きruntime queryで、DB結合テストが検証する。`query!` の変更・DB migrationはなく、SQLxメタデータの追加は不要。
 
-実Codex/Discord認証から予定取得までの全経路、実Codexの仕様交渉は未確認。
-認証サービスとRustのHTTP境界は上記テストで検証するが、実接続成功とは区別する。
+実Codex/Discord認証から予定取得までの通常経路は依頼者が確認済み。
+仕様版の値と内部HTTP経路の残確認は #229 へ移管し、上記自動テストと区別する。
