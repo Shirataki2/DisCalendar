@@ -60,6 +60,10 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+      # MCP有効化時はapiコンテナから到達できる公開HTTPS originが必要。
+      MCP_AUTH_ORIGIN: ${BETTER_AUTH_URL:-http://localhost:${WEB_PORT:-3000}}
+      MCP_INTROSPECTION_SECRET: ${MCP_INTROSPECTION_SECRET:-}
       AUTH_COOKIE_PREFIX: better-auth
       # Discord スケジュールイベントの「場所」に入れるリンクの起点 (#94)。
       # staging では web と同じく staging のドメインにする
@@ -118,7 +122,10 @@ services:
       # ブラウザから見た URL。Discord Developer Portal の Redirects に <BETTER_AUTH_URL>/api/auth/callback/discord を登録する。
       # 未設定なら公開ポート (WEB_PORT) に合わせた http://localhost:<WEB_PORT>。ドメインで公開するときは .env で明示する
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:${WEB_PORT:-3000}}
-      # MCP有効化済みの検証環境で、新規接続だけを停止する（既存接続は維持）。
+      # 認証テーブルを明示適用してから有効化する（docs/mcp-auth.md）。
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+      MCP_INTROSPECTION_SECRET: ${MCP_INTROSPECTION_SECRET:-}
+      # 新規接続だけを停止する（既存接続は維持）。
       MCP_NEW_CONNECTIONS_ENABLED: ${MCP_NEW_CONNECTIONS_ENABLED:-true}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?set DISCORD_CLIENT_ID in .env}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?set DISCORD_CLIENT_SECRET in .env}

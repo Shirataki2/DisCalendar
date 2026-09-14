@@ -91,23 +91,26 @@ const ACQUIRE_RETRY_INTERVAL: Duration = Duration::from_millis(200);
 pub const KNOWN_WORDS_TTL: Duration = Duration::from_secs(600);
 /// 読み取りを禁止するテーブル (Better Auth のトークン類を持つ)。このロールには権限を与えず、
 /// さらに実行計画にこれらが出てくる文は実行前に拒否する (スキーマに関係なく名前で判定)
-pub const PROTECTED_TABLES: [&str; 6] = [
+pub const PROTECTED_TABLES: [&str; 15] = [
     "account",
     "session",
     "verification",
     "push_subscriptions",
     "guild_webhooks",
     "mcp_event_operations",
+    "jwks",
+    "oauthClient",
+    "oauthResource",
+    "oauthClientResource",
+    "oauthRefreshToken",
+    "oauthAccessToken",
+    "oauthConsent",
+    "oauthClientAssertion",
+    "mcp_connections",
 ];
-/// 実行計画で見つけたら拒否する名前 ([`PROTECTED_TABLES`] + プランナ統計。`pg_stats` 系はビューなので
+/// [`PROTECTED_TABLES`] に加えて実行計画で拒否するプランナ統計 (`pg_stats` 系はビューなので
 /// 計画上は `pg_statistic*` として現れるが、念のため名前も入れる)
-const REJECTED_RELATIONS: [&str; 11] = [
-    "account",
-    "session",
-    "verification",
-    "push_subscriptions",
-    "guild_webhooks",
-    "mcp_event_operations",
+const REJECTED_RELATIONS: [&str; 5] = [
     "pg_statistic",
     "pg_statistic_ext_data",
     "pg_stats",
@@ -992,7 +995,8 @@ fn collect_protected_relations(value: &serde_json::Value, found: &mut Vec<String
     match value {
         serde_json::Value::Object(map) => {
             if let Some(serde_json::Value::String(name)) = map.get("Relation Name")
-                && REJECTED_RELATIONS.contains(&name.as_str())
+                && (PROTECTED_TABLES.contains(&name.as_str())
+                    || REJECTED_RELATIONS.contains(&name.as_str()))
             {
                 found.push(name.clone());
             }

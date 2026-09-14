@@ -12,7 +12,7 @@ apiの `MCP_AUTH_ORIGIN` はwebの `BETTER_AUTH_URL` と同じorigin、
 `MCP_INTROSPECTION_SECRET` はwebと共通の32文字以上の専用ランダム値にする。
 既定は停止。設定不足・不正なoriginはapi起動時に拒否する。
 webは既存の `API_URL` に接続する。検証時は同一ホストのloopbackに向け、
-別ホスト間ではHTTPSとアクセス制限で通信路を保護する。本番composeへの有効化設定は追加していない。
+別ホスト間ではHTTPSとアクセス制限で通信路を保護する。composeでの有効化は [認証の運用手順](mcp-auth.md#compose環境での本番有効化) を参照。
 
 Next.jsの `/mcp` はBearerだけをRustへ渡し、Cookieや利用者IDは渡さない。
 Rustの `McpUser` は毎回固定URLの `/mcp/introspect` を専用資格情報で呼び、
