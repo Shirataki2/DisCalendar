@@ -27,8 +27,7 @@ export default function McpLoginPage() {
     <main className="mx-auto w-full max-w-xl flex-1 space-y-6 px-4 py-12 sm:px-8">
       <h1 className="text-2xl font-bold">MCP 接続のためのログイン</h1>
       <p className="text-sm leading-relaxed text-muted-foreground">
-        {pending ? "ログイン画面へ移動中…" : "Discordでログイン"}
-        した後、接続先のクライアントと許可するサーバー・操作を確認します。
+        Discordでログインした後、接続先のクライアントと許可するサーバー・操作を確認します。
       </p>
       <Button type="button" disabled={pending} onClick={login} size="lg">
         {pending ? "ログイン画面へ移動中…" : "Discordでログイン"}

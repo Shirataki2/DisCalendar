@@ -31,6 +31,31 @@ for (const width of [390, 1280]) {
       fullPage: true,
       caret: "initial",
     });
+    let finish: () => void = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    await page.route("**/mcp/login/start", async (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        oauth_query: "state=keep-me",
+      });
+      await pending;
+      await route.fulfill({ status: 400, json: {} });
+    });
+    await page.getByRole("button", { name: "Discordでログイン" }).click();
+    await expect(
+      page.getByRole("button", { name: "ログイン画面へ移動中…" }),
+    ).toBeDisabled();
+    await expect(
+      page.getByText(
+        "Discordでログインした後、接続先のクライアントと許可するサーバー・操作を確認します。",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    finish();
+    await expect(page.locator("main").getByRole("alert")).toContainText(
+      "ログインを開始できませんでした",
+    );
   });
 
   test(`MCP接続一覧とキーボード解除 (${width}px)`, async ({ page }) => {
