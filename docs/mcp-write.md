@@ -1,7 +1,9 @@
 # MCP の予定書き込み (#219)
 
 検証環境限定。認証設定は [mcp-auth.md](mcp-auth.md)、日時・読み取りの契約は
-[mcp-read.md](mcp-read.md)。一般公開は #220。実Codex・Discordの接続確認は別途必要。
+[mcp-read.md](mcp-read.md)。
+実Codex・Discordでの最新の確認結果と未検証項目は [公開準備の検証結果](mcp-release-readiness.md) を参照。
+公開準備は #220、一般公開・本番反映は別途の指示に従う。
 
 ## 入力と権限
 
