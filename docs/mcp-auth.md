@@ -60,14 +60,18 @@ OAuthの鍵・クライアント・トークン・接続は削除され、再導
 ## compose環境での本番有効化
 
 本番では既存の認証DBにMCP専用テーブルを追加する。検証用DBやDiscordアプリを本番へ流用しない。
+composeでのMCP利用は、apiコンテナからも到達できる公開HTTPSの `BETTER_AUTH_URL` が前提。apiはこのoriginの `/mcp/introspect` に問い合わせる。コンテナ内のlocalhostはwebを指さないため、localhost URLによるcomposeのMCP利用は対象外とし、ローカル検証は [開発環境](development.md) のホスト上で行う。
 依頼者が本番有効化を指示した場合に実施し、#228 / #229 の残検証を完了扱いにはしない。
+
+APIはMCP認証テーブルをSQLコンソールの保護対象とする。テーブル適用後は、この保護を含むv3.13.0以降のAPIを配布し、旧APIの再起動でSELECT権限を与えない。
 
 1. 対象のcomposeプロジェクト名・DB・配布する版を確認し、[運用手順](operations.md#db-のバックアップと復元)に従ってDBをバックアップする。
 2. `MCP_ENABLED=false` のまま、対象リリースの `web/migrations/mcp/001_oauth.sql` と `002_connections.sql` を一度だけ適用する。基本認証テーブルが既にある本番DBに、同じトランザクションで両方を適用する。適用済みの場合は再実行しない。一部だけ存在する場合は止めて状態を調査する。
 
    ```bash
    # 対象ホストの本番composeディレクトリで実行。SQLは対象リリースのものを配置しておく。
-   cat web/migrations/mcp/001_oauth.sql web/migrations/mcp/002_connections.sql | \
+   mcp_ddl=$(cat web/migrations/mcp/001_oauth.sql web/migrations/mcp/002_connections.sql) &&
+   printf '%s\n' "$mcp_ddl" | \
      docker compose exec -T db psql -U discalendar -d discalendar -v ON_ERROR_STOP=1 --single-transaction
    ```
 
@@ -76,7 +80,7 @@ OAuthの鍵・クライアント・トークン・接続は削除され、再導
 5. 公開metadataのissuer/resourceが本番originであること、未認証MCPが401で拒否されること、通常ページとDiscordログインを確認する。実Codexで同意・予定の読み取り・接続解除を確認する。
 
 全停止は `.env` の `MCP_ENABLED=false` をweb/apiへ再適用する。停止だけでは既存接続は失効しない。
-DBを戻す場合は先に全接続を失効し、MCPを停止してから対象版のrollbackを使う。バックアップやSQL実行出力に認証情報を含めて公開しない。
+DBを戻す場合は先にweb/apiのMCPを停止し、全接続を失効してから対象版のrollbackを使う。バックアップやSQL実行出力に認証情報を含めて公開しない。
 
 ## 同意と失効の境界
 

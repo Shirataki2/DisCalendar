@@ -329,6 +329,51 @@ async fn writes_and_non_read_only_statements_are_rejected(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn mcp_auth_tables_are_not_readable_from_console(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
+    create_auth_tables(&pool).await;
+    sqlx::raw_sql(concat!(
+        include_str!("../../web/migrations/mcp/001_oauth.sql"),
+        include_str!("../../web/migrations/mcp/002_connections.sql"),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(r#"INSERT INTO jwks (id, "publicKey", "privateKey", "createdAt") VALUES ('test', 'public', $1, now())"#)
+        .bind(SECRET)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let console = console(&pool).await;
+    for table in [
+        "jwks",
+        "oauthClient",
+        "oauthResource",
+        "oauthClientResource",
+        "oauthRefreshToken",
+        "oauthAccessToken",
+        "oauthConsent",
+        "oauthClientAssertion",
+        "mcp_connections",
+    ] {
+        // 直接参照と、実行計画に表が現れない関数経由の両方を拒否する。
+        for sql in [
+            format!("SELECT * FROM \"{table}\""),
+            format!("SELECT table_to_xml('\"{table}\"', true, false, '')"),
+        ] {
+            let error = admin_sql::execute(&console, &sql, TIMEOUT)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(&error, SqlError::Query(m) if m.contains("permission denied")),
+                "{table}: {error:?}"
+            );
+            assert!(!error.to_string().contains(SECRET));
+        }
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn protected_tables_are_rejected_before_execution(pool: PgPool) {
     let _serial = SERIAL.lock().await;
     create_auth_tables(&pool).await;
