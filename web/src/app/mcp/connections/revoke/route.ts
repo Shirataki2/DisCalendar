@@ -19,6 +19,8 @@ export async function POST(request: Request) {
   if (!/^[a-f0-9-]{36}$/.test(id))
     return new Response(null, { status: 400, headers: noStore });
   await revokeConnections(session.user.id, id);
+  if (request.headers.get("accept") === "application/json")
+    return Response.json({ url: "/mcp/connections" }, { headers: noStore });
   return new Response(null, {
     status: 303,
     headers: { ...noStore, Location: "/mcp/connections" },

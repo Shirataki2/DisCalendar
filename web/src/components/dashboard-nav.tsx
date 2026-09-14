@@ -15,6 +15,7 @@ import {
   LifeBuoyIcon,
   LogOutIcon,
   type LucideIcon,
+  PlugIcon,
   ShieldCheckIcon,
   WrenchIcon,
 } from "lucide-react";
@@ -47,6 +48,12 @@ interface NavItem {
 
 // PC とスマホで共通の分類・表示順。現在地の判定にも同じリンク一覧を使う。
 const ITEMS: NavItem[] = [
+  {
+    label: "MCP 接続管理",
+    section: "設定",
+    icon: PlugIcon,
+    href: "/mcp/connections",
+  },
   { label: "ホーム", section: "メイン", icon: HouseIcon, href: ROUTES.home },
   {
     label: "サーバー一覧",

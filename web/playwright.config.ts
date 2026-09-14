@@ -37,6 +37,8 @@ const sharedEnv = {
   DATABASE_URL,
   BETTER_AUTH_SECRET,
   DISCORD_API_BASE_URL: DISCORD_MOCK_URL,
+  // MCP有効の画面テストでも実資格情報は使用しない。
+  MCP_INTROSPECTION_SECRET: "e2e-mcp-introspection-secret-not-for-production",
 };
 
 const apiCommand =
@@ -112,6 +114,7 @@ export default defineConfig({
       stdout: "pipe",
       env: {
         ...sharedEnv,
+        MCP_AUTH_ORIGIN: WEB_URL,
         HOST: "127.0.0.1",
         PORT: String(API_PORT),
         DISCORD_BOT_TOKEN: E2E_BOT_TOKEN,

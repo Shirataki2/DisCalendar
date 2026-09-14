@@ -68,6 +68,8 @@ export async function POST(request: Request) {
       (accept && !new URL(redirect.url).searchParams.has("code"))
     )
       throw new Error("Consent failed");
+    if (request.headers.get("accept") === "application/json")
+      return Response.json({ url: redirect.url }, { headers: noStore });
     return new Response(null, {
       status: 303,
       headers: { ...noStore, Location: redirect.url },
