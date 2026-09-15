@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { addDays, isBefore } from "date-fns";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   type Control,
   Controller,
@@ -55,6 +55,7 @@ export type EventDialogState =
   | { mode: "edit"; event: ApiEvent };
 
 interface Props {
+  guidance?: ReactNode;
   mentionGuildId?: string;
   /** null なら閉じている */
   state: EventDialogState | null;
@@ -90,6 +91,7 @@ const NAME_INPUT_ID = "event-form-name";
 
 /** 予定の作成・編集ダイアログ (旧 NewEvent.vue 相当) */
 export function EventFormDialog({
+  guidance,
   state,
   onClose,
   onSubmit,
@@ -113,6 +115,7 @@ export function EventFormDialog({
         className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl"
         initialFocus={() => document.getElementById(NAME_INPUT_ID)}
       >
+        {guidance}
         {shown && (
           <EventForm
             state={shown}

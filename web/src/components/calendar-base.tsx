@@ -25,6 +25,7 @@ import { toApiDateTime } from "@/lib/calendar-events";
 import {
   CALENDAR_VIEW_LABELS,
   CALENDAR_VIEWS,
+  type CalendarSettings,
   type CalendarView,
   parseCalendarView,
   resolveInitialView,
@@ -220,7 +221,7 @@ export const calendarBaseOptions = {
  * (`initialView` が null の間は描画しない = 従来の mounted 相当)。
  * 週の開始曜日 (#96) は設定ダイアログでの変更を開いたまま反映できるよう購読する
  */
-export function useCalendarBase(): {
+export function useCalendarBase(settingsOverride?: CalendarSettings): {
   initialView: CalendarView | null;
   firstDay: 0 | 1;
   /** 時間軸の初期スクロール位置 (1 時間前の正時) */
@@ -229,23 +230,33 @@ export function useCalendarBase(): {
   const [initialView, setInitialView] = useState<CalendarView | null>(null);
   useEffect(() => {
     setInitialView(
-      resolveInitialView(readCalendarSettings(), readLastCalendarView()),
+      resolveInitialView(
+        settingsOverride ?? readCalendarSettings(),
+        settingsOverride ? null : readLastCalendarView(),
+      ),
     );
-  }, []);
+  }, [settingsOverride]);
   const { settings } = useCalendarSettings();
   const [scrollTime] = useState(() =>
     format(startOfHour(addHours(new Date(), -1)), "HH:mm"),
   );
-  return { initialView, firstDay: settings.firstDay, scrollTime };
+  return {
+    initialView,
+    firstDay: (settingsOverride ?? settings).firstDay,
+    scrollTime,
+  };
 }
 
 /**
  * datesSet の共通処理。「前回開いていたビュー」(#96) のために、いま見ているビューを記録し、
  * 予定の取得範囲 (JST 文字列) を返す
  */
-export function datesSetToRange(info: DatesSetInfo): EventRange {
+export function datesSetToRange(
+  info: DatesSetInfo,
+  persistView = true,
+): EventRange {
   const view = parseCalendarView(info.view.type);
-  if (view) saveLastCalendarView(view);
+  if (persistView && view) saveLastCalendarView(view);
   return {
     start: toApiDateTime(info.start),
     end: toApiDateTime(info.end),

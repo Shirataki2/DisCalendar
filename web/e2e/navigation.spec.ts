@@ -10,6 +10,7 @@ const NAV_LINKS = [
   { name: "ホーム", href: "/" },
   { name: "サーバー一覧", href: "/dashboard" },
   { name: "すべての予定", href: "/dashboard/all" },
+  { name: "操作を試す", href: "/tutorial" },
   { name: "サポートサーバー", href: /^https:\/\/discord\.gg\// },
   { name: "使い方", href: "/docs/gettingstarted" },
   { name: "更新履歴", href: "/changelog" },
@@ -42,7 +43,7 @@ async function expectNavLinks(page: Page) {
   ]);
   for (const [name, links] of [
     ["メイン", ["ホーム", "サーバー一覧", "すべての予定"]],
-    ["サポート", ["使い方", "サポートサーバー"]],
+    ["サポート", ["操作を試す", "使い方", "サポートサーバー"]],
     [
       "サービス情報",
       ["更新履歴", "支援", "GitHub", "利用規約", "プライバシーポリシー"],

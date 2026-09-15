@@ -66,6 +66,12 @@ function Hero() {
             BOT を導入する
             <ExternalLinkIcon className="size-4" aria-hidden />
           </a>
+          <Link
+            href={ROUTES.tutorial}
+            className={`${buttonBase} border border-indigo-300/40 text-indigo-100 hover:bg-indigo-500/10`}
+          >
+            ログインせずに操作を試す
+          </Link>
           <p className="my-1 flex w-full items-center gap-4 text-xs tracking-widest text-neutral-500 uppercase before:h-px before:flex-1 before:bg-white/15 after:h-px after:flex-1 after:bg-white/15">
             OR 既に導入済みの方は
           </p>

@@ -10,6 +10,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { EventAuthors } from "@/components/event-authors";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent } from "@/components/ui/popover";
@@ -27,6 +28,7 @@ export type PopoverAnchor = NonNullable<
 >;
 
 interface Props {
+  guidance?: ReactNode;
   /** null なら閉じている */
   event: ApiEvent | null;
   anchor: PopoverAnchor | null;
@@ -49,6 +51,7 @@ interface Props {
 
 /** 予定をクリックしたときの概要ポップオーバー (旧 SimpleEdit.vue 相当) */
 export function EventPopover({
+  guidance,
   event,
   anchor,
   canEdit,
@@ -85,7 +88,7 @@ export function EventPopover({
         align="start"
         sideOffset={8}
         // 幅 320px 未満の端末でも画面からはみ出さないようにする (#14)
-        className="w-80 max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0"
+        className="w-80 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0"
       >
         <div
           className="px-4 py-2.5 font-semibold"
@@ -133,6 +136,7 @@ export function EventPopover({
             </p>
           )}
         </div>
+        {guidance && <div className="px-3 pb-3">{guidance}</div>}
         {shownGuild && (
           <div className="border-t px-2 py-1.5">
             <Link
