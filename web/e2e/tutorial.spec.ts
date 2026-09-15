@@ -9,20 +9,18 @@ const guide = (page: Page) =>
 
 async function blockRealData(page: Page) {
   const requests: string[] = [];
-  await page.route(
-    /\/local\/api\/|\/api\/auth\/|https:\/\/[^/]*discord[^/]*\//,
-    async (route) => {
-      requests.push(route.request().url());
-      await route.abort();
-    },
-  );
+  const realData = /\/local\/api\/|\/api\/auth\/|https:\/\/[^/]*discord[^/]*\//;
+  // 本番の Service Worker を有効にしたまま、その通信も含めて監視する。
+  page.context().on("request", (request) => {
+    if (realData.test(request.url())) requests.push(request.url());
+  });
+  await page.context().route(realData, (route) => route.abort());
   return requests;
 }
 
 test.describe("公開チュートリアル", () => {
   test.use({
     storageState: { cookies: [], origins: [] },
-    serviceWorkers: "block",
   });
 
   test("未ログインで作成・編集・通知確認・削除を体験でき、実データにアクセスしない", async ({
@@ -173,7 +171,6 @@ for (const mode of ["タッチ", "キーボード"] as const) {
   test.describe(mode, () => {
     test.use({
       storageState: { cookies: [], origins: [] },
-      serviceWorkers: "block",
       ...(mode === "タッチ"
         ? {
             viewport: { width: 390, height: 844 },
