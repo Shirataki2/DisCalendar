@@ -62,6 +62,7 @@ test.describe("カレンダー", () => {
   });
 
   test("docs/serverselect.png (サーバー選択)", async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
     await page.goto("/dashboard");
     await expect(
       page.getByRole("heading", { name: "サーバーを選択" }),
@@ -71,10 +72,9 @@ test.describe("カレンダー", () => {
     ).toBeVisible();
     await prepare(page);
     await settle(page);
-    // 招待できるサーバーのカードまで含める (参加済みサーバーが 2 行ある)
+    // 練習用カレンダーの案内と、招待できるサーバーのカードまで含める。
     await page.screenshot({
       path: assetPath("docs/serverselect.png"),
-      clip: { x: 0, y: 0, width: 1400, height: 640 },
     });
   });
 });

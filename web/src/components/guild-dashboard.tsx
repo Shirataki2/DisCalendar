@@ -1,6 +1,7 @@
 "use client";
 
 import { SettingsIcon } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { EventCalendar } from "@/components/event-calendar";
 import { GuildSettingsDialog } from "@/components/guild-settings-dialog";
@@ -12,6 +13,7 @@ import {
   useMyPermissionsQuery,
   useRefreshMyPermissions,
 } from "@/lib/query/guild";
+import { ROUTES } from "@/lib/site";
 
 interface Props {
   guild: Guild;
@@ -43,8 +45,14 @@ export function GuildDashboard({ guild }: Props) {
     <main className="flex min-h-0 flex-1 flex-col gap-2 p-4">
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">
         {configQuery.data?.restricted && !canEdit && (
-          <span className="text-xs text-muted-foreground">
+          <span className="rounded-md border border-indigo-400/30 bg-indigo-500/10 px-3 py-2 text-xs text-muted-foreground">
             このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます
+            <Link
+              href={ROUTES.tutorial}
+              className="ml-2 inline-block font-medium text-foreground underline underline-offset-4"
+            >
+              練習用カレンダーで操作を試す
+            </Link>
           </span>
         )}
         {/* 長いサーバー名はスマホで折り返さず 1 行に省略する (#14)。名前だけが縮み、アイコンとボタンは残す */}

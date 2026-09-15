@@ -354,6 +354,11 @@ export function startDiscordMock(port: number): Promise<Server> {
     }
 
     if (url.pathname === "/users/@me/guilds") {
+      // チュートリアルへの入口。別トークンにして Next の取得キャッシュも分ける。
+      if (auth === `Bearer ${E2E_USER.accessToken}-no-guilds`)
+        return json(200, []);
+      if (auth === `Bearer ${E2E_USER.accessToken}-invitable-only`)
+        return json(200, [userGuild(E2E_GUILDS.invitable)]);
       if (auth === `Bearer ${E2E_USER.accessToken}`) {
         return json(200, E2E_ALL_GUILDS.map(userGuild));
       }

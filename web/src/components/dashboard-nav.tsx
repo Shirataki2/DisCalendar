@@ -49,6 +49,12 @@ interface NavItem {
 // PC とスマホで共通の分類・表示順。現在地の判定にも同じリンク一覧を使う。
 const ITEMS: NavItem[] = [
   {
+    label: "操作を試す",
+    section: "サポート",
+    icon: BookOpenIcon,
+    href: ROUTES.tutorial,
+  },
+  {
     label: "MCP 接続管理",
     section: "設定",
     icon: PlugIcon,

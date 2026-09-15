@@ -13,6 +13,7 @@ import { addDays } from "date-fns";
 import { PlusIcon } from "lucide-react";
 import {
   type CSSProperties,
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -60,6 +61,7 @@ import {
   toApiEventInput,
   toCalendarEvent,
 } from "@/lib/calendar-events";
+import type { CalendarSettings } from "@/lib/calendar-settings";
 import { readableTextColor } from "@/lib/color";
 import {
   defaultEventFormValues,
@@ -78,6 +80,7 @@ import {
   useEventsQuery,
   useUpdateEvent,
 } from "@/lib/query/events";
+import { cn } from "@/lib/utils";
 
 interface Props {
   guildId: string;
@@ -90,6 +93,15 @@ interface Props {
   defaultNotifications?: readonly Notification[];
   /** 予定の取得元。管理コンソール (#35) からは admin 用 API に差し替える */
   eventsSource?: EventsSource;
+  /** 練習用などの固定設定。指定時は個人設定を使わず、表示モードも保存しない。 */
+  settingsOverride?: CalendarSettings;
+  /** 案内は操作中のダイアログ内へ移し、フォーカスと重なりを干渉させない。 */
+  guide?: {
+    content: ReactNode;
+    inlineContent: ReactNode;
+    target?: "create" | number;
+    date?: string;
+  };
   /** ダイアログの「Discord のイベントとしても作成する」(#94)。未指定なら出さない */
   discordSync?: {
     botCreateEvents: boolean;
@@ -112,6 +124,7 @@ interface QuickAddState {
 }
 
 interface QuickAddProps {
+  guidance?: ReactNode;
   state: QuickAddState;
   onClose: () => void;
   onDetails: (values: EventFormValues) => void;
@@ -120,6 +133,7 @@ interface QuickAddProps {
 }
 
 function QuickAddPopover({
+  guidance,
   state,
   onClose,
   onDetails,
@@ -173,6 +187,7 @@ function QuickAddPopover({
       >
         <PopoverTitle>予定をクイック追加</PopoverTitle>
         <PopoverDescription>{range}</PopoverDescription>
+        {guidance}
         <form onSubmit={submit} noValidate className="flex flex-col gap-2">
           <label htmlFor="quick-add-title" className="sr-only">
             タイトル
@@ -223,9 +238,13 @@ export function EventCalendar({
   canEdit,
   defaultNotifications,
   eventsSource = dashboardEventsSource,
+  settingsOverride,
+  guide,
   discordSync,
 }: Props) {
-  const { settings } = useCalendarSettings();
+  const { settings: savedSettings } = useCalendarSettings();
+  const settings = settingsOverride ?? savedSettings;
+  const currentSettings = () => settingsOverride ?? readCalendarSettings();
   const calendarRef = useRef<CalendarRef>(null);
   const quickAddId = useRef(0);
   const [range, setRange] = useState<EventRange | null>(null);
@@ -235,9 +254,11 @@ export function EventCalendar({
   const [deleteTarget, setDeleteTarget] = useState<ApiEvent | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   // 初期ビュー (#48 / #96) と週の開始曜日は横断カレンダーと共通 (calendar-base.tsx)
-  const { initialView, firstDay, scrollTime } = useCalendarBase();
+  const { initialView, firstDay, scrollTime } =
+    useCalendarBase(settingsOverride);
   const [initialDate, setInitialDate] = useState<string>();
   useEffect(() => {
+    if (settingsOverride) return;
     const date = new URLSearchParams(window.location.search).get("date");
     if (
       date &&
@@ -245,7 +266,12 @@ export function EventCalendar({
       !Number.isNaN(Date.parse(date))
     )
       setInitialDate(date);
-  }, []);
+  }, [settingsOverride]);
+
+  const guideDate = guide?.date;
+  useEffect(() => {
+    if (guideDate) calendarRef.current?.getApi().gotoDate(guideDate);
+  }, [guideDate]);
 
   const eventsQuery = useEventsQuery(guildId, range, eventsSource);
   const createEvent = useCreateEvent(guildId, eventsSource);
@@ -253,9 +279,18 @@ export function EventCalendar({
   const deleteEvent = useDeleteEvent(guildId, eventsSource);
 
   const events = useMemo(() => {
-    const current = (eventsQuery.data ?? []).map((event) =>
-      toCalendarEvent(event),
-    );
+    const current = (eventsQuery.data ?? []).map((event) => ({
+      ...toCalendarEvent(event),
+      classNames:
+        event.id === guide?.target
+          ? [
+              "ring-2",
+              "ring-indigo-300",
+              "ring-offset-2",
+              "ring-offset-background",
+            ]
+          : [],
+    }));
     if (!quickAdd) return current;
     const input = eventFormToApiInput({
       ...quickAdd.values,
@@ -275,7 +310,7 @@ export function EventCalendar({
       classNames: ["pointer-events-none"],
     };
     return [...current, preview];
-  }, [eventsQuery.data, quickAdd]);
+  }, [eventsQuery.data, quickAdd, guide?.target]);
   // ポップオーバーに出す予定はキャッシュから最新を引く (ドラッグ後などに古い内容を出さない)
   const popoverEvent = useMemo(
     () =>
@@ -289,7 +324,7 @@ export function EventCalendar({
   const deleteShown = useLastValue(deleteTarget);
 
   const handleDatesSet = (info: DatesSetInfo) => {
-    setRange(datesSetToRange(info));
+    setRange(datesSetToRange(info, settingsOverride === undefined));
     setQuickAdd(null);
   };
 
@@ -351,7 +386,7 @@ export function EventCalendar({
       defaultEventFormValues(
         new Date(),
         defaultNotifications,
-        readCalendarSettings(),
+        currentSettings(),
       ),
     );
 
@@ -370,7 +405,7 @@ export function EventCalendar({
         info.end,
         info.allDay,
         defaultNotifications,
-        readCalendarSettings(),
+        currentSettings(),
       ),
       info.jsEvent,
     );
@@ -386,7 +421,7 @@ export function EventCalendar({
         null,
         info.allDay,
         defaultNotifications,
-        readCalendarSettings(),
+        currentSettings(),
       ),
       info.jsEvent,
       info.dayEl,
@@ -396,6 +431,11 @@ export function EventCalendar({
   const openEdit = (event: ApiEvent) => {
     setPopover(null);
     setDialog({ mode: "edit", event });
+  };
+
+  const openDelete = (event: ApiEvent) => {
+    setPopover(null);
+    setDeleteTarget(event);
   };
 
   // 複製は元の内容を初期値にした「作成」として扱う (#91)。保存は作成 API をそのまま使う
@@ -422,138 +462,166 @@ export function EventCalendar({
     }
   };
 
+  const overlayOpen = !!(dialog || popoverEvent || quickAdd || deleteTarget);
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          type="button"
-          size="lg"
-          onClick={openCreateDefault}
-          disabled={!canEdit}
-          title={
-            canEdit
-              ? "新規作成 (n)"
-              : "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます"
+    <div
+      className={cn(
+        "flex min-h-0 min-w-0 flex-1 flex-col gap-5",
+        guide && "lg:flex-row",
+      )}
+    >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            size="lg"
+            onClick={openCreateDefault}
+            disabled={!canEdit}
+            title={
+              canEdit
+                ? "新規作成 (n)"
+                : "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます"
+            }
+            className={cn(
+              "rounded-full bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600",
+              guide?.target === "create" &&
+                "ring-2 ring-indigo-300 ring-offset-4 ring-offset-background",
+            )}
+          >
+            <PlusIcon />
+            新規作成
+          </Button>
+          {eventsQuery.isFetching && (
+            <span className="text-xs text-muted-foreground">読み込み中…</span>
+          )}
+          {eventsQuery.isError && (
+            <span className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive">
+              予定を取得できませんでした: {describeApiError(eventsQuery.error)}
+              <button
+                type="button"
+                onClick={() => eventsQuery.refetch()}
+                className="underline hover:text-foreground"
+              >
+                再試行
+              </button>
+            </span>
+          )}
+          {actionError && (
+            <span className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive">
+              {actionError}
+              <button
+                type="button"
+                onClick={() => setActionError(null)}
+                className="underline hover:text-foreground"
+              >
+                閉じる
+              </button>
+            </span>
+          )}
+        </div>
+        {/* calendar-shell は globals.css の微調整の起点 (FullCalendar のクラス名はハッシュで指せない) */}
+        <div
+          className="calendar-shell min-h-0 flex-1"
+          style={
+            {
+              "--fc-classic-highlight": `color-mix(in srgb, ${settings.defaultColor} 20%, transparent)`,
+            } as CSSProperties
           }
-          className="rounded-full bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600"
         >
-          <PlusIcon />
-          新規作成
-        </Button>
-        {eventsQuery.isFetching && (
-          <span className="text-xs text-muted-foreground">読み込み中…</span>
-        )}
-        {eventsQuery.isError && (
-          <span className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive">
-            予定を取得できませんでした: {describeApiError(eventsQuery.error)}
-            <button
-              type="button"
-              onClick={() => eventsQuery.refetch()}
-              className="underline hover:text-foreground"
-            >
-              再試行
-            </button>
-          </span>
-        )}
-        {actionError && (
-          <span className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive">
-            {actionError}
-            <button
-              type="button"
-              onClick={() => setActionError(null)}
-              className="underline hover:text-foreground"
-            >
-              閉じる
-            </button>
-          </span>
-        )}
-      </div>
-      {/* calendar-shell は globals.css の微調整の起点 (FullCalendar のクラス名はハッシュで指せない) */}
-      <div
-        className="calendar-shell min-h-0 flex-1"
-        style={
-          {
-            "--fc-classic-highlight": `color-mix(in srgb, ${settings.defaultColor} 20%, transparent)`,
-          } as CSSProperties
-        }
-      >
-        {initialView && (
-          <Calendar
-            ref={calendarRef}
-            {...calendarBaseOptions}
-            initialView={initialView}
-            initialDate={initialDate}
-            firstDay={firstDay}
-            scrollTime={scrollTime}
-            events={events}
-            editable={canEdit}
-            selectable={canEdit}
-            selectMirror
-            eventColor={settings.defaultColor}
-            datesSet={handleDatesSet}
-            selectMinDistance={5}
-            select={handleSelect}
-            dateClick={handleDateClick}
-            eventClick={handleEventClick}
-            eventChange={handleEventChange}
+          {initialView && (
+            <Calendar
+              ref={calendarRef}
+              {...calendarBaseOptions}
+              initialView={initialView}
+              initialDate={initialDate}
+              firstDay={firstDay}
+              scrollTime={scrollTime}
+              events={events}
+              editable={canEdit}
+              selectable={canEdit}
+              selectMirror
+              eventColor={settings.defaultColor}
+              datesSet={handleDatesSet}
+              selectMinDistance={5}
+              select={handleSelect}
+              dateClick={handleDateClick}
+              eventClick={handleEventClick}
+              eventChange={handleEventChange}
+            />
+          )}
+        </div>
+
+        <EventPopover
+          guidance={
+            popoverEvent && !dialog && !deleteTarget
+              ? guide?.inlineContent
+              : null
+          }
+          resolveAuthors={eventsSource === dashboardEventsSource}
+          event={popoverEvent}
+          anchor={popover?.anchor ?? null}
+          canEdit={canEdit}
+          onEdit={openEdit}
+          onDuplicate={openDuplicate}
+          onDelete={openDelete}
+          onClose={() => setPopover(null)}
+        />
+        {quickAdd && (
+          <QuickAddPopover
+            guidance={guide?.inlineContent}
+            key={quickAdd.id}
+            state={quickAdd}
+            onClose={() => setQuickAdd(null)}
+            onDetails={openCreate}
+            onTitleChange={(title) =>
+              setQuickAdd((state) => (state ? { ...state, title } : state))
+            }
+            onSubmit={(input) => createEvent.mutateAsync(input)}
           />
         )}
-      </div>
-
-      <EventPopover
-        resolveAuthors={eventsSource === dashboardEventsSource}
-        event={popoverEvent}
-        anchor={popover?.anchor ?? null}
-        canEdit={canEdit}
-        onEdit={openEdit}
-        onDuplicate={openDuplicate}
-        onDelete={setDeleteTarget}
-        onClose={() => setPopover(null)}
-      />
-      {quickAdd && (
-        <QuickAddPopover
-          key={quickAdd.id}
-          state={quickAdd}
-          onClose={() => setQuickAdd(null)}
-          onDetails={openCreate}
-          onTitleChange={(title) =>
-            setQuickAdd((state) => (state ? { ...state, title } : state))
+        <EventFormDialog
+          guidance={dialog && !deleteTarget ? guide?.inlineContent : null}
+          mentionGuildId={
+            eventsSource === dashboardEventsSource ? guildId : undefined
           }
-          onSubmit={(input) => createEvent.mutateAsync(input)}
+          state={dialog}
+          allowShare={canEdit && eventsSource === dashboardEventsSource}
+          onClose={() => setDialog(null)}
+          onSubmit={submitDialog}
+          onDelete={openDelete}
+          discordSync={discordSync}
         />
+        <AlertDialog
+          open={deleteTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>予定を削除しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                「{deleteShown?.name}」を削除します。この操作は取り消せません。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {deleteTarget && guide?.inlineContent}
+            <AlertDialogFooter>
+              <AlertDialogCancel>キャンセル</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={confirmDelete}>
+                削除
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+      {guide && (
+        <aside
+          aria-label="操作ガイド"
+          className="order-first shrink-0 lg:order-last lg:w-80"
+        >
+          {!overlayOpen && guide.content}
+        </aside>
       )}
-      <EventFormDialog
-        mentionGuildId={
-          eventsSource === dashboardEventsSource ? guildId : undefined
-        }
-        state={dialog}
-        allowShare={canEdit && eventsSource === dashboardEventsSource}
-        onClose={() => setDialog(null)}
-        onSubmit={submitDialog}
-        onDelete={setDeleteTarget}
-        discordSync={discordSync}
-      />
-      <AlertDialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>予定を削除しますか？</AlertDialogTitle>
-            <AlertDialogDescription>
-              「{deleteShown?.name}」を削除します。この操作は取り消せません。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>キャンセル</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={confirmDelete}>
-              削除
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

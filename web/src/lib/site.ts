@@ -31,6 +31,8 @@ export const GITHUB_URL = "https://github.com/Shirataki2/DisCalendarV3-new";
 export const ROUTES = {
   home: "/",
   login: "/login",
+  /** ログイン不要の練習用カレンダー */
+  tutorial: "/tutorial",
   dashboard: "/dashboard",
   /** 参加している全サーバーの予定をまとめて見る横断カレンダー (#98) */
   dashboardAll: "/dashboard/all",
