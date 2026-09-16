@@ -1,5 +1,6 @@
 import { CalendarDaysIcon } from "lucide-react";
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
@@ -62,11 +63,16 @@ export default async function DashboardPage() {
   const invitable = joined.ok
     ? guilds.filter((g) => !joinedIds.has(g.id) && canInviteBot(g))
     : [];
+  const tutorialDismissed =
+    (await cookies()).get("discalendar-tutorial-dismissed")?.value === "1";
 
   return (
     <main className="flex-1 overflow-y-auto p-8">
       <h1 className="mb-6 text-xl font-bold">サーバーを選択</h1>
-      <TutorialBanner highlighted={joined.ok && available.length === 0} />
+      <TutorialBanner
+        highlighted={joined.ok && available.length === 0}
+        defaultVisible={!tutorialDismissed}
+      />
       {!joined.ok && (
         <p className="mb-6 rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">
           Bot の参加状況を取得できませんでした。API

@@ -263,16 +263,36 @@ test.describe("ログイン後の入口", () => {
     await expect(bannerLink).toHaveCount(0);
     await expect(close).toHaveCount(0);
     await expect(page).toHaveURL("/dashboard");
-    await page.reload();
-    await expect(
-      page.getByRole("heading", { name: "サーバーを選択" }),
-    ).toBeVisible();
-    await expect(bannerLink).toHaveCount(0);
     await page.getByRole("link", { name: "操作を試す", exact: true }).click();
     await expect(guide(page)).toContainText("ステップ 1 / 6");
     await page.goBack();
     await expect(page).toHaveURL("/dashboard");
     await expect(bannerLink).toHaveCount(0);
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "サーバーを選択" }),
+    ).toBeVisible();
+    await expect(bannerLink).toHaveCount(0);
+  });
+
+  test.describe("初回表示", () => {
+    test.use({ javaScriptEnabled: false });
+
+    test("JavaScript実行前からCookieに応じた案内の表示になる", async ({
+      page,
+      context,
+    }) => {
+      await page.goto("/dashboard");
+      const banner = page.getByRole("button", {
+        name: "練習用カレンダーの案内を閉じる",
+      });
+      await expect(banner).toBeVisible();
+      await context.addCookies([
+        { name: "discalendar-tutorial-dismissed", value: "1", url: page.url() },
+      ]);
+      await page.reload();
+      await expect(banner).toHaveCount(0);
+    });
   });
 
   test.describe("モバイルの案内", () => {
@@ -280,8 +300,8 @@ test.describe("ログイン後の入口", () => {
 
     test("保存領域が使えなくてもタッチで閉じられる", async ({ page }) => {
       await page.addInitScript(() => {
-        Object.defineProperty(window, "localStorage", {
-          get() {
+        Object.defineProperty(document, "cookie", {
+          set() {
             throw new DOMException("保存できません", "SecurityError");
           },
         });

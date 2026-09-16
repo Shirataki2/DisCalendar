@@ -2,29 +2,31 @@
 
 import { XIcon } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ROUTES } from "@/lib/site";
 
-const STORAGE_KEY = "discalendar-tutorial-dismissed";
-
-export function TutorialBanner({ highlighted }: { highlighted: boolean }) {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    try {
-      setVisible(localStorage.getItem(STORAGE_KEY) !== "1");
-    } catch {
-      setVisible(true);
-    }
-  }, []);
+export function TutorialBanner({
+  highlighted,
+  defaultVisible,
+}: {
+  highlighted: boolean;
+  defaultVisible: boolean;
+}) {
+  const router = useRouter();
+  const [visible, setVisible] = useState(defaultVisible);
 
   if (!visible) return null;
 
   function dismiss() {
     setVisible(false);
     try {
-      localStorage.setItem(STORAGE_KEY, "1");
+      // biome-ignore lint/suspicious/noDocumentCookie: Cookie Store API は Safari / Firefox の少し前の版に無いので document.cookie を使う
+      document.cookie =
+        "discalendar-tutorial-dismissed=1; path=/; max-age=31536000; samesite=lax";
+      // 戻る操作でも、閉じる前のサーバー描画を再利用しないようにする。
+      router.refresh();
     } catch {
       // 保存が許可されていない場合も、このページでは閉じられるようにする。
     }
