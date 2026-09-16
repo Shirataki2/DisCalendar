@@ -70,6 +70,9 @@ test.describe("カレンダー", () => {
     await expect(
       page.getByRole("heading", { name: "Bot を招待できるサーバー" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "練習用カレンダーの案内を閉じる" }),
+    ).toBeVisible();
     await prepare(page);
     await settle(page);
     // 練習用カレンダーの案内と、招待できるサーバーのカードまで含める。
