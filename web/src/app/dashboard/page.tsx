@@ -8,6 +8,7 @@ import {
   guildCardClassName,
 } from "@/components/guild-card";
 import { InviteGuildGrid } from "@/components/invite-guild-grid";
+import { TutorialBanner } from "@/components/tutorial-banner";
 import { ApiError } from "@/lib/api";
 import {
   botInviteUrl,
@@ -65,15 +66,7 @@ export default async function DashboardPage() {
   return (
     <main className="flex-1 overflow-y-auto p-8">
       <h1 className="mb-6 text-xl font-bold">サーバーを選択</h1>
-      <Link
-        href={ROUTES.tutorial}
-        className={`mb-6 block rounded-lg border px-4 py-3 ${joined.ok && available.length === 0 ? "border-indigo-400/40 bg-indigo-500/10" : "border-border hover:bg-muted"}`}
-      >
-        <span className="font-semibold">練習用カレンダーで操作を試す</span>
-        <span className="mt-1 block text-sm text-muted-foreground">
-          Botの導入や編集権限がなくても、予定の作成から通知まで体験できます。
-        </span>
-      </Link>
+      <TutorialBanner highlighted={joined.ok && available.length === 0} />
       {!joined.ok && (
         <p className="mb-6 rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">
           Bot の参加状況を取得できませんでした。API

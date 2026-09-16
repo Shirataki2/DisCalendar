@@ -244,6 +244,62 @@ for (const mode of ["タッチ", "キーボード"] as const) {
 }
 
 test.describe("ログイン後の入口", () => {
+  test("案内をキーボードで閉じると再訪問でも非表示になり、メニューから体験できる", async ({
+    page,
+  }) => {
+    await page.goto("/dashboard");
+    const bannerLink = page
+      .getByRole("main")
+      .getByRole("link", { name: /練習用カレンダーで操作を試す/ });
+    await expect(bannerLink).toBeVisible();
+    await expect(bannerLink).toHaveAttribute("href", "/tutorial");
+    const close = page.getByRole("button", {
+      name: "練習用カレンダーの案内を閉じる",
+    });
+    await bannerLink.focus();
+    await page.keyboard.press("Tab");
+    await expect(close).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(bannerLink).toHaveCount(0);
+    await expect(close).toHaveCount(0);
+    await expect(page).toHaveURL("/dashboard");
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "サーバーを選択" }),
+    ).toBeVisible();
+    await expect(bannerLink).toHaveCount(0);
+    await page.getByRole("link", { name: "操作を試す", exact: true }).click();
+    await expect(guide(page)).toContainText("ステップ 1 / 6");
+    await page.goBack();
+    await expect(page).toHaveURL("/dashboard");
+    await expect(bannerLink).toHaveCount(0);
+  });
+
+  test.describe("モバイルの案内", () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+    test("保存領域が使えなくてもタッチで閉じられる", async ({ page }) => {
+      await page.addInitScript(() => {
+        Object.defineProperty(window, "localStorage", {
+          get() {
+            throw new DOMException("保存できません", "SecurityError");
+          },
+        });
+      });
+      await page.goto("/dashboard");
+      const close = page.getByRole("button", {
+        name: "練習用カレンダーの案内を閉じる",
+      });
+      await expect(close).toBeInViewport();
+      await close.tap();
+      await expect(close).toHaveCount(0);
+      await expect(
+        page.getByRole("link", { name: /練習用カレンダーで操作を試す/ }),
+      ).toHaveCount(0);
+      await expect(page).toHaveURL("/dashboard");
+    });
+  });
+
   for (const state of ["no-guilds", "invitable-only"]) {
     test(`Bot 参加サーバー0件 (${state}) でも体験へ進める`, async ({
       page,
