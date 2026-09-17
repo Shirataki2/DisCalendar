@@ -443,10 +443,15 @@ export function EventCalendar({
     openCreate(eventToFormValues(event));
 
   // ダイアログからの保存。失敗したら reject してダイアログ側でエラー表示する
-  const submitDialog = (input: ApiEventInput) =>
-    dialog?.mode === "edit"
-      ? updateEvent.mutateAsync({ id: dialog.event.id, input })
-      : createEvent.mutateAsync(input);
+  const submitDialog = async (input: ApiEventInput) => {
+    const saved =
+      dialog?.mode === "edit"
+        ? await updateEvent.mutateAsync({ id: dialog.event.id, input })
+        : await createEvent.mutateAsync(input);
+    // 添付だけが失敗しても、次の保存で同じ予定を更新する。
+    setDialog((current) => (current ? { mode: "edit", event: saved } : null));
+    return saved;
+  };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -557,6 +562,7 @@ export function EventCalendar({
               ? guide?.inlineContent
               : null
           }
+          allowAttachments={eventsSource === dashboardEventsSource}
           resolveAuthors={eventsSource === dashboardEventsSource}
           event={popoverEvent}
           anchor={popover?.anchor ?? null}

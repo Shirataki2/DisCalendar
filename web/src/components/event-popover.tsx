@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { EventAttachments } from "@/components/event-attachments";
 import { EventAuthors } from "@/components/event-authors";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent } from "@/components/ui/popover";
@@ -34,6 +35,7 @@ interface Props {
   anchor: PopoverAnchor | null;
   canEdit: boolean;
   resolveAuthors?: boolean;
+  allowAttachments?: boolean;
   /** ヘッダの色。横断カレンダー (#98) ではサーバーの色で塗る (省略時は予定の色) */
   color?: string;
   /** 横断カレンダー (#98) で出すサーバーの行と、そのサーバーのカレンダーへのリンク */
@@ -56,6 +58,7 @@ export function EventPopover({
   anchor,
   canEdit,
   resolveAuthors = true,
+  allowAttachments = true,
   color,
   guild,
   onEdit,
@@ -130,6 +133,14 @@ export function EventPopover({
             active={event !== null}
             resolveMembers={resolveAuthors}
           />
+          {allowAttachments && (
+            <EventAttachments
+              key={shown.id}
+              guildId={shown.guild_id}
+              eventId={shown.id}
+              active={event !== null}
+            />
+          )}
           {shown.description && (
             <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
               {shown.description}

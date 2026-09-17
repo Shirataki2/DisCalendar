@@ -51,3 +51,21 @@ variable "backup_lock_days" {
     error_message = "backup_lock_days は 1 以上かつ backup_retention_days 未満。"
   }
 }
+
+variable "attachment_buckets" {
+  description = "添付用バケット名と許可するWebオリジン。環境ごとに分ける。空なら作成しない"
+  type        = map(list(string))
+  default     = {}
+  validation {
+    condition = alltrue([
+      for origins in values(var.attachment_buckets) : length(origins) > 0 && alltrue([
+        for origin in origins : can(regex("^https://[^/*]+$|^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$", origin))
+      ])
+    ])
+    error_message = "CORSは具体的なHTTPSオリジン（ローカル開発のみHTTP）を1つ以上指定してください。"
+  }
+  validation {
+    condition     = !contains(keys(var.attachment_buckets), var.backup_bucket_name)
+    error_message = "添付用バケットをバックアップ用バケットから分離してください。"
+  }
+}

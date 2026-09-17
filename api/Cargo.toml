@@ -45,3 +45,4 @@ utoipa = { version = "5", features = ["actix_extras", "chrono"] }
 utoipa-actix-web = "0.1"
 utoipa-swagger-ui = { version = "9", features = ["actix-web", "vendored"] }
 web-push = { version = "0.11", default-features = false }
+aws-sdk-s3 = { version = "1.137.0", default-features = false, features = ["rt-tokio", "rustls", "default-https-client"] }

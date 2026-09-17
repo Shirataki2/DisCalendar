@@ -8,6 +8,7 @@ mod admin_ops;
 mod admin_sql;
 mod admin_status;
 mod admin_users;
+mod attachments;
 mod events;
 mod feeds;
 mod guilds;
@@ -32,6 +33,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(
             scope("/guilds")
                 // `/joined` は `/{guild_id}` より先に登録しないと guild_id として解釈される
+                .service(attachments::limits)
                 .service(guilds::joined)
                 .service(guilds::get_guild)
                 .service(members::profiles)
@@ -60,6 +62,11 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(
             scope("/events")
                 // `/@me` (横断カレンダー #98) は `/{guild_id}` より先に登録しないと guild_id として解釈される
+                .service(attachments::list)
+                .service(attachments::reserve)
+                .service(attachments::complete)
+                .service(attachments::read_url)
+                .service(attachments::remove)
                 .service(events::list_joined)
                 .service(shares::get_share)
                 .service(shares::issue_share)

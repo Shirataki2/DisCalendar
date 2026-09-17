@@ -2,6 +2,12 @@ import type { QueryKey } from "@tanstack/react-query";
 
 /** TanStack Query のキー。無効化は前方一致なので、ギルド単位でまとめて無効化できる */
 export const queryKeys = {
+  attachments: {
+    all: (guildId: string) => ["attachments", guildId] as const,
+    limits: (guildId: string) => ["attachments", guildId, "limits"] as const,
+    event: (guildId: string, eventId: number) =>
+      ["attachments", guildId, eventId] as const,
+  },
   events: {
     all: (guildId: string) => ["events", guildId] as const,
     range: (guildId: string, start: string, end: string) =>

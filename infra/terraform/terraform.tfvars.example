@@ -10,3 +10,10 @@ account_id = "00000000000000000000000000000000"
 # backup_bucket_location = "apac"
 # backup_retention_days  = 30
 # backup_lock_days       = 7
+
+# 環境ごとにバケットとアクセスキーを分離する。秘密情報はTerraformでは管理しない。
+# attachment_buckets = {
+#   discalendar-attachments-dev        = ["http://localhost:3000"]
+#   discalendar-attachments-staging    = ["https://staging.discalendar.app"]
+#   discalendar-attachments-production = ["https://discalendar.app"]
+# }
