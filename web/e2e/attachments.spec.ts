@@ -27,7 +27,7 @@ test("新規予定の部分失敗から添付だけ再試行し、画像確認�
   await page.goto(`/dashboard/${guild}`);
   await page.getByRole("button", { name: "新規作成" }).click();
   const form = page.getByRole("dialog", { name: "予定を作成" });
-  await form.getByLabel("タイトル").fill(title);
+  await form.getByLabel("タイトル").fill(` ${title} `);
   await expect(
     form.getByLabel("ファイルを添付", { exact: true }),
   ).toBeEnabled();
@@ -394,8 +394,8 @@ test("既存予定への送信を中断すると予定は残り、未確定の�
     });
     await edit.getByRole("button", { name: "保存", exact: true }).click();
     await expect.poll(() => uploading).toBe(true);
-    page.once("dialog", (dialog) => dialog.accept());
     await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "破棄して閉じる" }).click();
     await expect(edit).not.toBeVisible();
     release();
     await expect
@@ -487,8 +487,8 @@ test("予定保存の応答前に閉じても、次に開いたフォームを�
       .setInputFiles({ name: "案内.png", mimeType: "image/png", buffer: png });
     await form.getByRole("button", { name: "作成", exact: true }).click();
     await expect.poll(() => savedId).toBeDefined();
-    page.once("dialog", (dialog) => dialog.accept());
     await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "破棄して閉じる" }).click();
     await expect(form).not.toBeVisible();
     await page.getByRole("button", { name: "新規作成" }).click();
     await form.getByLabel("タイトル").fill("次の予定");

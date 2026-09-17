@@ -110,6 +110,7 @@ test("保存が権限不足で失敗したら、その場でチェックボッ�
     dialog.getByRole("button", { name: "権限を再確認" }),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "キャンセル" }).click();
+  await page.getByRole("button", { name: "破棄して閉じる" }).click();
   await expect(dialog).toBeHidden();
 });
 
