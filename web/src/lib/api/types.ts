@@ -660,3 +660,28 @@ export interface GuildWebhook {
     error: string | null;
   }[];
 }
+
+/** 予定に確定済みの添付。署名付きURLは別途取得する。 */
+export interface EventAttachment {
+  id: string;
+  filename: string;
+  size: number;
+  content_type: string;
+  created_at: string;
+}
+export interface AttachmentLimits {
+  enabled: boolean;
+  file_max_bytes: number;
+  event_max_files: number;
+  guild_max_bytes: number;
+  used_bytes: number;
+}
+export interface AttachmentUrl {
+  url: string;
+  headers: Record<string, string>;
+  expires_at: string;
+}
+export interface AttachmentReservation {
+  id: string;
+  upload: AttachmentUrl;
+}

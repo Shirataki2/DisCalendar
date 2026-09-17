@@ -101,6 +101,8 @@ export function invalidateEvents(
 ) {
   const targets = [keys.all(guildId), ...(keys.onChanged?.(guildId) ?? [])];
   if (countChanged) {
+    // 予定削除は添付も削除する。通常・管理画面の一括削除で使用量を古いままにしない。
+    targets.push(queryKeys.attachments.all(guildId));
     targets.push(...(keys.onCountChanged?.(guildId) ?? []));
     afterCountChanged?.();
   }

@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { FullConfig } from "@playwright/test";
+import { startAttachmentStorage } from "./attachment-storage";
 import { startDiscordMock } from "./discord-mock";
 import {
   BETTER_AUTH_SECRET,
@@ -17,6 +18,7 @@ import { seedDatabase, sessionCookie } from "./seed";
  * 3. セッション cookie を storageState に書き出し、各テストがログイン済みの状態で始まるようにする
  */
 export default async function globalSetup(_config: FullConfig) {
+  const storage = await startAttachmentStorage();
   const mock = await startDiscordMock(DISCORD_MOCK_PORT);
 
   const token = await seedDatabase(DATABASE_URL);
@@ -31,6 +33,7 @@ export default async function globalSetup(_config: FullConfig) {
   );
 
   return async () => {
+    await new Promise<void>((resolve) => storage.close(() => resolve()));
     await new Promise<void>((resolve) => mock.close(() => resolve()));
   };
 }

@@ -12,6 +12,10 @@ import type {
   AdminUserPage,
   ApiEvent,
   ApiEventInput,
+  AttachmentLimits,
+  AttachmentReservation,
+  AttachmentUrl,
+  EventAttachment,
   Guild,
   GuildChannel,
   GuildConfig,
@@ -69,6 +73,44 @@ export type EventsClient = ReturnType<typeof createEventsClient>;
  */
 export function createApi(request: ApiFetcher) {
   return {
+    attachments: {
+      limits: (guildId: string) =>
+        request<AttachmentLimits>(`/guilds/${guildId}/attachments`),
+      list: (guildId: string, eventId: number, signal?: AbortSignal) =>
+        request<EventAttachment[]>(
+          `/events/${guildId}/${eventId}/attachments`,
+          { signal },
+        ),
+      reserve: (
+        guildId: string,
+        eventId: number,
+        input: { filename: string; size: number; content_type: string },
+        signal?: AbortSignal,
+      ) =>
+        request<AttachmentReservation>(
+          `/events/${guildId}/${eventId}/attachments`,
+          { method: "POST", body: input, signal },
+        ),
+      complete: (
+        guildId: string,
+        eventId: number,
+        id: string,
+        signal?: AbortSignal,
+      ) =>
+        request<EventAttachment>(
+          `/events/${guildId}/${eventId}/attachments/${id}/complete`,
+          { method: "POST", signal },
+        ),
+      url: (guildId: string, eventId: number, id: string, preview = false) =>
+        request<AttachmentUrl>(
+          `/events/${guildId}/${eventId}/attachments/${id}/url?preview=${preview}`,
+          { method: "POST" },
+        ),
+      remove: (guildId: string, eventId: number, id: string) =>
+        request<void>(`/events/${guildId}/${eventId}/attachments/${id}`, {
+          method: "DELETE",
+        }),
+    },
     push: {
       get: () => request<PushSettings>("/users/@me/push-subscriptions"),
       subscribe: (input: PushSubscriptionInput) =>

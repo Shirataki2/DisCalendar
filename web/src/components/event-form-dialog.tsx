@@ -10,6 +10,10 @@ import {
   useForm,
   useWatch,
 } from "react-hook-form";
+import {
+  AttachmentPicker,
+  EventAttachments,
+} from "@/components/event-attachments";
 import { EventShareControls } from "@/components/event-share-controls";
 import { ColorPicker } from "@/components/form/color-picker";
 import { DatePicker } from "@/components/form/date-picker";
@@ -49,6 +53,7 @@ import {
   NAME_MAX_CHARS,
   withCheckedDiscordEvent,
 } from "@/lib/event-form";
+import { useAttachmentQueue } from "@/lib/query/attachments";
 
 export type EventDialogState =
   | { mode: "create"; values: EventFormValues }
@@ -62,8 +67,8 @@ interface Props {
   /** 通常のサーバーカレンダーで、編集権限があるときだけ共有操作を出す。 */
   allowShare?: boolean;
   onClose: () => void;
-  /** 保存。resolve したらダイアログを閉じ、reject されたらエラーを表示して開いたままにする */
-  onSubmit: (input: ApiEventInput) => Promise<unknown>;
+  /** 予定を保存し、添付の送信先になる予定を返す。失敗時はフォームにエラーを表示する */
+  onSubmit: (input: ApiEventInput) => Promise<ApiEvent>;
   /** 編集中の予定の削除ボタン (確認ダイアログは呼び出し側が出す) */
   onDelete: (event: ApiEvent) => void;
   /**
@@ -102,11 +107,15 @@ export function EventFormDialog({
 }: Props) {
   // 閉じるアニメーションの間も直前の内容を出しておく
   const shown = useLastValue(state);
+  const closeGuard = useRef<(() => boolean) | null>(null);
+  const close = () => {
+    if (!closeGuard.current || closeGuard.current()) onClose();
+  };
   return (
     <Dialog
       open={state !== null}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) close();
       }}
       // 入力途中に外側をクリックしても閉じない (旧 v-dialog persistent)
       disablePointerDismissal
@@ -119,7 +128,8 @@ export function EventFormDialog({
         {shown && (
           <EventForm
             state={shown}
-            onClose={onClose}
+            onClose={close}
+            closeGuard={closeGuard}
             onSubmit={onSubmit}
             onDelete={onDelete}
             discordSync={discordSync}
@@ -134,6 +144,7 @@ export function EventFormDialog({
 
 interface FormProps extends Omit<Props, "state"> {
   state: EventDialogState;
+  closeGuard: React.RefObject<(() => boolean) | null>;
 }
 
 // ダイアログが開くたびにマウントされる (Base UI の Dialog は閉じると Popup を unmount する) ので、
@@ -146,7 +157,28 @@ function EventForm({
   discordSync,
   allowShare,
   mentionGuildId,
+  closeGuard,
 }: FormProps) {
+  const uploads = useAttachmentQueue(mentionGuildId);
+  const [savedEvent, setSavedEvent] = useState<ApiEvent | null>(null);
+  const attachmentEventId =
+    savedEvent?.id ?? (state.mode === "edit" ? state.event.id : undefined);
+  useEffect(() => {
+    closeGuard.current = () => {
+      if (
+        uploads.items.length &&
+        !window.confirm(
+          "未送信の添付があります。送信を中断して閉じますか？保存済みの予定と添付は残ります。",
+        )
+      )
+        return false;
+      uploads.cancel();
+      return true;
+    };
+    return () => {
+      closeGuard.current = null;
+    };
+  }, [closeGuard, uploads.items.length, uploads.cancel]);
   const isEdit = state.mode === "edit";
   const initialValues = isEdit ? eventToFormValues(state.event) : state.values;
   const form = useForm<EventFormValues>({
@@ -216,8 +248,12 @@ function EventForm({
       if (!mentionGuildId) {
         delete input.notification_mentions;
       }
-      await onSubmit(input);
-      onClose();
+      const saved = await onSubmit(input);
+      setSavedEvent(saved);
+      if (!mentionGuildId || (await uploads.upload(saved.id))) {
+        closeGuard.current = null;
+        onClose();
+      }
     } catch (error) {
       setSubmitError(describeApiError(error));
     }
@@ -393,6 +429,34 @@ function EventForm({
             </div>
           </Field>
 
+          {mentionGuildId && (
+            <>
+              {attachmentEventId && (
+                <EventAttachments
+                  guildId={mentionGuildId}
+                  eventId={attachmentEventId}
+                  editable={!uploads.busy}
+                />
+              )}
+              <AttachmentPicker
+                guildId={mentionGuildId}
+                eventId={attachmentEventId}
+                items={uploads.items}
+                onChange={uploads.setItems}
+                busy={uploads.busy || isSubmitting}
+                onRemove={uploads.discard}
+                onRetry={() => {
+                  if (attachmentEventId) void uploads.upload(attachmentEventId);
+                }}
+              />
+              {savedEvent && uploads.items.length > 0 && (
+                <p role="status" className="text-sm">
+                  予定は保存済みです。添付ファイルの送信を完了してください。
+                </p>
+              )}
+            </>
+          )}
+
           {discordSync && (
             <DiscordEventField
               control={control}
@@ -423,7 +487,7 @@ function EventForm({
             <Button
               type="button"
               variant="destructive"
-              disabled={isSubmitting}
+              disabled={isSubmitting || uploads.busy}
               onClick={() => onDelete(state.event)}
               className="sm:mr-auto"
             >
@@ -433,12 +497,12 @@ function EventForm({
           <Button
             type="button"
             variant="outline"
-            disabled={isSubmitting}
+            disabled={isSubmitting || uploads.busy}
             onClick={onClose}
           >
             キャンセル
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={isSubmitting || uploads.busy}>
             {isSubmitting ? "保存中…" : isEdit ? "保存" : "作成"}
           </Button>
         </DialogFooter>

@@ -1,5 +1,6 @@
 import { createECDH } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
+import { ATTACHMENT_MOCK_URL } from "./e2e/attachment-storage";
 import {
   API_PORT,
   API_URL,
@@ -119,6 +120,10 @@ export default defineConfig({
         PORT: String(API_PORT),
         DISCORD_BOT_TOKEN: E2E_BOT_TOKEN,
         ADMIN_DISCORD_USER_IDS: "",
+        ATTACHMENTS_S3_ENDPOINT: ATTACHMENT_MOCK_URL,
+        ATTACHMENTS_BUCKET: "e2e-attachments",
+        ATTACHMENTS_ACCESS_KEY_ID: "e2e-attachment-key",
+        ATTACHMENTS_SECRET_ACCESS_KEY: "e2e-attachment-secret",
         VAPID_PRIVATE_KEY: "",
         VAPID_SUBJECT: "",
         // query! のコンパイル時チェックは .sqlx/ のキャッシュを使う (空の E2E 用 DB に繋がせない)

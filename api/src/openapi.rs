@@ -15,6 +15,7 @@ use utoipa::{
     tags(
         (name = "meta", description = "バージョン / ヘルスチェック"),
         (name = "guilds", description = "ギルド情報・権限・設定"),
+        (name = "attachments", description = "予定の添付ファイル"),
         (name = "events", description = "予定の CRUD"),
         (name = "shares", description = "予定の共有リンク"),
         (name = "push", description = "個人のプッシュ通知と端末"),

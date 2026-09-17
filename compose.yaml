@@ -64,6 +64,10 @@ services:
       # MCP有効化時はapiコンテナから到達できる公開HTTPS originが必要。
       MCP_AUTH_ORIGIN: ${BETTER_AUTH_URL:-http://localhost:${WEB_PORT:-3000}}
       MCP_INTROSPECTION_SECRET: ${MCP_INTROSPECTION_SECRET:-}
+      ATTACHMENTS_S3_ENDPOINT: ${ATTACHMENTS_S3_ENDPOINT:-}
+      ATTACHMENTS_BUCKET: ${ATTACHMENTS_BUCKET:-}
+      ATTACHMENTS_ACCESS_KEY_ID: ${ATTACHMENTS_ACCESS_KEY_ID:-}
+      ATTACHMENTS_SECRET_ACCESS_KEY: ${ATTACHMENTS_SECRET_ACCESS_KEY:-}
       AUTH_COOKIE_PREFIX: better-auth
       # Discord スケジュールイベントの「場所」に入れるリンクの起点 (#94)。
       # staging では web と同じく staging のドメインにする

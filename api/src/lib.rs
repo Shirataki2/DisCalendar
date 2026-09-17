@@ -7,6 +7,7 @@
 //! - 管理コンソール (`/admin/*`): `ADMIN_DISCORD_USER_IDS` に含まれるユーザーだけが使える (`admin` モジュール)
 
 pub mod admin;
+pub mod attachments;
 pub mod auth;
 pub mod build_info;
 pub mod config;
@@ -46,6 +47,7 @@ use crate::{
 
 /// DB 接続・マイグレーション・HTTP サーバー起動までを行う
 pub async fn run(config: Config) -> anyhow::Result<()> {
+    let attachments = web::Data::new(attachments::AttachmentStorage::from_env()?);
     let mcp = web::Data::new(mcp::McpConfig::from_env()?);
     let pool = PgPoolOptions::new()
         .max_connections(config.max_db_connections)
@@ -102,6 +104,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     if let Some(push) = config.push {
         tokio::spawn(crate::push::run(state.clone(), push));
     }
+    if let Some(store) = attachments.0.clone() {
+        let cleanup_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy_with(state.pool.connect_options().as_ref().clone());
+        tokio::spawn(crate::attachments::run(cleanup_pool, store));
+    }
     let addr = (config.host.as_str(), config.port);
     tracing::info!(host = %config.host, port = config.port, "starting DisCalendar API");
 
@@ -129,6 +137,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             })
             .app_data(state.clone())
             .app_data(mcp.clone())
+            .app_data(attachments.clone())
             .app_data(json_config())
             .app_data(path_config())
             .app_data(query_config())
