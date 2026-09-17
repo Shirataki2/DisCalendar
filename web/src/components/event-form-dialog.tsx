@@ -19,6 +19,16 @@ import { ColorPicker } from "@/components/form/color-picker";
 import { DatePicker } from "@/components/form/date-picker";
 import { NotificationMentionsField } from "@/components/form/notification-mentions-field";
 import { NotificationsField } from "@/components/form/notifications-field";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -163,32 +173,31 @@ function EventForm({
   const [savedEvent, setSavedEvent] = useState<ApiEvent | null>(null);
   const attachmentEventId =
     savedEvent?.id ?? (state.mode === "edit" ? state.event.id : undefined);
-  useEffect(() => {
-    closeGuard.current = () => {
-      if (
-        uploads.items.length &&
-        !window.confirm(
-          "未送信の添付があります。送信を中断して閉じますか？保存済みの予定と添付は残ります。",
-        )
-      )
-        return false;
-      uploads.cancel();
-      return true;
-    };
-    return () => {
-      closeGuard.current = null;
-    };
-  }, [closeGuard, uploads.items.length, uploads.cancel]);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [mentionUserId, setMentionUserId] = useState("");
   const isEdit = state.mode === "edit";
   const initialValues = isEdit ? eventToFormValues(state.event) : state.values;
+  // 連携を**新しく作る**には Bot と本人の両方に権限が要る。
+  // 既に連携済みの予定を編集しているときだけは、権限が無くてもチェックを外せる
+  // (解除の出口まで塞がないため)。複製は連携済みの値を引き継いだ「新規作成」なので、
+  // ここには含めない (含めると権限のない人が送信できてしまい、保存時に 403 になる)
+  const isLinkedEdit =
+    state.mode === "edit" && state.event.discord_scheduled_event_id !== null;
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     // 連携を扱わない画面 (管理コンソール) ではチェックボックスを出さないので、値も落とす。
     // 連携済みの予定を開くと `eventToFormValues` が true にするが、そのままだと
     // 見えないフラグで Discord 向けの検証だけが効いて保存できなくなる
-    defaultValues: discordSync
-      ? initialValues
-      : { ...initialValues, discordEvent: false },
+    defaultValues: {
+      ...initialValues,
+      notificationMentions: initialValues.notificationMentions ?? [],
+      // 開いた時点で使えない連携を初期値から外し、未操作のフォームを変更扱いにしない。
+      discordEvent:
+        !!discordSync &&
+        (isLinkedEdit ||
+          (discordSync.botCreateEvents && discordSync.canCreateEvents)) &&
+        withCheckedDiscordEvent(initialValues).discordEvent,
+    },
   });
   const {
     control,
@@ -196,8 +205,28 @@ function EventForm({
     handleSubmit,
     setValue,
     getValues,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = form;
+  useEffect(() => {
+    closeGuard.current = () => {
+      if (isDirty || mentionUserId.length > 0 || uploads.items.length > 0) {
+        setConfirmDiscard(true);
+        return false;
+      }
+      uploads.cancel();
+      return true;
+    };
+    return () => {
+      closeGuard.current = null;
+    };
+  }, [
+    closeGuard,
+    isDirty,
+    mentionUserId,
+    uploads.items.length,
+    uploads.cancel,
+  ]);
+
   const [isAllDay, name, description, startDate, startTime] = useWatch({
     control,
     name: ["isAllDay", "name", "description", "startDate", "startTime"],
@@ -213,12 +242,6 @@ function EventForm({
       : null;
   const discordStartsInPast =
     startAt !== null && startAt.getTime() <= nowInJst().getTime();
-  // 連携を**新しく作る**には Bot と本人の両方に権限が要る。
-  // 既に連携済みの予定を編集しているときだけは、権限が無くてもチェックを外せる
-  // (解除の出口まで塞がないため)。複製は連携済みの値を引き継いだ「新規作成」なので、
-  // ここには含めない (含めると権限のない人が送信できてしまい、保存時に 403 になる)
-  const isLinkedEdit =
-    state.mode === "edit" && state.event.discord_scheduled_event_id !== null;
   const discordLocked =
     !isLinkedEdit &&
     discordSync !== undefined &&
@@ -241,6 +264,7 @@ function EventForm({
 
   const submit = handleSubmit(async (values) => {
     setSubmitError(null);
+    const submittedValues = getValues();
     try {
       // 開いたまま開始時刻をまたぐことがあるので、連携の可否は送信直前にも確かめる
       const input = eventFormToApiInput(withCheckedDiscordEvent(values));
@@ -250,6 +274,8 @@ function EventForm({
       }
       const saved = await onSubmit(input);
       setSavedEvent(saved);
+      // 添付だけ失敗した場合も、保存済みの入力は破棄確認の対象から外す。
+      form.reset(submittedValues, { keepValues: true });
       if (!mentionGuildId || (await uploads.upload(saved.id))) {
         closeGuard.current = null;
         onClose();
@@ -410,7 +436,11 @@ function EventForm({
           {/* 通知の一覧はサーバー設定の「既定の事前通知」(#181) と同じ部品 */}
           <NotificationsField label="通知" />
           {mentionGuildId && (
-            <NotificationMentionsField guildId={mentionGuildId} />
+            <NotificationMentionsField
+              guildId={mentionGuildId}
+              userId={mentionUserId}
+              onUserIdChange={setMentionUserId}
+            />
           )}
 
           <Field data-invalid={errors.description ? true : undefined}>
@@ -507,6 +537,31 @@ function EventForm({
           </Button>
         </DialogFooter>
       </form>
+      <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>未保存の変更を破棄しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              入力した未保存の変更と未送信の添付は失われます。
+              保存済みの予定と添付は残ります。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>編集を続ける</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                uploads.cancel();
+                closeGuard.current = null;
+                setConfirmDiscard(false);
+                onClose();
+              }}
+            >
+              破棄して閉じる
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </FormProvider>
   );
 }

@@ -81,8 +81,9 @@ test.describe("編集できるサーバーのカレンダー", () => {
     await expect(dialog).toBeVisible();
     await expect(shortcutsDialog(page)).toHaveCount(0);
 
-    // Esc で閉じる (Base UI の既定)。閉じた後はビューが月のまま
+    // Esc で破棄を確認して閉じる。閉じた後はビューが月のまま
     await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "破棄して閉じる" }).click();
     await expect(dialog).toBeHidden();
     await expect(viewTab(page, "月")).toHaveAttribute("aria-selected", "true");
   });
