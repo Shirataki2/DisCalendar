@@ -69,15 +69,18 @@ const slotHeaderFormat: FormatterInput = (info) => timeText(info.date);
 /** 月ビューの日付セル ("26")。ja の Intl は "26日" を返す (既定の omitTrailing では「日」が落ちない) */
 const dayCellFormat: FormatterInput = (info) => String(info.date.day);
 
-/** 曜日の略称。FullCalendar が渡す marker はタイムゾーンを持たない UTC 基準の Date */
-const weekdayFormat = new Intl.DateTimeFormat("ja-JP", {
-  weekday: "short",
-  timeZone: "UTC",
-});
+/** 週 / 4日 / 日ビューの日付ヘッダ ("23(日)")。狭い列でも日付を省略しない */
+const dayHeaderFormat: FormatterInput = { day: "numeric", weekday: "short" };
+const dayHeaderContent = (info: DayHeaderInfo) =>
+  `${info.dayNumberText}(${info.weekdayText})`;
 
-/** 週 / 4日 / 日ビューの日付ヘッダ ("23(日)")。既定は ja だと "23日(日)" / "23日日曜日" */
-const dayHeaderFormat: FormatterInput = (info) =>
-  `${info.date.day}(${weekdayFormat.format(info.date.marker)})`;
+/** 週ビューの表示期間。月をまたぐ週は両方の月、年をまたぐ週は両方の年を出す */
+const weekTitleFormat: FormatterInput = ({ start, end }) => {
+  if (!end) return `${start.year}年${start.month + 1}/${start.day}`;
+  const startText = `${start.year}年${start.month + 1}/${start.day}`;
+  const endText = `${end.month + 1}/${end.day}`;
+  return `${startText}–${start.year === end.year ? endText : `${end.year}年${endText}`}`;
+};
 
 /**
  * リストビューの日付見出し ("8/23")。既定は ja だと "2026年8月23日"。
@@ -175,7 +178,8 @@ export const calendarBaseOptions = {
   views: {
     // 日付ヘッダに日付を出すのは timeGrid 系だけ (月ビューは曜日だけでよい)。
     // 親の "timeGrid" に指定すると週 / 4日 / 日ビューすべてに効く
-    timeGrid: { dayHeaderFormat },
+    timeGrid: { dayHeaderFormat, dayHeaderContent },
+    timeGridWeek: { titleFormat: weekTitleFormat },
     timeGridFourDay: {
       type: "timeGrid",
       duration: { days: 4 },
