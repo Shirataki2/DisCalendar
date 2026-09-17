@@ -138,6 +138,51 @@ test.describe("スマートフォンの幅", () => {
   });
 });
 
+test.describe("幅390pxの週表示", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("日付と表示期間が移動・今日・週の開始曜日に追従する", async ({
+    page,
+  }) => {
+    await page.clock.setFixedTime(new Date("2026-12-31T12:00:00+09:00"));
+    await page.goto(`/dashboard/${guildId}`);
+    await viewTab(page, "週").click();
+
+    const title = page.locator(".calendar-shell").getByRole("heading").first();
+    const headers = page.getByRole("columnheader");
+    await expect(title).toHaveText("2026年12/27–2027年1/2");
+    await expect(headers).toHaveText([
+      "27(日)",
+      "28(月)",
+      "29(火)",
+      "30(水)",
+      "31(木)",
+      "1(金)",
+      "2(土)",
+    ]);
+
+    await page.getByTitle("次の期間 (→)").click();
+    await expect(title).toHaveText("2027年1/3–1/9");
+    await page.getByTitle("今日 (t)").click();
+    await expect(title).toHaveText("2026年12/27–2027年1/2");
+
+    const dialog = await openSettingsFromMenu(page);
+    await dialog.getByRole("combobox", { name: "週の開始曜日" }).click();
+    await page.getByRole("option", { name: "月曜日" }).click();
+    await page.keyboard.press("Escape");
+    await expect(title).toHaveText("2026年12/28–2027年1/3");
+    await expect(headers).toHaveText([
+      "28(月)",
+      "29(火)",
+      "30(水)",
+      "31(木)",
+      "1(金)",
+      "2(土)",
+      "3(日)",
+    ]);
+  });
+});
+
 async function setCreationDefaults(page: Page) {
   const dialog = await openSettingsFromMenu(page);
   await dialog.getByLabel("既定の色", { exact: true }).click();
