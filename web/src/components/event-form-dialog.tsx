@@ -174,6 +174,7 @@ function EventForm({
   const attachmentEventId =
     savedEvent?.id ?? (state.mode === "edit" ? state.event.id : undefined);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [mentionUserId, setMentionUserId] = useState("");
   const isEdit = state.mode === "edit";
   const initialValues = isEdit ? eventToFormValues(state.event) : state.values;
   // 連携を**新しく作る**には Bot と本人の両方に権限が要る。
@@ -208,7 +209,7 @@ function EventForm({
   } = form;
   useEffect(() => {
     closeGuard.current = () => {
-      if (isDirty || uploads.items.length > 0) {
+      if (isDirty || mentionUserId.length > 0 || uploads.items.length > 0) {
         setConfirmDiscard(true);
         return false;
       }
@@ -218,7 +219,13 @@ function EventForm({
     return () => {
       closeGuard.current = null;
     };
-  }, [closeGuard, isDirty, uploads.items.length, uploads.cancel]);
+  }, [
+    closeGuard,
+    isDirty,
+    mentionUserId,
+    uploads.items.length,
+    uploads.cancel,
+  ]);
 
   const [isAllDay, name, description, startDate, startTime] = useWatch({
     control,
@@ -429,7 +436,11 @@ function EventForm({
           {/* 通知の一覧はサーバー設定の「既定の事前通知」(#181) と同じ部品 */}
           <NotificationsField label="通知" />
           {mentionGuildId && (
-            <NotificationMentionsField guildId={mentionGuildId} />
+            <NotificationMentionsField
+              guildId={mentionGuildId}
+              userId={mentionUserId}
+              onUserIdChange={setMentionUserId}
+            />
           )}
 
           <Field data-invalid={errors.description ? true : undefined}>

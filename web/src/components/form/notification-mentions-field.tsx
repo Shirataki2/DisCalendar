@@ -28,7 +28,15 @@ import {
 } from "@/lib/event-form";
 import { useGuildRolesQuery, useMyPermissionsQuery } from "@/lib/query/guild";
 
-export function NotificationMentionsField({ guildId }: { guildId: string }) {
+export function NotificationMentionsField({
+  guildId,
+  userId,
+  onUserIdChange,
+}: {
+  guildId: string;
+  userId: string;
+  onUserIdChange: (value: string) => void;
+}) {
   const {
     control,
     setValue,
@@ -41,7 +49,6 @@ export function NotificationMentionsField({ guildId }: { guildId: string }) {
     permissions.data?.administrator ||
     (BigInt(permissions.data?.permissions ?? "0") & BigInt(131072)) !==
       BigInt(0);
-  const [userId, setUserId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const userIds = mentions.flatMap((m) => (m.type === "user" ? [m.id] : []));
@@ -156,7 +163,7 @@ export function NotificationMentionsField({ guildId }: { guildId: string }) {
           placeholder="Discord のユーザーID"
           value={userId}
           disabled={disabled || full}
-          onChange={(event) => setUserId(event.target.value)}
+          onChange={(event) => onUserIdChange(event.target.value)}
         />
         <Button
           type="button"
@@ -179,7 +186,7 @@ export function NotificationMentionsField({ guildId }: { guildId: string }) {
                 return;
               }
               add({ type: "user", id: parsed.data });
-              setUserId("");
+              onUserIdChange("");
             } catch (cause) {
               setError(describeApiError(cause));
             } finally {
