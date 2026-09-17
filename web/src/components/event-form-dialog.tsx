@@ -429,6 +429,34 @@ function EventForm({
             </div>
           </Field>
 
+          {mentionGuildId && (
+            <>
+              {attachmentEventId && (
+                <EventAttachments
+                  guildId={mentionGuildId}
+                  eventId={attachmentEventId}
+                  editable={!uploads.busy}
+                />
+              )}
+              <AttachmentPicker
+                guildId={mentionGuildId}
+                eventId={attachmentEventId}
+                items={uploads.items}
+                onChange={uploads.setItems}
+                busy={uploads.busy || isSubmitting}
+                onRemove={uploads.discard}
+                onRetry={() => {
+                  if (attachmentEventId) void uploads.upload(attachmentEventId);
+                }}
+              />
+              {savedEvent && uploads.items.length > 0 && (
+                <p role="status" className="text-sm">
+                  予定は保存済みです。添付ファイルの送信を完了してください。
+                </p>
+              )}
+            </>
+          )}
+
           {discordSync && (
             <DiscordEventField
               control={control}
@@ -441,33 +469,6 @@ function EventForm({
           )}
         </FieldGroup>
 
-        {mentionGuildId && (
-          <>
-            {attachmentEventId && (
-              <EventAttachments
-                guildId={mentionGuildId}
-                eventId={attachmentEventId}
-                editable={!uploads.busy}
-              />
-            )}
-            <AttachmentPicker
-              guildId={mentionGuildId}
-              eventId={attachmentEventId}
-              items={uploads.items}
-              onChange={uploads.setItems}
-              busy={uploads.busy || isSubmitting}
-              onRemove={uploads.discard}
-              onRetry={() => {
-                if (attachmentEventId) void uploads.upload(attachmentEventId);
-              }}
-            />
-            {savedEvent && uploads.items.length > 0 && (
-              <p role="status" className="text-sm">
-                予定は保存済みです。添付ファイルの送信を完了してください。
-              </p>
-            )}
-          </>
-        )}
         {isEdit && allowShare && (
           <EventShareControls key={state.event.id} event={state.event} />
         )}

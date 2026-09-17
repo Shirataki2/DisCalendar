@@ -270,7 +270,7 @@ export function AttachmentPicker({
         multiple
         accept={ATTACHMENT_ACCEPT}
         disabled={busy || !limits.data?.enabled}
-        className="block w-full min-w-0 text-sm"
+        className="block w-full min-w-0 rounded-md text-sm file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-foreground file:shadow-xs hover:file:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
         onChange={(e) => {
           select(e.target.files);
           e.target.value = "";
