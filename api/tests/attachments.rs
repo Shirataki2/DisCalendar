@@ -141,6 +141,34 @@ async fn deletion_outbox_survives_all_sql_paths_but_not_rollback(pool: PgPool) {
         .unwrap();
     assert_eq!(keys.len(), 2);
     assert!(keys.contains(&row.object_key) && keys.contains(&row.temporary_key));
+
+    // 通常API・MCPが共有する削除関数と、管理画面の一括削除の実クエリも通す。
+    for bulk in [false, true] {
+        let id = event(&pool, "111").await;
+        let row = attachments::reserve(&pool, "111", id, &input(1))
+            .await
+            .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        if bulk {
+            discalendar_api::models::admin_ops::delete_guild_events(&mut tx, "111", "222")
+                .await
+                .unwrap();
+        } else {
+            discalendar_api::models::events::delete(&mut *tx, "111", id)
+                .await
+                .unwrap();
+        }
+        tx.commit().await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM attachment_deletions WHERE object_key IN ($1,$2)",
+        )
+        .bind(&row.object_key)
+        .bind(&row.temporary_key)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 2);
+    }
 }
 
 #[sqlx::test(migrations = "./migrations")]

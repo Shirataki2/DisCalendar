@@ -458,3 +458,61 @@ test("保存先が未設定でも添付以外の予定作成を続けられる",
     `/local/api/events/${guild}/${(await response.json()).id}`,
   );
 });
+
+test("予定保存の応答前に閉じても、次に開いたフォームを上書きしない", async ({
+  page,
+}) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let savedId: number | undefined;
+  await page.route(`**/local/api/events/${guild}`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    savedId = (await response.json()).id;
+    await held;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.goto(`/dashboard/${guild}`);
+    await page.getByRole("button", { name: "新規作成" }).click();
+    const form = page.getByRole("dialog", { name: "予定を作成" });
+    await form.getByLabel("タイトル").fill("保存応答待ちの予定");
+    await expect(
+      form.getByLabel("ファイルを添付", { exact: true }),
+    ).toBeEnabled();
+    await form
+      .getByLabel("ファイルを添付", { exact: true })
+      .setInputFiles({ name: "案内.png", mimeType: "image/png", buffer: png });
+    await form.getByRole("button", { name: "作成", exact: true }).click();
+    await expect.poll(() => savedId).toBeDefined();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.keyboard.press("Escape");
+    await expect(form).not.toBeVisible();
+    await page.getByRole("button", { name: "新規作成" }).click();
+    await form.getByLabel("タイトル").fill("次の予定");
+    const response = page.waitForResponse(
+      (r) =>
+        r.url().endsWith(`/local/api/events/${guild}`) &&
+        r.request().method() === "POST",
+    );
+    release();
+    await response;
+    await expect(form.getByLabel("タイトル")).toHaveValue("次の予定");
+    await expect(
+      form.getByLabel("ファイルを添付", { exact: true }),
+    ).toBeEnabled();
+    expect(
+      await (
+        await page.request.get(
+          `/local/api/events/${guild}/${savedId}/attachments`,
+        )
+      ).json(),
+    ).toHaveLength(0);
+  } finally {
+    release();
+    if (savedId)
+      await page.request.delete(`/local/api/events/${guild}/${savedId}`);
+  }
+});

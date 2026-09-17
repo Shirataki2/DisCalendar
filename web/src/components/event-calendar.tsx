@@ -449,7 +449,9 @@ export function EventCalendar({
         ? await updateEvent.mutateAsync({ id: dialog.event.id, input })
         : await createEvent.mutateAsync(input);
     // 添付だけが失敗しても、次の保存で同じ予定を更新する。
-    setDialog((current) => (current ? { mode: "edit", event: saved } : null));
+    setDialog((current) =>
+      current === dialog ? { mode: "edit", event: saved } : current,
+    );
     return saved;
   };
 

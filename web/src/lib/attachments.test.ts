@@ -5,15 +5,40 @@ import {
   type PendingAttachment,
   uploadAttachment,
 } from "./attachments";
+import { invalidateEvents } from "./query/events";
+import { queryKeys } from "./query/keys";
+
+vi.mock("./query/admin-cache", () => ({
+  revalidateAdminPagesQuietly: vi.fn(),
+}));
 
 vi.mock("@/lib/api", async (original) => {
   const actual = await original<typeof import("@/lib/api")>();
   return {
     ...actual,
     api: {
+      ...actual.api,
       attachments: { reserve: vi.fn(), complete: vi.fn(), remove: vi.fn() },
     },
   };
+});
+
+test("予定削除と管理画面の一括削除は添付一覧・使用量のキャッシュも更新する", async () => {
+  const client = new QueryClient();
+  const limits = queryKeys.attachments.limits("111");
+  const files = queryKeys.attachments.event("111", 1);
+  const other = queryKeys.attachments.limits("222");
+  for (const key of [limits, files, other]) client.setQueryData(key, []);
+  await invalidateEvents(
+    client,
+    { client: api.events, keys: queryKeys.events },
+    "111",
+    true,
+  );
+  expect(client.getQueryState(limits)?.isInvalidated).toBe(true);
+  expect(client.getQueryState(files)?.isInvalidated).toBe(true);
+  expect(client.getQueryState(other)?.isInvalidated).toBe(false);
+  client.clear();
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -93,3 +118,5 @@ test("形式・サイズ上限を選択時に検証する", () => {
     attachmentValidation(new File([new Uint8Array(10485761)], "超過.pdf")),
   ).toBeTruthy();
 });
+
+import { QueryClient } from "@tanstack/react-query";
