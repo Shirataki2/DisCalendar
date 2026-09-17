@@ -161,9 +161,9 @@ test.describe("幅390pxの週表示", () => {
       "2(土)",
     ]);
 
-    await page.getByRole("button", { name: "次の期間" }).click();
+    await page.getByTitle("次の期間 (→)").click();
     await expect(title).toHaveText("2027年1/3–1/9");
-    await page.getByRole("button", { name: "今日" }).click();
+    await page.getByTitle("今日 (t)").click();
     await expect(title).toHaveText("2026年12/27–2027年1/2");
 
     const dialog = await openSettingsFromMenu(page);
