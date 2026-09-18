@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # 更新履歴 (web/src/content/changelog.mdx) からリリースノートに使うエントリを取り出す
 # (release.yml が GitHub Release の本文に使う)。
-#   .github/scripts/release-notes.sh [タグ] [changelog のパス]
+#   .github/scripts/release-notes.sh [タグ] [changelog のパス] [個別ファイルのディレクトリ]
 # 更新履歴はバージョン見出し「## vX.Y.Z (YYYY年M月D日)」ごとにエントリをまとめている
 # (見出しはリリース準備時に bump-version.sh が挿入する) ので、正式版のタグならそのバージョンの節を出す。
 # タグを省いたとき / プレリリース (v3.1.0-rc.1) のときは、まだバージョン見出しが付いていない
-# 先頭の未リリース分 (最初の ## より上のエントリ) を出す。
+# changelog.d/*.md と先頭の未リリース分 (最初の ## より上のエントリ) を出す。
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
@@ -13,6 +13,9 @@ cd "$root"
 
 tag="${1:-}"
 file="${2:-web/src/content/changelog.mdx}"
+fragments_dir="${3:-changelog.d}"
+# shellcheck source=changelog-fragments.sh
+source "$root/.github/scripts/changelog-fragments.sh"
 
 if [ -n "$tag" ] && [[ ! "$tag" =~ ^v[0-9] ]]; then
   echo "::error::タグは v3.1.0 の形式で渡す (got: $tag)" >&2
@@ -31,7 +34,9 @@ if [ -n "$tag" ] && [[ "$tag" != *-* ]]; then
 else
   # 未リリース分: 最初のバージョン見出し (## ...) より上にある、最初のエントリ (### ...) 以降。
   # それより前の MDX コメントや前書きは出さない
-  awk '/^## / { exit } /^### / { picked = 1 } picked' "$file" > "$tmp/section.md"
+  load_changelog_fragments "$fragments_dir"
+  print_changelog_fragments > "$tmp/section.md"
+  awk '/^## / { exit } /^### / { picked = 1 } picked' "$file" >> "$tmp/section.md"
 fi
 
 # 更新履歴の中のリンクはサイト内の絶対パス (/docs/...) なので、GitHub 上でも辿れるよう URL に直す

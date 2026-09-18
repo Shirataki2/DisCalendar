@@ -98,7 +98,7 @@ CI の `version` ジョブが `.github/scripts/check-versions.sh` でずれを�
 
 ```sh
 # main にマージ済みの状態から
-.claude/skills/release/scripts/bump-version.sh minor   # 4 か所の書き換え + 更新履歴にバージョン見出しを挿入 → PR にしてマージ
+.claude/skills/release/scripts/bump-version.sh minor   # 4 か所の書き換え + changelog.d の集約・削除とバージョン見出しを挿入 → PR にしてマージ
 git switch main && git pull --ff-only
 git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
 ```

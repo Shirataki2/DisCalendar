@@ -53,6 +53,10 @@ jobs:
       - uses: actions/checkout@v7
       - name: バージョンの整合
         run: .github/scripts/check-versions.sh
+      - name: 更新履歴の集約テスト
+        run: bash .github/scripts/test-changelog.sh
+      - name: 未リリース記事の形式
+        run: .github/scripts/release-notes.sh > /dev/null
 
   web:
     name: web
