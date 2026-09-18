@@ -99,6 +99,13 @@ worktree 内で気をつけること:
 
 ### 2. 実装と検証
 
+- ローカルの worktree では、実装に着手する前に次を実行する。`.worktreeinclude` によるコピーが効かなかった場合も、
+  不足している `.env` 系だけをメインの checkout から補完する (既存ファイルは上書きしない)。クラウドセッションでは実行しない
+
+  ```bash
+  .claude/skills/issue-driven-dev/scripts/ensure-worktree-env.sh
+  ```
+
 - Issue の完了条件を満たす最小の変更にする。設計判断で迷ったら旧実装の挙動を根拠にし、PR 本文に理由を書く
 - 変更した領域の検証を手元で通す (CI と同じ):
   - web (`web/` で): `pnpm lint` / `pnpm exec tsc --noEmit` / `pnpm test` / `pnpm build`。カレンダー周りを触ったら `pnpm e2e` (Playwright、[開発・テスト環境](../../../docs/development.md#テスト))
