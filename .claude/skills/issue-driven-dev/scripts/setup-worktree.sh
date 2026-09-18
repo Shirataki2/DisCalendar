@@ -67,19 +67,7 @@ else
 fi
 
 # .env 系 (gitignore 対象) をコピーする。既にあるものは上書きしない
-echo "設定ファイルのコピー:"
-copied=0
-while IFS= read -r f; do
-  rel=${f#./}
-  dest="${abs_path}/${rel}"
-  if [ -e "$dest" ]; then continue; fi
-  mkdir -p "$(dirname "$dest")"
-  cp "$f" "$dest"
-  echo "  - ${rel}"
-  copied=$((copied + 1))
-done < <(find . -maxdepth 2 \( -path ./.claude -o -path ./tmp -o -path ./target -o -path '*/node_modules' \) -prune -o \
-           \( -name '.env' -o -name '.env.*' \) ! -name '.env.example' -type f -print)
-[ "$copied" -gt 0 ] || echo "  (コピーするものはありませんでした)"
+"$script_dir/ensure-worktree-env.sh" "$abs_path"
 
 if [ "$install" = 1 ] && [ -f "${abs_path}/web/package.json" ]; then
   echo "web/ で pnpm install を実行します"
