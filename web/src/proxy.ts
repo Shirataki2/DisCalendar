@@ -5,7 +5,10 @@ export function proxy(request: NextRequest) {
   // レイアウトには子ページのパスが渡らないため、実際のパスで必ず上書きして渡す。
   // 認証・認可は従来どおりセッション検証と API に任せる。
   const headers = new Headers(request.headers);
-  headers.set(RETURN_TO_HEADER, request.nextUrl.pathname);
+  headers.set(
+    RETURN_TO_HEADER,
+    `${request.nextUrl.pathname}${request.nextUrl.search}`,
+  );
   return NextResponse.next({ request: { headers } });
 }
 

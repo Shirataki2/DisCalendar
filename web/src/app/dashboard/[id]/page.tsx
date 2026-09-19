@@ -10,7 +10,11 @@ import { GuildDashboard } from "@/components/guild-dashboard";
 import { ApiError } from "@/lib/api";
 import { serverApi } from "@/lib/api/server";
 import type { Guild } from "@/lib/api/types";
-import { loginUrl } from "@/lib/login-redirect";
+import {
+  calendarDateParam,
+  calendarEventParam,
+  loginUrl,
+} from "@/lib/login-redirect";
 import { queryKeys } from "@/lib/query/keys";
 
 export const metadata: Metadata = {
@@ -47,8 +51,14 @@ async function loadGuild(
 
 export default async function GuildCalendarPage({
   params,
+  searchParams,
 }: PageProps<"/dashboard/[id]">) {
   const { id } = await params;
+  const query = await searchParams;
+  const initialDate = calendarDateParam(query.date);
+  const initialEventId = initialDate
+    ? calendarEventParam(query.event)
+    : undefined;
   if (!/^\d{1,20}$/.test(id)) {
     notFound();
   }
@@ -58,14 +68,21 @@ export default async function GuildCalendarPage({
   const result = await loadGuild(id, queryClient);
   if (!result.ok) {
     if (result.error instanceof ApiError && result.error.status === 401) {
-      redirect(loginUrl(`/dashboard/${id}`));
+      const target = new URLSearchParams();
+      if (initialDate) target.set("date", initialDate);
+      if (initialEventId) target.set("event", String(initialEventId));
+      redirect(loginUrl(`/dashboard/${id}${target.size ? `?${target}` : ""}`));
     }
     return <GuildUnavailable error={result.error} />;
   }
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      <GuildDashboard guild={result.guild} />
+      <GuildDashboard
+        guild={result.guild}
+        initialDate={initialDate}
+        initialEventId={initialEventId}
+      />
     </HydrationBoundary>
   );
 }

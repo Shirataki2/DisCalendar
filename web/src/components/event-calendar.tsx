@@ -86,6 +86,9 @@ interface Props {
   guildId: string;
   /** false なら閲覧のみ (restricted モードで管理権限も編集ロールもない) */
   canEdit: boolean;
+  /** URL から指定された初期表示日と、表示後に開く予定。通常のサーバーカレンダーだけで使う */
+  initialDate?: string;
+  initialEventId?: number;
   /**
    * 新規作成の事前通知の初期値 (サーバー設定の「新しい予定の既定の事前通知」、#181)。
    * 未指定なら (管理コンソールなど) 旧フォームの既定 (1 日前と 1 時間前)
@@ -236,6 +239,8 @@ function QuickAddPopover({
 export function EventCalendar({
   guildId,
   canEdit,
+  initialDate,
+  initialEventId,
   defaultNotifications,
   eventsSource = dashboardEventsSource,
   settingsOverride,
@@ -246,6 +251,7 @@ export function EventCalendar({
   const settings = settingsOverride ?? savedSettings;
   const currentSettings = () => settingsOverride ?? readCalendarSettings();
   const calendarRef = useRef<CalendarRef>(null);
+  const eventToOpen = useRef(initialEventId);
   const quickAddId = useRef(0);
   const [range, setRange] = useState<EventRange | null>(null);
   const [popover, setPopover] = useState<PopoverState | null>(null);
@@ -256,18 +262,6 @@ export function EventCalendar({
   // 初期ビュー (#48 / #96) と週の開始曜日は横断カレンダーと共通 (calendar-base.tsx)
   const { initialView, firstDay, scrollTime } =
     useCalendarBase(settingsOverride);
-  const [initialDate, setInitialDate] = useState<string>();
-  useEffect(() => {
-    if (settingsOverride) return;
-    const date = new URLSearchParams(window.location.search).get("date");
-    if (
-      date &&
-      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
-      !Number.isNaN(Date.parse(date))
-    )
-      setInitialDate(date);
-  }, [settingsOverride]);
-
   const guideDate = guide?.date;
   useEffect(() => {
     if (guideDate) calendarRef.current?.getApi().gotoDate(guideDate);
@@ -553,6 +547,12 @@ export function EventCalendar({
               select={handleSelect}
               dateClick={handleDateClick}
               eventClick={handleEventClick}
+              eventDidMount={(info) => {
+                const source = sourceOf(info.event);
+                if (!source || source.id !== eventToOpen.current) return;
+                eventToOpen.current = undefined;
+                setPopover({ eventId: source.id, anchor: info.el });
+              }}
               eventChange={handleEventChange}
             />
           )}
