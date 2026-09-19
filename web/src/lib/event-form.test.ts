@@ -19,6 +19,8 @@ import {
 // 日付はローカル時刻で組み立てる (API の JST 文字列はブラウザのローカル時刻をそのまま JST とみなすので、
 // テストの実行環境のタイムゾーンに依存しない)
 const day = (d: number, h = 0, m = 0) => new Date(2026, 7, d, h, m);
+const utc = (d: number, h: number, m = 0) =>
+  new Date(Date.UTC(2026, 7, d, h, m));
 
 const valid: EventFormValues = {
   name: "定例会",
@@ -151,8 +153,6 @@ describe("eventFormSchema", () => {
 describe("withCheckedDiscordEvent", () => {
   // 予定の開始は 2026-08-23 10:00 (ローカル = JST とみなす)。
   // 判定に渡す「今」は UTC で作る (nowInJst が JST の壁時計に読み替える)
-  const utc = (d: number, h: number, m = 0) =>
-    new Date(Date.UTC(2026, 7, d, h, m));
   const linked: EventFormValues = { ...valid, discordEvent: true };
 
   it("開始が未来ならそのまま (同じ参照を返す)", () => {
@@ -349,9 +349,9 @@ describe("newEventFormValues", () => {
 
 describe("defaultEventFormValues", () => {
   it.each([
-    ["区切り直前", day(23, 13, 59), day(23), "14:00", day(23), "14:30"],
-    ["区切り時刻", day(23, 14), day(23), "15:00", day(23), "15:30"],
-    ["23時台", day(23, 23, 47), day(24), "00:00", day(24), "00:30"],
+    ["区切り直前", utc(23, 4, 59), day(23), "14:00", day(23), "14:30"],
+    ["区切り時刻", utc(23, 5), day(23), "15:00", day(23), "15:30"],
+    ["23時台", utc(23, 14, 47), day(24), "00:00", day(24), "00:30"],
   ])(
     "%sでも現在より後の正時から30分にする",
     (_case, now, startDate, startTime, endDate, endTime) => {
@@ -389,7 +389,7 @@ describe("個人設定を使った新規作成", () => {
   it("個人通知はサーバーより優先し、日付をまたいで1時間後にする", () => {
     expect(
       defaultEventFormValues(
-        day(23, 23, 45),
+        utc(23, 14, 45),
         [{ num: 1, unit: "days" }],
         defaults,
       ),

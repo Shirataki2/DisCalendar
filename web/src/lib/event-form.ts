@@ -371,6 +371,6 @@ export function defaultEventFormValues(
   defaultNotifications?: readonly Notification[],
   defaults: EventCreationDefaults = DEFAULT_EVENT_CREATION_SETTINGS,
 ): EventFormValues {
-  const start = addHours(startOfHour(now), 1);
+  const start = addHours(startOfHour(nowInJst(now)), 1);
   return newEventFormValues(start, null, false, defaultNotifications, defaults);
 }
