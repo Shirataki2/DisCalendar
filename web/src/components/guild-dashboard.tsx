@@ -17,6 +17,8 @@ import { ROUTES } from "@/lib/site";
 
 interface Props {
   guild: Guild;
+  initialDate?: string;
+  initialEventId?: number;
 }
 
 /**
@@ -24,7 +26,7 @@ interface Props {
  * restricted 設定と自分の権限は TanStack Query のキャッシュから読むので、
  * サーバー設定ダイアログで保存するとカレンダーの編集可否がその場で切り替わる
  */
-export function GuildDashboard({ guild }: Props) {
+export function GuildDashboard({ guild, initialDate, initialEventId }: Props) {
   const guildId = guild.guild_id;
   const configQuery = useGuildConfigQuery(guildId);
   const permissionsQuery = useMyPermissionsQuery(guildId);
@@ -84,6 +86,8 @@ export function GuildDashboard({ guild }: Props) {
       <EventCalendar
         guildId={guildId}
         canEdit={canEdit}
+        initialDate={initialDate}
+        initialEventId={initialEventId}
         // 新規作成の事前通知の初期値はサーバー設定 (#181)。RSC で hydrate 済みなので通常は取れている
         defaultNotifications={configQuery.data?.default_notifications}
         // 権限を取得できるまでは無効 (disabled + 案内) 側に倒す

@@ -10,13 +10,25 @@ describe("ログイン後のカレンダーへの復帰", () => {
   );
 
   it.each([
+    "/dashboard/123?date=2026-12-31",
+    "/dashboard/123?date=2026-12-31&event=42",
+  ])("安全な予定表示パラメーターを保持する: %s", (path) => {
+    expect(dashboardReturnPath(path)).toBe(path);
+  });
+
+  it.each([
     null,
     "",
     "https://example.com",
+    "https://[",
     "//example.com",
     "/dashboard/../admin",
     "/admin",
     "/dashboard/123?next=https://example.com",
+    "/dashboard/123?date=2026-02-31&event=42",
+    "/dashboard/123?date=2026-12-31&event=0",
+    "/dashboard/123?date=2026-12-31&event=2147483648",
+    "/dashboard/123?date=2026-12-31&event=1&event=2",
     "/dashboard/123\n",
     "/dashboard/%2f%2fexample.com",
     "/dashboard/123456789012345678901",
@@ -30,6 +42,9 @@ describe("ログイン後のカレンダーへの復帰", () => {
     expect(loginUrl("https://example.com")).toBe("/login");
     expect(loginUrl("/dashboard/123")).toBe(
       "/login?returnTo=%2Fdashboard%2F123",
+    );
+    expect(loginUrl("/dashboard/123?date=2026-12-31&event=42")).toBe(
+      "/login?returnTo=%2Fdashboard%2F123%3Fdate%3D2026-12-31%26event%3D42",
     );
   });
 });

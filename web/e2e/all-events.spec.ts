@@ -15,9 +15,14 @@ test.describe.configure({ mode: "serial" });
 const stamp = Date.now().toString(36);
 const adminTitle = `E2E 横断 ${stamp} admin`;
 const memberTitle = `E2E 横断 ${stamp} member`;
+const yearEndTitle = `E2E 横断 ${stamp} 年越し`;
 
 test.afterAll(async () => {
-  await deleteEventsNamed(DATABASE_URL, [adminTitle, memberTitle]);
+  await deleteEventsNamed(DATABASE_URL, [
+    adminTitle,
+    memberTitle,
+    yearEndTitle,
+  ]);
 });
 
 test("両方のサーバーの予定がまとめて表示され、作成はできない", async ({
@@ -100,14 +105,58 @@ test("予定のポップオーバーにサーバー名が出て、そのサー�
   });
   await expect(link).toHaveAttribute(
     "href",
-    `/dashboard/${E2E_GUILDS.admin.id}`,
+    new RegExp(
+      `^/dashboard/${E2E_GUILDS.admin.id}\\?date=\\d{4}-\\d{2}-\\d{2}&event=\\d+$`,
+    ),
   );
   await link.click();
-  await expect(page).toHaveURL(`/dashboard/${E2E_GUILDS.admin.id}`);
+  await expect(page).toHaveURL(
+    new RegExp(
+      `/dashboard/${E2E_GUILDS.admin.id}\\?date=\\d{4}-\\d{2}-\\d{2}&event=\\d+$`,
+    ),
+  );
   await expect(
     page.getByRole("main").getByText(E2E_GUILDS.admin.name),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "新規作成" })).toBeEnabled();
+  await expect(
+    page.getByRole("dialog").filter({ hasText: adminTitle }),
+  ).toBeVisible();
+});
+
+test("当月外の年をまたぐ終日予定を、移動先でも開く", async ({ page }) => {
+  await insertEvent(DATABASE_URL, E2E_GUILDS.admin.id, {
+    name: yearEndTitle,
+    start_at: "2026-12-31T00:00:00",
+    end_at: "2027-01-01T00:00:00",
+    is_all_day: true,
+  });
+  await page.clock.setFixedTime(new Date("2026-12-15T12:00:00+09:00"));
+  await page.goto("/dashboard/all");
+
+  const popover = await openEventPopover(page, yearEndTitle);
+  const link = popover.getByRole("link", {
+    name: "このサーバーのカレンダーを開く",
+  });
+  await expect(link).toHaveAttribute(
+    "href",
+    new RegExp(
+      `^/dashboard/${E2E_GUILDS.admin.id}\\?date=2026-12-31&event=\\d+$`,
+    ),
+  );
+  await link.click();
+
+  await expect(page.getByText("2026年12月", { exact: true })).toBeVisible();
+  const target = page.getByRole("dialog").filter({ hasText: yearEndTitle });
+  await expect(target).toBeVisible();
+  await expect(target.getByRole("button", { name: "編集" })).toBeVisible();
+
+  const url = page.url();
+  await deleteEventsNamed(DATABASE_URL, [yearEndTitle]);
+  await page.goto(url);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.goto(`/dashboard/${E2E_GUILDS.admin.id}?date=invalid&event=1`);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
 test("サイドバーとサーバー選択画面から開ける", async ({ page }) => {

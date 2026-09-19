@@ -264,11 +264,16 @@ export function JoinedEventsCalendar({ guilds }: Props) {
         canEdit={false}
         color={popoverEvent ? colors.get(popoverEvent.guild_id) : undefined}
         guild={
-          popoverGuild && {
-            name: popoverGuild.name,
-            iconUrl: popoverGuild.iconUrl,
-            href: `/dashboard/${popoverGuild.id}`,
-          }
+          popoverGuild && popoverEvent
+            ? {
+                name: popoverGuild.name,
+                iconUrl: popoverGuild.iconUrl,
+                href: `/dashboard/${popoverGuild.id}?${new URLSearchParams({
+                  date: popoverEvent.start_at.slice(0, 10),
+                  event: String(popoverEvent.id),
+                })}`,
+              }
+            : undefined
         }
         onClose={() => setPopover(null)}
       />
