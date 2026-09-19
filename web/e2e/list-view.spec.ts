@@ -17,9 +17,12 @@ const VIEW_TABS = ["月", "週", "4日", "日", "リスト"];
 test("リストに切り替えると予定が並び、クリックで概要ポップオーバーが開く", async ({
   page,
 }) => {
+  const noon = new Date();
+  noon.setUTCHours(3, 0, 0, 0);
+  await page.clock.setFixedTime(noon);
   await page.goto(`/dashboard/${guildId}`);
   await expect(page.getByRole("grid")).toBeVisible();
-  // 既定の日時は今日なので、今月のリストに必ず入る
+  // 既定の「次の正時」が今日に収まるよう、日本時間の正午で確認する。
   await createEvent(page, title);
 
   await page.getByRole("tab", { name: "リスト", exact: true }).click();

@@ -238,7 +238,7 @@ test("個人既定値は新規作成と再読込に反映され、編集・複�
     const popover = await openEventPopover(page, title);
     await popover.getByRole("button", { name: action }).click();
     const dialog = page.getByRole("dialog", {
-      name: action === "編集" ? "予定を編集" : "予定を作成",
+      name: action === "編集" ? "予定を編集" : "予定を複製",
     });
     await expect(dialog.getByLabel("色", { exact: true })).toContainText(
       "#F44336",

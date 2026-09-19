@@ -139,6 +139,7 @@ function TutorialSession({ onRestart }: { onRestart: () => void }) {
       </div>
       <div className="flex flex-1 flex-col [&_.calendar-shell]:h-[max(32rem,60dvh)] [&_.calendar-shell]:flex-none">
         <EventCalendar
+          guildName={"練習用サーバー"}
           guildId={TUTORIAL_GUILD_ID}
           canEdit
           eventsSource={source}

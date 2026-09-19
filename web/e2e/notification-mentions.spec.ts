@@ -23,6 +23,11 @@ test("メンション先を作成・編集・複製でき、日時変更でも�
   await page.goto(`/dashboard/${guildId}`);
   await page.getByRole("button", { name: "新規作成", exact: true }).click();
   const dialog = page.getByRole("dialog");
+  await dialog
+    .locator("summary")
+    .filter({ hasText: "通知のメンション先" })
+    .click();
+  await dialog.locator("summary").filter({ hasText: "事前通知" }).click();
   const title = `メンション ${Date.now()}`;
   await dialog.getByLabel("タイトル").fill(title);
   await dialog
@@ -70,6 +75,10 @@ test("メンション先を作成・編集・複製でき、日時変更でも�
   expect(event.notification_mentions).toEqual(mentions);
   const popover = await openEventPopover(page, title);
   await popover.getByRole("button", { name: "編集", exact: true }).click();
+  await dialog
+    .locator("summary")
+    .filter({ hasText: "通知のメンション先" })
+    .click();
   await expect(
     dialog.getByRole("checkbox", { name: "@everyone（全員）", exact: true }),
   ).toBeChecked();
@@ -93,6 +102,10 @@ test("メンション先を作成・編集・複製でき、日時変更でも�
   );
   const reopened = await openEventPopover(page, title);
   await reopened.getByRole("button", { name: "複製", exact: true }).click();
+  await dialog
+    .locator("summary")
+    .filter({ hasText: "通知のメンション先" })
+    .click();
   await expect(
     dialog.getByRole("checkbox", { name: "@everyone（全員）", exact: true }),
   ).toBeChecked();
@@ -108,6 +121,10 @@ test("メンション先を作成・編集・複製でき、日時変更でも�
   expect(copy.notification_mentions).toEqual(mentions);
   const edit = await openEventPopover(page, title);
   await edit.getByRole("button", { name: "編集", exact: true }).click();
+  await dialog
+    .locator("summary")
+    .filter({ hasText: "通知のメンション先" })
+    .click();
   await dialog
     .getByRole("checkbox", { name: "@everyone（全員）", exact: true })
     .uncheck();

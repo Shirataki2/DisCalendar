@@ -27,6 +27,10 @@ const editedTitle = `E2E 予定 ${stamp} (編集済み)`;
 const duplicatedTitle = `E2E 予定 ${stamp} (複製)`;
 
 test.beforeEach(async ({ page }) => {
+  // 23時台も既定の「次の正時」が翌日にならないよう、日本時間の正午で確認する。
+  const noon = new Date();
+  noon.setUTCHours(3, 0, 0, 0);
+  await page.clock.setFixedTime(noon);
   await page.goto(`/dashboard/${guildId}`);
   await expect(page.getByRole("grid")).toBeVisible();
 });
@@ -74,17 +78,27 @@ test("予定をクリックすると概要が出て、編集ダイアログか�
   await expect(reopened).toContainText(`最終更新:${E2E_USER.name}`);
 });
 
-test("複製すると元の内容が入った作成ダイアログが開き、新しい予定として保存できる", async ({
+test("複製すると元の内容が入った複製ダイアログが開き、新しい予定として保存できる", async ({
   page,
 }) => {
   const popover = await openEventPopover(page, editedTitle);
   await popover.getByRole("button", { name: "複製" }).click();
 
-  // 元のタイトル・説明が入った「作成」ダイアログが開く
-  const dialog = page.getByRole("dialog", { name: "予定を作成" });
+  // 元のタイトル・説明が入った「複製」ダイアログが開く
+  const dialog = page.getByRole("dialog", { name: "予定を複製" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel("タイトル")).toHaveValue(editedTitle);
   await expect(dialog.getByLabel("説明")).toHaveValue("E2E で編集した説明");
+  const inherited = dialog.getByText("元の予定の日時を引き継いでいます。", {
+    exact: false,
+  });
+  await expect(inherited).toBeVisible();
+  await expect(inherited).toContainText(
+    await dialog.getByLabel("開始時刻").inputValue(),
+  );
+  await expect(inherited).toContainText(
+    await dialog.getByLabel("終了時刻").inputValue(),
+  );
   await dialog.getByLabel("タイトル").fill(duplicatedTitle);
   const created = page.waitForResponse(
     (res) => eventsApi.test(res.url()) && res.request().method() === "POST",

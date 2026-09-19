@@ -7,6 +7,7 @@ import { api, describeApiError } from "@/lib/api";
 import type { EventAttachment } from "@/lib/api/types";
 import {
   ATTACHMENT_ACCEPT,
+  ATTACHMENT_MAX_BYTES,
   ATTACHMENT_MAX_FILES,
   attachmentValidation,
   type PendingAttachment,
@@ -15,9 +16,9 @@ import { useAttachmentLimits } from "@/lib/query/attachments";
 import { queryKeys } from "@/lib/query/keys";
 
 const sizeText = (size: number) =>
-  size < 1024 * 1024
-    ? `${Math.ceil(size / 1024)} KiB`
-    : `${(size / (1024 * 1024)).toFixed(1)} MiB`;
+  size < 1_000_000
+    ? `${Math.ceil(size / 1000)} KB`
+    : `${(size / 1_000_000).toFixed(1)} MB`;
 
 export function EventAttachments({
   guildId,
@@ -277,7 +278,7 @@ export function AttachmentPicker({
         }}
       />
       <p className="text-xs text-muted-foreground">
-        JPEG・PNG・WebP・PDF / 1件10MiB、予定ごと10件、サーバー全体1GiBまで
+        JPEG・PNG・WebP・PDF / 1件 約10.5 MB、予定ごと10件まで
       </p>
       {limits.data && !limits.data.enabled && (
         <p>添付ファイルは現在利用できません</p>
@@ -290,12 +291,22 @@ export function AttachmentPicker({
           </Button>
         </p>
       )}
-      {limits.data?.enabled && (
-        <p className="text-xs text-muted-foreground">
-          サーバー使用量（送信待ちを含む）: {sizeText(limits.data.used_bytes)} /
-          1 GiB
+      <details className="text-xs text-muted-foreground">
+        <summary className="min-h-11 cursor-pointer content-center rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
+          容量制限とサーバー使用量
+        </summary>
+        <p>
+          1件 {ATTACHMENT_MAX_BYTES.toLocaleString("ja-JP")} バイト（10
+          MiB）、サーバー全体 1,073,741,824 バイト（1
+          GiB）まで。空のファイルは添付できません。
         </p>
-      )}
+        {limits.data?.enabled && (
+          <p className="mt-1">
+            サーバー使用量（送信待ちを含む）: {sizeText(limits.data.used_bytes)}{" "}
+            / 約1.07 GB
+          </p>
+        )}
+      </details>
       <ul className="space-y-2" aria-live="polite">
         {items.map((item) => (
           <li key={item.key} className="break-all rounded border p-2">
