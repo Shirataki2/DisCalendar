@@ -1,4 +1,5 @@
 import {
+  addHours,
   addMinutes,
   format,
   isBefore,
@@ -364,12 +365,12 @@ export function newEventFormValues(
   };
 }
 
-/** 「新規作成」ボタンの初期値。今の正時から個人設定の長さ (未指定なら30分)。 */
+/** 「新規作成」ボタンの初期値。次の正時から個人設定の長さ (未指定なら30分)。 */
 export function defaultEventFormValues(
   now = new Date(),
   defaultNotifications?: readonly Notification[],
   defaults: EventCreationDefaults = DEFAULT_EVENT_CREATION_SETTINGS,
 ): EventFormValues {
-  const start = startOfHour(now);
+  const start = addHours(startOfHour(now), 1);
   return newEventFormValues(start, null, false, defaultNotifications, defaults);
 }

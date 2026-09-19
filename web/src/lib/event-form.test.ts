@@ -348,15 +348,22 @@ describe("newEventFormValues", () => {
 });
 
 describe("defaultEventFormValues", () => {
-  it("今の HH:00 〜 HH:30 (旧フォームと同じ既定値)", () => {
-    expect(defaultEventFormValues(day(23, 14, 47))).toMatchObject({
-      isAllDay: false,
-      startDate: day(23),
-      startTime: "14:00",
-      endDate: day(23),
-      endTime: "14:30",
-    });
-  });
+  it.each([
+    ["区切り直前", day(23, 13, 59), day(23), "14:00", day(23), "14:30"],
+    ["区切り時刻", day(23, 14), day(23), "15:00", day(23), "15:30"],
+    ["23時台", day(23, 23, 47), day(24), "00:00", day(24), "00:30"],
+  ])(
+    "%sでも現在より後の正時から30分にする",
+    (_case, now, startDate, startTime, endDate, endTime) => {
+      expect(defaultEventFormValues(now)).toMatchObject({
+        isAllDay: false,
+        startDate,
+        startTime,
+        endDate,
+        endTime,
+      });
+    },
+  );
 
   it("サーバー設定の既定の事前通知 (#181) を初期値にする (空なら通知なし)", () => {
     const thirty = [{ num: 30, unit: "minutes" as const }];
@@ -389,9 +396,9 @@ describe("個人設定を使った新規作成", () => {
     ).toMatchObject({
       color: "#2196F3",
       notifications: [],
-      startTime: "23:00",
+      startTime: "00:00",
       endDate: day(24),
-      endTime: "00:00",
+      endTime: "01:00",
     });
   });
   it("範囲選択は終了を優先する", () => {
