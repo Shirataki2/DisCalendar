@@ -86,7 +86,10 @@ export interface E2EGuild {
 export const E2E_GUILDS = {
   editorRoles: {
     id: "200000000000000009",
-    name: displayName("E2E Editor Roles Guild", "運営チーム"),
+    name: displayName(
+      "E2E Editor Roles Guild With A Very Long Name For Narrow Screens",
+      "運営チーム",
+    ),
     permissions: "1024",
     owner: false,
     botJoined: true,

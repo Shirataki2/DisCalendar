@@ -10,6 +10,8 @@ import { GuildDashboard } from "@/components/guild-dashboard";
 import { ApiError } from "@/lib/api";
 import { serverApi } from "@/lib/api/server";
 import type { Guild } from "@/lib/api/types";
+import { getUserGuilds, guildAccessLabel, guildIconUrl } from "@/lib/discord";
+import { loadJoinedGuildIds } from "@/lib/joined-guilds";
 import {
   calendarDateParam,
   calendarEventParam,
@@ -22,6 +24,21 @@ export const metadata: Metadata = {
 };
 
 type LoadResult = { ok: true; guild: Guild } | { ok: false; error: unknown };
+
+async function loadGuildChoices() {
+  const guilds = await getUserGuilds().catch(() => null);
+  if (!guilds) return [];
+  const joined = await loadJoinedGuildIds(guilds);
+  if (!joined.ok) return [];
+  return guilds
+    .filter((guild) => joined.ids.has(guild.id))
+    .map((guild) => ({
+      id: guild.id,
+      name: guild.name,
+      iconUrl: guildIconUrl(guild),
+      accessLabel: guildAccessLabel(guild),
+    }));
+}
 
 // ギルド情報・restricted 設定・自分の権限をまとめて取る。
 // メンバーでない / Bot 未参加なら API が 403 を返すので、ここで弾かれる。
@@ -65,7 +82,10 @@ export default async function GuildCalendarPage({
 
   // リクエストごとに作る (リクエスト間でキャッシュを共有しない)
   const queryClient = new QueryClient();
-  const result = await loadGuild(id, queryClient);
+  const [result, loadedChoices] = await Promise.all([
+    loadGuild(id, queryClient),
+    loadGuildChoices(),
+  ]);
   if (!result.ok) {
     if (result.error instanceof ApiError && result.error.status === 401) {
       const target = new URLSearchParams();
@@ -76,10 +96,24 @@ export default async function GuildCalendarPage({
     return <GuildUnavailable error={result.error} />;
   }
 
+  const guildChoices = loadedChoices.some((guild) => guild.id === id)
+    ? loadedChoices
+    : [
+        {
+          id,
+          name: result.guild.name,
+          iconUrl: result.guild.avatar_url,
+          accessLabel: null,
+        },
+        ...loadedChoices,
+      ];
+
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
       <GuildDashboard
+        key={result.guild.guild_id}
         guild={result.guild}
+        guildChoices={guildChoices}
         initialDate={initialDate}
         initialEventId={initialEventId}
       />
