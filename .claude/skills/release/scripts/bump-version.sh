@@ -4,7 +4,7 @@
 #   .claude/skills/release/scripts/bump-version.sh minor              # 今の版から major / minor / patch を 1 つ上げる
 #   .claude/skills/release/scripts/bump-version.sh 3.1.0 2026-08-30   # タグを打つ予定日を見出しの日付にする
 # 書き換えるのは web/package.json / api/Cargo.toml / bot/Cargo.toml / Cargo.lock の 4 か所と、
-# 更新履歴 (web/src/content/changelog.mdx) へのバージョン見出しの挿入 (正式版のみ)。
+# 更新履歴への個別ファイルの集約・削除とバージョン見出しの挿入 (正式版のみ)。
 # 見出しの日付 = 利用者に見えるリリース日なので、タグを打つ日が今日でないなら第 2 引数で渡す
 # (release.yml がタグの日とずれた見出しに警告を出す)。
 # 変更をコミットするのは呼び出し側 (この手のスクリプトはコミットしない)
@@ -119,9 +119,14 @@ if ! version_gt "$next" "$current"; then
   exit 1
 fi
 
+# 不正な個別ファイルは、バージョンを書き換える前に検出する。
+# shellcheck source=../../../../.github/scripts/changelog-fragments.sh
+source "$root/.github/scripts/changelog-fragments.sh"
+load_changelog_fragments changelog.d
+
 # web/package.json: 先頭に現れる "version" (dependencies の中には無い)。
 # sed の 0,/re/ アドレスは GNU 拡張で、BSD sed (macOS) はエラーも出さずに何も置換しないため awk で書く
-tmp=$(mktemp) && trap 'rm -f "$tmp"' EXIT
+tmp=$(mktemp) && trap 'rm -f "$tmp" "${tmp}.changelog"' EXIT
 awk -v v="$next" '!done && /"version"[[:space:]]*:/ { sub(/:[[:space:]]*"[^"]+"/, ": \"" v "\""); done = 1 } { print }' \
   web/package.json > "$tmp" && cp "$tmp" web/package.json
 
@@ -142,29 +147,47 @@ else
   done
 fi
 
-# 更新履歴にバージョン見出しを挿入する。エントリは機能 PR がバージョンなしで先頭に足している
-# (changelog.mdx 冒頭のルール) ので、未リリース分の最初のエントリ (### ...) の直前に
-# 「## vX.Y.Z (YYYY年M月D日)」を入れる。この節が release-notes.sh でそのままリリースノートになる。
-# プレリリース (3.1.0-rc.1) は正式版を出すときにまとめて見出しを付けるので入れない
+# 正式版だけ個別ファイルを集約する。移行前の未リリース記事も同じ節に含める。
+# プレリリースでは個別ファイルを残し、release-notes.sh が直接読み取る。
 changelog=web/src/content/changelog.mdx
 if [[ "$next" == *-* ]]; then
   echo "プレリリースなので更新履歴 (${changelog}) にバージョン見出しは入れない"
 elif grep -q "^## v${next} " "$changelog"; then
   echo "更新履歴 (${changelog}) に v${next} の見出しが既にある"
-elif ! awk '/^## / { exit } /^### / { found = 1; exit } END { exit !found }' "$changelog"; then
-  echo "::warning::更新履歴 (${changelog}) に未リリースのエントリが無いのでバージョン見出しを入れない (リリースノートは「変更なし」になる)" >&2
 else
-  if [ -n "$release_date" ]; then
-    IFS=- read -r y m d <<< "$release_date"
-  else
-    # 利用者に見せる日付なので、ホストのタイムゾーンによらず JST で取る (release.yml の検査も JST)
-    read -r y m d < <(TZ=Asia/Tokyo date '+%Y %m %d')
+  if [ "${#changelog_fragments[@]}" -gt 0 ]; then
+    # 先頭のエントリまたはバージョン見出しの前へ挿入。前書きと公開済み履歴は保持する。
+    print_changelog_fragments > "$tmp"
+    awk -v fragments="$tmp" '
+      function insert( line) {
+        while ((getline line < fragments) > 0) print line
+        close(fragments); done = 1
+      }
+      !done && /^###? / { insert() }
+      { print }
+      END { if (!done) { print ""; insert() } }' "$changelog" > "${tmp}.changelog"
+    cp "${tmp}.changelog" "$changelog"
   fi
-  heading="## v${next} (${y}年$((10#$m))月$((10#$d))日)"
-  awk -v heading="$heading" '
-    !done && /^### / { print heading; print ""; done = 1 }
-    { print }' "$changelog" > "$tmp" && cp "$tmp" "$changelog"
-  echo "更新履歴 (${changelog}) に「${heading}」を挿入した"
+  if ! awk '/^## / { exit } /^### / { found = 1; exit } END { exit !found }' "$changelog"; then
+    echo "::warning::更新履歴 (${changelog}) に未リリースのエントリが無いのでバージョン見出しを入れない (リリースノートは「変更なし」になる)" >&2
+  else
+    if [ -n "$release_date" ]; then
+      IFS=- read -r y m d <<< "$release_date"
+    else
+      # 利用者に見せる日付なので、ホストのタイムゾーンによらず JST で取る (release.yml の検査も JST)
+      read -r y m d < <(TZ=Asia/Tokyo date '+%Y %m %d')
+    fi
+    heading="## v${next} (${y}年$((10#$m))月$((10#$d))日)"
+    awk -v heading="$heading" '
+      !done && /^### / { print heading; print ""; done = 1 }
+      { print }' "$changelog" > "$tmp"
+    cp "$tmp" "$changelog"
+    echo "更新履歴 (${changelog}) に「${heading}」を挿入した"
+  fi
+  # 見出しの書き込みまで成功してから、今回取り込んだファイルだけ削除する。
+  if [ "${#changelog_fragments[@]}" -gt 0 ]; then
+    rm -- "${changelog_fragments[@]}"
+  fi
 fi
 
 .github/scripts/check-versions.sh "$next" > /dev/null

@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import Content from "@/content/changelog.mdx";
 import { ROUTES } from "@/lib/site";
 
-// 更新履歴ページ。本文は src/content/changelog.mdx にあり、機能追加・変更のたびに追記する
-// (書き方のルールは changelog.mdx 冒頭のコメント)
+// 更新履歴ページ。本文はリリース準備時に changelog.d から src/content/changelog.mdx へ集約する。
 
 const TITLE = "更新履歴";
 const DESCRIPTION =

@@ -27,8 +27,8 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
   `plan` / `apply` は認証情報が要るので手元だけ (CI は書式と構文のみ)。`infra/backup/*.sh` は `shellcheck`、
   `infra/alloy/config.alloy` は `docker run --rm -v "$PWD/infra/alloy:/etc/alloy:ro" grafana/alloy:<版> validate /etc/alloy/config.alloy`
 - コメント・ドキュメント・PR の文章は日本語
-- **利用者に見える機能追加・変更・不具合修正をしたら、更新履歴 (`web/src/content/changelog.mdx`) に同じ PR で追記する**。
-  利用者に伝わる言葉で書く (技術的な変更はそれ自体を書かず、利用者から見える効果に言い換える)。書き方のルールはファイル冒頭のコメント
+- **利用者に見える機能追加・変更・不具合修正をしたら、更新履歴の個別ファイル (`changelog.d/<Issue番号>-<短い名前>.md`) を同じ PR で追加する**。
+  利用者に伝わる言葉で書く (技術的な変更はそれ自体を書かず、利用者から見える効果に言い換える)。書き方のルールは [changelog.d/README.md](changelog.d/README.md)。`web/src/content/changelog.mdx` への集約はリリース準備時に行う
 - LP と使い方に貼っているスクリーンショット (`web/src/assets/`) は `pnpm shot` で撮り直す。
   手順と確認観点は `.agents/skills/update-screenshots/` (正本は `.claude/skills/`)
 - **バージョン (v3.x.y) は web / api / bot で共通**。`web/package.json` / `api/Cargo.toml` / `bot/Cargo.toml` / `Cargo.lock` の 4 か所を揃えて
