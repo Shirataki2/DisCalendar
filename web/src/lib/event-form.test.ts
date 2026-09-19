@@ -19,6 +19,8 @@ import {
 // 日付はローカル時刻で組み立てる (API の JST 文字列はブラウザのローカル時刻をそのまま JST とみなすので、
 // テストの実行環境のタイムゾーンに依存しない)
 const day = (d: number, h = 0, m = 0) => new Date(2026, 7, d, h, m);
+const utc = (d: number, h: number, m = 0) =>
+  new Date(Date.UTC(2026, 7, d, h, m));
 
 const valid: EventFormValues = {
   name: "定例会",
@@ -151,8 +153,6 @@ describe("eventFormSchema", () => {
 describe("withCheckedDiscordEvent", () => {
   // 予定の開始は 2026-08-23 10:00 (ローカル = JST とみなす)。
   // 判定に渡す「今」は UTC で作る (nowInJst が JST の壁時計に読み替える)
-  const utc = (d: number, h: number, m = 0) =>
-    new Date(Date.UTC(2026, 7, d, h, m));
   const linked: EventFormValues = { ...valid, discordEvent: true };
 
   it("開始が未来ならそのまま (同じ参照を返す)", () => {
@@ -348,13 +348,32 @@ describe("newEventFormValues", () => {
 });
 
 describe("defaultEventFormValues", () => {
-  it("今の HH:00 〜 HH:30 (旧フォームと同じ既定値)", () => {
-    expect(defaultEventFormValues(day(23, 14, 47))).toMatchObject({
-      isAllDay: false,
-      startDate: day(23),
-      startTime: "14:00",
-      endDate: day(23),
-      endTime: "14:30",
+  it.each([
+    ["区切り直前", utc(23, 4, 59), day(23), "14:00", day(23), "14:30"],
+    ["区切り時刻", utc(23, 5), day(23), "15:00", day(23), "15:30"],
+    ["23時台", utc(23, 14, 47), day(24), "00:00", day(24), "00:30"],
+  ])(
+    "%sでも現在より後の正時から30分にする",
+    (_case, now, startDate, startTime, endDate, endTime) => {
+      expect(defaultEventFormValues(now)).toMatchObject({
+        isAllDay: false,
+        startDate,
+        startTime,
+        endDate,
+        endTime,
+      });
+    },
+  );
+
+  it("DST終了日の重複時刻でも壁時計の次の正時にする", () => {
+    // JST 2026-11-01 01:30。America/New_York では 01:00 台が2回ある日
+    expect(
+      defaultEventFormValues(new Date(Date.UTC(2026, 9, 31, 16, 30))),
+    ).toMatchObject({
+      startDate: new Date(2026, 10, 1),
+      startTime: "02:00",
+      endDate: new Date(2026, 10, 1),
+      endTime: "02:30",
     });
   });
 
@@ -382,16 +401,16 @@ describe("個人設定を使った新規作成", () => {
   it("個人通知はサーバーより優先し、日付をまたいで1時間後にする", () => {
     expect(
       defaultEventFormValues(
-        day(23, 23, 45),
+        utc(23, 14, 45),
         [{ num: 1, unit: "days" }],
         defaults,
       ),
     ).toMatchObject({
       color: "#2196F3",
       notifications: [],
-      startTime: "23:00",
+      startTime: "00:00",
       endDate: day(24),
-      endTime: "00:00",
+      endTime: "01:00",
     });
   });
   it("範囲選択は終了を優先する", () => {
