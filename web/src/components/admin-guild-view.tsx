@@ -141,6 +141,7 @@ export function AdminGuildView({ guildId }: Props) {
         </div>
       </div>
       <EventCalendar
+        guildName={guild?.name ?? guildId}
         guildId={guildId}
         canEdit
         eventsSource={adminEventsSource}

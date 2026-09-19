@@ -60,6 +60,7 @@ test.describe("公開チュートリアル", () => {
     await edit
       .getByLabel("説明", { exact: true })
       .fill("ボイスチャンネルに集まろう");
+    await edit.locator("summary").filter({ hasText: "事前通知" }).click();
     await edit.getByLabel("通知のタイミング (数値)").first().fill("2");
     await edit.getByRole("button", { name: "保存", exact: true }).click();
     await expect(edit).toBeHidden();

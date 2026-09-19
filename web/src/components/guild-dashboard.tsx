@@ -84,6 +84,7 @@ export function GuildDashboard({ guild, initialDate, initialEventId }: Props) {
         </div>
       </div>
       <EventCalendar
+        guildName={guild.name ?? guildId}
         guildId={guildId}
         canEdit={canEdit}
         initialDate={initialDate}

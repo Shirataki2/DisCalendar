@@ -102,7 +102,7 @@ test("編集・複製は元の値を基準に変更を検出し、保存成功�
     };
     await open();
     const form = page.getByRole("dialog", {
-      name: mode === "編集" ? "予定を編集" : "予定を作成",
+      name: mode === "編集" ? "予定を編集" : "予定を複製",
     });
     await page.keyboard.press("Escape");
     await expect(form).toBeHidden();
@@ -121,6 +121,10 @@ test("追加前のメンションIDも保持し、空に戻すと確認せず閉
   page,
 }) => {
   const form = page.getByRole("dialog", { name: "予定を作成" });
+  await form
+    .locator("summary")
+    .filter({ hasText: "通知のメンション先" })
+    .click();
   const input = form.getByLabel("メンションするユーザーID");
   await input.fill("100000000000000001");
   await page.keyboard.press("Escape");

@@ -84,6 +84,7 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   guildId: string;
+  guildName: string;
   /** false なら閲覧のみ (restricted モードで管理権限も編集ロールもない) */
   canEdit: boolean;
   /** URL から指定された初期表示日と、表示後に開く予定。通常のサーバーカレンダーだけで使う */
@@ -238,6 +239,7 @@ function QuickAddPopover({
 
 export function EventCalendar({
   guildId,
+  guildName,
   canEdit,
   initialDate,
   initialEventId,
@@ -433,8 +435,10 @@ export function EventCalendar({
   };
 
   // 複製は元の内容を初期値にした「作成」として扱う (#91)。保存は作成 API をそのまま使う
-  const openDuplicate = (event: ApiEvent) =>
-    openCreate(eventToFormValues(event));
+  const openDuplicate = (event: ApiEvent) => {
+    setPopover(null);
+    setDialog({ mode: "duplicate", values: eventToFormValues(event) });
+  };
 
   // ダイアログからの保存。失敗したら reject してダイアログ側でエラー表示する
   const submitDialog = async (input: ApiEventInput) => {
@@ -588,6 +592,7 @@ export function EventCalendar({
           />
         )}
         <EventFormDialog
+          guildName={guildName}
           guidance={dialog && !deleteTarget ? guide?.inlineContent : null}
           mentionGuildId={
             eventsSource === dashboardEventsSource ? guildId : undefined

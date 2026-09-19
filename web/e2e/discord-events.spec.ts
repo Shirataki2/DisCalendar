@@ -79,7 +79,7 @@ test("チェックを入れて作成すると連携され、編集ダイアロ�
 
 // 複製は「チェック済みの新規作成」なので、連携済みの編集と違って権限の免除は効かない
 // (権限のあるこのギルドでは、チェックが引き継がれて操作できる)
-test("連携済みの予定を複製すると、チェックを引き継いだ作成ダイアログになる", async ({
+test("連携済みの予定を複製すると、チェックを引き継いだ複製ダイアログになる", async ({
   page,
 }) => {
   await page.goto(`/dashboard/${guildId}`);
@@ -87,7 +87,7 @@ test("連携済みの予定を複製すると、チェックを引き継いだ�
   await eventOn(page, linkedTitle).click();
   const popover = page.getByRole("dialog").filter({ hasText: linkedTitle });
   await popover.getByRole("button", { name: "複製" }).click();
-  const dialog = page.getByRole("dialog", { name: "予定を作成" });
+  const dialog = page.getByRole("dialog", { name: "予定を複製" });
   await expect(dialog).toBeVisible();
   const checkbox = dialog.getByRole("checkbox", {
     name: "Discord のイベントとしても作成する",
