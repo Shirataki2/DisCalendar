@@ -1,10 +1,10 @@
 import {
-  addHours,
   addMinutes,
   format,
   isBefore,
   max,
   set,
+  setHours,
   startOfDay,
   startOfHour,
   subDays,
@@ -371,6 +371,7 @@ export function defaultEventFormValues(
   defaultNotifications?: readonly Notification[],
   defaults: EventCreationDefaults = DEFAULT_EVENT_CREATION_SETTINGS,
 ): EventFormValues {
-  const start = addHours(startOfHour(nowInJst(now)), 1);
+  const currentHour = startOfHour(nowInJst(now));
+  const start = setHours(currentHour, currentHour.getHours() + 1);
   return newEventFormValues(start, null, false, defaultNotifications, defaults);
 }

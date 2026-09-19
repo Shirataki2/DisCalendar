@@ -365,6 +365,18 @@ describe("defaultEventFormValues", () => {
     },
   );
 
+  it("DST終了日の重複時刻でも壁時計の次の正時にする", () => {
+    // JST 2026-11-01 01:30。America/New_York では 01:00 台が2回ある日
+    expect(
+      defaultEventFormValues(new Date(Date.UTC(2026, 9, 31, 16, 30))),
+    ).toMatchObject({
+      startDate: new Date(2026, 10, 1),
+      startTime: "02:00",
+      endDate: new Date(2026, 10, 1),
+      endTime: "02:30",
+    });
+  });
+
   it("サーバー設定の既定の事前通知 (#181) を初期値にする (空なら通知なし)", () => {
     const thirty = [{ num: 30, unit: "minutes" as const }];
     expect(defaultEventFormValues(day(23), thirty).notifications).toEqual(
