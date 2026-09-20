@@ -11,6 +11,7 @@ import {
   HeartIcon,
   HistoryIcon,
   HouseIcon,
+  KeyboardIcon,
   LayoutGridIcon,
   LifeBuoyIcon,
   LogOutIcon,
@@ -30,6 +31,7 @@ import { cn } from "@/lib/utils";
 const SECTIONS = [
   "メイン",
   "設定",
+  "外部連携",
   "サポート",
   "サービス情報",
   "管理",
@@ -56,7 +58,7 @@ const ITEMS: NavItem[] = [
   },
   {
     label: "MCP 接続管理",
-    section: "設定",
+    section: "外部連携",
     icon: PlugIcon,
     href: "/mcp/connections",
   },
@@ -167,6 +169,7 @@ interface Props {
    */
   onOpenCalendarSettings: () => void;
   onOpenPushSettings: () => void;
+  onOpenKeyboardShortcuts: () => void;
   className?: string;
 }
 
@@ -179,6 +182,7 @@ export function DashboardNav({
   onNavigate,
   onOpenCalendarSettings,
   onOpenPushSettings,
+  onOpenKeyboardShortcuts,
   className,
 }: Props) {
   const pathname = usePathname();
@@ -284,6 +288,23 @@ export function DashboardNav({
                     </button>
                   </li>
                 </>
+              )}
+              {section === "サポート" && (
+                <li>
+                  <button
+                    type="button"
+                    className={itemClass}
+                    onClick={() => {
+                      onNavigate?.();
+                      onOpenKeyboardShortcuts();
+                    }}
+                  >
+                    <KeyboardIcon className="size-5 shrink-0" aria-hidden />
+                    <span className="flex-1 text-left">
+                      キーボードショートカット
+                    </span>
+                  </button>
+                </li>
               )}
             </ul>
           </section>

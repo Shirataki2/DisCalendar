@@ -8,6 +8,7 @@ import {
   KeyboardIcon,
   LayoutGridIcon,
   LogOutIcon,
+  PlugIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -99,22 +100,21 @@ export function UserMenu({ name, image }: Props) {
             <BellIcon aria-hidden />
             プッシュ通知
           </DropdownMenuItem>
-          {/* キーボードが無いスマートフォン幅では出さない */}
+          <DropdownMenuItem onClick={toggleTheme}>
+            <ThemeToggleContent />
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem render={<Link href="/mcp/connections" />}>
+            <PlugIcon aria-hidden />
+            MCP 接続管理
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           {openKeyboardShortcuts && (
-            <DropdownMenuItem
-              onClick={openKeyboardShortcuts}
-              className="hidden sm:flex"
-            >
+            <DropdownMenuItem onClick={openKeyboardShortcuts}>
               <KeyboardIcon aria-hidden />
               キーボードショートカット
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem render={<Link href="/mcp/connections" />}>
-            MCP 接続管理
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={toggleTheme}>
-            <ThemeToggleContent />
-          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => void signOut()}>
             <LogOutIcon aria-hidden />
             ログアウト

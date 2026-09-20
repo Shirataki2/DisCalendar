@@ -38,6 +38,7 @@ async function expectNavLinks(page: Page) {
   await expect(nav.getByRole("heading")).toHaveText([
     "メイン",
     "設定",
+    "外部連携",
     "サポート",
     "サービス情報",
   ]);
@@ -63,6 +64,19 @@ async function expectNavLinks(page: Page) {
   ).toBeVisible();
   await expect(
     settings.getByRole("button", { name: /テーマに切り替え/ }),
+  ).toBeVisible();
+  await expect(settings.getByRole("button")).toHaveText([
+    "カレンダーの表示設定",
+    "プッシュ通知",
+    /テーマに切り替え/,
+  ]);
+  await expect(
+    nav
+      .getByRole("region", { name: "外部連携", exact: true })
+      .getByRole("link", { name: "MCP 接続管理" }),
+  ).toHaveAttribute("href", "/mcp/connections");
+  await expect(
+    nav.getByRole("button", { name: "キーボードショートカット" }),
   ).toBeVisible();
   await expect(
     nav.getByRole("region", { name: "管理", exact: true }),
