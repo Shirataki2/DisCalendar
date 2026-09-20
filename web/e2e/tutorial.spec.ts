@@ -143,6 +143,9 @@ test.describe("公開チュートリアル", () => {
 
   test("LP から自分で開始できる", async ({ page }) => {
     await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: "サーバー設定で通知先を決める" }),
+    ).toBeVisible();
     await page.getByRole("link", { name: "ログインせずに操作を試す" }).click();
     await expect(page).toHaveURL("/tutorial");
     await expect(guide(page)).toContainText("ステップ 1 / 6");
@@ -197,7 +200,16 @@ for (const mode of ["タッチ", "キーボード"] as const) {
         await page.keyboard.press("Enter");
       };
       await page.goto("/tutorial");
+      if (mode === "タッチ") {
+        await expect(
+          guide(page).getByText("ここは練習用のサーバーです。"),
+        ).toBeHidden();
+      }
       await activate(guide(page).getByRole("button", { name: "次へ" }));
+      if (mode === "タッチ")
+        await expect(
+          page.getByRole("button", { name: "新規作成" }),
+        ).toBeInViewport();
       await activate(page.getByRole("button", { name: "新規作成" }));
       const create = page.getByRole("dialog", { name: "予定を作成" });
       await expect(create.getByLabel("タイトル")).toBeFocused();
@@ -216,6 +228,8 @@ for (const mode of ["タッチ", "キーボード"] as const) {
       await page.keyboard.type(" updated");
       await activate(edit.getByRole("button", { name: "保存", exact: true }));
       await expect(guide(page)).toContainText("ステップ 4 / 6");
+      if (mode === "タッチ")
+        await activate(guide(page).getByText("詳しい説明・通知プレビュー"));
       await expect(
         page.getByRole("figure", { name: "Discord通知の見本" }),
       ).toBeVisible();
