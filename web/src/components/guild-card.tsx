@@ -40,7 +40,9 @@ export function GuildCardBody({
           {name.slice(0, 1)}
         </span>
       )}
-      <span className="flex-1 font-medium">{name}</span>
+      <span className="min-w-0 flex-1 truncate font-medium" title={name}>
+        {name}
+      </span>
       {/* 「確認中…」は「招待 ↗」より長いので、縮めずにサーバー名側を折り返させる */}
       {badge && (
         <span className="shrink-0 text-xs text-muted-foreground">{badge}</span>

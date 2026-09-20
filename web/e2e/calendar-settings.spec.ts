@@ -339,7 +339,8 @@ test("時間枠のクリックは1時間、ドラッグは選んだ範囲を使�
   await setCreationDefaults(page);
   await page.getByRole("tab", { name: "日", exact: true }).click();
   const slot = page.locator('[data-time="10:00:00"]').last();
-  await slot.scrollIntoViewIfNeeded();
+  const targetSlot = page.locator('[data-time="11:30:00"]').last();
+  await targetSlot.scrollIntoViewIfNeeded();
   const box = await slot.boundingBox();
   if (!box) throw new Error("時間枠が表示されていません");
   const x = box.x + box.width / 2;
@@ -354,10 +355,7 @@ test("時間枠のクリックは1時間、ドラッグは選んだ範囲を使�
   await expect(dialog.getByLabel("終了時刻")).toHaveValue("11:00");
   await dialog.getByRole("button", { name: "キャンセル" }).click();
   await expect(dialog).toBeHidden();
-  const target = await page
-    .locator('[data-time="11:30:00"]')
-    .last()
-    .boundingBox();
+  const target = await targetSlot.boundingBox();
   if (!target) throw new Error("選択先の時間枠が表示されていません");
   await page.mouse.move(x, y);
   await page.mouse.down();

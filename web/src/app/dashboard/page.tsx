@@ -16,6 +16,7 @@ import {
   canInviteBot,
   type DiscordGuild,
   getUserGuilds,
+  guildAccessLabel,
   guildIconUrl,
 } from "@/lib/discord";
 import { loadJoinedGuildIds } from "@/lib/joined-guilds";
@@ -140,7 +141,11 @@ function JoinedGuildGrid({ guilds }: { guilds: DiscordGuild[] }) {
             href={`/dashboard/${guild.id}`}
             className={guildCardClassName()}
           >
-            <GuildCardBody name={guild.name} iconUrl={guildIconUrl(guild)} />
+            <GuildCardBody
+              name={guild.name}
+              iconUrl={guildIconUrl(guild)}
+              badge={guildAccessLabel(guild)}
+            />
           </Link>
         </li>
       ))}

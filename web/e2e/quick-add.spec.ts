@@ -81,13 +81,11 @@ test("空のタイトルを検証し、Esc と外部クリックで取り消せ�
 
   await page.getByRole("tab", { name: "日", exact: true }).click();
   const startSlot = page.locator('[data-time="10:00:00"]').last();
-  await startSlot.scrollIntoViewIfNeeded();
+  const outsideSlot = page.locator('[data-time="11:00:00"]').last();
+  await outsideSlot.scrollIntoViewIfNeeded();
   const start = await startSlot.boundingBox();
   const end = await page.locator('[data-time="10:30:00"]').last().boundingBox();
-  const outside = await page
-    .locator('[data-time="11:00:00"]')
-    .last()
-    .boundingBox();
+  const outside = await outsideSlot.boundingBox();
   if (!start || !end || !outside)
     throw new Error("選択する時間枠が表示されていません");
 
@@ -177,12 +175,10 @@ for (const view of ["週", "4日", "日"]) {
     await expect(settings).toBeHidden();
     await page.getByRole("tab", { name: view, exact: true }).click();
     const slot = page.locator('[data-time="10:00:00"]').last();
-    await slot.scrollIntoViewIfNeeded();
+    const endSlot = page.locator('[data-time="10:30:00"]').last();
+    await endSlot.scrollIntoViewIfNeeded();
     const start = await slot.boundingBox();
-    const end = await page
-      .locator('[data-time="10:30:00"]')
-      .last()
-      .boundingBox();
+    const end = await endSlot.boundingBox();
     if (!start || !end) throw new Error("選択する時間枠が表示されていません");
     const x = start.x + start.width / 8;
     await page.mouse.move(x, start.y + start.height / 4);
