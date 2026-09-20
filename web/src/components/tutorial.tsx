@@ -185,6 +185,7 @@ function TutorialGuide({
 }) {
   const { step, unlocked, event } = progress;
   const heading = useRef<HTMLHeadingElement>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   useEffect(() => {
     // フォームの初期フォーカスはタイトル入力欄に任せる。
     if (!compact) heading.current?.focus({ preventScroll: true });
@@ -212,27 +213,55 @@ function TutorialGuide({
         >
           {current?.title ?? "自分のペースで試してみよう"}
         </h2>
-        <p className="mt-2 text-sm leading-6 text-indigo-100">
-          {current?.text ??
-            "予定の作成・編集・削除を自由に試せます。作成・編集した予定の通知もここで確認できます。"}
-        </p>
       </div>
-      {compact && (
-        <p className="mt-2 text-xs text-indigo-200">
-          練習用・Discordには送信されません
-          {step === 3 && "。この画面を閉じると通知の見本を確認できます。"}
-        </p>
-      )}
-      {!compact &&
-        (step === 3 || step === null) &&
-        (event ? (
-          <NotificationPreview key={event.id} event={event} />
-        ) : (
-          <p className="mt-4 text-sm text-indigo-200">
-            予定を作成すると、通知の見本を確認できます。
+      {compact ? (
+        <>
+          <p className="mt-2 text-sm leading-6 text-indigo-100">
+            {current?.text ??
+              "予定の作成・編集・削除を自由に試せます。作成・編集した予定の通知もここで確認できます。"}
           </p>
-        ))}
-      {!compact && (step === 5 || step === null) && <TutorialNextSteps />}
+          <p className="mt-2 text-xs text-indigo-200">
+            練習用・Discordには送信されません
+            {step === 3 && "。この画面を閉じると通知の見本を確認できます。"}
+          </p>
+        </>
+      ) : (
+        <div className="mt-2">
+          <button
+            type="button"
+            aria-controls="tutorial-guide-details"
+            aria-expanded={detailsOpen}
+            className="min-h-11 rounded-md text-sm font-medium text-indigo-100 underline underline-offset-4 lg:hidden"
+            onClick={() => setDetailsOpen((open) => !open)}
+          >
+            {detailsOpen ? "詳しい説明を閉じる" : "詳しい説明"}
+            {!detailsOpen && (step === 3 || step === null)
+              ? "・通知プレビュー"
+              : ""}
+          </button>
+          <div
+            id="tutorial-guide-details"
+            className={detailsOpen ? "block" : "hidden lg:block"}
+          >
+            <p className="mt-2 text-sm leading-6 text-indigo-100">
+              {current?.text ??
+                "予定の作成・編集・削除を自由に試せます。作成・編集した予定の通知もここで確認できます。"}
+            </p>
+            {(step === 3 || step === null) &&
+              (event ? (
+                <NotificationPreview key={event.id} event={event} />
+              ) : (
+                <p className="mt-4 text-sm text-indigo-200">
+                  予定を作成すると、通知の見本を確認できます。
+                </p>
+              ))}
+            {(step === 5 || step === null) && <TutorialNextSteps />}
+            <p className="mt-4 border-t border-indigo-300/20 pt-3 text-xs leading-5 text-indigo-200">
+              練習した予定は保存されません。ページを開き直すと最初の状態に戻ります。
+            </p>
+          </div>
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {step !== null && step > 0 && (
           <Button
@@ -268,11 +297,6 @@ function TutorialGuide({
       {!compact && step !== null && !canContinue && step < 5 && (
         <p className="mt-3 text-xs leading-5 text-indigo-200">
           操作が完了すると、自動で次のステップへ進みます。
-        </p>
-      )}
-      {!compact && (
-        <p className="mt-4 border-t border-indigo-300/20 pt-3 text-xs leading-5 text-indigo-200">
-          練習した予定は保存されません。ページを開き直すと最初の状態に戻ります。
         </p>
       )}
     </section>
@@ -334,7 +358,7 @@ function NotificationPreview({ event }: { event: ApiEvent }) {
         </div>
       </figure>
       <p className="text-xs leading-5 text-indigo-200">
-        本番では通知先チャンネルの設定が必要です。開始時刻の通知はサーバー設定で変更できます。
+        本番ではサーバー設定で通知先チャンネルを選びます。開始時刻の通知もサーバー設定で変更できます。
       </p>
     </div>
   );
@@ -372,7 +396,8 @@ function TutorialNextSteps() {
         </Link>
       </div>
       <p className="text-xs leading-5 text-indigo-200">
-        Botの招待・通知先の設定や、編集権限の付与ができない場合は、サーバーの管理者に相談してください。
+        通知先は Web
+        のサーバー設定から選べます。Botの招待・通知先の設定や、編集権限の付与ができない場合は、サーバーの管理者に相談してください。
       </p>
     </div>
   );

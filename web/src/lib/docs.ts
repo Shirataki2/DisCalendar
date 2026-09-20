@@ -35,7 +35,7 @@ export const DOC_PAGES: readonly DocPage[] = [
     slug: "initialize",
     title: "初期設定",
     description:
-      "/init コマンドで予定の通知を受け取るチャンネルを設定する手順。",
+      "Web のサーバー設定または /init コマンドで、予定の通知を受け取るチャンネルを設定する手順。",
   },
   {
     slug: "calendar",
