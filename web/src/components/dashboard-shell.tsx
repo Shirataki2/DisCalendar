@@ -1,6 +1,6 @@
 "use client";
 
-import { MenuIcon } from "lucide-react";
+import { CircleHelpIcon, MenuIcon } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { CalendarSettingsDialog } from "@/components/calendar-settings-dialog";
@@ -108,7 +108,18 @@ export function DashboardShell({
         >
           <Logo className="text-xl" />
         </Link>
-        <div className="ml-auto">{user}</div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-lg"
+          aria-label="キーボードショートカット"
+          title="キーボードショートカット (?)"
+          onClick={openShortcuts}
+          className="ml-auto"
+        >
+          <CircleHelpIcon className="size-5" />
+        </Button>
+        <div>{user}</div>
       </header>
       <div className="flex min-h-0 flex-1">
         <aside
@@ -120,6 +131,7 @@ export function DashboardShell({
               admin={admin}
               onOpenCalendarSettings={() => setCalendarSettingsOpen(true)}
               onOpenPushSettings={() => setPushSettingsOpen(true)}
+              onOpenKeyboardShortcuts={openShortcuts}
             />
           </div>
         </aside>
@@ -140,6 +152,7 @@ export function DashboardShell({
             onNavigate={() => setDrawerOpen(false)}
             onOpenCalendarSettings={() => setCalendarSettingsOpen(true)}
             onOpenPushSettings={() => setPushSettingsOpen(true)}
+            onOpenKeyboardShortcuts={openShortcuts}
             className="overflow-y-auto"
           />
         </SheetContent>

@@ -98,7 +98,7 @@ test.describe("編集できるサーバーのカレンダー", () => {
     await expect(viewTab(page, "週")).toHaveAttribute("aria-selected", "true");
   });
 
-  test("? で一覧が開き、アカウントメニューからも開ける", async ({ page }) => {
+  test("? とヘッダ、アカウントメニューから一覧を開ける", async ({ page }) => {
     await page.keyboard.press("?");
     await expect(shortcutsDialog(page)).toBeVisible();
     // 一覧には各キーの説明が載っている
@@ -109,6 +109,13 @@ test.describe("編集できるサーバーのカレンダー", () => {
     await page.keyboard.press("Escape");
     await expect(shortcutsDialog(page)).toBeHidden();
     await expect(viewTab(page, "月")).toHaveAttribute("aria-selected", "true");
+
+    await page
+      .getByRole("banner")
+      .getByRole("button", { name: "キーボードショートカット" })
+      .click();
+    await expect(shortcutsDialog(page)).toBeVisible();
+    await page.keyboard.press("Escape");
 
     await page.getByRole("button", { name: "アカウントメニュー" }).click();
     await page
@@ -166,18 +173,33 @@ test("「すべての予定」でも期間の移動とビューの切替がで�
 test.describe("スマートフォンの幅", () => {
   test.use({ viewport: { width: 375, height: 812 }, hasTouch: true });
 
-  test("アカウントメニューに「キーボードショートカット」を出さない", async ({
+  test("ヘッダ・アカウントメニュー・ドロワーから一覧を開ける", async ({
     page,
   }) => {
     await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
     await expect(page.getByRole("grid")).toBeVisible();
+    await page
+      .getByRole("banner")
+      .getByRole("button", { name: "キーボードショートカット" })
+      .tap();
+    await expect(shortcutsDialog(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+
     await page.getByRole("button", { name: "アカウントメニュー" }).tap();
     const menu = page.getByRole("menu");
     await expect(
       menu.getByRole("menuitem", { name: "カレンダーの表示設定" }),
     ).toBeVisible();
-    await expect(
-      menu.getByRole("menuitem", { name: "キーボードショートカット" }),
-    ).toBeHidden();
+    await menu
+      .getByRole("menuitem", { name: "キーボードショートカット" })
+      .tap();
+    await expect(shortcutsDialog(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "メニュー", exact: true }).tap();
+    const nav = page.getByRole("navigation", { name: "サイト内メニュー" });
+    await nav.getByRole("button", { name: "キーボードショートカット" }).tap();
+    await expect(nav).toBeHidden();
+    await expect(shortcutsDialog(page)).toBeVisible();
   });
 });
