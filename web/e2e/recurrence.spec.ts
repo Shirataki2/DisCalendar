@@ -24,6 +24,17 @@ for (const width of [320, 1280]) {
       name: "繰り返しの設定",
       exact: true,
     });
+    expect(
+      await settings
+        .getByRole("button", { name: "設定を適用" })
+        .evaluate(
+          (element) => element.parentElement?.getBoundingClientRect().bottom,
+        ),
+    ).toBe(
+      await settings.evaluate(
+        (element) => element.getBoundingClientRect().bottom,
+      ),
+    );
     await settings.getByLabel("繰り返しの頻度").selectOption("weekly");
     await expect(
       settings.getByRole("listitem").filter({ hasText: "2026/09/21" }),
