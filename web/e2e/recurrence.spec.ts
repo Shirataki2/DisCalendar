@@ -24,9 +24,40 @@ for (const width of [320, 1280]) {
       name: "繰り返しの設定",
       exact: true,
     });
+    expect(
+      await settings
+        .getByRole("button", { name: "設定を適用" })
+        .evaluate(
+          (element) => element.parentElement?.getBoundingClientRect().bottom,
+        ),
+    ).toBe(
+      await settings.evaluate(
+        (element) => element.getBoundingClientRect().bottom,
+      ),
+    );
     await settings.getByLabel("繰り返しの頻度").selectOption("weekly");
+    await expect(
+      settings.getByRole("listitem").filter({ hasText: "2026/09/21" }),
+    ).toBeVisible();
+    const settingsHeight = await settings.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    );
+    const expectStableHeight = async () => {
+      expect(
+        await settings.evaluate(
+          (element) => element.getBoundingClientRect().height,
+        ),
+      ).toBe(settingsHeight);
+    };
+    await settings.getByRole("radio", { name: "終了日", exact: true }).check();
+    await expectStableHeight();
     await settings.getByLabel("回数", { exact: true }).check();
+    await expectStableHeight();
     await settings.getByLabel("繰り返し回数").fill("3");
+    await settings.getByRole("button", { name: "火", exact: true }).click();
+    await expectStableHeight();
+    await settings.getByRole("button", { name: "火", exact: true }).click();
+    await expectStableHeight();
     await expect(
       settings.getByRole("listitem").filter({ hasText: "2026/09/21" }),
     ).toBeVisible();

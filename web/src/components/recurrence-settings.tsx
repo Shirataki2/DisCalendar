@@ -101,7 +101,7 @@ export function RecurrenceSettings({
     if (rule.frequency !== "none") setRule({ ...rule, end });
   }
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex h-[min(48rem,calc(100dvh-2rem))] min-h-0 flex-col">
       <DialogHeader className="shrink-0 border-b p-4 pr-14">
         <Button
           type="button"
@@ -118,7 +118,7 @@ export function RecurrenceSettings({
           条件と開催日を確認して、予定のフォームに適用します。
         </DialogDescription>
       </DialogHeader>
-      <div className="min-h-0 space-y-5 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
         <label className="grid gap-2">
           繰り返しの頻度
           <select
