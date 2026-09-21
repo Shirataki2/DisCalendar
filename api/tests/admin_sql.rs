@@ -754,7 +754,7 @@ async fn delete_guild_events_removes_only_that_guild(pool: PgPool) {
         .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(deleted, 2);
-    let names: Vec<&str> = snapshot.iter().map(|e| e.name.as_str()).collect();
+    let names: Vec<&str> = snapshot.iter().map(|(e, _)| e.name.as_str()).collect();
     assert_eq!(names, ["a", "b"]);
 
     let remaining = run(&pool, "SELECT guild_id, name FROM events")

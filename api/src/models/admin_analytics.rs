@@ -154,7 +154,7 @@ pub struct MonthlyPoint {
     pub events: i64,
 }
 
-/// 予定の作成数
+/// 予定の作成数（補充した回は除外）
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EventCreation {
     /// 直近 24 時間
@@ -319,7 +319,7 @@ pub async fn daily<'e>(
         ev AS (
             SELECT created_at::date AS day, count(*) AS n
             FROM events
-            WHERE created_at >= ($1::timestamp::date - ($2::int - 1))::timestamp
+            WHERE NOT generated_from_series AND created_at >= ($1::timestamp::date - ($2::int - 1))::timestamp
               AND created_at <= $1
             GROUP BY 1
         ),
@@ -391,7 +391,7 @@ pub async fn monthly<'e>(
         ev AS (
             SELECT date_trunc('month', e.created_at) AS month_start, count(*) AS n
             FROM events e, span
-            WHERE e.created_at >= span.lo AND e.created_at <= $1
+            WHERE NOT e.generated_from_series AND e.created_at >= span.lo AND e.created_at <= $1
             GROUP BY 1
         ),
         nu AS (
@@ -459,12 +459,12 @@ pub async fn event_creation<'e>(
         r#"
         SELECT
             count(*) AS "total!",
-            count(*) FILTER (WHERE created_at >= $1 AND created_at <= $7) AS "day!",
-            count(*) FILTER (WHERE created_at >= $2 AND created_at < $1) AS "day_prev!",
-            count(*) FILTER (WHERE created_at >= $3 AND created_at <= $7) AS "week!",
-            count(*) FILTER (WHERE created_at >= $4 AND created_at < $3) AS "week_prev!",
-            count(*) FILTER (WHERE created_at >= $5 AND created_at <= $7) AS "month!",
-            count(*) FILTER (WHERE created_at >= $6 AND created_at < $5) AS "month_prev!",
+            count(*) FILTER (WHERE NOT generated_from_series AND created_at >= $1 AND created_at <= $7) AS "day!",
+            count(*) FILTER (WHERE NOT generated_from_series AND created_at >= $2 AND created_at < $1) AS "day_prev!",
+            count(*) FILTER (WHERE NOT generated_from_series AND created_at >= $3 AND created_at <= $7) AS "week!",
+            count(*) FILTER (WHERE NOT generated_from_series AND created_at >= $4 AND created_at < $3) AS "week_prev!",
+            count(*) FILTER (WHERE NOT generated_from_series AND created_at >= $5 AND created_at <= $7) AS "month!",
+            count(*) FILTER (WHERE NOT generated_from_series AND created_at >= $6 AND created_at < $5) AS "month_prev!",
             count(*) FILTER (WHERE is_all_day) AS "all_day!"
         FROM events
         "#,
@@ -545,7 +545,7 @@ pub async fn guild_counts<'e>(
         r#"
         WITH recent AS (
             -- 上限を付けないと、未来の created_at を持つ予定でギルドがアクティブ扱いになる
-            SELECT DISTINCT guild_id FROM events WHERE created_at >= $1 AND created_at <= $2
+            SELECT DISTINCT guild_id FROM events WHERE NOT generated_from_series AND created_at >= $1 AND created_at <= $2
         )
         SELECT
             -- 参加中と退出済みを分けて数える。混ぜると「参加中のうち使われている割合」が出せない
@@ -574,7 +574,7 @@ pub async fn top_guilds<'e>(
         r#"
         WITH recent AS (
             SELECT guild_id, count(*) AS n
-            FROM events WHERE created_at >= $1 AND created_at <= $2 GROUP BY guild_id
+            FROM events WHERE NOT generated_from_series AND created_at >= $1 AND created_at <= $2 GROUP BY guild_id
         )
         SELECT
             r.guild_id AS "guild_id!",

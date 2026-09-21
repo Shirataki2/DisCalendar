@@ -101,8 +101,9 @@ pub async fn create_series(
         weekdays.dedup();
     }
     let rrule = rule.rrule(start).map_err(anyhow::Error::msg)?;
-    Ok(sqlx::query_as("INSERT INTO event_series (guild_id,template,recurrence,rrule,start_at,end_at,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *")
-        .bind(guild).bind(template).bind(serde_json::to_value(&rule)?).bind(rrule).bind(start).bind(end).bind(actor).bind(now).fetch_one(conn).await?)
+    let end_before = recurrence::end_before(&rule, start).map_err(anyhow::Error::msg)?;
+    Ok(sqlx::query_as("INSERT INTO event_series (guild_id,template,recurrence,rrule,start_at,end_at,created_by,created_at,end_before) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *")
+        .bind(guild).bind(template).bind(serde_json::to_value(&rule)?).bind(rrule).bind(start).bind(end).bind(actor).bind(now).bind(end_before).fetch_one(conn).await?)
 }
 
 pub async fn insert_occurrence(
@@ -113,7 +114,7 @@ pub async fn insert_occurrence(
     let end = start
         .checked_add_signed(series.end_at - series.start_at)
         .ok_or_else(|| anyhow::anyhow!("開催終了日時が範囲外です"))?;
-    sqlx::query("INSERT INTO events (guild_id,name,description,notifications,notification_mentions,color,is_all_day,start_at,end_at,created_at,created_by,updated_at,updated_by,series_id,original_start_at) SELECT $1,$2::jsonb->>'name',$2::jsonb->>'description',COALESCE($2::jsonb->'notifications','[]'::jsonb),COALESCE(NULLIF($2::jsonb->'notification_mentions','null'::jsonb),'[]'::jsonb),$2::jsonb->>'color',($2::jsonb->>'is_all_day')::boolean,$3,$4,$5,$6,$7,$8,$9,$3 WHERE NOT EXISTS (SELECT 1 FROM event_series_exceptions WHERE series_id=$9 AND original_start_at=$3) ON CONFLICT (series_id,original_start_at) DO NOTHING")
+    sqlx::query("INSERT INTO events (guild_id,name,description,notifications,notification_mentions,color,is_all_day,start_at,end_at,created_at,created_by,updated_at,updated_by,series_id,original_start_at,generated_from_series) SELECT $1,$2::jsonb->>'name',$2::jsonb->>'description',COALESCE($2::jsonb->'notifications','[]'::jsonb),COALESCE(NULLIF($2::jsonb->'notification_mentions','null'::jsonb),'[]'::jsonb),$2::jsonb->>'color',($2::jsonb->>'is_all_day')::boolean,$3,$4,$5,$6,$7,$8,$9,$3,true WHERE NOT EXISTS (SELECT 1 FROM event_series_exceptions WHERE series_id=$9 AND original_start_at=$3) ON CONFLICT (series_id,original_start_at) DO NOTHING")
         .bind(&series.guild_id).bind(&series.template).bind(start).bind(end).bind(series.created_at).bind(&series.created_by)
         .bind(series.updated_at).bind(&series.updated_by).bind(series.id).execute(conn).await?;
     Ok(())
@@ -153,10 +154,11 @@ pub async fn ensure_range(
 ) -> Result<(), anyhow::Error> {
     let mut tx = pool.begin().await?;
     let series: Vec<Series> = sqlx::query_as(
-        "SELECT * FROM event_series WHERE guild_id=$1 AND start_at < $2 ORDER BY id FOR UPDATE",
+        "SELECT * FROM event_series WHERE guild_id=$1 AND start_at < $2 AND (end_before IS NULL OR end_before + (end_at-start_at) + CASE WHEN template->>'is_all_day'='true' THEN interval '1 day' ELSE interval '0' END > $3) ORDER BY id FOR UPDATE",
     )
     .bind(guild)
     .bind(to)
+    .bind(from)
     .fetch_all(&mut *tx)
     .await?;
     for s in series {

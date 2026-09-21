@@ -164,6 +164,10 @@ test("設定の取消・キーボード・開始日の不一致と未保存確�
     .click();
   await form.getByRole("button", { name: "繰り返しなし" }).click();
   await settings.getByLabel("繰り返しの頻度").selectOption("daily");
+  await expect(
+    settings.getByRole("button", { name: "設定を適用" }),
+  ).toBeEnabled();
+  await settings.getByRole("heading").focus();
   await page.keyboard.press("Escape");
   const discard = page.getByRole("alertdialog", {
     name: "未保存の変更を破棄しますか？",
@@ -184,7 +188,7 @@ test("繰り返しのドラッグは取消・保存失敗で元に戻り、以�
   await page.setViewportSize({ width: 1280, height: 1000 });
   const response = await page.request.post(base, {
     data: {
-      name: "定例の移動",
+      name: `定例の移動 ${Date.now()}`,
       color: "#2196F3",
       start_at: "2026-09-21T13:00:00",
       end_at: "2026-09-21T14:00:00",
@@ -205,7 +209,10 @@ test("繰り返しのドラッグは取消・保存失敗で元に戻り、以�
   const destination = dayCell(page, new Date(2026, 8, 22));
   await expect(eventOn(source, original.name)).toBeVisible();
   const drag = async () => {
+    await expect(page.getByRole("alertdialog")).toBeHidden();
     await destination.scrollIntoViewIfNeeded();
+    // 閉じるアニメーション中のダイアログが次のドラッグを遮らないようにする。
+    await eventOn(source, original.name).click({ trial: true });
     await dragEventTo(page, eventOn(source, original.name), destination);
     await expect(
       page.getByRole("alertdialog", { name: "変更する予定" }),

@@ -1,5 +1,5 @@
 //! APIとBotで同じ開催日を計算する。公開する条件だけからRRULEを組み立てる。
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, TimeZone};
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use serde::{Deserialize, Serialize};
 
 pub const LOOKAHEAD_DAYS: i64 = 730;
@@ -43,6 +43,9 @@ impl Rule {
     }
 
     pub fn rrule(&self, start: NaiveDateTime) -> Result<String, String> {
+        if start.nanosecond() != 0 {
+            return Err("繰り返し予定の開始日時は秒単位で指定してください".into());
+        }
         let weekday = start.weekday().num_days_from_monday() as u8;
         let (mut rule, ending) = match self {
             Self::None => return Err("繰り返し条件を指定してください".into()),
@@ -165,6 +168,33 @@ pub fn between(
         .collect())
 }
 
+/// 有限ルールの最後の開催枠より後の境界。終了済みシリーズをSQLで除外するため保存する。
+pub fn end_before(rule: &Rule, start: NaiveDateTime) -> Result<Option<NaiveDateTime>, String> {
+    let mut rule = rule.clone();
+    match rule.ending_mut().cloned() {
+        Some(Ending::Count { count }) => {
+            let dates = set(&rule.rrule(start)?, start)?.all(MAX_RESULTS);
+            if dates.limited || dates.dates.len() != count as usize {
+                return Err("繰り返しの計算上限に達しました".into());
+            }
+            dates
+                .dates
+                .last()
+                .unwrap()
+                .naive_local()
+                .checked_add_signed(Duration::seconds(1))
+                .map(Some)
+                .ok_or_else(|| "終了日が範囲外です".into())
+        }
+        Some(Ending::Until { date }) => date
+            .succ_opt()
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .map(Some)
+            .ok_or_else(|| "終了日が範囲外です".into()),
+        _ => Ok(None),
+    }
+}
+
 pub fn preview(rule: &Rule, start: NaiveDateTime) -> Result<Vec<NaiveDateTime>, String> {
     let text = rule.rrule(start)?;
     let result = set(&text, start)?.all(3);
@@ -226,5 +256,6 @@ mod tests {
             dt("2028-02-29T00:00:00")
         );
         assert!(weekly.rrule(dt("2026-12-29T19:30:00")).is_err());
+        assert!(weekly.rrule(dt("2026-12-28T19:30:00.123")).is_err());
     }
 }

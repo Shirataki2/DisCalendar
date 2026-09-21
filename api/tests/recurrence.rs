@@ -211,6 +211,12 @@ async fn rollback_preserves_occurrences(pool: PgPool) {
     create(&pool).await;
     let before = ids(&pool).await;
     sqlx::raw_sql(include_str!(
+        "../rollback/20260921000001_revert_generated_occurrences.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
         "../rollback/20260921000000_revert_event_series.sql"
     ))
     .execute(&pool)
@@ -226,6 +232,12 @@ async fn rollback_preserves_occurrences(pool: PgPool) {
     assert!(!applied);
     sqlx::raw_sql(include_str!(
         "../migrations/20260921000000_create_event_series.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../migrations/20260921000001_mark_generated_occurrences.sql"
     ))
     .execute(&pool)
     .await
@@ -286,9 +298,14 @@ async fn unmatched_exceptions_and_attachments_keep_ids_then_bulk_delete_stops_se
             .iter()
             .all(|actor| actor.as_deref() == Some("333"))
     );
-    discalendar_api::models::admin_ops::delete_guild_events(&mut tx, "111", "333")
-        .await
-        .unwrap();
+    let (snapshots, _) =
+        discalendar_api::models::admin_ops::delete_guild_events(&mut tx, "111", "333")
+            .await
+            .unwrap();
+    assert!(snapshots.iter().any(|(_, info)| {
+        info.as_ref()
+            .is_some_and(|i| i.rule["frequency"] == "weekly")
+    }));
     tx.commit().await.unwrap();
     store::ensure_range(
         &pool,
@@ -442,4 +459,41 @@ fn recurring_input_bounds_and_all_day_storage_are_validated() {
     body.notifications[0].num = 100;
     body.discord_scheduled_event = Some(true);
     assert!(body.validate().is_err());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn replenishment_does_not_inflate_creation_metrics_or_lock_finished_series(pool: PgPool) {
+    create(&pool).await;
+    let now = input().start_at + chrono::Duration::seconds(1);
+    let (creation, _) = discalendar_api::models::admin_analytics::event_creation(&pool, now)
+        .await
+        .unwrap();
+    assert_eq!(creation.total, 8);
+    assert_eq!(creation.last_day.current, 1);
+    let top = discalendar_api::models::admin_analytics::top_guilds(
+        &pool,
+        now - chrono::Duration::days(1),
+        now,
+    )
+    .await
+    .unwrap();
+    assert_eq!(top[0].event_count, 1);
+    // 終了したシリーズのロックを別接続が保持していても、翌年の一覧取得は待たない。
+    let mut locked = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM event_series FOR UPDATE")
+        .fetch_all(&mut *locked)
+        .await
+        .unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        store::ensure_range(
+            &pool,
+            "111",
+            dt("2027-01-01T00:00:00"),
+            dt("2027-02-01T00:00:00"),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 }
