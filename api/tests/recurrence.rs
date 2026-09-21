@@ -225,6 +225,12 @@ async fn rollback_preserves_occurrences(pool: PgPool) {
     create(&pool).await;
     let before = ids(&pool).await;
     sqlx::raw_sql(include_str!(
+        "../rollback/20260921000002_revert_series_creation.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
         "../rollback/20260921000001_revert_generated_occurrences.sql"
     ))
     .execute(&pool)
@@ -252,6 +258,12 @@ async fn rollback_preserves_occurrences(pool: PgPool) {
     .unwrap();
     sqlx::raw_sql(include_str!(
         "../migrations/20260921000001_mark_generated_occurrences.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../migrations/20260921000002_preserve_series_creation.sql"
     ))
     .execute(&pool)
     .await
@@ -510,4 +522,177 @@ async fn replenishment_does_not_inflate_creation_metrics_or_lock_finished_series
     .await
     .unwrap()
     .unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn creation_survives_first_cancellation_and_split(pool: PgPool) {
+    use discalendar_api::models::admin_analytics as stats;
+    sqlx::raw_sql(
+        r#"CREATE TABLE "user" ("createdAt" timestamptz);
+        CREATE TABLE "session" ("createdAt" timestamptz,"updatedAt" timestamptz,"userId" text);"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let first = create(&pool).await;
+    let all = ids(&pool).await;
+    let now = input().start_at + chrono::Duration::seconds(1);
+    let mut tx = pool.begin().await.unwrap();
+    recurring::before_delete(&mut tx, "111", first, &DeleteOptions::default())
+        .await
+        .unwrap();
+    events::delete(&mut *tx, "111", first).await.unwrap();
+    let info = store::info(&mut tx, "111", all[1]).await.unwrap().unwrap();
+    let mut body = input();
+    body.start_at += chrono::Duration::days(7);
+    body.end_at += chrono::Duration::days(7);
+    body.scope = ChangeScope::Future;
+    body.expected_series_version = Some(info.version);
+    recurring::update(&mut tx, "111", all[1], &body, "444")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let (creation, _) = stats::event_creation(&pool, now).await.unwrap();
+    assert_eq!(creation.total, 7);
+    assert_eq!(creation.last_day.current, 1);
+    assert_eq!(
+        stats::daily(&pool, now)
+            .await
+            .unwrap()
+            .last()
+            .unwrap()
+            .events,
+        1
+    );
+    assert_eq!(
+        stats::monthly(&pool, now)
+            .await
+            .unwrap()
+            .last()
+            .unwrap()
+            .events,
+        1
+    );
+    assert_eq!(
+        stats::top_guilds(&pool, now - chrono::Duration::days(1), now)
+            .await
+            .unwrap()[0]
+            .event_count,
+        1
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn webhook_scope_matches_series_operation(pool: PgPool) {
+    use discalendar_api::webhook_outbox::{enqueue, enqueue_with_scope};
+    sqlx::raw_sql("INSERT INTO guilds(guild_id,name) VALUES ('111','共有'); INSERT INTO guild_webhooks(guild_id,url,kind,secret,created_by) VALUES ('111','https://example.com','json','test','333')").execute(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let mut body = input();
+    body.recurrence = None;
+    let row = events::create(&mut *tx, "111", &body, body.start_at, "333")
+        .await
+        .unwrap();
+    for scope in ["this", "future"] {
+        enqueue_with_scope(
+            &mut tx,
+            "111",
+            row.id,
+            "event.deleted",
+            "333",
+            Some(scope),
+            None,
+        )
+        .await
+        .unwrap();
+    }
+    body.recurrence = input().recurrence;
+    recurring::update(&mut tx, "111", row.id, &body, "333")
+        .await
+        .unwrap();
+    enqueue_with_scope(
+        &mut tx,
+        "111",
+        row.id,
+        "event.updated",
+        "333",
+        Some("this"),
+        None,
+    )
+    .await
+    .unwrap();
+    // MCPの既存編集にはscopeがなく、シリーズ作成として扱わない。
+    enqueue(&mut tx, "111", row.id, "event.updated", "333")
+        .await
+        .unwrap();
+    let scopes: Vec<Option<String>> =
+        sqlx::query_scalar("SELECT payload->>'change_scope' FROM guild_webhook_outbox ORDER BY id")
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(
+        scopes,
+        vec![None, None, Some("future".into()), Some("this".into())]
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn daily_fill_and_split_use_bounded_sql_statements(pool: PgPool) {
+    sqlx::raw_sql("CREATE TABLE statement_counts(n int NOT NULL); INSERT INTO statement_counts VALUES(0);
+        CREATE FUNCTION count_event_statements() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE statement_counts SET n=n+1; RETURN NULL; END $$;
+        CREATE TRIGGER count_events AFTER INSERT OR UPDATE OR DELETE ON events FOR EACH STATEMENT EXECUTE FUNCTION count_event_statements();
+        CREATE TRIGGER count_exceptions AFTER INSERT OR UPDATE OR DELETE ON event_series_exceptions FOR EACH STATEMENT EXECUTE FUNCTION count_event_statements();")
+        .execute(&pool).await.unwrap();
+    let mut body = input();
+    body.start_at = discalendar_api::models::now_jst()
+        .date()
+        .and_hms_opt(19, 30, 0)
+        .unwrap();
+    body.end_at = body.start_at + chrono::Duration::hours(1);
+    body.recurrence = Some(discalendar_api::recurrence::Rule::Daily {
+        end: discalendar_api::recurrence::Ending::Never,
+    });
+    let mut tx = pool.begin().await.unwrap();
+    let row = events::create(&mut *tx, "111", &body, body.start_at, "333")
+        .await
+        .unwrap();
+    recurring::attach_created(&mut tx, "111", row.id, &body, "333")
+        .await
+        .unwrap();
+    let before: Vec<i32> = sqlx::query_scalar("SELECT id FROM events ORDER BY id")
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+    assert!(before.len() >= 730);
+    let count: i32 = sqlx::query_scalar("SELECT n FROM statement_counts")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert!(count <= 3, "補充のSQL数: {count}");
+    sqlx::query("UPDATE statement_counts SET n=0")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    body.name = "一括変更".into();
+    body.scope = ChangeScope::Future;
+    body.expected_series_version = Some(
+        store::info(&mut tx, "111", row.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .version,
+    );
+    recurring::update(&mut tx, "111", row.id, &body, "444")
+        .await
+        .unwrap();
+    let after: Vec<i32> =
+        sqlx::query_scalar("SELECT id FROM events WHERE name='一括変更' ORDER BY id")
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(before, after);
+    let count: i32 = sqlx::query_scalar("SELECT n FROM statement_counts")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert!(count <= 8, "分割のSQL数: {count}");
 }

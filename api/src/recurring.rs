@@ -108,6 +108,13 @@ pub async fn attach_created(
         return Ok(());
     };
     validate(input)?;
+    let created_at = sqlx::query_scalar::<_, NaiveDateTime>(
+        "SELECT created_at FROM events WHERE guild_id=$1 AND id=$2",
+    )
+    .bind(guild)
+    .bind(event)
+    .fetch_one(&mut *conn)
+    .await?;
     let series = store::create_series(
         conn,
         guild,
@@ -116,11 +123,11 @@ pub async fn attach_created(
         input.start_at,
         input.end_at,
         actor,
-        now_jst(),
+        created_at,
     )
     .await?;
     sqlx::query(
-        "UPDATE events SET series_id=$1,original_start_at=start_at WHERE guild_id=$2 AND id=$3",
+        "UPDATE events SET series_id=$1,original_start_at=start_at,generated_from_series=true WHERE guild_id=$2 AND id=$3",
     )
     .bind(series.id)
     .bind(guild)
@@ -274,12 +281,14 @@ pub async fn update(
         .await?;
         next.updated_at = Some(now_jst());
         next.updated_by = Some(actor.to_owned());
-        sqlx::query("UPDATE event_series SET updated_at=$2,updated_by=$3 WHERE id=$1")
-            .bind(next.id)
-            .bind(next.updated_at)
-            .bind(&next.updated_by)
-            .execute(&mut *conn)
-            .await?;
+        sqlx::query(
+            "UPDATE event_series SET updated_at=$2,updated_by=$3,is_creation=false WHERE id=$1",
+        )
+        .bind(next.id)
+        .bind(next.updated_at)
+        .bind(&next.updated_by)
+        .execute(&mut *conn)
+        .await?;
         Some(next)
     } else {
         None
@@ -288,69 +297,131 @@ pub async fn update(
         .bind(series.id).bind(info.original_start_at).fetch_all(&mut *conn).await?;
     let cancelled: Vec<NaiveDateTime> = sqlx::query_scalar("SELECT original_start_at FROM event_series_exceptions WHERE series_id=$1 AND original_start_at >= $2 AND event_id IS NULL")
         .bind(series.id).bind(info.original_start_at).fetch_all(&mut *conn).await?;
-    let mut used_starts = std::collections::HashSet::new();
-    for (event, original, exception, attachments) in rows {
-        // 対象回自身にはフォームの変更を反映。将来の例外は日付で新しい開催枠と照合する。
-        let new_start = if event == id {
-            Some(input.start_at)
-        } else if let Some(next) = &next {
-            let day = original.date().and_hms_opt(0, 0, 0).unwrap();
-            recurrence::between(&next.rrule, next.start_at, day, day + Duration::days(1))
-                .map_err(ApiError::BadRequest)?
-                .into_iter()
-                .next()
-        } else {
-            None
-        };
-        let new_start = new_start.filter(|start| used_starts.insert(*start));
-        sqlx::query("DELETE FROM event_series_exceptions WHERE event_id=$1")
-            .bind(event)
-            .execute(&mut *conn)
-            .await?;
-        if let (Some(next), Some(start)) = (&next, new_start) {
-            sqlx::query("UPDATE events SET series_id=$1,original_start_at=$2 WHERE id=$3")
-                .bind(next.id)
-                .bind(start)
-                .bind(event)
-                .execute(&mut *conn)
-                .await?;
-            if exception && event != id {
-                store::record_exception(conn, guild, event, false).await?;
-            } else {
-                let mut changed = input.clone();
-                changed.start_at = start;
-                changed.end_at = start + (input.end_at - input.start_at);
-                events::update(&mut *conn, guild, event, &changed, actor, now_jst()).await?;
-            }
-        } else if event == id || exception || attachments {
-            sqlx::query("UPDATE events SET series_id=NULL,original_start_at=NULL WHERE id=$1")
-                .bind(event)
-                .execute(&mut *conn)
-                .await?;
-            if event == id {
-                events::update(&mut *conn, guild, event, input, actor, now_jst()).await?;
-            }
-        } else {
-            events::delete(&mut *conn, guild, event).await?;
+    // 日付の照合も一度だけ展開する。通常回・例外を配列にまとめ、SQL往復を開催数に比例させない。
+    let mut starts_by_day = std::collections::HashMap::new();
+    if let Some(next) = &next {
+        let last = rows
+            .iter()
+            .map(|r| r.1)
+            .chain(cancelled.iter().copied())
+            .max()
+            .unwrap_or(next.start_at)
+            .max(next.start_at);
+        let to = last
+            .date()
+            .succ_opt()
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .ok_or_else(|| ApiError::BadRequest("開催日時が範囲外です".into()))?;
+        for start in recurrence::between(&next.rrule, next.start_at, next.start_at, to)
+            .map_err(ApiError::BadRequest)?
+        {
+            starts_by_day.insert(start.date(), start);
         }
     }
-    if let Some(next) = next {
-        for original in cancelled {
-            let day = original.date().and_hms_opt(0, 0, 0).unwrap();
-            if let Some(start) =
-                recurrence::between(&next.rrule, next.start_at, day, day + Duration::days(1))
-                    .map_err(ApiError::BadRequest)?
-                    .into_iter()
-                    .next()
-            {
-                if used_starts.contains(&start) {
-                    return Err(ApiError::BadRequest(
-                        "移動先は中止済みの開催日です。別の開始日を指定してください".into(),
-                    ));
-                }
-                sqlx::query("INSERT INTO event_series_exceptions(series_id,original_start_at) VALUES ($1,$2) ON CONFLICT DO NOTHING").bind(next.id).bind(start).execute(&mut *conn).await?;
+    let mut used_starts = std::collections::HashSet::new();
+    let mut migrated = Vec::new();
+    let mut starts = Vec::new();
+    let mut ends = Vec::new();
+    let mut exceptions = Vec::new();
+    let mut detached = Vec::new();
+    let mut deleted = Vec::new();
+    for (event, original, exception, attachments) in &rows {
+        let new_start = if *event == id {
+            Some(input.start_at)
+        } else {
+            starts_by_day.get(&original.date()).copied()
+        };
+        let new_start = new_start.filter(|start| used_starts.insert(*start));
+        if let (Some(_), Some(start)) = (&next, new_start) {
+            migrated.push(*event);
+            starts.push(start);
+            ends.push(
+                start
+                    .checked_add_signed(input.end_at - input.start_at)
+                    .ok_or_else(|| ApiError::BadRequest("開催終了日時が範囲外です".into()))?,
+            );
+            if *exception && *event != id {
+                exceptions.push(*event);
             }
+        } else if *event == id || *exception || *attachments {
+            detached.push(*event);
+        } else {
+            deleted.push(*event);
         }
+    }
+    let mut cancelled_starts = Vec::new();
+    for original in cancelled {
+        if let Some(start) = starts_by_day.get(&original.date()) {
+            if used_starts.contains(start) {
+                return Err(ApiError::BadRequest(
+                    "移動先は中止済みの開催日です。別の開始日を指定してください".into(),
+                ));
+            }
+            cancelled_starts.push(*start);
+        }
+    }
+    let affected: Vec<_> = rows.iter().map(|r| r.0).collect();
+    sqlx::query("DELETE FROM event_series_exceptions WHERE event_id=ANY($1)")
+        .bind(&affected)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query(
+        "UPDATE events SET series_id=NULL,original_start_at=NULL WHERE guild_id=$1 AND id=ANY($2)",
+    )
+    .bind(guild)
+    .bind(&detached)
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query("DELETE FROM events WHERE guild_id=$1 AND id=ANY($2)")
+        .bind(guild)
+        .bind(&deleted)
+        .execute(&mut *conn)
+        .await?;
+    if detached.contains(&id) {
+        events::update(&mut *conn, guild, id, input, actor, now_jst()).await?;
+    }
+    if let Some(next) = next {
+        // 例外は日時・共通項目をそのまま保持し、通常回だけ新しいフォーム値を反映する。
+        sqlx::query("UPDATE events e SET series_id=$2,original_start_at=slots.start_at,
+            name=CASE WHEN e.id=ANY($6) THEN e.name ELSE $7 END,
+            description=CASE WHEN e.id=ANY($6) THEN e.description ELSE $8 END,
+            notifications=CASE WHEN e.id=ANY($6) THEN e.notifications ELSE $9 END,
+            notification_mentions=CASE WHEN e.id=ANY($6) THEN e.notification_mentions ELSE COALESCE($10,e.notification_mentions) END,
+            color=CASE WHEN e.id=ANY($6) THEN e.color ELSE $11 END,
+            is_all_day=CASE WHEN e.id=ANY($6) THEN e.is_all_day ELSE $12 END,
+            start_at=CASE WHEN e.id=ANY($6) THEN e.start_at ELSE slots.start_at END,
+            end_at=CASE WHEN e.id=ANY($6) THEN e.end_at ELSE slots.end_at END,
+            updated_by=CASE WHEN e.id=ANY($6) THEN e.updated_by ELSE $13 END,
+            updated_at=CASE WHEN e.id=ANY($6) THEN e.updated_at ELSE $14 END
+            FROM UNNEST($3::int[],$4::timestamp[],$5::timestamp[]) slots(id,start_at,end_at)
+            WHERE e.guild_id=$1 AND e.id=slots.id")
+            .bind(guild).bind(next.id).bind(&migrated).bind(&starts).bind(&ends).bind(&exceptions)
+            .bind(&input.name).bind(&input.description)
+            .bind(crate::models::notifications::Notification::encode_all(&input.notifications))
+            .bind(input.notification_mentions.as_ref().map(sqlx::types::Json))
+            .bind(&input.color).bind(input.is_all_day).bind(actor).bind(now_jst())
+            .execute(&mut *conn).await?;
+        sqlx::query(
+            "INSERT INTO event_series_exceptions(series_id,original_start_at,event_id)
+            SELECT series_id,original_start_at,id FROM events WHERE guild_id=$1 AND id=ANY($2)",
+        )
+        .bind(guild)
+        .bind(&exceptions)
+        .execute(&mut *conn)
+        .await?;
+        sqlx::query("UPDATE event_series SET version=version+$2 WHERE id=$1")
+            .bind(next.id)
+            .bind(exceptions.len() as i32)
+            .execute(&mut *conn)
+            .await?;
+        sqlx::query(
+            "INSERT INTO event_series_exceptions(series_id,original_start_at)
+            SELECT $1,start_at FROM UNNEST($2::timestamp[]) start_at ON CONFLICT DO NOTHING",
+        )
+        .bind(next.id)
+        .bind(&cancelled_starts)
+        .execute(&mut *conn)
+        .await?;
         store::fill(
             conn,
             &next,

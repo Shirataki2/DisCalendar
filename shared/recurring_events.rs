@@ -106,16 +106,21 @@ pub async fn create_series(
         .bind(guild).bind(template).bind(serde_json::to_value(&rule)?).bind(rrule).bind(start).bind(end).bind(actor).bind(now).bind(end_before).fetch_one(conn).await?)
 }
 
-pub async fn insert_occurrence(
+async fn insert_occurrences(
     conn: &mut PgConnection,
     series: &Series,
-    start: NaiveDateTime,
+    starts: &[NaiveDateTime],
 ) -> Result<(), anyhow::Error> {
-    let end = start
-        .checked_add_signed(series.end_at - series.start_at)
-        .ok_or_else(|| anyhow::anyhow!("開催終了日時が範囲外です"))?;
-    sqlx::query("INSERT INTO events (guild_id,name,description,notifications,notification_mentions,color,is_all_day,start_at,end_at,created_at,created_by,updated_at,updated_by,series_id,original_start_at,generated_from_series) SELECT $1,$2::jsonb->>'name',$2::jsonb->>'description',COALESCE($2::jsonb->'notifications','[]'::jsonb),COALESCE(NULLIF($2::jsonb->'notification_mentions','null'::jsonb),'[]'::jsonb),$2::jsonb->>'color',($2::jsonb->>'is_all_day')::boolean,$3,$4,$5,$6,$7,$8,$9,$3,true WHERE NOT EXISTS (SELECT 1 FROM event_series_exceptions WHERE series_id=$9 AND original_start_at=$3) ON CONFLICT (series_id,original_start_at) DO NOTHING")
-        .bind(&series.guild_id).bind(&series.template).bind(start).bind(end).bind(series.created_at).bind(&series.created_by)
+    let ends: Vec<_> = starts
+        .iter()
+        .map(|start| {
+            start
+                .checked_add_signed(series.end_at - series.start_at)
+                .ok_or_else(|| anyhow::anyhow!("開催終了日時が範囲外です"))
+        })
+        .collect::<Result<_, _>>()?;
+    sqlx::query("INSERT INTO events (guild_id,name,description,notifications,notification_mentions,color,is_all_day,start_at,end_at,created_at,created_by,updated_at,updated_by,series_id,original_start_at,generated_from_series) SELECT $1,$2::jsonb->>'name',$2::jsonb->>'description',COALESCE($2::jsonb->'notifications','[]'::jsonb),COALESCE(NULLIF($2::jsonb->'notification_mentions','null'::jsonb),'[]'::jsonb),$2::jsonb->>'color',($2::jsonb->>'is_all_day')::boolean,slots.start_at,slots.end_at,$5,$6,$7,$8,$9,slots.start_at,true FROM UNNEST($3::timestamp[],$4::timestamp[]) AS slots(start_at,end_at) WHERE NOT EXISTS (SELECT 1 FROM event_series_exceptions WHERE series_id=$9 AND original_start_at=slots.start_at) ON CONFLICT (series_id,original_start_at) DO NOTHING")
+        .bind(&series.guild_id).bind(&series.template).bind(starts).bind(&ends).bind(series.created_at).bind(&series.created_by)
         .bind(series.updated_at).bind(&series.updated_by).bind(series.id).execute(conn).await?;
     Ok(())
 }
@@ -138,11 +143,9 @@ pub async fn fill(
         .ok_or_else(|| anyhow::anyhow!("取得範囲が広すぎます"))?
         .max(series.start_at);
     let to = series.end_before.map_or(to, |end| to.min(end));
-    for start in
-        recurrence::between(&series.rrule, series.start_at, from, to).map_err(anyhow::Error::msg)?
-    {
-        insert_occurrence(conn, series, start).await?;
-    }
+    let starts = recurrence::between(&series.rrule, series.start_at, from, to)
+        .map_err(anyhow::Error::msg)?;
+    insert_occurrences(conn, series, &starts).await?;
     Ok(())
 }
 
