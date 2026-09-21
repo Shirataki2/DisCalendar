@@ -95,9 +95,14 @@ pub async fn create_series(
     actor: &str,
     now: NaiveDateTime,
 ) -> Result<Series, anyhow::Error> {
+    let mut rule = rule.clone();
+    if let Rule::Weekly { weekdays, .. } | Rule::Biweekly { weekdays, .. } = &mut rule {
+        weekdays.sort_unstable();
+        weekdays.dedup();
+    }
     let rrule = rule.rrule(start).map_err(anyhow::Error::msg)?;
     Ok(sqlx::query_as("INSERT INTO event_series (guild_id,template,recurrence,rrule,start_at,end_at,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *")
-        .bind(guild).bind(template).bind(serde_json::to_value(rule)?).bind(rrule).bind(start).bind(end).bind(actor).bind(now).fetch_one(conn).await?)
+        .bind(guild).bind(template).bind(serde_json::to_value(&rule)?).bind(rrule).bind(start).bind(end).bind(actor).bind(now).fetch_one(conn).await?)
 }
 
 pub async fn insert_occurrence(

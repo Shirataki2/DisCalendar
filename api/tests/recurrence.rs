@@ -45,13 +45,17 @@ async fn exceptions_survive_split_and_replenishment(pool: PgPool) {
     let all = ids(&pool).await;
     assert_eq!(all.len(), 8);
     assert_eq!(all[0], first);
+    let mut equivalent = input().recurrence.unwrap();
+    if let discalendar_api::recurrence::Rule::Weekly { weekdays, .. } = &mut equivalent {
+        weekdays.push(0);
+    }
     let preview = recurring::preview_dates(
         &pool,
         "111",
         &recurring::PreviewInput {
             event_id: Some(all[6]),
             start_at: dt("2026-11-02T19:30:00"),
-            recurrence: input().recurrence.unwrap(),
+            recurrence: equivalent,
         },
     )
     .await
@@ -356,6 +360,17 @@ async fn disabling_series_keeps_target_share_and_emits_one_scoped_webhook(pool: 
         .await
         .unwrap();
     assert_eq!(queued, 0); // 補充は利用者の作成操作として通知しない。
+    let mut created_tx = pool.begin().await.unwrap();
+    discalendar_api::webhook_outbox::enqueue(&mut created_tx, "111", id, "event.created", "333")
+        .await
+        .unwrap();
+    let scope: String =
+        sqlx::query_scalar("SELECT payload->>'change_scope' FROM guild_webhook_outbox")
+            .fetch_one(&mut *created_tx)
+            .await
+            .unwrap();
+    assert_eq!(scope, "future");
+    created_tx.rollback().await.unwrap();
     let link = discalendar_api::models::shares::issue(&pool, "111", id)
         .await
         .unwrap()

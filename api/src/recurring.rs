@@ -197,11 +197,9 @@ pub async fn update(
         .await?
         .ok_or_else(|| ApiError::Conflict("予定が変更されました".into()))?;
     if input.scope == ChangeScope::This {
-        if input
-            .recurrence
-            .as_ref()
-            .is_some_and(|r| serde_json::to_value(r).ok().as_ref() != Some(&series.recurrence))
-        {
+        if input.recurrence.as_ref().is_some_and(|r| {
+            r.rrule(series.start_at).ok().as_deref() != Some(series.rrule.as_str())
+        }) {
             return Err(ApiError::BadRequest(
                 "繰り返し条件の変更は「この回以降」を選択してください".into(),
             ));
@@ -217,10 +215,9 @@ pub async fn update(
         .unwrap_or(serde_json::from_value(series.recurrence.clone()).map_err(anyhow::Error::from)?);
     // フォームで条件を変えなかった場合、既に消費した開催枠を回数から引く。
     if (input.recurrence.is_none()
-        || input
-            .recurrence
-            .as_ref()
-            .is_some_and(|r| serde_json::to_value(r).ok().as_ref() == Some(&series.recurrence)))
+        || input.recurrence.as_ref().is_some_and(|r| {
+            r.rrule(series.start_at).ok().as_deref() == Some(series.rrule.as_str())
+        }))
         && let Some(Ending::Count { count }) = rule.ending_mut()
     {
         *count = remaining_count(&series, info.original_start_at, *count)?;
@@ -401,7 +398,7 @@ pub async fn preview_dates(
             .bind(guild).bind(id).fetch_optional(pool).await?;
         if let Some((original, value)) = current {
             let series: Series = serde_json::from_value(value.0).map_err(anyhow::Error::from)?;
-            if serde_json::to_value(&rule).map_err(anyhow::Error::from)? == series.recurrence
+            if rule.rrule(series.start_at).ok().as_deref() == Some(series.rrule.as_str())
                 && let Some(Ending::Count { count }) = rule.ending_mut()
             {
                 *count = remaining_count(&series, original, *count)?;

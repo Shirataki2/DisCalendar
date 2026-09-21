@@ -27,7 +27,7 @@ pub async fn enqueue_with_scope(
     sqlx::query(
         "INSERT INTO guild_webhook_outbox (webhook_id, event_id, kind, payload, actor_id, generation)
          SELECT w.id, e.id, $3, to_jsonb(e) || jsonb_build_object(
-             'discord_scheduled_event_id', l.scheduled_event_id) || CASE WHEN s.id IS NULL AND $6::jsonb IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('recurrence',CASE WHEN s.id IS NULL THEN $6::jsonb ELSE jsonb_build_object('series_id',s.id,'original_start_at',e.original_start_at,'rule',s.recurrence,'version',s.version) END,'change_scope',COALESCE($5::text,'this')) END || CASE WHEN $5::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('change_scope',$5::text) END, $4, w.generation
+             'discord_scheduled_event_id', l.scheduled_event_id) || CASE WHEN s.id IS NULL AND $6::jsonb IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('recurrence',CASE WHEN s.id IS NULL THEN $6::jsonb ELSE jsonb_build_object('series_id',s.id,'original_start_at',e.original_start_at,'rule',s.recurrence,'version',s.version) END,'change_scope',COALESCE($5::text,CASE WHEN $3='event.created' THEN 'future' ELSE 'this' END)) END || CASE WHEN $5::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('change_scope',$5::text) END, $4, w.generation
          FROM events e
          JOIN guild_webhooks w ON w.guild_id = e.guild_id AND w.enabled
          LEFT JOIN event_discord_links l ON l.event_id = e.id

@@ -361,6 +361,7 @@ function EventForm({
       }
       const saved = await onSubmit(input);
       setSavedEvent(saved);
+      setRecurrence(saved.recurrence?.rule ?? { frequency: "none" });
       // 添付だけ失敗した場合も、保存済みの入力は破棄確認の対象から外す。
       form.reset(submittedValues, { keepValues: true });
       if (!mentionGuildId || (await uploads.upload(saved.id))) {
@@ -441,7 +442,12 @@ function EventForm({
                 type="button"
                 variant="outline"
                 className="h-auto min-h-11 w-full justify-between whitespace-normal"
-                disabled={recurringSingleEdit || isLinkedEdit}
+                disabled={
+                  recurringSingleEdit ||
+                  isLinkedEdit ||
+                  isSubmitting ||
+                  uploads.busy
+                }
                 onClick={() => setEditingRecurrence(true)}
               >
                 {describeRecurrence(recurrence)}
