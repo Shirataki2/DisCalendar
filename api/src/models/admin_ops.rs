@@ -69,6 +69,10 @@ pub async fn delete_guild_events(
             FOR KEY SHARE OF w
         ) SELECT count(*) FROM deleted"
     ).bind(guild_id).bind(actor_id).fetch_one(&mut *conn).await?;
+    sqlx::query("DELETE FROM event_series WHERE guild_id=$1")
+        .bind(guild_id)
+        .execute(&mut *conn)
+        .await?;
     Ok((snapshot, deleted as u64))
 }
 

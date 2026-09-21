@@ -15,6 +15,7 @@ path = "src/main.rs"
 webhook-e2e = []
 
 [dependencies]
+rrule.workspace = true
 actix-web = { version = "4.14", default-features = false, features = ["macros", "cookies", "compress-gzip"] }
 tokio.workspace = true
 sqlx.workspace = true

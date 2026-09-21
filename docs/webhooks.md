@@ -21,3 +21,5 @@ Webhook の E2E は `webhook-e2e` Cargo feature を使う (`pnpm e2e` の既定�
 このビルドだけが `webhook.test` をローカル受信モックに解決する。
 通常・本番の Docker ビルドでは有効にしない。E2E の API バイナリを手動指定する場合は
 `cargo build -p discalendar-api --features webhook-e2e` で用意する。
+
+繰り返しの自動補充では配信しない。利用者のシリーズ操作は対象回の1件だけ配信し、JSONの `event.change_scope`（`this` / `future`）と `event.recurrence` に条件・シリーズ情報を付ける。繰り返し解除時は変更前のシリーズ情報を残す。

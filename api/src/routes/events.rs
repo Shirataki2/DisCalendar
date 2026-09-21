@@ -121,10 +121,8 @@ pub struct EventPath {
 /// (単独カレンダーの 403 に相当。web が持つ参加状況が古いときに起きる)。
 /// restricted モードは編集だけを制限し閲覧には関わらないので、ここでは見ない。
 ///
-/// メンバー確認は候補すべてではなく、**期間内に予定があるギルドだけ**に行う。先に DB から候補全体の予定を
-/// 読み (認可前の行は返さない)、実際に返す行のギルドだけ Discord に問い合わせるので、参加ギルドが
-/// 多い利用者でも呼び出し回数は「予定のあるギルド数」で頭打ちになる (候補 200 件 × 冷えたキャッシュで
-/// 400 回になるのを避ける)。
+/// 補充はDBへの書き込みを伴うため、候補ギルドすべての認可を先に確認する。
+/// Discordの既存キャッシュと並列数制限を使う。
 /// Discord への問い合わせが 1 つでも失敗したら全体を失敗にする (そのギルドだけ黙って抜くと
 /// 「予定が無い」ように見えてしまう。web は再試行を案内する)
 #[utoipa::path(
@@ -150,21 +148,10 @@ pub async fn list_joined(
         return Ok(web::Json(Vec::new()));
     }
 
-    let rows =
-        events::list_between_guilds(&state.pool, &candidates, query.start, query.end).await?;
-    // 期間内に予定があるギルドだけ (並びは候補の順)
-    let present: Vec<String> = candidates
-        .into_iter()
-        .filter(|id| rows.iter().any(|row| &row.guild_id == id))
-        .collect();
-    if present.is_empty() {
-        return Ok(web::Json(Vec::new()));
-    }
-
     // メンバー確認を並列に行う (結果の順序は問わない。予定の並びは SQL 側で決まっている)
     let discord = &state.discord;
     let user_id = &user.discord_user_id;
-    let checked: Vec<Option<String>> = stream::iter(present)
+    let checked: Vec<Option<String>> = stream::iter(candidates)
         .map(|guild_id| async move {
             discord
                 .member_access(&guild_id, user_id)
@@ -184,11 +171,13 @@ pub async fn list_joined(
         );
     }
 
+    let allowed: Vec<String> = allowed.into_iter().collect();
+    for guild in &allowed {
+        crate::recurring_events::ensure_range(&state.pool, guild, query.start, query.end).await?;
+    }
+    let rows = events::list_between_guilds(&state.pool, &allowed, query.start, query.end).await?;
     Ok(web::Json(
-        rows.into_iter()
-            .filter(|row| allowed.contains(&row.guild_id))
-            .map(Event::from)
-            .collect(),
+        crate::recurring::decorate_all(&state.pool, rows).await?,
     ))
 }
 
@@ -210,8 +199,12 @@ pub async fn list(
     state: web::Data<AppState>,
 ) -> Result<web::Json<Vec<Event>>, ApiError> {
     query.validate()?;
+    crate::recurring_events::ensure_range(&state.pool, member.guild_id(), query.start, query.end)
+        .await?;
     let rows = events::list_between(&state.pool, member.guild_id(), query.start, query.end).await?;
-    Ok(web::Json(rows.into_iter().map(Event::from).collect()))
+    Ok(web::Json(
+        crate::recurring::decorate_all(&state.pool, rows).await?,
+    ))
 }
 
 /// 予定の作成
@@ -260,17 +253,26 @@ pub async fn create(
             &member.user.discord_user_id,
         )
         .await?;
-        crate::webhook_outbox::enqueue(
+        crate::recurring::attach_created(
             &mut tx,
             guild_id,
             row.id,
+            &body,
+            &member.user.discord_user_id,
+        )
+        .await?;
+        let event = crate::recurring::decorate(&mut tx, Event::from(row)).await?;
+        crate::webhook_outbox::enqueue(
+            &mut tx,
+            guild_id,
+            event.id,
             "event.created",
             &member.user.discord_user_id,
         )
         .await?;
         tx.commit().await?;
-        tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event created");
-        return Ok(HttpResponse::Created().json(Event::from(row)));
+        tracing::info!(guild_id, event_id = event.id, user_id = %member.user.discord_user_id, "event created");
+        return Ok(HttpResponse::Created().json(event));
     }
 
     // Discord 連携あり (#94): 先に Discord にイベントを作り、成功したら短いトランザクションで
@@ -381,6 +383,40 @@ pub async fn update(
             body.notification_mentions.as_deref(),
         )
         .await?;
+
+        {
+            let mut tx = state.pool.begin().await?;
+            let previous_series =
+                crate::recurring_events::info(&mut tx, guild_id, path.event_id).await?;
+            if let Some(row) = crate::recurring::update(
+                &mut tx,
+                guild_id,
+                path.event_id,
+                &body,
+                &member.user.discord_user_id,
+            )
+            .await?
+            {
+                crate::webhook_outbox::enqueue_with_scope(
+                    &mut tx,
+                    guild_id,
+                    row.id,
+                    "event.updated",
+                    &member.user.discord_user_id,
+                    Some(if body.scope == crate::recurring::ChangeScope::Future {
+                        "future"
+                    } else {
+                        "this"
+                    }),
+                    previous_series.as_ref(),
+                )
+                .await?;
+
+                let event = crate::recurring::decorate(&mut tx, Event::from(row)).await?;
+                tx.commit().await?;
+                return Ok(web::Json(event));
+            }
+        }
 
         // 更新では省略 (フラグを知らない古いクライアント) は「現在の連携状態を保持」として扱う
         // (既定 false にすると、古いタブからの編集・ドラッグで既存の連携が意図せず外れてしまう)
@@ -602,7 +638,7 @@ pub async fn update(
 /// 予定の削除
 #[utoipa::path(
     tag = "events",
-    params(EventPath),
+    params(EventPath, crate::recurring::DeleteOptions),
     responses(
         (status = 204),
         (status = 401, body = ErrorBody),
@@ -614,6 +650,7 @@ pub async fn update(
 pub async fn delete(
     member: GuildMember,
     path: web::Path<EventPath>,
+    options: web::Query<crate::recurring::DeleteOptions>,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, ApiError> {
     let _writer = event_links::lock_writer(&state.pool, member.guild_id()).await?;
@@ -627,14 +664,22 @@ pub async fn delete(
     let row = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
         .await?
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-    crate::webhook_outbox::enqueue(
+    crate::webhook_outbox::enqueue_with_scope(
         &mut tx,
         guild_id,
         path.event_id,
         "event.deleted",
         &member.user.discord_user_id,
+        Some(if options.scope == crate::recurring::ChangeScope::Future {
+            "future"
+        } else {
+            "this"
+        }),
+        None,
     )
     .await?;
+
+    crate::recurring::before_delete(&mut tx, guild_id, path.event_id, &options).await?;
     events::delete(&mut *tx, guild_id, path.event_id).await?;
     if let Err(err) = tx.commit().await {
         // COMMIT の応答だけ失われて、実際には消えていることがある。その場合に何もしないと
@@ -668,7 +713,7 @@ pub async fn delete(
 
 /// restricted モードのギルドでは管理権限または編集ロールを持つユーザーが予定を編集できる。
 /// 旧実装はこの判定をクライアント側だけで行っていたが、サーバー側で強制する
-pub(super) async fn ensure_can_edit(pool: &PgPool, member: &GuildMember) -> Result<(), ApiError> {
+pub(crate) async fn ensure_can_edit(pool: &PgPool, member: &GuildMember) -> Result<(), ApiError> {
     let config = guilds::get_config(pool, member.guild_id()).await?;
     if !config.can_edit_events(
         member.permissions().can_manage_server(),

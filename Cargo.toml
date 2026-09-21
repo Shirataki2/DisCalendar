@@ -10,6 +10,7 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
+rrule = "0.14"
 # api / bot で共有する依存はここでバージョンを一元管理する
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
 sqlx = { version = "0.9", default-features = false, features = [

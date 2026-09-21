@@ -16,6 +16,8 @@ pub enum BotError {
     Serenity(#[source] Box<serenity::Error>),
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
+    #[error("recurrence error: {0}")]
+    Recurrence(#[from] anyhow::Error),
     /// 入力や権限などユーザー側の問題。メッセージをそのまま本人にだけ (ephemeral) 返し、ログには出さない
     #[error("{0}")]
     User(String),

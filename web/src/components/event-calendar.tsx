@@ -14,6 +14,7 @@ import { PlusIcon } from "lucide-react";
 import {
   type CSSProperties,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -54,7 +55,12 @@ import {
 import { useCalendarShortcuts } from "@/hooks/use-calendar-shortcuts";
 import { useLastValue } from "@/hooks/use-last-value";
 import { describeApiError } from "@/lib/api";
-import type { ApiEvent, ApiEventInput, Notification } from "@/lib/api/types";
+import type {
+  ApiEvent,
+  ApiEventInput,
+  ChangeScope,
+  Notification,
+} from "@/lib/api/types";
 import {
   describeEventRange,
   sourceOf,
@@ -269,6 +275,30 @@ export function EventCalendar({
     if (guideDate) calendarRef.current?.getApi().gotoDate(guideDate);
   }, [guideDate]);
 
+  const [scopeRequest, setScopeRequest] = useState<{
+    choose: (scope: ChangeScope) => void;
+    cancel?: () => void;
+  } | null>(null);
+  const [deleteScope, setDeleteScope] = useState<ChangeScope>("this");
+  const previewRecurrence = useCallback(
+    (
+      start: string,
+      rule: import("@/lib/api/types").RecurrenceRule,
+      signal: AbortSignal,
+    ) =>
+      eventsSource.client.preview
+        ? eventsSource.client.preview(
+            guildId,
+            start,
+            rule,
+            signal,
+            dialog?.mode === "edit" && dialog.scope === "future"
+              ? dialog.event.id
+              : undefined,
+          )
+        : Promise.resolve([]),
+    [eventsSource, guildId, dialog],
+  );
   const eventsQuery = useEventsQuery(guildId, range, eventsSource);
   const createEvent = useCreateEvent(guildId, eventsSource);
   const updateEvent = useUpdateEvent(guildId, eventsSource);
@@ -329,15 +359,27 @@ export function EventCalendar({
     const source = sourceOf(info.event);
     if (!source) return;
     setActionError(null);
-    updateEvent.mutate(
-      { id: source.id, input: toApiEventInput(info.event, source) },
-      {
-        onError: (error) => {
-          info.revert();
-          setActionError(describeApiError(error));
+    const input = toApiEventInput(info.event, source);
+    const save = (scope: ChangeScope) =>
+      updateEvent.mutate(
+        {
+          id: source.id,
+          input: {
+            ...input,
+            scope,
+            expected_series_version: source.recurrence?.version,
+          },
         },
-      },
-    );
+        {
+          onError: (error) => {
+            info.revert();
+            setActionError(describeApiError(error));
+          },
+        },
+      );
+    if (source.recurrence)
+      setScopeRequest({ choose: save, cancel: () => info.revert() });
+    else save("this");
   };
 
   // クリックで概要ポップオーバー (旧実装の右クリック / 長押し相当)。
@@ -426,11 +468,16 @@ export function EventCalendar({
 
   const openEdit = (event: ApiEvent) => {
     setPopover(null);
-    setDialog({ mode: "edit", event });
+    if (event.recurrence)
+      setScopeRequest({
+        choose: (scope) => setDialog({ mode: "edit", event, scope }),
+      });
+    else setDialog({ mode: "edit", event });
   };
 
   const openDelete = (event: ApiEvent) => {
     setPopover(null);
+    setDeleteScope("this");
     setDeleteTarget(event);
   };
 
@@ -461,13 +508,23 @@ export function EventCalendar({
     setDialog(null);
     setActionError(null);
     try {
-      await deleteEvent.mutateAsync(id);
+      await deleteEvent.mutateAsync({
+        id,
+        scope: deleteScope,
+        expected_series_version: deleteTarget.recurrence?.version,
+      });
     } catch (error) {
       setActionError(describeApiError(error));
     }
   };
 
-  const overlayOpen = !!(dialog || popoverEvent || quickAdd || deleteTarget);
+  const overlayOpen = !!(
+    dialog ||
+    popoverEvent ||
+    quickAdd ||
+    deleteTarget ||
+    scopeRequest
+  );
   return (
     <div
       className={cn(
@@ -512,7 +569,10 @@ export function EventCalendar({
             </span>
           )}
           {actionError && (
-            <span className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive">
+            <span
+              role="alert"
+              className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive"
+            >
               {actionError}
               <button
                 type="button"
@@ -592,6 +652,9 @@ export function EventCalendar({
           />
         )}
         <EventFormDialog
+          previewRecurrence={
+            eventsSource.client.preview ? previewRecurrence : undefined
+          }
           guildName={guildName}
           guidance={dialog && !deleteTarget ? guide?.inlineContent : null}
           mentionGuildId={
@@ -617,12 +680,74 @@ export function EventCalendar({
                 「{deleteShown?.name}」を削除します。この操作は取り消せません。
               </AlertDialogDescription>
             </AlertDialogHeader>
+            {deleteTarget?.recurrence && (
+              <fieldset className="space-y-2">
+                <legend>削除する予定</legend>
+                {(["this", "future"] as const).map((scope) => (
+                  <label
+                    key={scope}
+                    className="flex min-h-11 items-center gap-2"
+                  >
+                    <input
+                      type="radio"
+                      name="delete-scope"
+                      checked={deleteScope === scope}
+                      onChange={() => setDeleteScope(scope)}
+                    />
+                    {scope === "this" ? "この回のみ" : "この回以降"}
+                  </label>
+                ))}
+                {deleteScope === "future" && (
+                  <p className="text-sm text-destructive">
+                    元の開催日がこの回以降の予定を、個別編集済みの回と添付ファイルも含めて削除します。
+                  </p>
+                )}
+              </fieldset>
+            )}
             {deleteTarget && guide?.inlineContent}
             <AlertDialogFooter>
               <AlertDialogCancel>キャンセル</AlertDialogCancel>
               <AlertDialogAction variant="destructive" onClick={confirmDelete}>
                 削除
               </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog
+          open={scopeRequest !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              scopeRequest?.cancel?.();
+              setScopeRequest(null);
+            }
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>変更する予定</AlertDialogTitle>
+              <AlertDialogDescription>
+                変更を適用する範囲を選んでください。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="grid gap-3">
+              {(["this", "future"] as const).map((scope) => (
+                <Button
+                  key={scope}
+                  type="button"
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => {
+                    const action = scopeRequest;
+                    setScopeRequest(null);
+                    action?.choose(scope);
+                  }}
+                >
+                  {scope === "this" ? "この回のみ" : "この回以降"}
+                </Button>
+              ))}
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>キャンセル</AlertDialogCancel>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

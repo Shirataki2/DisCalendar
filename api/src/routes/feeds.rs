@@ -137,6 +137,13 @@ pub async fn download_feed(
         .await?
         .ok_or_else(not_found)?;
     let since = now_jst() - Duration::days(FEED_LOOKBACK_DAYS);
+    crate::recurring_events::ensure_range(
+        &state.pool,
+        &guild.guild_id,
+        crate::models::now_jst() - chrono::Duration::days(366),
+        crate::models::now_jst() + chrono::Duration::days(730),
+    )
+    .await?;
     let rows = events::list_for_feed(&state.pool, &guild.guild_id, since).await?;
     let body = ical::render_feed(&guild, &rows, &state.site_base_url, chrono::Utc::now());
     Ok(HttpResponse::Ok()

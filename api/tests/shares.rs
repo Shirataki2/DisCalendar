@@ -12,6 +12,9 @@ async fn share_lifecycle_and_public_fields(pool: PgPool) {
         .await
         .unwrap();
     let input = EventInput {
+        recurrence: None,
+        scope: Default::default(),
+        expected_series_version: None,
         name: "共有予定".into(),
         description: Some("説明".into()),
         notifications: vec![],
@@ -48,6 +51,9 @@ async fn share_lifecycle_and_public_fields(pool: PgPool) {
     assert_eq!(json["guild_name"], "共有サーバー");
     assert_eq!(json.as_object().unwrap().len(), 8);
     let updated = EventInput {
+        recurrence: None,
+        scope: Default::default(),
+        expected_series_version: None,
         name: "変更済み".into(),
         ..input
     };

@@ -178,6 +178,7 @@ export async function removeGuild(
   const pool = new Pool({ connectionString: databaseUrl });
   try {
     await pool.query("DELETE FROM events WHERE guild_id = $1", [guildId]);
+    await pool.query("DELETE FROM event_series WHERE guild_id = $1", [guildId]);
     await pool.query("DELETE FROM guild_config WHERE guild_id = $1", [guildId]);
     await pool.query("DELETE FROM guilds WHERE guild_id = $1", [guildId]);
   } finally {
@@ -217,7 +218,7 @@ export async function seedDatabase(databaseUrl: string): Promise<string> {
       // CASCADE は events を参照する子テーブル (event_discord_links #94 など) も一緒に空にするため。
       // guild_feed_tokens (#95) は FK を持たないので明示する
       await client.query(
-        "TRUNCATE events, guild_config, guilds, guild_feed_tokens RESTART IDENTITY CASCADE",
+        "TRUNCATE events, event_series, guild_config, guilds, guild_feed_tokens RESTART IDENTITY CASCADE",
       );
       await client.query('DELETE FROM "session"');
       await client.query('DELETE FROM "account"');

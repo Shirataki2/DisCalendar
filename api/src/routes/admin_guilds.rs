@@ -170,8 +170,11 @@ pub async fn list_events(
 ) -> Result<web::Json<Vec<Event>>, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
     query.validate()?;
+    crate::recurring_events::ensure_range(&state.pool, guild_id, query.start, query.end).await?;
     let rows = events::list_between(&state.pool, guild_id, query.start, query.end).await?;
-    Ok(web::Json(rows.into_iter().map(Event::from).collect()))
+    Ok(web::Json(
+        crate::recurring::decorate_all(&state.pool, rows).await?,
+    ))
 }
 
 /// 予定の作成 (管理者による代理登録)。`admin_audit_logs` に `event.create` を記録する。
@@ -210,6 +213,9 @@ pub async fn create_event(
     let event = Event::from(
         events::create(&mut *tx, guild_id, &body, now_jst(), &admin.discord_user_id).await?,
     );
+    crate::recurring::attach_created(&mut tx, guild_id, event.id, &body, &admin.discord_user_id)
+        .await?;
+    let event = crate::recurring::decorate(&mut tx, event).await?;
     admin_audit::record(
         &mut *tx,
         &admin,
@@ -272,17 +278,29 @@ pub async fn update_event(
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-    let mut after = events::update(
-        &mut *tx,
+    let before = crate::recurring::decorate(&mut tx, before).await?;
+    let row = match crate::recurring::update(
+        &mut tx,
         guild_id,
         path.event_id,
         &body,
         &admin.discord_user_id,
-        now_jst(),
     )
     .await?
-    .map(Event::from)
-    .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+    {
+        Some(row) => row,
+        None => events::update(
+            &mut *tx,
+            guild_id,
+            path.event_id,
+            &body,
+            &admin.discord_user_id,
+            now_jst(),
+        )
+        .await?
+        .ok_or_else(|| ApiError::NotFound("event not found".into()))?,
+    };
+    let mut after = crate::recurring::decorate(&mut tx, Event::from(row)).await?;
     // 管理コンソールの更新は Discord 連携 (#94) に触れず対応付けも変えないので、
     // 変更前の値を引き継ぐ (`events::update` の戻り値は常に None のため、そのままだと
     // レスポンスと監査ログの after が「連携解除」に見えてしまう)
@@ -296,16 +314,22 @@ pub async fn update_event(
             target_id: Some(&after.id.to_string()),
             before: Some(snapshot(&before)?),
             after: Some(snapshot(&after)?),
-            detail: Some(serde_json::json!({ "guild_id": guild_id })),
+            detail: Some(serde_json::json!({ "guild_id": guild_id, "scope": body.scope })),
         },
     )
     .await?;
-    crate::webhook_outbox::enqueue(
+    crate::webhook_outbox::enqueue_with_scope(
         &mut tx,
         guild_id,
         after.id,
         "event.updated",
         &admin.discord_user_id,
+        Some(if body.scope == crate::recurring::ChangeScope::Future {
+            "future"
+        } else {
+            "this"
+        }),
+        before.recurrence.as_ref(),
     )
     .await?;
     tx.commit().await?;
@@ -316,7 +340,7 @@ pub async fn update_event(
 /// 予定の削除。`admin_audit_logs` に削除前の内容を記録する
 #[utoipa::path(
     tag = "admin",
-    params(GuildEventPath),
+    params(GuildEventPath, crate::recurring::DeleteOptions),
     responses(
         (status = 204),
         (status = 400, body = ErrorBody),
@@ -329,6 +353,7 @@ pub async fn update_event(
 pub async fn delete_event(
     admin: AdminUser,
     path: web::Path<GuildEventPath>,
+    options: web::Query<crate::recurring::DeleteOptions>,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
@@ -338,14 +363,22 @@ pub async fn delete_event(
         .await?
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-    crate::webhook_outbox::enqueue(
+    let before = crate::recurring::decorate(&mut tx, before).await?;
+    crate::webhook_outbox::enqueue_with_scope(
         &mut tx,
         guild_id,
         path.event_id,
         "event.deleted",
         &admin.discord_user_id,
+        Some(if options.scope == crate::recurring::ChangeScope::Future {
+            "future"
+        } else {
+            "this"
+        }),
+        before.recurrence.as_ref(),
     )
     .await?;
+    crate::recurring::before_delete(&mut tx, guild_id, path.event_id, &options).await?;
     if !events::delete(&mut *tx, guild_id, path.event_id).await? {
         return Err(ApiError::NotFound("event not found".into()));
     }
@@ -357,7 +390,7 @@ pub async fn delete_event(
             target_type: Some("event"),
             target_id: Some(&before.id.to_string()),
             before: Some(snapshot(&before)?),
-            detail: Some(serde_json::json!({ "guild_id": guild_id })),
+            detail: Some(serde_json::json!({ "guild_id": guild_id, "scope": options.scope })),
             ..Default::default()
         },
     )

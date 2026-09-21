@@ -32,6 +32,13 @@ pub async fn list(
     ctx.defer().await?;
 
     let now = now_jst();
+    crate::recurring_events::ensure_range(
+        pool,
+        &guild_id,
+        now - Duration::days(366),
+        now + Duration::days(730),
+    )
+    .await?;
     let events = match range {
         EventRange::Past => events::list_past(pool, &guild_id, now).await?,
         EventRange::Future => events::list_future(pool, &guild_id, now).await?,
@@ -47,7 +54,10 @@ pub async fn list(
         return Ok(());
     }
 
-    let template = CreateEmbed::new().title("予定一覧").colour(0x0000ff);
+    let template = CreateEmbed::new()
+        .title("予定一覧")
+        .description("繰り返し予定は過去366日〜未来730日を表示します")
+        .colour(0x0000ff);
     let mut paginator = Paginator::new(PER_PAGE, template);
     for event in &events {
         paginator.add(&event.name, describe(event), false);

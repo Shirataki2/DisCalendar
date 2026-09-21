@@ -145,7 +145,7 @@ export function registerWriteTools(server: McpServer, request: Request) {
   server.registerTool(
     "update_event",
     {
-      description: `events:updateとget_eventのexpected_versionが必要。is_all_dayを明示する場合は、その形式のstart_atとend_atを両方指定してください。省略項目は保持し、説明・通知・メンション・Discord連携のnullは消去します。${description}`,
+      description: `events:updateとget_eventのexpected_versionが必要。繰り返し予定は指定した1回のみ変更し、条件・以降の一括変更はWebで行います。is_all_dayを明示する場合は、その形式のstart_atとend_atを両方指定してください。省略項目は保持し、説明・通知・メンション・Discord連携のnullは消去します。${description}`,
       inputSchema: z
         .object({ ...identity, ...version, changes: updateChanges })
         .strict(),
@@ -161,7 +161,7 @@ export function registerWriteTools(server: McpServer, request: Request) {
   server.registerTool(
     "delete_event",
     {
-      description: `events:deleteとget_eventのexpected_versionが必要。${description}`,
+      description: `events:deleteとget_eventのexpected_versionが必要。繰り返し予定は指定した1回のみ中止し、以降の削除はWebで行います。${description}`,
       inputSchema: z.object({ ...identity, ...version }).strict(),
       annotations: {
         readOnlyHint: false,

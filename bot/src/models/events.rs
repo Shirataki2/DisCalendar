@@ -94,7 +94,7 @@ pub async fn list_all(pool: &PgPool, guild_id: &str) -> sqlx::Result<Vec<Event>>
         Event,
         r#"
         SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
-        FROM events WHERE guild_id = $1 ORDER BY start_at, id
+        FROM events WHERE guild_id = $1 AND (series_id IS NULL OR (start_at < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo') + INTERVAL '730 days' AND end_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo') - INTERVAL '366 days')) ORDER BY start_at, id
         "#,
         guild_id
     )
@@ -112,7 +112,7 @@ pub async fn list_past(
         Event,
         r#"
         SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
-        FROM events WHERE guild_id = $1 AND start_at <= $2 ORDER BY start_at, id
+        FROM events WHERE guild_id = $1 AND start_at <= $2 AND (series_id IS NULL OR end_at >= $2::timestamp - INTERVAL '366 days') ORDER BY start_at, id
         "#,
         guild_id,
         now
@@ -131,7 +131,7 @@ pub async fn list_future(
         Event,
         r#"
         SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
-        FROM events WHERE guild_id = $1 AND start_at >= $2 ORDER BY start_at, id
+        FROM events WHERE guild_id = $1 AND start_at >= $2 AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days') ORDER BY start_at, id
         "#,
         guild_id,
         now
@@ -179,7 +179,8 @@ pub async fn list_next(
     sqlx::query_as!(Event, r#"
         SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1
-          AND start_at = (SELECT MIN(start_at) FROM events WHERE guild_id = $1 AND start_at >= $2)
+          AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days')
+          AND start_at = (SELECT MIN(start_at) FROM events WHERE guild_id = $1 AND start_at >= $2 AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days'))
         ORDER BY start_at, id
     "#, guild_id, now).fetch_all(pool).await
 }

@@ -19,6 +19,7 @@ import { ColorPicker } from "@/components/form/color-picker";
 import { DatePicker } from "@/components/form/date-picker";
 import { NotificationMentionsField } from "@/components/form/notification-mentions-field";
 import { NotificationsField } from "@/components/form/notifications-field";
+import { RecurrenceSettings } from "@/components/recurrence-settings";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,9 +51,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useLastValue } from "@/hooks/use-last-value";
-import { describeApiError } from "@/lib/api";
-import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
-import { nowInJst } from "@/lib/calendar-events";
+import { ApiError, describeApiError } from "@/lib/api";
+import type {
+  ApiEvent,
+  ApiEventInput,
+  ChangeScope,
+  RecurrenceRule,
+} from "@/lib/api/types";
+import { nowInJst, toApiDateTime } from "@/lib/calendar-events";
 import {
   DESCRIPTION_MAX_CHARS,
   type EventFormValues,
@@ -65,12 +71,18 @@ import {
   withCheckedDiscordEvent,
 } from "@/lib/event-form";
 import { useAttachmentQueue } from "@/lib/query/attachments";
+import { describeRecurrence } from "@/lib/recurrence";
 
 export type EventDialogState =
   | { mode: "create" | "duplicate"; values: EventFormValues }
-  | { mode: "edit"; event: ApiEvent };
+  | { mode: "edit"; event: ApiEvent; scope?: ChangeScope };
 
 interface Props {
+  previewRecurrence?: (
+    start: string,
+    rule: RecurrenceRule,
+    signal: AbortSignal,
+  ) => Promise<string[]>;
   guidance?: ReactNode;
   guildName: string;
   mentionGuildId?: string;
@@ -108,6 +120,7 @@ const NAME_INPUT_ID = "event-form-name";
 
 /** 予定の作成・編集ダイアログ (旧 NewEvent.vue 相当) */
 export function EventFormDialog({
+  previewRecurrence,
   guidance,
   guildName,
   state,
@@ -139,6 +152,7 @@ export function EventFormDialog({
       >
         {shown && (
           <EventForm
+            previewRecurrence={previewRecurrence}
             state={shown}
             guildName={guildName}
             guidance={guidance}
@@ -164,6 +178,7 @@ interface FormProps extends Omit<Props, "state"> {
 // ダイアログが開くたびにマウントされる (Base UI の Dialog は閉じると Popup を unmount する) ので、
 // useForm の defaultValues で初期値が決まる
 function EventForm({
+  previewRecurrence,
   state,
   guildName,
   guidance,
@@ -182,6 +197,23 @@ function EventForm({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [mentionUserId, setMentionUserId] = useState("");
   const isEdit = state.mode === "edit";
+  const initialRecurrence: RecurrenceRule =
+    state.mode === "edit" && state.event.recurrence
+      ? state.event.recurrence.rule
+      : { frequency: "none" };
+  const [recurrence, setRecurrence] =
+    useState<RecurrenceRule>(initialRecurrence);
+  const [editingRecurrence, setEditingRecurrence] = useState(false);
+  const [recurrenceDraftDirty, setRecurrenceDraftDirty] = useState(false);
+  const recurrenceDirty =
+    JSON.stringify(recurrence) !== JSON.stringify(initialRecurrence);
+  const recurrenceEnabled = recurrence.frequency !== "none";
+  const recurrenceButton = useRef<HTMLButtonElement>(null);
+  const recurringSingleEdit =
+    state.mode === "edit" &&
+    !!state.event.recurrence &&
+    state.scope !== "future";
+
   const initialValues = isEdit ? eventToFormValues(state.event) : state.values;
   // 連携を**新しく作る**には Bot と本人の両方に権限が要る。
   // 既に連携済みの予定を編集しているときだけは、権限が無くてもチェックを外せる
@@ -241,7 +273,13 @@ function EventForm({
   const notifications = useWatch({ control, name: "notifications" });
   useEffect(() => {
     closeGuard.current = () => {
-      if (isDirty || mentionUserId.length > 0 || uploads.items.length > 0) {
+      if (
+        isDirty ||
+        recurrenceDirty ||
+        recurrenceDraftDirty ||
+        mentionUserId.length > 0 ||
+        uploads.items.length > 0
+      ) {
         setConfirmDiscard(true);
         return false;
       }
@@ -254,6 +292,8 @@ function EventForm({
   }, [
     closeGuard,
     isDirty,
+    recurrenceDirty,
+    recurrenceDraftDirty,
     mentionUserId,
     uploads.items.length,
     uploads.cancel,
@@ -280,10 +320,19 @@ function EventForm({
     (!discordSync.botCreateEvents || !discordSync.canCreateEvents);
   useEffect(() => {
     // 無効化したら値も落とす (表示と送信値を一致させる)。連携済みの予定なら保存時に解除される
-    if ((discordStartsInPast || discordLocked) && getValues("discordEvent")) {
+    if (
+      (discordStartsInPast || discordLocked || recurrenceEnabled) &&
+      getValues("discordEvent")
+    ) {
       setValue("discordEvent", false, { shouldDirty: true });
     }
-  }, [discordStartsInPast, discordLocked, getValues, setValue]);
+  }, [
+    discordStartsInPast,
+    discordLocked,
+    recurrenceEnabled,
+    getValues,
+    setValue,
+  ]);
 
   // 開始日を終了日より後にしたら終了日も合わせる (旧フォームの onStartDateChanged)
   const handleStartDateChange = (date: Date) => {
@@ -304,6 +353,12 @@ function EventForm({
       if (!mentionGuildId) {
         delete input.notification_mentions;
       }
+      if (previewRecurrence && !recurringSingleEdit)
+        input.recurrence_rule = recurrence;
+      if (state.mode === "edit" && state.event.recurrence) {
+        input.scope = state.scope ?? "this";
+        input.expected_series_version = state.event.recurrence.version;
+      }
       const saved = await onSubmit(input);
       setSavedEvent(saved);
       // 添付だけ失敗した場合も、保存済みの入力は破棄確認の対象から外す。
@@ -313,36 +368,97 @@ function EventForm({
         onClose();
       }
     } catch (error) {
-      setSubmitError(describeApiError(error));
+      setSubmitError(
+        error instanceof ApiError &&
+          error.kind === "conflict" &&
+          state.mode === "edit" &&
+          state.event.recurrence
+          ? "他の人が繰り返し予定を変更しました。画面を閉じて予定を開き直し、最新の内容で確認してください。"
+          : describeApiError(error),
+      );
     }
   });
 
   return (
     <FormProvider {...form}>
+      {editingRecurrence && previewRecurrence && (
+        <RecurrenceSettings
+          value={recurrence}
+          start={startAt ? toApiDateTime(startAt) : ""}
+          preview={previewRecurrence}
+          onDirty={setRecurrenceDraftDirty}
+          onCancel={() => {
+            setEditingRecurrence(false);
+            setRecurrenceDraftDirty(false);
+            requestAnimationFrame(() => recurrenceButton.current?.focus());
+          }}
+          onApply={(rule) => {
+            setRecurrence(rule);
+            setEditingRecurrence(false);
+            setRecurrenceDraftDirty(false);
+            requestAnimationFrame(() => recurrenceButton.current?.focus());
+          }}
+        />
+      )}
       <form
+        hidden={editingRecurrence}
         ref={formRef}
         onSubmit={submit}
         noValidate
-        className="flex min-h-0 flex-col"
+        className={editingRecurrence ? "hidden" : "flex min-h-0 flex-col"}
       >
-        <DialogHeader className="shrink-0 border-b p-4 pr-14">
-          <DialogTitle>
-            {isEdit
-              ? "予定を編集"
-              : state.mode === "duplicate"
-                ? "予定を複製"
-                : "予定を作成"}
-          </DialogTitle>
-          <DialogDescription className="break-words">
-            保存先: {guildName}
-          </DialogDescription>
-        </DialogHeader>
+        {!editingRecurrence && (
+          <DialogHeader className="shrink-0 border-b p-4 pr-14">
+            <DialogTitle>
+              {isEdit
+                ? "予定を編集"
+                : state.mode === "duplicate"
+                  ? "予定を複製"
+                  : "予定を作成"}
+            </DialogTitle>
+            <DialogDescription className="break-words">
+              保存先: {guildName}
+            </DialogDescription>
+          </DialogHeader>
+        )}
 
         <div
           className="min-h-0 space-y-5 overflow-y-auto overscroll-contain p-4"
           data-testid="event-form-fields"
         >
           {guidance}
+          {state.mode === "edit" && state.event.recurrence && (
+            <p className="rounded-md border p-3 text-sm">
+              {state.scope === "future"
+                ? "この回以降を変更します。回数を変えなければ、消費済みの開催枠を差し引きます。個別編集済みの回は保持し、新しい条件から外れる個別編集済みの回・添付のある回は単発として残します。"
+                : "この回のみを変更します。繰り返し条件は変更されません。"}
+            </p>
+          )}
+          {previewRecurrence && (
+            <div className="space-y-2">
+              <Button
+                ref={recurrenceButton}
+                type="button"
+                variant="outline"
+                className="h-auto min-h-11 w-full justify-between whitespace-normal"
+                disabled={recurringSingleEdit || isLinkedEdit}
+                onClick={() => setEditingRecurrence(true)}
+              >
+                {describeRecurrence(recurrence)}
+                <span aria-hidden="true">›</span>
+              </Button>
+              {isLinkedEdit && (
+                <p className="text-sm text-muted-foreground">
+                  Discordイベント連携を解除して保存すると、繰り返しを設定できます。
+                </p>
+              )}
+              {recurrenceEnabled && (
+                <p className="text-sm text-muted-foreground">
+                  Discordイベント連携は後日対応です。添付ファイルは選択した回だけに保存します。
+                </p>
+              )}
+            </div>
+          )}
           {state.mode === "duplicate" && (
             <p className="rounded-md bg-muted p-3 text-sm">
               元の予定の日時を引き継いでいます。保存前に確認してください。
@@ -574,7 +690,7 @@ function EventForm({
               </>
             )}
 
-            {discordSync && (
+            {discordSync && !recurrenceEnabled && (
               <DiscordEventField
                 control={control}
                 isLinkedEdit={isLinkedEdit}

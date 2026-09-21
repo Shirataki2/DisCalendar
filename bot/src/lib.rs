@@ -137,3 +137,8 @@ async fn shutdown_signal() {
         () = terminate => {}
     }
 }
+
+#[path = "../../shared/recurrence.rs"]
+pub mod recurrence;
+#[path = "../../shared/recurring_events.rs"]
+pub mod recurring_events;

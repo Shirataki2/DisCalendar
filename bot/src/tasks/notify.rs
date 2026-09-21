@@ -168,6 +168,10 @@ async fn run_once(
     }
     // 開始時刻通知 (0分前) の発火時刻は start そのものなので、start >= last_checked の予定を
     // 取得すれば、事前通知 (start は未来) と開始時刻通知 (start は前回チェック以降) の両方を拾える
+    if let Err(error) = crate::recurring_events::replenish(&data.pool, now).await {
+        tracing::error!(error = %error,"failed to replenish recurring events");
+        return false;
+    }
     let events = match events::list_all_future(&data.pool, last_checked).await {
         Ok(events) => events,
         Err(e) => {
@@ -677,6 +681,100 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1);
         assert!(failures.is_empty());
+    }
+
+    #[sqlx::test(migrations = "../api/migrations")]
+    async fn recurring_occurrences_have_distinct_due_keys_and_duplicate_settings_send_once(
+        pool: sqlx::PgPool,
+    ) {
+        sqlx::raw_sql("INSERT INTO guilds(guild_id,name) VALUES ('111','定例'); INSERT INTO event_settings(guild_id,channel_id) VALUES ('111','222'); INSERT INTO push_subscriptions(user_id,endpoint,p256dh,auth,device_name) VALUES ('user','https://fcm.googleapis.com/test','test','test','端末')").execute(&pool).await.unwrap();
+        let now = dt("2026-09-21T10:00:00");
+        let start = now + Duration::days(700);
+        let mut tx = pool.begin().await.unwrap();
+        crate::recurring_events::create_series(
+            &mut tx,
+            "111",
+            serde_json::json!({
+                "name":"定例","description":null,"color":"#2196F3","is_all_day":false,
+                "notifications":[{"num":100,"unit":"weeks"},{"num":100,"unit":"weeks"}]
+            }),
+            &crate::recurrence::Rule::Daily {
+                end: crate::recurrence::Ending::Count { count: 3 },
+            },
+            start,
+            start + Duration::hours(1),
+            "333",
+            now,
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        crate::recurring_events::replenish(&pool, now)
+            .await
+            .unwrap();
+        let events = events::list_all_future(&pool, now).await.unwrap();
+        assert_eq!(events.len(), 3);
+        let data = Data {
+            pool: pool.clone(),
+            site_base_url: "https://example.com".into(),
+            log_channel_id: None,
+            invite_url: String::new(),
+            support_guild_id: None,
+            guild_sync: Default::default(),
+            tasks_started: Default::default(),
+            presence_tasks: Default::default(),
+        };
+        let http = serenity::HttpBuilder::new("test")
+            .proxy("http://127.0.0.1:1")
+            .ratelimiter_disabled(true)
+            .build();
+        let mut sent = HashSet::new();
+        let mut failures = HashMap::new();
+        for event in &events {
+            let fire = event.start_at - Duration::days(700);
+            assert!(
+                !notify_for_event(
+                    &http,
+                    &data,
+                    event,
+                    fire,
+                    fire + Duration::minutes(1),
+                    &mut sent,
+                    &mut failures
+                )
+                .await
+            );
+            assert_eq!(failures.get(&(event.id, fire)), Some(&1));
+            // Discord送信済みの再試行でもPushは重複しない。
+            sent.insert((event.id, fire));
+            assert!(
+                notify_for_event(
+                    &http,
+                    &data,
+                    event,
+                    fire,
+                    fire + Duration::minutes(1),
+                    &mut sent,
+                    &mut failures
+                )
+                .await
+            );
+        }
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM push_outbox")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 3);
+        sqlx::query("DELETE FROM events WHERE id=$1")
+            .bind(events[0].id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM push_outbox")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 2);
     }
 
     #[test]
