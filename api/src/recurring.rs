@@ -209,6 +209,23 @@ pub async fn update(
         return Ok(row);
     }
     check_version(&series, input.expected_series_version)?;
+    if input.recurrence.as_ref().is_none_or(Rule::enabled)
+        && input.start_at.date() < info.original_start_at.date()
+    {
+        let previous = recurrence::between(
+            &series.rrule,
+            series.start_at,
+            series.start_at,
+            info.original_start_at,
+        )
+        .map_err(ApiError::BadRequest)?;
+        if previous
+            .last()
+            .is_some_and(|start| input.start_at.date() <= start.date())
+        {
+            return Err(ApiError::BadRequest("過去の開催枠と重なるため、この回以降をこの日へ移動できません。別の開始日か「この回のみ」を選択してください".into()));
+        }
+    }
     let mut rule: Rule = input
         .recurrence
         .clone()

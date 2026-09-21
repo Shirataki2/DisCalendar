@@ -182,12 +182,26 @@ async fn future_delete_removes_moved_exception_and_prevents_recreation(pool: PgP
 #[sqlx::test(migrations = "./migrations")]
 async fn shifting_to_another_occurrence_keeps_selected_id(pool: PgPool) {
     let id = create(&pool).await;
+    let all = ids(&pool).await;
     let mut tx = pool.begin().await.unwrap();
     let info = store::info(&mut tx, "111", id).await.unwrap().unwrap();
     let mut body = input();
     body.recurrence = None;
     body.scope = ChangeScope::Future;
     body.expected_series_version = Some(info.version);
+    // 3回目から1回目へ戻すと、保持する過去の回と新シリーズが重なるため拒否する。
+    assert!(matches!(
+        recurring::update(&mut tx, "111", all[2], &body, "333").await,
+        Err(discalendar_api::error::ApiError::BadRequest(_))
+    ));
+    assert_eq!(
+        store::info(&mut tx, "111", id)
+            .await
+            .unwrap()
+            .unwrap()
+            .version,
+        info.version
+    );
     body.start_at = dt("2026-09-28T19:30:00");
     body.end_at = dt("2026-09-28T21:00:00");
     let result = recurring::update(&mut tx, "111", id, &body, "333")
