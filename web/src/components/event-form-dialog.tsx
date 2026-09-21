@@ -2,7 +2,13 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { addDays, format, isBefore } from "date-fns";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   type Control,
   Controller,
@@ -271,7 +277,8 @@ function EventForm({
     target.scrollIntoView({ block: "nearest" });
   }, [errors, submitCount]);
   const notifications = useWatch({ control, name: "notifications" });
-  useEffect(() => {
+  // 次のキー入力より前に破棄判定を更新し、設定直後のEscapeでも入力を保護する。
+  useLayoutEffect(() => {
     closeGuard.current = () => {
       if (
         isDirty ||

@@ -2,7 +2,7 @@
 
 import { format, parseISO } from "date-fns";
 import { ja } from "date-fns/locale";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DialogDescription,
@@ -45,7 +45,7 @@ export function RecurrenceSettings({
   useEffect(() => {
     heading.current?.focus();
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     onDirty(JSON.stringify(rule) !== JSON.stringify(value));
   }, [rule, value, onDirty]);
   useEffect(() => {
