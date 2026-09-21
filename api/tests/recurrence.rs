@@ -225,6 +225,12 @@ async fn rollback_preserves_occurrences(pool: PgPool) {
     create(&pool).await;
     let before = ids(&pool).await;
     sqlx::raw_sql(include_str!(
+        "../rollback/20260921000003_revert_generated_range.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
         "../rollback/20260921000002_revert_series_creation.sql"
     ))
     .execute(&pool)
@@ -264,6 +270,12 @@ async fn rollback_preserves_occurrences(pool: PgPool) {
     .unwrap();
     sqlx::raw_sql(include_str!(
         "../migrations/20260921000002_preserve_series_creation.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../migrations/20260921000003_track_generated_range.sql"
     ))
     .execute(&pool)
     .await
@@ -348,7 +360,7 @@ async fn unmatched_exceptions_and_attachments_keep_ids_then_bulk_delete_stops_se
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn distant_overlapping_all_day_occurrence_and_feed_window(pool: PgPool) {
+async fn distant_range_is_not_generated_and_feed_keeps_standalone(pool: PgPool) {
     let mut tx = pool.begin().await.unwrap();
     let mut body = input();
     body.is_all_day = true;
@@ -379,8 +391,8 @@ async fn distant_overlapping_all_day_occurrence_and_feed_window(pool: PgPool) {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 1);
-    // 単発は未来の制限なし、繰り返しは現在(2027/1/1)から730日まで。
+    assert_eq!(count, 0);
+    // 単発は未来の制限なし、繰り返しの自動生成は現在から730日まで。
     body.recurrence = None;
     body.start_at = dt("2040-02-01T00:00:00");
     body.end_at = body.start_at;
@@ -695,4 +707,26 @@ async fn daily_fill_and_split_use_bounded_sql_statements(pool: PgPool) {
         .await
         .unwrap();
     assert!(count <= 8, "分割のSQL数: {count}");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn repeated_range_fill_does_not_write_existing_occurrences(pool: PgPool) {
+    create(&pool).await;
+    let from = dt("2026-09-01T00:00:00");
+    let to = dt("2026-12-01T00:00:00");
+    store::ensure_range(&pool, "111", from, to).await.unwrap();
+    sqlx::raw_sql(
+        "CREATE TABLE insert_counts(n int NOT NULL); INSERT INTO insert_counts VALUES(0);
+        CREATE FUNCTION count_event_inserts() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE insert_counts SET n=n+1; RETURN NULL; END $$;
+        CREATE TRIGGER count_events AFTER INSERT ON events FOR EACH STATEMENT EXECUTE FUNCTION count_event_inserts();",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    store::ensure_range(&pool, "111", from, to).await.unwrap();
+    let count: i32 = sqlx::query_scalar("SELECT n FROM insert_counts")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
 }

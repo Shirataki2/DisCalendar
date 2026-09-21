@@ -172,9 +172,7 @@ pub async fn list_joined(
     }
 
     let allowed: Vec<String> = allowed.into_iter().collect();
-    for guild in &allowed {
-        crate::recurring_events::ensure_range(&state.pool, guild, query.start, query.end).await?;
-    }
+    crate::recurring_events::ensure_ranges(&state.pool, &allowed, query.start, query.end).await?;
     let rows = events::list_between_guilds(&state.pool, &allowed, query.start, query.end).await?;
     Ok(web::Json(
         crate::recurring::decorate_all(&state.pool, rows).await?,

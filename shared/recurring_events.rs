@@ -1,9 +1,10 @@
 //! 各開催回の補充と例外記録。API・Botは同じ行ロックと一意制約を使う。
 use crate::recurrence::{self, Rule};
-use chrono::{Duration, NaiveDateTime};
+use chrono::{Duration, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{PgConnection, PgPool};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Deserialize, sqlx::FromRow)]
 pub struct Series {
@@ -20,6 +21,7 @@ pub struct Series {
     pub created_by: String,
     pub updated_at: Option<NaiveDateTime>,
     pub updated_by: Option<String>,
+    pub generated_from: Option<NaiveDateTime>,
     pub generated_until: Option<NaiveDateTime>,
 }
 
@@ -33,8 +35,41 @@ pub struct Info {
 }
 
 pub async fn info(conn: &mut PgConnection, guild: &str, event: i32) -> sqlx::Result<Option<Info>> {
-    sqlx::query_as("SELECT s.id AS series_id,e.original_start_at,EXISTS(SELECT 1 FROM event_series_exceptions x WHERE x.event_id=e.id) AS is_exception,s.recurrence AS rule,s.version FROM events e JOIN event_series s ON s.id=e.series_id AND s.guild_id=e.guild_id WHERE e.guild_id=$1 AND e.id=$2")
-        .bind(guild).bind(event).fetch_optional(conn).await
+    Ok(infos(conn, guild, &[event]).await?.remove(&event))
+}
+
+#[derive(sqlx::FromRow)]
+struct EventInfo {
+    event_id: i32,
+    series_id: i32,
+    original_start_at: NaiveDateTime,
+    is_exception: bool,
+    rule: Value,
+    version: i32,
+}
+
+pub async fn infos(
+    conn: &mut PgConnection,
+    guild: &str,
+    events: &[i32],
+) -> sqlx::Result<HashMap<i32, Info>> {
+    let rows: Vec<EventInfo> = sqlx::query_as("SELECT e.id AS event_id,s.id AS series_id,e.original_start_at,EXISTS(SELECT 1 FROM event_series_exceptions x WHERE x.event_id=e.id) AS is_exception,s.recurrence AS rule,s.version FROM events e JOIN event_series s ON s.id=e.series_id AND s.guild_id=e.guild_id WHERE e.guild_id=$1 AND e.id=ANY($2)")
+        .bind(guild).bind(events).fetch_all(conn).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.event_id,
+                Info {
+                    series_id: row.series_id,
+                    original_start_at: row.original_start_at,
+                    is_exception: row.is_exception,
+                    rule: row.rule,
+                    version: row.version,
+                },
+            )
+        })
+        .collect())
 }
 
 pub async fn lock_for_event(
@@ -131,6 +166,8 @@ pub async fn fill(
     from: NaiveDateTime,
     to: NaiveDateTime,
 ) -> Result<(), anyhow::Error> {
+    let generated_from = from;
+    let generated_until = to;
     let duration = series.end_at - series.start_at;
     // 終日の包含終了日と、表示範囲より前から続いている予定も拾う。
     let overlap = if series.template["is_all_day"] == true {
@@ -146,6 +183,8 @@ pub async fn fill(
     let starts = recurrence::between(&series.rrule, series.start_at, from, to)
         .map_err(anyhow::Error::msg)?;
     insert_occurrences(conn, series, &starts).await?;
+    sqlx::query("UPDATE event_series SET generated_from=LEAST(COALESCE(generated_from,$2),$2),generated_until=GREATEST(COALESCE(generated_until,$3),$3) WHERE id=$1")
+        .bind(series.id).bind(generated_from).bind(generated_until).execute(conn).await?;
     Ok(())
 }
 
@@ -155,17 +194,48 @@ pub async fn ensure_range(
     from: NaiveDateTime,
     to: NaiveDateTime,
 ) -> Result<(), anyhow::Error> {
+    ensure_ranges(pool, &[guild.to_owned()], from, to).await
+}
+
+pub async fn ensure_ranges(
+    pool: &PgPool,
+    guilds: &[String],
+    from: NaiveDateTime,
+    to: NaiveDateTime,
+) -> Result<(), anyhow::Error> {
+    if guilds.is_empty() {
+        return Ok(());
+    }
+    let today = (Utc::now().naive_utc() + Duration::hours(9))
+        .date()
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight");
+    let from = from.max(today - Duration::days(recurrence::LOOKBACK_DAYS));
+    let to = to.min(today + Duration::days(recurrence::LOOKAHEAD_DAYS + 1));
+    if from >= to {
+        return Ok(());
+    }
     let mut tx = pool.begin().await?;
     let series: Vec<Series> = sqlx::query_as(
-        "SELECT * FROM event_series WHERE guild_id=$1 AND start_at < $2 AND (end_before IS NULL OR end_before + (end_at-start_at) + CASE WHEN template->>'is_all_day'='true' THEN interval '1 day' ELSE interval '0' END > $3) ORDER BY id FOR UPDATE",
+        "SELECT * FROM event_series WHERE guild_id=ANY($1) AND start_at < $2 AND (end_before IS NULL OR end_before + (end_at-start_at) + CASE WHEN template->>'is_all_day'='true' THEN interval '1 day' ELSE interval '0' END > $3) AND (generated_from IS NULL OR generated_from>$3 OR generated_until IS NULL OR generated_until<$2) ORDER BY id FOR UPDATE",
     )
-    .bind(guild)
+    .bind(guilds)
     .bind(to)
     .bind(from)
     .fetch_all(&mut *tx)
     .await?;
     for s in series {
-        fill(&mut tx, &s, from, to).await?;
+        match (s.generated_from, s.generated_until) {
+            (Some(generated_from), Some(generated_until)) => {
+                if from < generated_from {
+                    fill(&mut tx, &s, from, to.min(generated_from)).await?;
+                }
+                if to > generated_until {
+                    fill(&mut tx, &s, from.max(generated_until), to).await?;
+                }
+            }
+            _ => fill(&mut tx, &s, from, to).await?,
+        }
     }
     tx.commit().await?;
     Ok(())
@@ -185,11 +255,6 @@ pub async fn replenish(pool: &PgPool, now: NaiveDateTime) -> Result<(), anyhow::
             .await?;
         if let Some(s) = s {
             fill(&mut tx, &s, s.generated_until.unwrap_or(from).max(from), to).await?;
-            sqlx::query("UPDATE event_series SET generated_until=$2 WHERE id=$1")
-                .bind(id)
-                .bind(to)
-                .execute(&mut *tx)
-                .await?;
         }
         tx.commit().await?;
     }

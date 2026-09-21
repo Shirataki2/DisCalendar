@@ -1330,9 +1330,13 @@ mod tests {
                 .all(|v| !v.to_string().contains("保持する説明"))
         );
         // Webが作ったシリーズをMCPで変更・中止しても、補充で元に戻らない。
+        let recurring_start = (now_jst() + chrono::Duration::days(1))
+            .date()
+            .and_hms_opt(10, 0, 0)
+            .unwrap();
         let recurring: EventInput = serde_json::from_value(json!({
-            "name":"MCP定例","color":"#123456","start_at":"2099-09-13T10:00:00",
-            "end_at":"2099-09-13T11:00:00","recurrence_rule":{"frequency":"daily","end":{"type":"count","count":3}}
+            "name":"MCP定例","color":"#123456","start_at":recurring_start,
+            "end_at":recurring_start + chrono::Duration::hours(1),"recurrence_rule":{"frequency":"daily","end":{"type":"count","count":3}}
         })).unwrap();
         let mut tx = pool.begin().await.unwrap();
         let event = events::create(&mut *tx, "111", &recurring, now_jst(), "333")
