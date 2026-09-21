@@ -13,7 +13,37 @@ export type NotificationMention =
   | { type: "everyone" }
   | { type: "role" | "user"; id: string };
 
+export type RecurrenceEnding =
+  | { type: "never" }
+  | { type: "until"; date: string }
+  | { type: "count"; count: number };
+export type RecurrenceRule =
+  | { frequency: "none" }
+  | { frequency: "daily"; end: RecurrenceEnding }
+  | {
+      frequency: "weekly";
+      weekdays: number[];
+      end: RecurrenceEnding;
+    }
+  | { frequency: "biweekly"; weekdays: number[]; end: RecurrenceEnding }
+  | { frequency: "monthly_date"; day: number; end: RecurrenceEnding }
+  | {
+      frequency: "monthly_weekday";
+      nth: number;
+      weekday: number;
+      end: RecurrenceEnding;
+    };
+export type ChangeScope = "this" | "future";
+export interface RecurrenceInfo {
+  series_id: number;
+  original_start_at: string;
+  is_exception: boolean;
+  rule: RecurrenceRule;
+  version: number;
+}
+
 export interface ApiEvent {
+  recurrence?: RecurrenceInfo | null;
   id: number;
   guild_id: string;
   name: string;
@@ -35,6 +65,9 @@ export interface ApiEvent {
 
 /** 予定の作成・更新リクエスト (更新は全フィールド置き換え) */
 export interface ApiEventInput {
+  recurrence_rule?: RecurrenceRule;
+  scope?: ChangeScope;
+  expected_series_version?: number;
   name: string;
   description?: string | null;
   notifications: Notification[];

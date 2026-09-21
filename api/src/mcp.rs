@@ -265,7 +265,13 @@ async fn get_event(
     let row = events::find_by_id(&state.pool, &input.guild_id, input.event_id)
         .await?
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({"event": output_event(row)?})))
+    let mut value = output_event(row)?;
+    let mut conn = state.pool.acquire().await?;
+    value["recurrence"] = serde_json::to_value(
+        crate::recurring_events::info(&mut conn, &input.guild_id, input.event_id).await?,
+    )
+    .map_err(anyhow::Error::from)?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({"event": value})))
 }
 
 #[derive(Deserialize)]
@@ -366,6 +372,7 @@ async fn list_events(
     if let Some(raw) = &input.cursor {
         cursor = decode_cursor(raw, &cursor, &config.secret)?;
     }
+    crate::recurring_events::ensure_range(&state.pool, &input.guild_id, start, end).await?;
     let mut rows = list_rows(
         &state.pool,
         &cursor.guild_id,
@@ -382,9 +389,18 @@ async fn list_events(
     } else {
         None
     };
+    let ids: Vec<i32> = rows.iter().map(|row| row.id).collect();
+    let mut conn = state.pool.acquire().await?;
+    let mut recurrence = crate::recurring_events::infos(&mut conn, &input.guild_id, &ids).await?;
     let events = rows
         .into_iter()
-        .map(output_event)
+        .map(|row| -> Result<_, ApiError> {
+            let id = row.id;
+            let mut event = output_event(row)?;
+            event["recurrence"] =
+                serde_json::to_value(recurrence.remove(&id)).map_err(anyhow::Error::from)?;
+            Ok(event)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(HttpResponse::Ok().json(serde_json::json!({"events": events, "next_cursor": next})))
 }

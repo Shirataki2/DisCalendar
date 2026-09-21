@@ -12,7 +12,7 @@ use utoipa::ToSchema;
 use crate::error::ApiError;
 
 /// `num` の値域 (web の `NOTIFICATION_NUM_MIN` / `NOTIFICATION_NUM_MAX` と同じ)。
-/// 予定の入力 (`EventInput`) にはまだ適用していない (#46)。
+/// 繰り返し予定とサーバー既定値に適用する。単発予定の従来の保存値は維持する。
 /// サーバー既定の事前通知 (#181) は新規作成フォームの初期値になるので、web のフォームが受け付ける
 /// 範囲に収めておく (範囲外の初期値が入るとフォームを開いた時点で検証に落ちてしまう)
 pub const NOTIFICATION_NUM_MIN: u32 = 1;

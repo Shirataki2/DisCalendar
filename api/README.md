@@ -47,6 +47,7 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | PUT | `/guilds/{guild_id}/config` | ギルド設定の更新 (管理権限が必要)。`restricted` 以外は省略すると変更しない。`editor_role_ids` は最大25件、空配列で全解除。指定されたロールは同一ギルドの選択可能なロールか確認する。通知先を変えるときは Bot が投稿できるチャンネルか確認し、できなければ 400 (#181) |
 | GET | `/events/{guild_id}?start=&end=` | 期間に重なる予定 |
 | POST | `/events/{guild_id}` | 予定の作成 (201) |
+| POST | `/events/{guild_id}/recurrence/preview` | 保存せず直近3回を確認 |
 | PUT | `/events/{guild_id}/{event_id}` | 予定の更新 |
 | DELETE | `/events/{guild_id}/{event_id}` | 予定の削除 (204) |
 | GET / POST / DELETE | `/events/{guild_id}/{event_id}/share` | 予定の共有リンクの取得 (未発行なら null)・発行・無効化。すべて予定の編集権限が必要。再コピーは同じ URL を返す |
@@ -180,3 +181,5 @@ migrations/         スキーマ (適用済みのファイルは変更禁止、�
 `MCP_ENABLED` は既定で停止、通常のWebセッション認証とは分離する。
 
 予定の添付ファイルの設定・API・テスト・回収手順は[添付ファイルの運用](../docs/attachments.md)を参照。
+
+繰り返し予定の条件・対象範囲・競合・移行は [繰り返し予定のAPI契約](../docs/recurring-events.md) を参照。

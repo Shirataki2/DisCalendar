@@ -369,3 +369,10 @@ fn path_config() -> web::PathConfig {
 fn query_config() -> web::QueryConfig {
     web::QueryConfig::default().error_handler(|err, _| ApiError::BadRequest(err.to_string()).into())
 }
+
+#[path = "../../shared/recurrence.rs"]
+pub mod recurrence;
+#[path = "../../shared/recurring_events.rs"]
+pub mod recurring_events;
+
+pub mod recurring;

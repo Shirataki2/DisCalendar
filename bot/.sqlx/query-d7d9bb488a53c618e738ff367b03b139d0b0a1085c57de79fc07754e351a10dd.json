@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at\n        FROM events WHERE guild_id = $1 AND start_at <= $2 ORDER BY start_at, id\n        ",
+  "query": "\n        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at\n        FROM events WHERE guild_id = $1 AND (series_id IS NULL OR (start_at < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo') + INTERVAL '730 days' AND end_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo') - INTERVAL '366 days')) ORDER BY start_at, id\n        ",
   "describe": {
     "columns": [
       {
@@ -160,8 +160,7 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Timestamp"
+        "Text"
       ]
     },
     "nullable": [
@@ -181,5 +180,5 @@
       true
     ]
   },
-  "hash": "b9067ab1fea159039ce85df70d90567d584ae9b78f6b228a0bec31cb03ce0a38"
+  "hash": "d7d9bb488a53c618e738ff367b03b139d0b0a1085c57de79fc07754e351a10dd"
 }

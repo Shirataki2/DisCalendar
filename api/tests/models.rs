@@ -20,6 +20,9 @@ fn dt(s: &str) -> NaiveDateTime {
 
 fn input(name: &str, start: &str, end: &str) -> EventInput {
     EventInput {
+        recurrence: None,
+        scope: Default::default(),
+        expected_series_version: None,
         name: name.to_owned(),
         description: Some("desc".to_owned()),
         notifications: vec![Notification {

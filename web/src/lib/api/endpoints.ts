@@ -15,6 +15,7 @@ import type {
   AttachmentLimits,
   AttachmentReservation,
   AttachmentUrl,
+  ChangeScope,
   EventAttachment,
   Guild,
   GuildChannel,
@@ -29,6 +30,7 @@ import type {
   PushScope,
   PushSettings,
   PushSubscriptionInput,
+  RecurrenceRule,
   ShareLink,
   SqlHistoryEntry,
   SqlResult,
@@ -60,12 +62,45 @@ function createEventsClient(
         method: "PUT",
         body: input,
       }),
-    remove: (guildId: string, eventId: number) =>
-      request<void>(`${base(guildId)}/${eventId}`, { method: "DELETE" }),
+    remove: (
+      guildId: string,
+      eventId: number,
+      options?: { scope: ChangeScope; expected_series_version?: number },
+    ) => {
+      const query = new URLSearchParams();
+      if (options) {
+        query.set("scope", options.scope);
+        if (options.expected_series_version !== undefined)
+          query.set(
+            "expected_series_version",
+            String(options.expected_series_version),
+          );
+      }
+      return request<void>(
+        `${base(guildId)}/${eventId}${query.size ? `?${query}` : ""}`,
+        { method: "DELETE" },
+      );
+    },
+    preview: (
+      guildId: string,
+      start_at: string,
+      recurrence: RecurrenceRule,
+      signal?: AbortSignal,
+      event_id?: number,
+    ) =>
+      request<string[]>(`${base(guildId)}/recurrence/preview`, {
+        method: "POST",
+        body: { start_at, recurrence, event_id },
+        signal,
+      }),
   };
 }
 
-export type EventsClient = ReturnType<typeof createEventsClient>;
+export type EventsClient = Omit<
+  ReturnType<typeof createEventsClient>,
+  "preview"
+> &
+  Partial<Pick<ReturnType<typeof createEventsClient>, "preview">>;
 
 /**
  * API のエンドポイント定義。呼び出し方 (ブラウザ経由のプロキシ / RSC からの直接呼び出し) は

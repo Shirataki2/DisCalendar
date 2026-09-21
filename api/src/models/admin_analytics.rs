@@ -18,11 +18,11 @@
 //!   過去の期間が実際より少なく出る)
 //! - **ログイン**: `session` の行が作られた回数 (`createdAt`)
 //! - **新規ユーザー**: `user.createdAt`
-//! - **予定の作成**: `events.created_at` (api / Bot が `now_jst()` で入れるタイムゾーンなしの JST)
+//! - **予定の作成**: 単発の `events.created_at` と初期シリーズの `event_series.created_at` (JST)。分割先・補充した回は除外
 //!
 //! # 精度の限界 (画面にも注記する)
 //!
-//! - 削除されたデータは数えられない。予定は削除で行ごと消えるので、過去の作成数は実際より少なく出る
+//! - 削除された単発予定は数えられない。繰り返しは初回の削除後もシリーズから数えるが、シリーズ自体の全削除では減る
 //! - **`session` の行を消すと、過去のアクティブユーザーとログイン回数がさかのぼって減る**。
 //!   定型操作の `purge-expired-sessions` (#44) だけでなく、ユーザー管理の強制ログアウト
 //!   (`admin_users::delete_sessions`、期限内のものも消える) も同じ。
@@ -154,7 +154,7 @@ pub struct MonthlyPoint {
     pub events: i64,
 }
 
-/// 予定の作成数
+/// 予定の作成数（補充した回は除外）
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EventCreation {
     /// 直近 24 時間
@@ -318,7 +318,7 @@ pub async fn daily<'e>(
         -- 作られた行や未来日時の行が入り、同じ上限を持つ直近 24 時間などの件数と食い違う
         ev AS (
             SELECT created_at::date AS day, count(*) AS n
-            FROM events
+            FROM event_creations
             WHERE created_at >= ($1::timestamp::date - ($2::int - 1))::timestamp
               AND created_at <= $1
             GROUP BY 1
@@ -390,7 +390,7 @@ pub async fn monthly<'e>(
         -- 作られた行や未来日時の行が入り、同じ上限を持つ直近 30 日などの件数と食い違う
         ev AS (
             SELECT date_trunc('month', e.created_at) AS month_start, count(*) AS n
-            FROM events e, span
+            FROM event_creations e, span
             WHERE e.created_at >= span.lo AND e.created_at <= $1
             GROUP BY 1
         ),
@@ -458,15 +458,15 @@ pub async fn event_creation<'e>(
     let row = sqlx::query!(
         r#"
         SELECT
-            count(*) AS "total!",
+            (SELECT count(*) FROM events) AS "total!",
             count(*) FILTER (WHERE created_at >= $1 AND created_at <= $7) AS "day!",
             count(*) FILTER (WHERE created_at >= $2 AND created_at < $1) AS "day_prev!",
             count(*) FILTER (WHERE created_at >= $3 AND created_at <= $7) AS "week!",
             count(*) FILTER (WHERE created_at >= $4 AND created_at < $3) AS "week_prev!",
             count(*) FILTER (WHERE created_at >= $5 AND created_at <= $7) AS "month!",
             count(*) FILTER (WHERE created_at >= $6 AND created_at < $5) AS "month_prev!",
-            count(*) FILTER (WHERE is_all_day) AS "all_day!"
-        FROM events
+            (SELECT count(*) FROM events WHERE is_all_day) AS "all_day!"
+        FROM event_creations
         "#,
         day,
         day_prev,
@@ -545,7 +545,7 @@ pub async fn guild_counts<'e>(
         r#"
         WITH recent AS (
             -- 上限を付けないと、未来の created_at を持つ予定でギルドがアクティブ扱いになる
-            SELECT DISTINCT guild_id FROM events WHERE created_at >= $1 AND created_at <= $2
+            SELECT DISTINCT guild_id FROM event_creations WHERE created_at >= $1 AND created_at <= $2
         )
         SELECT
             -- 参加中と退出済みを分けて数える。混ぜると「参加中のうち使われている割合」が出せない
@@ -574,7 +574,7 @@ pub async fn top_guilds<'e>(
         r#"
         WITH recent AS (
             SELECT guild_id, count(*) AS n
-            FROM events WHERE created_at >= $1 AND created_at <= $2 GROUP BY guild_id
+            FROM event_creations WHERE created_at >= $1 AND created_at <= $2 GROUP BY guild_id
         )
         SELECT
             r.guild_id AS "guild_id!",

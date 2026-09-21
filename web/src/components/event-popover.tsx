@@ -22,6 +22,7 @@ import {
   describeNotification,
 } from "@/lib/calendar-events";
 import { readableTextColor } from "@/lib/color";
+import { describeRecurrence } from "@/lib/recurrence";
 
 /** ポップオーバーを寄せる先。要素そのもののほか、位置だけを持つ仮想要素も渡せる */
 export type PopoverAnchor = NonNullable<
@@ -103,6 +104,12 @@ export function EventPopover({
           {shown.name}
         </div>
         <div className="flex flex-col gap-1.5 px-4 py-3">
+          {shown.recurrence && (
+            <p className="text-sm">
+              {describeRecurrence(shown.recurrence.rule)}
+              {shown.recurrence.is_exception ? "（この回は個別変更）" : ""}
+            </p>
+          )}
           <div className="flex items-center gap-2">
             <AlarmClockIcon className="size-4 shrink-0 text-muted-foreground" />
             <span>{describeEventRange(shown)}</span>

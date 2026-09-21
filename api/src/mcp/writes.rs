@@ -300,6 +300,22 @@ async fn write(
     } else {
         None
     };
+    if let Some(old) = &old
+        && crate::recurring_events::info(&mut tx, &input.guild_id, old.id)
+            .await?
+            .is_some()
+    {
+        if let Some(body) = &body {
+            crate::recurring::validate_recurring_fields(body)?;
+        }
+        crate::recurring_events::record_exception(
+            &mut tx,
+            &input.guild_id,
+            old.id,
+            action == "delete",
+        )
+        .await?;
+    }
     let linked = old
         .as_ref()
         .and_then(|r| r.discord_scheduled_event_id.clone());
@@ -389,6 +405,12 @@ async fn write(
         None
     };
     let mut result = json!({"request_id":user.request_id,"discord_event_id":linked,"database":"succeeded","discord":if desired || linked.is_some() { "unknown" } else { "not_required" },"event_id":event_id,"event":output_event(row)?,"url":format!("{}/dashboard/{}", state.site_base_url, input.guild_id)});
+    if action != "delete" {
+        result["event"]["recurrence"] = serde_json::to_value(
+            crate::recurring_events::info(&mut tx, &input.guild_id, event_id).await?,
+        )
+        .map_err(anyhow::Error::from)?;
+    }
     // 外部呼び出しの前にunknownを永続化。プロセス停止・応答喪失後の再送は呼び出さない。
     sqlx::query("INSERT INTO mcp_event_operations (user_id,client_id,guild_id,key_hash,request_hash,action,event_id,result,discord_state,requires_discord_create,requires_bot_create,discord_event_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
         .bind(&user.sub).bind(&user.client_id).bind(&input.guild_id).bind(&key).bind(fingerprint).bind(action).bind(event_id).bind(&result).bind(result["discord"].as_str().unwrap()).bind(desired && linked.is_none()).bind(desired).bind(&linked).execute(&mut *tx).await?;
@@ -1307,6 +1329,53 @@ mod tests {
                 .iter()
                 .all(|v| !v.to_string().contains("保持する説明"))
         );
+        // Webが作ったシリーズをMCPで変更・中止しても、補充で元に戻らない。
+        let recurring_start = (now_jst() + chrono::Duration::days(1))
+            .date()
+            .and_hms_opt(10, 0, 0)
+            .unwrap();
+        let recurring: EventInput = serde_json::from_value(json!({
+            "name":"MCP定例","color":"#123456","start_at":recurring_start,
+            "end_at":recurring_start + chrono::Duration::hours(1),"recurrence_rule":{"frequency":"daily","end":{"type":"count","count":3}}
+        })).unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let event = events::create(&mut *tx, "111", &recurring, now_jst(), "333")
+            .await
+            .unwrap();
+        crate::recurring::attach_created(&mut tx, "111", event.id, &recurring, "333")
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let mut patch = input("recurring-update", json!({"name":"MCPの個別変更"}));
+        patch.event_id = Some(event.id);
+        patch.expected_version = Some(super::super::event_version(&event).unwrap());
+        let changed = result(write(user(), patch, state.clone(), "update").await.unwrap()).await;
+        assert_eq!(changed["event"]["recurrence"]["is_exception"], true);
+        let mut deletion = input("recurring-delete", json!({}));
+        deletion.event_id = Some(event.id);
+        deletion.expected_version = changed["event"]["version"].as_str().map(str::to_owned);
+        write(user(), deletion, state.clone(), "delete")
+            .await
+            .unwrap();
+        crate::recurring_events::ensure_range(
+            &pool,
+            "111",
+            recurring.start_at,
+            recurring.start_at + chrono::Duration::days(3),
+        )
+        .await
+        .unwrap();
+        assert!(
+            events::find_by_id(&pool, "111", event.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM events WHERE name='MCP定例'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(remaining, 2);
         handle.stop(false).await;
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM events")
             .fetch_one(&pool)

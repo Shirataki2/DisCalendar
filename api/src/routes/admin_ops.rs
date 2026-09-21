@@ -77,6 +77,10 @@ pub async fn delete_guild_events(
     // 次に既存の予定行をロックして連携の追加・変更・解除を待たせる。
     // 対応付けの行自体は events の削除に CASCADE で追随する
     event_links::lock_guild(&mut *tx, guild_id).await?;
+    sqlx::query("SELECT id FROM event_series WHERE guild_id=$1 ORDER BY id FOR UPDATE")
+        .bind(guild_id)
+        .fetch_all(&mut *tx)
+        .await?;
     admin_ops::lock_guild_events(&mut *tx, guild_id).await?;
     let scheduled_event_ids = event_links::list_scheduled_event_ids(&mut *tx, guild_id).await?;
     let (snapshot_rows, count) =
@@ -85,9 +89,14 @@ pub async fn delete_guild_events(
     // (壊れた要素は Event への変換で捨てられるため、削除した実データを復元・調査できるように)
     let sampled: Vec<EventSnapshot> = snapshot_rows
         .into_iter()
-        .map(|row| EventSnapshot {
-            raw_notifications: row.notifications.clone(),
-            event: Event::from(row),
+        .map(|(row, recurrence)| {
+            let raw_notifications = row.notifications.clone();
+            let mut event = Event::from(row);
+            event.recurrence = recurrence;
+            EventSnapshot {
+                raw_notifications,
+                event,
+            }
         })
         .collect();
     let omitted = count.saturating_sub(sampled.len() as u64);

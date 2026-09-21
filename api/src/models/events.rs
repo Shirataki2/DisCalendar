@@ -40,6 +40,8 @@ pub struct EventRow {
 /// API レスポンスの予定。日時はタイムゾーンなしの JST (`YYYY-MM-DDTHH:MM:SS`)
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Event {
+    #[schema(value_type = Option<Object>)]
+    pub recurrence: Option<crate::recurring_events::Info>,
     #[schema(example = 1)]
     pub id: i32,
     #[schema(example = "782502586817314816")]
@@ -68,6 +70,7 @@ pub struct Event {
 impl From<EventRow> for Event {
     fn from(row: EventRow) -> Self {
         Self {
+            recurrence: None,
             id: row.id,
             guild_id: row.guild_id,
             name: row.name,
@@ -89,8 +92,17 @@ impl From<EventRow> for Event {
 }
 
 /// 予定の作成・更新リクエスト
-#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EventInput {
+    /// 省略は既存条件を維持、frequency=noneは明示的な解除。
+    #[serde(default)]
+    #[schema(value_type = Option<Object>)]
+    #[serde(rename = "recurrence_rule")]
+    pub recurrence: Option<crate::recurrence::Rule>,
+    #[serde(default)]
+    pub scope: crate::recurring::ChangeScope,
+    #[serde(default)]
+    pub expected_series_version: Option<i32>,
     #[schema(example = "定例ミーティング", max_length = 32)]
     pub name: String,
     #[serde(default)]
@@ -120,6 +132,7 @@ pub struct EventInput {
 
 impl EventInput {
     pub fn validate(&self) -> Result<(), ApiError> {
+        crate::recurring::validate(self)?;
         if self.name.trim().is_empty() {
             return Err(ApiError::BadRequest("name is required".into()));
         }
@@ -281,7 +294,8 @@ pub async fn list_for_feed(
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id
         WHERE e.guild_id = $1
-          AND e.end_at >= CASE WHEN e.is_all_day THEN $2::timestamp - INTERVAL '1 day' ELSE $2::timestamp END
+          AND (e.series_id IS NULL OR e.start_at < $2::timestamp + INTERVAL '1095 days')
+          AND e.end_at >= $2::timestamp - CASE WHEN e.is_all_day THEN INTERVAL '1 day' ELSE INTERVAL '0 days' END
         ORDER BY e.start_at, e.id
         "#,
         guild_id,
@@ -382,6 +396,7 @@ pub async fn find_by_id_for_update(
     guild_id: &str,
     id: i32,
 ) -> sqlx::Result<Option<EventRow>> {
+    crate::recurring_events::lock_for_event(conn, guild_id, id).await?;
     let row = sqlx::query_as!(
         EventRow,
         r#"
@@ -514,6 +529,9 @@ mod tests {
 
     fn input() -> EventInput {
         EventInput {
+            recurrence: None,
+            scope: Default::default(),
+            expected_series_version: None,
             name: "test".into(),
             description: None,
             notifications: vec![],

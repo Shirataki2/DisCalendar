@@ -8,7 +8,12 @@ import {
 } from "@tanstack/react-query";
 import { ApiError, api } from "@/lib/api";
 import type { EventsClient } from "@/lib/api/endpoints";
-import type { ApiEvent, ApiEventInput, MyPermissions } from "@/lib/api/types";
+import type {
+  ApiEvent,
+  ApiEventInput,
+  ChangeScope,
+  MyPermissions,
+} from "@/lib/api/types";
 import { revalidateAdminPagesQuietly } from "./admin-cache";
 import { type EventsQueryKeys, queryKeys } from "./keys";
 
@@ -244,7 +249,13 @@ export function useUpdateEvent(
       }
       refetchPermissionsOnBotError(queryClient, guildId, error);
     },
-    onSettled: () => invalidateEvents(queryClient, source, guildId, false),
+    onSettled: (_data, _error, variables) =>
+      invalidateEvents(
+        queryClient,
+        source,
+        guildId,
+        variables.input.scope === "future" || !!variables.input.recurrence_rule,
+      ),
   });
 }
 
@@ -255,8 +266,16 @@ export function useDeleteEvent(
   const queryClient = useQueryClient();
   const listsKey = source.keys.all(guildId);
   return useMutation({
-    mutationFn: (id: number) => source.client.remove(guildId, id),
-    onMutate: async (id) => {
+    mutationFn: (
+      target:
+        | number
+        | { id: number; scope: ChangeScope; expected_series_version?: number },
+    ) =>
+      typeof target === "number"
+        ? source.client.remove(guildId, target)
+        : source.client.remove(guildId, target.id, target),
+    onMutate: async (target) => {
+      const id = typeof target === "number" ? target : target.id;
       await queryClient.cancelQueries({ queryKey: listsKey });
       const linkedIdBefore = linkedIdOf(queryClient, listsKey, id);
       const previous: CachedLists = queryClient.getQueriesData<ApiEvent[]>({

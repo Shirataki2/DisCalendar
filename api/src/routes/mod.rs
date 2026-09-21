@@ -9,7 +9,7 @@ mod admin_sql;
 mod admin_status;
 mod admin_users;
 mod attachments;
-mod events;
+pub(crate) mod events;
 mod feeds;
 mod guilds;
 mod health;
@@ -71,6 +71,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(shares::get_share)
                 .service(shares::issue_share)
                 .service(shares::revoke_share)
+                .service(crate::recurring::preview)
                 .service(events::list)
                 .service(events::create)
                 .service(events::update)
@@ -86,6 +87,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 // `/guilds/sync-check` は `/guilds/{guild_id}` より先に登録する
                 // (後だと sync-check が guild_id として解釈される)
                 .service(admin_status::sync_check)
+                .service(crate::recurring::admin_preview)
                 .service(admin_guilds::list_guilds)
                 .service(admin_guilds::get_guild)
                 .service(admin_guilds::list_events)
