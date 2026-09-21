@@ -101,7 +101,7 @@ export function RecurrenceSettings({
     if (rule.frequency !== "none") setRule({ ...rule, end });
   }
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex h-[min(48rem,calc(100dvh-2rem))] min-h-0 flex-col">
       <DialogHeader className="shrink-0 border-b p-4 pr-14">
         <Button
           type="button"
