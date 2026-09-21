@@ -220,6 +220,33 @@ async fn shifting_to_another_occurrence_keeps_selected_id(pool: PgPool) {
     .unwrap();
     assert_eq!(ids(&pool).await.len(), 8);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn changing_pattern_keeps_the_remaining_count(pool: PgPool) {
+    create(&pool).await;
+    let all = ids(&pool).await;
+    let mut tx = pool.begin().await.unwrap();
+    let info = store::info(&mut tx, "111", all[2]).await.unwrap().unwrap();
+    let mut body = input();
+    body.start_at = dt("2026-10-06T19:30:00");
+    body.end_at = dt("2026-10-06T21:00:00");
+    body.scope = ChangeScope::Future;
+    body.expected_series_version = Some(info.version);
+    if let Some(discalendar_api::recurrence::Rule::Weekly { weekdays, .. }) = &mut body.recurrence {
+        *weekdays = vec![1];
+    }
+    recurring::update(&mut tx, "111", all[2], &body, "333")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(ids(&pool).await.len(), 8);
+    let mut conn = pool.acquire().await.unwrap();
+    let changed = store::info(&mut conn, "111", all[2])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(changed.rule["end"]["count"], 6);
+}
 #[sqlx::test(migrations = "./migrations")]
 async fn rollback_preserves_occurrences(pool: PgPool) {
     create(&pool).await;
@@ -392,6 +419,14 @@ async fn distant_range_is_not_generated_and_feed_keeps_standalone(pool: PgPool) 
     .await
     .unwrap();
     assert_eq!(count, 0);
+    let old_feed = events::list_for_feed(&pool, "111", dt("2026-01-05T00:00:00"))
+        .await
+        .unwrap();
+    assert!(
+        !old_feed
+            .iter()
+            .any(|event| event.start_at == dt("2026-01-01T00:00:00"))
+    );
     // 単発は未来の制限なし、繰り返しの自動生成は現在から730日まで。
     body.recurrence = None;
     body.start_at = dt("2040-02-01T00:00:00");

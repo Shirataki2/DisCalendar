@@ -295,7 +295,7 @@ pub async fn list_for_feed(
         LEFT JOIN event_discord_links l ON l.event_id = e.id
         WHERE e.guild_id = $1
           AND (e.series_id IS NULL OR e.start_at < $2::timestamp + INTERVAL '1095 days')
-          AND e.end_at >= $2::timestamp - CASE WHEN e.series_id IS NOT NULL THEN INTERVAL '1 day' ELSE INTERVAL '0 days' END - CASE WHEN e.is_all_day THEN INTERVAL '1 day' ELSE INTERVAL '0 days' END
+          AND e.end_at >= $2::timestamp - CASE WHEN e.is_all_day THEN INTERVAL '1 day' ELSE INTERVAL '0 days' END
         ORDER BY e.start_at, e.id
         "#,
         guild_id,

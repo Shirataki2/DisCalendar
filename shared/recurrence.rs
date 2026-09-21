@@ -42,6 +42,17 @@ impl Rule {
         }
     }
 
+    pub fn ending(&self) -> Option<&Ending> {
+        match self {
+            Self::None => None,
+            Self::Daily { end }
+            | Self::Weekly { end, .. }
+            | Self::Biweekly { end, .. }
+            | Self::MonthlyDate { end, .. }
+            | Self::MonthlyWeekday { end, .. } => Some(end),
+        }
+    }
+
     pub fn rrule(&self, start: NaiveDateTime) -> Result<String, String> {
         if start.nanosecond() != 0 {
             return Err("繰り返し予定の開始日時は秒単位で指定してください".into());

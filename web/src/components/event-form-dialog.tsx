@@ -703,16 +703,18 @@ function EventForm({
               </>
             )}
 
-            {discordSync && !recurrenceEnabled && (
-              <DiscordEventField
-                control={control}
-                isLinkedEdit={isLinkedEdit}
-                botCreateEvents={discordSync.botCreateEvents}
-                canCreateEvents={discordSync.canCreateEvents}
-                startsInPast={discordStartsInPast}
-                onRefresh={discordSync.onRefresh}
-              />
-            )}
+            {discordSync &&
+              !recurrenceEnabled &&
+              !(state.mode === "edit" && state.event.recurrence) && (
+                <DiscordEventField
+                  control={control}
+                  isLinkedEdit={isLinkedEdit}
+                  botCreateEvents={discordSync.botCreateEvents}
+                  canCreateEvents={discordSync.canCreateEvents}
+                  startsInPast={discordStartsInPast}
+                  onRefresh={discordSync.onRefresh}
+                />
+              )}
           </FieldGroup>
 
           {isEdit && allowShare && (

@@ -233,16 +233,20 @@ pub async fn update(
             return Err(ApiError::BadRequest("過去の開催枠と重なるため、この回以降をこの日へ移動できません。別の開始日か「この回のみ」を選択してください".into()));
         }
     }
+    let previous_rule: Rule =
+        serde_json::from_value(series.recurrence.clone()).map_err(anyhow::Error::from)?;
     let mut rule: Rule = input
         .recurrence
         .clone()
-        .unwrap_or(serde_json::from_value(series.recurrence.clone()).map_err(anyhow::Error::from)?);
-    // フォームで条件を変えなかった場合、既に消費した開催枠を回数から引く。
-    if (input.recurrence.is_none()
-        || input.recurrence.as_ref().is_some_and(|r| {
-            r.rrule(series.start_at).ok().as_deref() == Some(series.rrule.as_str())
-        }))
-        && let Some(Ending::Count { count }) = rule.ending_mut()
+        .unwrap_or_else(|| previous_rule.clone());
+    // フォームで回数を変えなかった場合、既に消費した開催枠を回数から引く。
+    let previous_count = match previous_rule.ending() {
+        Some(Ending::Count { count }) => Some(*count),
+        _ => None,
+    };
+    if let (Some(previous_count), Some(Ending::Count { count })) =
+        (previous_count, rule.ending_mut())
+        && *count == previous_count
     {
         *count = remaining_count(&series, info.original_start_at, *count)?;
     }
@@ -486,8 +490,15 @@ pub async fn preview_dates(
             .bind(guild).bind(id).fetch_optional(pool).await?;
         if let Some((original, value)) = current {
             let series: Series = serde_json::from_value(value.0).map_err(anyhow::Error::from)?;
-            if rule.rrule(series.start_at).ok().as_deref() == Some(series.rrule.as_str())
-                && let Some(Ending::Count { count }) = rule.ending_mut()
+            let previous_rule: Rule =
+                serde_json::from_value(series.recurrence.clone()).map_err(anyhow::Error::from)?;
+            let previous_count = match previous_rule.ending() {
+                Some(Ending::Count { count }) => Some(*count),
+                _ => None,
+            };
+            if let (Some(previous_count), Some(Ending::Count { count })) =
+                (previous_count, rule.ending_mut())
+                && *count == previous_count
             {
                 *count = remaining_count(&series, original, *count)?;
             }

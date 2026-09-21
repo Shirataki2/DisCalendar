@@ -130,6 +130,54 @@ test("不正な曜日とDiscord連携をAPI境界で拒否する", async ({ page
   expect(denied.status()).toBe(403);
 });
 
+test("繰り返し解除を保存するまではDiscord連携を表示しない", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date("2026-09-21T03:00:00Z"));
+  const title = "繰り返し解除の連携";
+  const created = await page.request.post(base, {
+    data: {
+      name: title,
+      color: "#2196F3",
+      start_at: "2026-09-21T19:30:00",
+      end_at: "2026-09-21T20:30:00",
+      recurrence_rule: {
+        frequency: "weekly",
+        weekdays: [0],
+        end: { type: "count", count: 2 },
+      },
+    },
+  });
+  expect(created.status()).toBe(201);
+  const event = (await created.json()) as ApiEvent;
+  await page.goto(`/dashboard/${guild}`);
+  await eventOn(page, title).first().click();
+  await page.getByRole("button", { name: "編集", exact: true }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "この回以降", exact: true })
+    .click();
+  const form = page.getByRole("dialog", { name: "予定を編集", exact: true });
+  await form.getByRole("button", { name: "毎週月曜日／全2回" }).click();
+  const settings = page.getByRole("dialog", { name: "繰り返しの設定" });
+  await settings.getByLabel("繰り返しの頻度").selectOption("none");
+  await settings.getByRole("button", { name: "設定を適用" }).click();
+  await expect(
+    form.getByRole("checkbox", {
+      name: "Discord のイベントとしても作成する",
+    }),
+  ).toHaveCount(0);
+  await form.getByRole("button", { name: "キャンセル" }).click();
+  await page
+    .getByRole("alertdialog", { name: "未保存の変更を破棄しますか？" })
+    .getByRole("button", { name: "破棄して閉じる" })
+    .click();
+  const removed = await page.request.delete(
+    `${base}/${event.id}?scope=future&expected_series_version=${event.recurrence?.version}`,
+  );
+  expect(removed.status()).toBe(204);
+});
+
 test("設定の取消・キーボード・開始日の不一致と未保存確認", async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-09-21T03:00:00Z"));
   await page.goto(`/dashboard/${guild}`);
