@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at\n        FROM events WHERE start_at >= $1 ORDER BY start_at, id\n        ",
+  "query": "\n        SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at\n        FROM events WHERE guild_id = $1 AND start_at < $3\n          AND (end_at > $2 OR (end_at = $2 AND (is_all_day OR start_at = end_at)))\n        ORDER BY start_at, id\n    ",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "location",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "location"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "notifications",
         "type_info": "Jsonb",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "notification_mentions",
         "type_info": "Jsonb",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "color",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "is_all_day",
         "type_info": "Bool",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "start_at",
         "type_info": "Timestamp",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "end_at",
         "type_info": "Timestamp",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "created_at",
         "type_info": "Timestamp",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "created_by",
         "type_info": "Text",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "updated_by",
         "type_info": "Text",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamp",
         "origin": {
@@ -160,6 +171,8 @@
     ],
     "parameters": {
       "Left": [
+        "Text",
+        "Timestamp",
         "Timestamp"
       ]
     },
@@ -167,6 +180,7 @@
       false,
       false,
       false,
+      true,
       true,
       false,
       false,
@@ -180,5 +194,5 @@
       true
     ]
   },
-  "hash": "b7e0f7547c3dbc78232907d83f49da091597a09e1cc8218b6f39d65277e61c06"
+  "hash": "4806ee4c47ae6debbb17ae9de3aa2bb065ce36e40b53d9327b408fc6f848c1ba"
 }

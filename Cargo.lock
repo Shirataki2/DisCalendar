@@ -1403,6 +1403,7 @@ dependencies = [
  "tracing",
  "tracing-actix-web",
  "tracing-subscriber",
+ "url",
  "utoipa",
  "utoipa-actix-web",
  "utoipa-swagger-ui",
@@ -1427,6 +1428,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

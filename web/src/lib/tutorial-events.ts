@@ -26,6 +26,7 @@ export function createTutorialEventsSource(
       id,
       guild_id: TUTORIAL_GUILD_ID,
       description: input.description ?? null,
+      location: input.location ?? null,
       notification_mentions: [],
       discord_scheduled_event_id: null,
       created_at: toApiDateTime(now),

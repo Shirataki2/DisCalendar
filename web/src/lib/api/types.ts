@@ -48,6 +48,7 @@ export interface ApiEvent {
   guild_id: string;
   name: string;
   description: string | null;
+  location: string | null;
   notifications: Notification[];
   notification_mentions?: NotificationMention[];
   /** #RRGGBB */
@@ -70,6 +71,7 @@ export interface ApiEventInput {
   expected_series_version?: number;
   name: string;
   description?: string | null;
+  location?: string | null;
   notifications: Notification[];
   notification_mentions?: NotificationMention[];
   color: string;
@@ -643,6 +645,7 @@ export interface SharedEvent {
   guild_avatar_url: string | null;
   name: string;
   description: string | null;
+  location: string | null;
   is_all_day: boolean;
   start_at: string;
   end_at: string;

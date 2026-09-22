@@ -8,6 +8,7 @@ const guild = E2E_GUILDS.admin.id;
 const input = {
   name: "共有予定のテスト",
   description: "ログイン不要で見られる説明",
+  location: "https://meet.example.com/shared-room",
   notifications: [],
   color: "#5865F2",
   is_all_day: false,
@@ -50,6 +51,7 @@ test("共有の発行・匿名閲覧・編集・失効・削除と認可", async
       "guild_id",
       "guild_name",
       "is_all_day",
+      "location",
       "name",
       "start_at",
     ]);
@@ -59,6 +61,7 @@ test("共有の発行・匿名閲覧・編集・失効・削除と認可", async
     expect(response.status()).toBe(200);
     const html = await response.text();
     expect(html).toContain(input.description);
+    expect(html).toContain(input.location);
     expect(html).toContain('name="robots" content="noindex, nofollow"');
     const imageUrl = html.match(/property="og:image" content="([^"]+)"/)?.[1];
     expect(imageUrl).toBeTruthy();

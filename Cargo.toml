@@ -31,6 +31,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "json"] }
+url = "2"
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"

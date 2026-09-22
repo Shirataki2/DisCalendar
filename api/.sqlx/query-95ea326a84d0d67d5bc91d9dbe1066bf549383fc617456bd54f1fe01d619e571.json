@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,\n               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,\n               l.scheduled_event_id AS \"discord_scheduled_event_id?\"\n        FROM events e\n        LEFT JOIN event_discord_links l ON l.event_id = e.id\n        WHERE e.id = $1 AND e.guild_id = $2\n        ",
+  "query": "\n        UPDATE events\n        SET name = $3, description = $4, location = $5, notifications = $6, color = $7, is_all_day = $8, start_at = $9, end_at = $10, updated_by = $11, updated_at = $12, notification_mentions = COALESCE($13::jsonb, notification_mentions)\n        WHERE id = $1 AND guild_id = $2\n        RETURNING id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,\n                  NULL::text AS \"discord_scheduled_event_id?\"\n        ",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "location",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "location"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "notifications",
         "type_info": "Jsonb",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "notification_mentions",
         "type_info": "Jsonb",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "color",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "is_all_day",
         "type_info": "Bool",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "start_at",
         "type_info": "Timestamp",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "end_at",
         "type_info": "Timestamp",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "created_at",
         "type_info": "Timestamp",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "created_by",
         "type_info": "Text",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "updated_by",
         "type_info": "Text",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamp",
         "origin": {
@@ -158,21 +169,27 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "discord_scheduled_event_id?",
         "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "event_discord_links",
-            "name": "scheduled_event_id"
-          }
-        }
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
         "Int4",
-        "Text"
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Bool",
+        "Timestamp",
+        "Timestamp",
+        "Text",
+        "Timestamp",
+        "Jsonb"
       ]
     },
     "nullable": [
@@ -180,6 +197,7 @@
       false,
       false,
       true,
+      true,
       false,
       false,
       false,
@@ -190,8 +208,8 @@
       true,
       true,
       true,
-      true
+      null
     ]
   },
-  "hash": "14f713ed778515ea5eafd898b127b6acceb4469e56f9f9f74252629bddc5684d"
+  "hash": "95ea326a84d0d67d5bc91d9dbe1066bf549383fc617456bd54f1fe01d619e571"
 }

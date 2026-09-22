@@ -38,6 +38,7 @@ test.describe("管理権限のあるギルド", () => {
       name: feedTitle,
       start_at: "2026-10-01 10:00:00",
       end_at: "2026-10-01 11:00:00",
+      location: "https://meet.example.com/feed-room",
     });
   });
 
@@ -77,6 +78,8 @@ test.describe("管理権限のあるギルド", () => {
     expect(lines[0]).toBe("BEGIN:VCALENDAR");
     expect(lines).toContain(`X-WR-CALNAME:${E2E_GUILDS.admin.name}`);
     expect(lines).toContain(`SUMMARY:${feedTitle}`);
+    expect(lines).toContain("LOCATION:https://meet.example.com/feed-room");
+    expect(lines).toContain("URL:https://meet.example.com/feed-room");
     expect(lines).toContain("DTSTART;TZID=Asia/Tokyo:20261001T100000");
     expect(lines).toContain("DTEND;TZID=Asia/Tokyo:20261001T110000");
 

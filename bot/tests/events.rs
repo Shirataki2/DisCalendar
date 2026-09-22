@@ -20,6 +20,7 @@ fn new_event<'a>(guild_id: &'a str, name: &'a str, start: &str, end: &str) -> Ne
         guild_id,
         name,
         description: None,
+        location: None,
         notifications: &[],
         color: "#2196F3",
         is_all_day: false,

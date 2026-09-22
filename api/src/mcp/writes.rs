@@ -85,7 +85,7 @@ fn merge(
             value
         }
         None => {
-            json!({"description":null,"notifications":[],"notification_mentions":[],"is_all_day":false,"discord_scheduled_event":false})
+            json!({"description":null,"location":null,"notifications":[],"notification_mentions":[],"is_all_day":false,"discord_scheduled_event":false})
         }
     };
     for (name, supplied) in changes {
@@ -93,6 +93,7 @@ fn merge(
             name.as_str(),
             "name"
                 | "description"
+                | "location"
                 | "notifications"
                 | "notification_mentions"
                 | "color"
@@ -542,6 +543,7 @@ async fn reflect(
             body.is_all_day,
             body.start_at,
             body.end_at,
+            body.normalized_location(),
         );
         if let Some(sid) = linked
             && state
@@ -688,7 +690,7 @@ mod tests {
             .await
             .unwrap();
         sqlx::query("INSERT INTO guild_webhooks (guild_id,url,kind,secret,created_by) VALUES ('111','http://127.0.0.1','json','test-only','333')").execute(&pool).await.unwrap();
-        let changes = json!({"name":"元の予定","color":"#123456","description":"保持する説明","notifications":[{"num":30,"unit":"minutes"}],"start_at":"2099-09-13T01:00:00Z","end_at":"2099-09-13T11:00:00+09:00"});
+        let changes = json!({"name":"元の予定","color":"#123456","description":"保持する説明","location":"会議室 A","notifications":[{"num":30,"unit":"minutes"}],"start_at":"2099-09-13T01:00:00Z","end_at":"2099-09-13T11:00:00+09:00"});
         let first = result(
             write(
                 user(),
@@ -842,6 +844,7 @@ mod tests {
         patch.expected_version = first["event"]["version"].as_str().map(str::to_owned);
         let updated = result(write(user(), patch, state.clone(), "update").await.unwrap()).await;
         assert_eq!(updated["event"]["description"], changes["description"]);
+        assert_eq!(updated["event"]["location"], changes["location"]);
         assert_eq!(updated["event"]["notifications"], changes["notifications"]);
         assert_ne!(updated["event"]["version"], first["event"]["version"]);
         let mut stale = input("stale", json!({}));
@@ -865,14 +868,17 @@ mod tests {
             Err(ApiError::Conflict(_))
         ));
         let row = events::find_by_id(&pool, "111", id).await.unwrap().unwrap();
-        let clear = merge(json!({"description":null,"notifications":null,"notification_mentions":null,"discord_scheduled_event":null}).as_object().unwrap(), Some(&row)).unwrap();
+        let clear = merge(json!({"description":null,"location":null,"notifications":null,"notification_mentions":null,"discord_scheduled_event":null}).as_object().unwrap(), Some(&row)).unwrap();
         assert!(clear.description.is_none());
+        assert!(clear.location.is_none());
         assert!(clear.notifications.is_empty());
         assert_eq!(clear.notification_mentions, Some(vec![]));
         for bad in [
             json!({"start_at":"2099-09-13T00:00:00"}),
             json!({"name":"x".repeat(33)}),
             json!({"description":"x".repeat(1001)}),
+            json!({"location":"x".repeat(201)}),
+            json!({"location":"javascript:alert(1)"}),
             json!({"guild_id":"222"}),
             json!({"name":null}),
             json!({"end_at":"2099-01-01T00:00:00Z"}),

@@ -6,6 +6,7 @@ import {
   ArrowRightIcon,
   BellIcon,
   CopyIcon,
+  MapPinIcon,
   PencilIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import {
   describeNotification,
 } from "@/lib/calendar-events";
 import { readableTextColor } from "@/lib/color";
+import { locationUrl } from "@/lib/event-location";
 import { describeRecurrence } from "@/lib/recurrence";
 
 /** ポップオーバーを寄せる先。要素そのもののほか、位置だけを持つ仮想要素も渡せる */
@@ -114,6 +116,23 @@ export function EventPopover({
             <AlarmClockIcon className="size-4 shrink-0 text-muted-foreground" />
             <span>{describeEventRange(shown)}</span>
           </div>
+          {shown.location && (
+            <div className="flex items-start gap-2">
+              <MapPinIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              {locationUrl(shown.location) ? (
+                <a
+                  href={shown.location}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 break-all text-primary underline underline-offset-4"
+                >
+                  {shown.location}
+                </a>
+              ) : (
+                <span className="min-w-0 break-words">{shown.location}</span>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <BellIcon className="size-4 shrink-0 text-muted-foreground" />
             <span>{notifications}</span>

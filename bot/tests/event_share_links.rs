@@ -15,6 +15,7 @@ async fn reads_only_published_links_for_the_event_and_guild(pool: PgPool) {
             guild_id: "123",
             name: "定例",
             description: None,
+            location: None,
             notifications: &[],
             color: "#2196F3",
             is_all_day: false,

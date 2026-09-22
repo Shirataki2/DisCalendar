@@ -749,6 +749,7 @@ fn payload_for(site_base_url: &str, guild_id: &str, input: &EventInput) -> Sched
         input.is_all_day,
         input.start_at,
         input.end_at,
+        input.normalized_location(),
     )
 }
 
@@ -832,6 +833,7 @@ async fn update_was_applied(
     };
     Ok(row.name == input.name
         && row.description == input.description
+        && row.location.as_deref() == input.normalized_location()
         && row.color == input.color
         && row.is_all_day == input.is_all_day
         && row.start_at == input.start_at
@@ -889,6 +891,7 @@ async fn undo_scheduled_event_changes(
         before.is_all_day,
         before.start_at,
         before.end_at,
+        before.location.as_deref(),
     );
     if let Err(err) = state
         .discord

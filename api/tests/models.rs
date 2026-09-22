@@ -25,6 +25,7 @@ fn input(name: &str, start: &str, end: &str) -> EventInput {
         expected_series_version: None,
         name: name.to_owned(),
         description: Some("desc".to_owned()),
+        location: None,
         notifications: vec![Notification {
             num: 30,
             unit: NotificationUnit::Minutes,

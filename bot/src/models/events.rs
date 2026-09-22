@@ -7,6 +7,7 @@ use super::notifications::Notification;
 /// タイトルの最大文字数 (api の `EventInput::validate` / web のフォームと同じ)
 pub const NAME_MAX_CHARS: usize = 32;
 pub const DESCRIPTION_MAX_CHARS: usize = 1000;
+pub const LOCATION_MAX_CHARS: usize = 200;
 
 /// `events` テーブルの行。日時はタイムゾーンなしの JST
 // serde_json::Value は Eq を実装しないので PartialEq だけ
@@ -16,6 +17,7 @@ pub struct Event {
     pub guild_id: String,
     pub name: String,
     pub description: Option<String>,
+    pub location: Option<String>,
     /// DB に入っている JSONB そのまま (`Notification::decode_all` で読む)
     pub notifications: Value,
     pub notification_mentions: Value,
@@ -43,6 +45,7 @@ pub struct NewEvent<'a> {
     pub guild_id: &'a str,
     pub name: &'a str,
     pub description: Option<&'a str>,
+    pub location: Option<&'a str>,
     pub notifications: &'a [Notification],
     pub color: &'a str,
     pub is_all_day: bool,
@@ -59,13 +62,14 @@ pub async fn create(pool: &PgPool, event: &NewEvent<'_>) -> sqlx::Result<Event> 
     sqlx::query_as!(
         Event,
         r#"
-        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        INSERT INTO events (guild_id, name, description, location, notifications, color, is_all_day, start_at, end_at, created_at, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         "#,
         event.guild_id,
         event.name,
         event.description,
+        event.location,
         notifications,
         event.color,
         event.is_all_day,
@@ -93,7 +97,7 @@ pub async fn list_all(pool: &PgPool, guild_id: &str) -> sqlx::Result<Vec<Event>>
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 AND (series_id IS NULL OR (start_at < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo') + INTERVAL '730 days' AND end_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo') - INTERVAL '366 days')) ORDER BY start_at, id
         "#,
         guild_id
@@ -111,7 +115,7 @@ pub async fn list_past(
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 AND start_at <= $2 AND (series_id IS NULL OR end_at >= $2::timestamp - INTERVAL '366 days') ORDER BY start_at, id
         "#,
         guild_id,
@@ -130,7 +134,7 @@ pub async fn list_future(
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 AND start_at >= $2 AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days') ORDER BY start_at, id
         "#,
         guild_id,
@@ -146,7 +150,7 @@ pub async fn list_all_future(pool: &PgPool, now: NaiveDateTime) -> sqlx::Result<
     sqlx::query_as!(
         Event,
         r#"
-        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE start_at >= $1 ORDER BY start_at, id
         "#,
         now
@@ -163,7 +167,7 @@ pub async fn list_period(
     end: NaiveDateTime,
 ) -> sqlx::Result<Vec<Event>> {
     sqlx::query_as!(Event, r#"
-        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1 AND start_at < $3
           AND (end_at > $2 OR (end_at = $2 AND (is_all_day OR start_at = end_at)))
         ORDER BY start_at, id
@@ -177,7 +181,7 @@ pub async fn list_next(
     now: NaiveDateTime,
 ) -> sqlx::Result<Vec<Event>> {
     sqlx::query_as!(Event, r#"
-        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
         FROM events WHERE guild_id = $1
           AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days')
           AND start_at = (SELECT MIN(start_at) FROM events WHERE guild_id = $1 AND start_at >= $2 AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days'))

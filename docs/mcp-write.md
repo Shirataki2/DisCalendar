@@ -25,8 +25,9 @@ Create Events権限、既存の連携更新ではBotの同権限を要求する�
 
 `changes` は通常の予定入力のフィールドを使う。作成には `name`, `color`, `start_at`, `end_at` が必要。
 更新の省略項目は保持し、完成した入力を既存の上限・メンション対象検証へ渡す。
-`description: null` は説明を消去、`notifications: null` / `notification_mentions: null` は空配列、
+`description: null` は説明を消去、`location: null` は場所を消去、`notifications: null` / `notification_mentions: null` は空配列、
 `discord_scheduled_event: null` は連携解除。他の必須値のnullや未知のフィールドは拒否する。
+`location` は前後の空白を除いた200文字以内で、明示するURLスキームは有効なHTTP(S)のみ受け付ける。
 時刻指定はオフセット必須ISO 8601からJST naiveへ変換する。終日は `YYYY-MM-DD` と包含終了日を使う。
 MCPで `is_all_day` を明示するときは、同じ値を指定する場合もその形式で開始・終了の両方を指定する。
 フラグ省略時の部分更新は保存済みの終日設定に従いAPIで検証する。

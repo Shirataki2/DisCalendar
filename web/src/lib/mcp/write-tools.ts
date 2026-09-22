@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { isValidLocation } from "@/lib/event-location";
 
 const guildId = z.string().regex(/^\d{1,20}$/);
 const identity = {
@@ -25,6 +26,14 @@ const fields = z
         (value) => Array.from(value).length <= 1000,
         "説明は1000文字以内です",
       )
+      .nullable(),
+    location: z
+      .string()
+      .refine(
+        (value) => Array.from(value).length <= 200,
+        "場所 / URL は200文字以内です",
+      )
+      .refine(isValidLocation, "URL は http または https で入力してください")
       .nullable(),
     notifications: z
       .array(
@@ -145,7 +154,7 @@ export function registerWriteTools(server: McpServer, request: Request) {
   server.registerTool(
     "update_event",
     {
-      description: `events:updateとget_eventのexpected_versionが必要。繰り返し予定は指定した1回のみ変更し、条件・以降の一括変更はWebで行います。is_all_dayを明示する場合は、その形式のstart_atとend_atを両方指定してください。省略項目は保持し、説明・通知・メンション・Discord連携のnullは消去します。${description}`,
+      description: `events:updateとget_eventのexpected_versionが必要。繰り返し予定は指定した1回のみ変更し、条件・以降の一括変更はWebで行います。is_all_dayを明示する場合は、その形式のstart_atとend_atを両方指定してください。省略項目は保持し、説明・場所・通知・メンション・Discord連携のnullは消去します。${description}`,
       inputSchema: z
         .object({ ...identity, ...version, changes: updateChanges })
         .strict(),

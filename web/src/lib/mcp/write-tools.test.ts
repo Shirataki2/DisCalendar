@@ -176,6 +176,7 @@ test("文字数をRustと同じUnicode文字単位で検証し、キーはASCII�
     changes: {
       name: "😀".repeat(32),
       description: "😀".repeat(1000),
+      location: "😀".repeat(200),
       color: "#123456",
       start_at: "2099-09-13",
       end_at: "2099-09-13",
@@ -183,10 +184,20 @@ test("文字数をRustと同じUnicode文字単位で検証し、キーはASCII�
     },
   };
   expect((await call("create_event", input)).result.isError).toBeUndefined();
+  expect(
+    (
+      await call("create_event", {
+        ...input,
+        changes: { ...input.changes, location: "Room: A" },
+      })
+    ).result.isError,
+  ).toBeUndefined();
   fetcher.mockClear();
   for (const invalid of [
     { ...input, idempotency_key: "キー" },
     { ...input, changes: { ...input.changes, name: "😀".repeat(33) } },
+    { ...input, changes: { ...input.changes, location: "😀".repeat(201) } },
+    { ...input, changes: { ...input.changes, location: "javascript:x" } },
   ]) {
     const response = await call("create_event", invalid);
     expect(response.error ?? response.result?.isError).toBeTruthy();

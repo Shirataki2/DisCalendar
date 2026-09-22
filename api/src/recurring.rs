@@ -86,6 +86,7 @@ pub async fn decorate_all(
 
 fn template(input: &EventInput) -> Result<serde_json::Value, ApiError> {
     let mut value = serde_json::to_value(input).map_err(anyhow::Error::from)?;
+    value["location"] = serde_json::json!(input.normalized_location());
     for key in [
         "recurrence_rule",
         "scope",
@@ -389,18 +390,19 @@ pub async fn update(
         sqlx::query("UPDATE events e SET series_id=$2,original_start_at=slots.start_at,
             name=CASE WHEN e.id=ANY($6) THEN e.name ELSE $7 END,
             description=CASE WHEN e.id=ANY($6) THEN e.description ELSE $8 END,
-            notifications=CASE WHEN e.id=ANY($6) THEN e.notifications ELSE $9 END,
-            notification_mentions=CASE WHEN e.id=ANY($6) THEN e.notification_mentions ELSE COALESCE($10,e.notification_mentions) END,
-            color=CASE WHEN e.id=ANY($6) THEN e.color ELSE $11 END,
-            is_all_day=CASE WHEN e.id=ANY($6) THEN e.is_all_day ELSE $12 END,
+            location=CASE WHEN e.id=ANY($6) THEN e.location ELSE $9 END,
+            notifications=CASE WHEN e.id=ANY($6) THEN e.notifications ELSE $10 END,
+            notification_mentions=CASE WHEN e.id=ANY($6) THEN e.notification_mentions ELSE COALESCE($11,e.notification_mentions) END,
+            color=CASE WHEN e.id=ANY($6) THEN e.color ELSE $12 END,
+            is_all_day=CASE WHEN e.id=ANY($6) THEN e.is_all_day ELSE $13 END,
             start_at=CASE WHEN e.id=ANY($6) THEN e.start_at ELSE slots.start_at END,
             end_at=CASE WHEN e.id=ANY($6) THEN e.end_at ELSE slots.end_at END,
-            updated_by=CASE WHEN e.id=ANY($6) THEN e.updated_by ELSE $13 END,
-            updated_at=CASE WHEN e.id=ANY($6) THEN e.updated_at ELSE $14 END
+            updated_by=CASE WHEN e.id=ANY($6) THEN e.updated_by ELSE $14 END,
+            updated_at=CASE WHEN e.id=ANY($6) THEN e.updated_at ELSE $15 END
             FROM UNNEST($3::int[],$4::timestamp[],$5::timestamp[]) slots(id,start_at,end_at)
             WHERE e.guild_id=$1 AND e.id=slots.id")
             .bind(guild).bind(next.id).bind(&migrated).bind(&starts).bind(&ends).bind(&exceptions)
-            .bind(&input.name).bind(&input.description)
+            .bind(&input.name).bind(&input.description).bind(input.normalized_location())
             .bind(crate::models::notifications::Notification::encode_all(&input.notifications))
             .bind(input.notification_mentions.as_ref().map(sqlx::types::Json))
             .bind(&input.color).bind(input.is_all_day).bind(actor).bind(now_jst())

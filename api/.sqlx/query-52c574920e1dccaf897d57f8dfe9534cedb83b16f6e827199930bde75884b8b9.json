@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,\n               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,\n               l.scheduled_event_id AS \"discord_scheduled_event_id?\"\n        FROM events e\n        LEFT JOIN event_discord_links l ON l.event_id = e.id\n        WHERE e.guild_id = $1\n          AND (e.series_id IS NULL OR e.start_at < $2::timestamp + INTERVAL '1095 days')\n          AND e.end_at >= $2::timestamp - CASE WHEN e.is_all_day THEN INTERVAL '1 day' ELSE INTERVAL '0 days' END\n        ORDER BY e.start_at, e.id\n        ",
+  "query": "\n        SELECT e.id, e.guild_id, e.name, e.description, e.location, e.notifications, e.notification_mentions, e.color, e.is_all_day,\n               e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,\n               l.scheduled_event_id AS \"discord_scheduled_event_id?\"\n        FROM events e\n        LEFT JOIN event_discord_links l ON l.event_id = e.id\n        WHERE e.guild_id = $1 AND e.start_at < $3 AND e.end_at >= $2\n        ORDER BY e.start_at, e.id\n        ",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "location",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "location"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "notifications",
         "type_info": "Jsonb",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "notification_mentions",
         "type_info": "Jsonb",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "color",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "is_all_day",
         "type_info": "Bool",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "start_at",
         "type_info": "Timestamp",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "end_at",
         "type_info": "Timestamp",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "created_at",
         "type_info": "Timestamp",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "created_by",
         "type_info": "Text",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "updated_by",
         "type_info": "Text",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamp",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "discord_scheduled_event_id?",
         "type_info": "Text",
         "origin": {
@@ -172,6 +183,7 @@
     "parameters": {
       "Left": [
         "Text",
+        "Timestamp",
         "Timestamp"
       ]
     },
@@ -179,6 +191,7 @@
       false,
       false,
       false,
+      true,
       true,
       false,
       false,
@@ -193,5 +206,5 @@
       false
     ]
   },
-  "hash": "3eeca1116d0e089036284b837b26c7fd2c0c80c149f533be2da76fb81996b606"
+  "hash": "52c574920e1dccaf897d57f8dfe9534cedb83b16f6e827199930bde75884b8b9"
 }

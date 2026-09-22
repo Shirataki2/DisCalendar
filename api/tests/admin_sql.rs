@@ -34,6 +34,7 @@ fn input(name: &str) -> EventInput {
         expected_series_version: None,
         name: name.to_owned(),
         description: None,
+        location: None,
         notifications: vec![],
         notification_mentions: None,
         color: "#2196F3".to_owned(),

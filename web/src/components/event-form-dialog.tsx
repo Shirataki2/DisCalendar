@@ -72,6 +72,7 @@ import {
   eventFormToApiInput,
   eventToFormValues,
   formStartAt,
+  LOCATION_MAX_CHARS,
   NAME_MAX_CHARS,
   NOTIFICATION_UNITS,
   withCheckedDiscordEvent,
@@ -306,10 +307,18 @@ function EventForm({
     uploads.cancel,
   ]);
 
-  const [isAllDay, name, description, startDate, startTime] = useWatch({
-    control,
-    name: ["isAllDay", "name", "description", "startDate", "startTime"],
-  });
+  const [isAllDay, name, description, location, startDate, startTime] =
+    useWatch({
+      control,
+      name: [
+        "isAllDay",
+        "name",
+        "description",
+        "location",
+        "startDate",
+        "startTime",
+      ],
+    });
   const endDateBeforeRollover = useRef<Date | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -630,6 +639,21 @@ function EventForm({
                 <FieldError errors={[errors.color]} />
               </Field>
             </div>
+
+            <Field data-invalid={errors.location ? true : undefined}>
+              <FieldLabel htmlFor="event-form-location">場所 / URL</FieldLabel>
+              <Input
+                id="event-form-location"
+                aria-invalid={errors.location ? true : undefined}
+                {...register("location")}
+              />
+              <div className="flex items-start justify-between gap-2">
+                <FieldError errors={[errors.location]} />
+                <FieldDescription className="ml-auto shrink-0 text-xs">
+                  {charCount(location)}/{LOCATION_MAX_CHARS}
+                </FieldDescription>
+              </div>
+            </Field>
 
             <Field data-invalid={errors.description ? true : undefined}>
               <FieldLabel htmlFor="event-form-description">説明</FieldLabel>
