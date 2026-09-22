@@ -13,6 +13,7 @@ pub(crate) mod events;
 mod feeds;
 mod guilds;
 mod health;
+mod imports;
 mod member;
 mod members;
 mod push;
@@ -61,6 +62,9 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(shares::public_share)
         .service(
             scope("/events")
+                .app_data(actix_web::web::PayloadConfig::new(
+                    imports::PAYLOAD_MAX_BYTES,
+                ))
                 // `/@me` (横断カレンダー #98) は `/{guild_id}` より先に登録しないと guild_id として解釈される
                 .service(attachments::list)
                 .service(attachments::reserve)
@@ -72,6 +76,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(shares::issue_share)
                 .service(shares::revoke_share)
                 .service(crate::recurring::preview)
+                .service(imports::preview)
+                .service(imports::bulk)
                 .service(events::list)
                 .service(events::create)
                 .service(events::update)

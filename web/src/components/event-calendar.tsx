@@ -10,7 +10,7 @@ import Calendar, {
   type EventInput,
 } from "@fullcalendar/react";
 import { addDays } from "date-fns";
-import { PlusIcon } from "lucide-react";
+import { ChevronDownIcon, FileUpIcon, PlusIcon } from "lucide-react";
 import {
   type CSSProperties,
   type ReactNode,
@@ -30,6 +30,7 @@ import {
   EventFormDialog,
 } from "@/components/event-form-dialog";
 import { EventPopover, type PopoverAnchor } from "@/components/event-popover";
+import { IcsImportDialog } from "@/components/ics-import-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,6 +42,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -267,6 +275,9 @@ export function EventCalendar({
   const [dialog, setDialog] = useState<EventDialogState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiEvent | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [importDefaultColor, setImportDefaultColor] = useState<string | null>(
+    null,
+  );
   // 初期ビュー (#48 / #96) と週の開始曜日は横断カレンダーと共通 (calendar-base.tsx)
   const { initialView, firstDay, scrollTime } =
     useCalendarBase(settingsOverride);
@@ -523,7 +534,8 @@ export function EventCalendar({
     popoverEvent ||
     quickAdd ||
     deleteTarget ||
-    scopeRequest
+    scopeRequest ||
+    importDefaultColor
   );
   return (
     <div
@@ -534,25 +546,64 @@ export function EventCalendar({
     >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <Button
-            type="button"
-            size="lg"
-            onClick={openCreateDefault}
-            disabled={!canEdit}
-            title={
-              canEdit
-                ? "新規作成 (n)"
-                : "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます"
-            }
-            className={cn(
-              "rounded-full bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600",
-              guide?.target === "create" &&
-                "ring-2 ring-indigo-300 ring-offset-4 ring-offset-background",
-            )}
-          >
-            <PlusIcon />
-            新規作成
-          </Button>
+          {eventsSource === dashboardEventsSource ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="lg"
+                    disabled={!canEdit}
+                    title={
+                      canEdit
+                        ? "予定を新規作成、またはICSファイルから取り込む"
+                        : "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます"
+                    }
+                    className={cn(
+                      "rounded-full bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600",
+                      guide?.target === "create" &&
+                        "ring-2 ring-indigo-300 ring-offset-4 ring-offset-background",
+                    )}
+                  />
+                }
+              >
+                <PlusIcon />
+                新規作成
+                <ChevronDownIcon className="ml-1" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-64">
+                <DropdownMenuItem
+                  className="min-h-11"
+                  onClick={openCreateDefault}
+                >
+                  <PlusIcon />
+                  予定を作成
+                  <DropdownMenuShortcut>n</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="min-h-11"
+                  onClick={() =>
+                    setImportDefaultColor(currentSettings().defaultColor)
+                  }
+                >
+                  <FileUpIcon />
+                  ICSファイルから取り込む
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button
+              type="button"
+              size="lg"
+              onClick={openCreateDefault}
+              disabled={!canEdit}
+              title={canEdit ? "新規作成 (n)" : "予定を編集できません"}
+              className="rounded-full bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600"
+            >
+              <PlusIcon />
+              新規作成
+            </Button>
+          )}
           {eventsQuery.isFetching && (
             <span className="text-xs text-muted-foreground">読み込み中…</span>
           )}
@@ -667,6 +718,16 @@ export function EventCalendar({
           onDelete={openDelete}
           discordSync={discordSync}
         />
+        {eventsSource === dashboardEventsSource && importDefaultColor && (
+          <IcsImportDialog
+            guildId={guildId}
+            open
+            onOpenChange={(open) => {
+              if (!open) setImportDefaultColor(null);
+            }}
+            defaultColor={importDefaultColor}
+          />
+        )}
         <AlertDialog
           open={deleteTarget !== null}
           onOpenChange={(open) => {

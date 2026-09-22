@@ -139,6 +139,7 @@ test("タイトルが空のままでは作成できない (フォームの検証
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "新規作成" }).click();
+  await page.getByRole("menuitem", { name: /予定を作成/ }).click();
   const dialog = page.getByRole("dialog", { name: "予定を作成" });
   const location = dialog.getByLabel("場所 / URL");
   await expect(location).toBeVisible();

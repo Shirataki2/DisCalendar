@@ -238,6 +238,7 @@ test.describe("通知の設定 (#181)", () => {
     // 新規作成ダイアログの通知欄がサーバー既定になっている
     await page.reload();
     await page.getByRole("button", { name: "新規作成" }).click();
+    await page.getByRole("menuitem", { name: /予定を作成/ }).click();
     const create = page.getByRole("dialog", { name: "予定を作成" });
     await expect(create).toBeVisible();
     const createNums = create.getByLabel("通知のタイミング (数値)");

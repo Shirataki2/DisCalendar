@@ -8,6 +8,7 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
     await page.getByRole("button", { name: "新規作成", exact: true }).click();
+    await page.getByRole("menuitem", { name: /予定を作成/ }).click();
     const form = page.getByRole("dialog", { name: "予定を作成" });
     await expect(
       form.getByText(`保存先: ${E2E_GUILDS.admin.name}`),

@@ -24,6 +24,8 @@ import type {
   GuildFeed,
   GuildRole,
   GuildWebhook,
+  ImportEventInput,
+  ImportPreview,
   MemberProfile,
   MyPermissions,
   OpsResult,
@@ -93,14 +95,35 @@ function createEventsClient(
         body: { start_at, recurrence, event_id },
         signal,
       }),
+    previewImport: (
+      guildId: string,
+      ics: string,
+      range?: { start_date?: string; end_date?: string },
+      signal?: AbortSignal,
+    ) =>
+      request<ImportPreview>(`${base(guildId)}/import/preview`, {
+        method: "POST",
+        body: { ics, ...range },
+        signal,
+      }),
+    bulkImport: (guildId: string, events: ImportEventInput[]) =>
+      request<ApiEvent[]>(`${base(guildId)}/bulk`, {
+        method: "POST",
+        body: { events },
+      }),
   };
 }
 
 export type EventsClient = Omit<
   ReturnType<typeof createEventsClient>,
-  "preview"
+  "bulkImport" | "preview" | "previewImport"
 > &
-  Partial<Pick<ReturnType<typeof createEventsClient>, "preview">>;
+  Partial<
+    Pick<
+      ReturnType<typeof createEventsClient>,
+      "bulkImport" | "preview" | "previewImport"
+    >
+  >;
 
 /**
  * API のエンドポイント定義。呼び出し方 (ブラウザ経由のプロキシ / RSC からの直接呼び出し) は

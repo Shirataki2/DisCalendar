@@ -22,6 +22,7 @@ test("メンション先を作成・編集・複製でき、日時変更でも�
   const guildId = E2E_GUILDS.admin.id;
   await page.goto(`/dashboard/${guildId}`);
   await page.getByRole("button", { name: "新規作成", exact: true }).click();
+  await page.getByRole("menuitem", { name: /予定を作成/ }).click();
   const dialog = page.getByRole("dialog");
   await dialog
     .locator("summary")

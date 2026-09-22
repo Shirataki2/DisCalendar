@@ -85,6 +85,50 @@ export interface ApiEventInput {
   discord_scheduled_event: boolean;
 }
 
+/** ICS から正規化された、一括取り込み専用の予定入力 */
+export interface ImportEventInput {
+  name: string;
+  description: string | null;
+  color: string;
+  is_all_day: boolean;
+  start_at: string;
+  end_at: string;
+  recurrence_rule?: RecurrenceRule;
+}
+
+export interface ImportPreviewItem {
+  /** ICS ファイル内の VEVENT の位置 (1 始まり) */
+  source_index: number;
+  event: ImportEventInput;
+  truncated_fields: ("name" | "description")[];
+  estimated_occurrences: number;
+  duplicate: boolean;
+}
+
+export interface ImportSkipped {
+  reason:
+    | "invalid_event"
+    | "recurrence_exceptions"
+    | "cancelled"
+    | "unsupported_recurrence"
+    | "missing_title"
+    | "invalid_date"
+    | "unknown_timezone";
+  count: number;
+}
+
+export interface ImportPreview {
+  items: ImportPreviewItem[];
+  total_count: number;
+  matched_count: number;
+  available_start_date: string | null;
+  available_end_date: string | null;
+  skipped: ImportSkipped[];
+  over_event_limit: boolean;
+  estimated_occurrences: number;
+  over_occurrence_limit: boolean;
+}
+
 /** 横断カレンダー (#98) で一度に問い合わせられるサーバー数 (api の `events::JOINED_MAX_IDS`。超えると 400) */
 export const JOINED_EVENTS_MAX_GUILDS = 200;
 
