@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT e.guild_id, g.name AS guild_name, g.avatar_url AS guild_avatar_url,\n               e.name, e.description, e.is_all_day, e.start_at, e.end_at\n        FROM event_share_links s\n        JOIN events e ON e.id = s.event_id\n        JOIN guilds g ON g.guild_id = e.guild_id\n        WHERE s.token = $1\n    ",
+  "query": "\n        SELECT e.guild_id, g.name AS guild_name, g.avatar_url AS guild_avatar_url,\n               e.name, e.description, e.location, e.is_all_day, e.start_at, e.end_at\n        FROM event_share_links s\n        JOIN events e ON e.id = s.event_id\n        JOIN guilds g ON g.guild_id = e.guild_id\n        WHERE s.token = $1\n    ",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,17 @@
       },
       {
         "ordinal": 5,
+        "name": "location",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "location"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "is_all_day",
         "type_info": "Bool",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "start_at",
         "type_info": "Timestamp",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "end_at",
         "type_info": "Timestamp",
         "origin": {
@@ -103,10 +114,11 @@
       true,
       false,
       true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "352175bb13a30ef2b0a91e93d72cd7309106df8461d59bdede9e10a6ab6960ce"
+  "hash": "37e5ab370f1adf3c9a495fbc415082f89cf42a73828297ba337b712a287c5458"
 }

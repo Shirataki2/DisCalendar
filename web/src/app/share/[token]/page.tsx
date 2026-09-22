@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSharedEvent } from "@/lib/api/public-share";
 import { describeEventRange } from "@/lib/calendar-events";
+import { locationUrl } from "@/lib/event-location";
 import { SITE_URL } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -68,6 +69,23 @@ export default async function SharePage({ params }: Props) {
             {event.is_all_day ? "終日" : "(日本時間)"}
           </span>
         </p>
+        {event.location && (
+          <p className="break-words">
+            <span className="font-medium">場所：</span>{" "}
+            {locationUrl(event.location) ? (
+              <a
+                href={event.location}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="break-all text-primary underline underline-offset-4"
+              >
+                {event.location}
+              </a>
+            ) : (
+              event.location
+            )}
+          </p>
+        )}
         {event.description && (
           <p className="whitespace-pre-wrap break-words leading-relaxed">
             {event.description}

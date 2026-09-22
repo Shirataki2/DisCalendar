@@ -18,6 +18,7 @@ pub struct SharedEvent {
     pub guild_avatar_url: Option<String>,
     pub name: String,
     pub description: Option<String>,
+    pub location: Option<String>,
     pub is_all_day: bool,
     pub start_at: NaiveDateTime,
     pub end_at: NaiveDateTime,
@@ -80,7 +81,7 @@ pub async fn find(pool: &PgPool, token: &str) -> sqlx::Result<Option<SharedEvent
         SharedEvent,
         r#"
         SELECT e.guild_id, g.name AS guild_name, g.avatar_url AS guild_avatar_url,
-               e.name, e.description, e.is_all_day, e.start_at, e.end_at
+               e.name, e.description, e.location, e.is_all_day, e.start_at, e.end_at
         FROM event_share_links s
         JOIN events e ON e.id = s.event_id
         JOIN guilds g ON g.guild_id = e.guild_id

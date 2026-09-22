@@ -163,6 +163,7 @@ export function toApiEventInput(
   return {
     name: source.name,
     description: source.description,
+    location: source.location,
     notifications: source.notifications,
     color: source.color,
     is_all_day: event.allDay,

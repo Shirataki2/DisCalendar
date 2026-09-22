@@ -78,9 +78,14 @@ fn describe(event: &Event) -> String {
             .join(", ")
     };
     format!(
-        "`開始時刻`: {}\n`終了時刻`: {}\n`　通知　`: {}",
+        "`開始時刻`: {}\n`終了時刻`: {}{}\n`　通知　`: {}",
         format_datetime(event.start_at, event.is_all_day),
         format_datetime(event.end_at, event.is_all_day),
+        event
+            .location
+            .as_deref()
+            .map(|location| format!("\n`　場所　`: {location}"))
+            .unwrap_or_default(),
         notifications
     )
 }
@@ -154,6 +159,7 @@ mod tests {
             guild_id: "1".to_owned(),
             name: "定例".to_owned(),
             description: None,
+            location: None,
             notifications,
             color: "#2196F3".to_owned(),
             is_all_day: all_day,

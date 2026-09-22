@@ -15,6 +15,7 @@ use super::{DiscordClient, DiscordError, checked_id};
 const ENTITY_TYPE_EXTERNAL: u8 = 3;
 /// GUILD_ONLY。Discord は現状これ以外の値を受け付けない
 const PRIVACY_LEVEL_GUILD_ONLY: u8 = 2;
+const LOCATION_MAX_CHARS: usize = 100;
 
 /// スケジュールイベントの作成・変更リクエストのボディ。
 /// 変更 (PATCH) でも全フィールドを送る (説明を消したいときは `description: null` を送る必要があるため、
@@ -43,6 +44,7 @@ impl ScheduledEventPayload {
     /// 終日予定は DB 上「`start_at` = 開始日 0:00、`end_at` = 終了日 (期間に含む) の 0:00」なので、
     /// Discord の終了時刻 (排他的) には `end_at` の翌日 0:00 を渡す
     /// (翌日が無い終了日は `validate_discord_flag` が事前に弾いている)
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         site_base_url: &str,
         guild_id: &str,
@@ -51,6 +53,7 @@ impl ScheduledEventPayload {
         is_all_day: bool,
         start_at: NaiveDateTime,
         end_at: NaiveDateTime,
+        location: Option<&str>,
     ) -> Self {
         let (start, end) = if is_all_day {
             let midnight = |d: chrono::NaiveDate| d.and_hms_opt(0, 0, 0).expect("valid time");
@@ -80,8 +83,11 @@ impl ScheduledEventPayload {
             privacy_level: PRIVACY_LEVEL_GUILD_ONLY,
             entity_type: ENTITY_TYPE_EXTERNAL,
             entity_metadata: EntityMetadata {
-                // 「場所」にはギルドのカレンダーの URL を入れる (Discord 側の表示から予定に辿れるように)
-                location: format!("{site_base_url}/dashboard/{guild_id}"),
+                location: location
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.chars().take(LOCATION_MAX_CHARS).collect())
+                    .unwrap_or_else(|| format!("{site_base_url}/dashboard/{guild_id}")),
             },
         }
     }
@@ -198,6 +204,7 @@ mod tests {
             false,
             "2026-08-22T10:00:00".parse().unwrap(),
             "2026-08-22T11:30:00".parse().unwrap(),
+            None,
         );
         assert_eq!(p.scheduled_start_time, "2026-08-22T10:00:00+09:00");
         assert_eq!(p.scheduled_end_time, "2026-08-22T11:30:00+09:00");
@@ -221,6 +228,7 @@ mod tests {
                 false,
                 "2026-08-22T10:00:00".parse().unwrap(),
                 "2026-08-22T11:30:00".parse().unwrap(),
+                None,
             );
             assert_eq!(p.description, None, "{description:?}");
         }
@@ -233,6 +241,7 @@ mod tests {
             false,
             "2026-08-22T10:00:00".parse().unwrap(),
             "2026-08-22T11:30:00".parse().unwrap(),
+            None,
         );
         assert_eq!(p.description.as_deref(), Some("メモ"));
     }
@@ -248,6 +257,7 @@ mod tests {
             true,
             "2026-08-22T00:00:00".parse().unwrap(),
             "2026-08-23T00:00:00".parse().unwrap(),
+            None,
         );
         assert_eq!(p.scheduled_start_time, "2026-08-22T00:00:00+09:00");
         // 排他的な終了時刻なので 8/24 の 0:00
@@ -265,6 +275,7 @@ mod tests {
             true,
             "2026-08-22T09:30:00".parse().unwrap(),
             "2026-08-22T18:00:00".parse().unwrap(),
+            None,
         );
         assert_eq!(p.scheduled_start_time, "2026-08-22T00:00:00+09:00");
         assert_eq!(p.scheduled_end_time, "2026-08-23T00:00:00+09:00");
@@ -280,11 +291,28 @@ mod tests {
             false,
             "2026-08-22T10:00:00".parse().unwrap(),
             "2026-08-22T11:00:00".parse().unwrap(),
+            None,
         );
         let json = p.to_json();
         // PATCH で説明を消せるように、None でもフィールド自体は送る
         assert!(json.get("description").is_some_and(|v| v.is_null()));
         assert_eq!(json["privacy_level"], 2);
         assert_eq!(json["entity_type"], 3);
+    }
+
+    #[test]
+    fn uses_location_and_truncates_it_to_discord_limit() {
+        let location = "場".repeat(101);
+        let p = ScheduledEventPayload::new(
+            "https://discalendar.app",
+            "123",
+            "会議",
+            None,
+            false,
+            "2026-08-22T10:00:00".parse().unwrap(),
+            "2026-08-22T11:00:00".parse().unwrap(),
+            Some(&location),
+        );
+        assert_eq!(p.entity_metadata.location.chars().count(), 100);
     }
 }

@@ -559,6 +559,9 @@ fn build_embed(
     if let Some(description) = &event.description {
         embed = embed.description(description);
     }
+    if let Some(location) = &event.location {
+        embed = embed.field("場所", location, false);
+    }
     embed
 }
 
@@ -577,6 +580,9 @@ fn build_plain_text(
     let _ = writeln!(content, "**{}**", event.name);
     if let Some(description) = &event.description {
         let _ = writeln!(content, "{}\n", description);
+    }
+    if let Some(location) = &event.location {
+        let _ = writeln!(content, "**場所**\n　{}", location);
     }
     let _ = writeln!(
         content,
@@ -614,6 +620,7 @@ mod tests {
                 guild_id: "111",
                 name: "テスト",
                 description: None,
+                location: None,
                 notifications: &[],
                 color: "#0000ff",
                 is_all_day: false,
@@ -1013,6 +1020,7 @@ mod tests {
             guild_id: "1".to_owned(),
             name: "終日".to_owned(),
             description: None,
+            location: None,
             notifications: serde_json::json!([]),
             notification_mentions: serde_json::json!([]),
             color: "#0000ff".to_owned(),
@@ -1037,6 +1045,7 @@ mod tests {
             guild_id: "1".to_owned(),
             name: "通常".to_owned(),
             description: None,
+            location: None,
             notifications: serde_json::json!([]),
             notification_mentions: serde_json::json!([]),
             color: "#0000ff".to_owned(),
@@ -1136,6 +1145,7 @@ mod tests {
             guild_id: "123".to_owned(),
             name: "定例".to_owned(),
             description: Some("説明".to_owned()),
+            location: Some("会議室 A".to_owned()),
             notifications: serde_json::json!([]),
             notification_mentions: serde_json::json!([]),
             color: "#2196F3".to_owned(),
@@ -1166,6 +1176,8 @@ mod tests {
             let text = build_plain_text(&event, notification, event.start_at, event.end_at, &links);
             assert!(text.contains(embed["fields"][0]["value"].as_str().unwrap()));
             assert!(text.contains(&links.calendar));
+            assert!(text.contains("会議室 A"));
+            assert_eq!(embed["fields"][1]["name"], "場所");
             assert_eq!(text.contains("詳細を見る"), token.is_some());
             if let Some(url) = &links.share {
                 assert!(text.contains(url));

@@ -15,7 +15,7 @@ use crate::{
     data::Context,
     error::BotError,
     models::{
-        events::{self, DESCRIPTION_MAX_CHARS, NAME_MAX_CHARS, NewEvent},
+        events::{self, DESCRIPTION_MAX_CHARS, LOCATION_MAX_CHARS, NAME_MAX_CHARS, NewEvent},
         guild_config,
         notifications::{Notification, NotificationUnit},
         now_jst,
@@ -72,6 +72,9 @@ pub async fn create(
     #[description = "予定の説明 (1000 文字まで)"]
     #[max_length = 1000]
     description: Option<String>,
+    #[description = "場所または URL (200 文字まで)"]
+    #[max_length = 200]
+    location: Option<String>,
     #[description = "終日の予定にする (時・分は無視されます)"] is_all_day: Option<bool>,
     #[description = "予定の色 (省略時は青)"] color: Option<Color>,
     #[description = "事前通知 (1 つ目)"] notify_1: Option<NotifyBefore>,
@@ -83,6 +86,7 @@ pub async fn create(
     let input = EventInput {
         name,
         description,
+        location,
         start: DateTimeInput::new(start_year, start_month, start_day, start_hour, start_minute),
         end: DateTimeInput::new(end_year, end_month, end_day, end_hour, end_minute),
         is_all_day: is_all_day.unwrap_or(false),
@@ -126,6 +130,7 @@ async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotErro
             guild_id: &guild_id,
             name: &validated.name,
             description: validated.description.as_deref(),
+            location: validated.location.as_deref(),
             notifications: &validated.notifications,
             color: validated.color.hex(),
             is_all_day: validated.is_all_day,
@@ -161,6 +166,9 @@ async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotErro
         ]);
     if let Some(description) = &event.description {
         embed = embed.description(description);
+    }
+    if let Some(location) = &event.location {
+        embed = embed.field("場所", location, false);
     }
     if !validated.notifications.is_empty() {
         embed = embed.field(
@@ -306,6 +314,7 @@ fn quick_input(
     EventInput {
         name,
         description: None,
+        location: None,
         start: parts(start),
         end: parts(end),
         is_all_day: false,
@@ -320,6 +329,7 @@ fn quick_input(
 struct EventInput {
     name: String,
     description: Option<String>,
+    location: Option<String>,
     start: DateTimeInput,
     end: DateTimeInput,
     is_all_day: bool,
@@ -332,6 +342,7 @@ struct EventInput {
 struct ValidatedEvent {
     name: String,
     description: Option<String>,
+    location: Option<String>,
     start: NaiveDateTime,
     end: NaiveDateTime,
     is_all_day: bool,
@@ -364,6 +375,34 @@ impl EventInput {
                 "予定の説明は {DESCRIPTION_MAX_CHARS} 文字以内で入力してください"
             )));
         }
+        let location = self
+            .location
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        if let Some(value) = &location {
+            if value.chars().count() > LOCATION_MAX_CHARS {
+                return Err(BotError::user(format!(
+                    "場所 / URL は {LOCATION_MAX_CHARS} 文字以内で入力してください"
+                )));
+            }
+            if let Some((scheme, _)) = value.split_once(':')
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+                && scheme
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic())
+            {
+                let parsed = url::Url::parse(value)
+                    .map_err(|_| BotError::user("場所の URL が正しくありません"))?;
+                if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+                    return Err(BotError::user(
+                        "場所の URL は http または https で入力してください",
+                    ));
+                }
+            }
+        }
         let start = self.start.resolve(self.is_all_day)?;
         let end = self.end.resolve(self.is_all_day)?;
         // 同時刻は許可 (api と同じ)
@@ -384,6 +423,7 @@ impl EventInput {
         Ok(ValidatedEvent {
             name,
             description,
+            location,
             start,
             end,
             is_all_day: self.is_all_day,
@@ -608,6 +648,7 @@ mod tests {
         EventInput {
             name: "定例".to_owned(),
             description: Some("  説明  ".to_owned()),
+            location: Some("  会議室 A  ".to_owned()),
             start: DateTimeInput::new(2026, 8, 23, 10, 0),
             end: DateTimeInput::new(2026, 8, 23, 11, 30),
             is_all_day: false,
@@ -630,6 +671,7 @@ mod tests {
         let v = input().validate().unwrap();
         assert_eq!(v.name, "定例");
         assert_eq!(v.description.as_deref(), Some("説明"));
+        assert_eq!(v.location.as_deref(), Some("会議室 A"));
         assert_eq!(v.start, "2026-08-23T10:00:00".parse().unwrap());
         assert_eq!(v.end, "2026-08-23T11:30:00".parse().unwrap());
         assert_eq!(
@@ -685,6 +727,19 @@ mod tests {
         let mut i = input();
         i.description = Some("   ".to_owned());
         assert_eq!(i.validate().unwrap().description, None);
+    }
+
+    #[test]
+    fn validates_location() {
+        let mut i = input();
+        i.location = Some("😀".repeat(LOCATION_MAX_CHARS));
+        assert!(i.clone().validate().is_ok());
+        i.location = Some("😀".repeat(LOCATION_MAX_CHARS + 1));
+        assert_user_error(i.validate(), "200 文字");
+
+        let mut i = input();
+        i.location = Some("javascript:alert(1)".into());
+        assert_user_error(i.validate(), "http");
     }
 
     #[test]

@@ -20,6 +20,7 @@ const event: ApiEvent = {
   guild_id: "200000000000000001",
   name: "定例会",
   description: "メモ",
+  location: null,
   notifications: [{ num: 1, unit: "days" }],
   color: "#FFEB3B",
   is_all_day: false,
@@ -205,6 +206,7 @@ describe("toApiEventInput", () => {
     expect(toApiEventInput(moved, event)).toEqual({
       name: "定例会",
       description: "メモ",
+      location: null,
       notifications: [{ num: 1, unit: "days" }],
       color: "#FFEB3B",
       is_all_day: false,

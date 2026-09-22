@@ -78,7 +78,16 @@ fn push_vevent(out: &mut String, event: &EventRow, dashboard_url: &str, dtstamp:
     if let Some(description) = event.description.as_deref().filter(|d| !d.is_empty()) {
         push_line(out, &format!("DESCRIPTION:{}", escape_text(description)));
     }
-    push_line(out, &format!("URL:{dashboard_url}"));
+    if let Some(location) = event.location.as_deref().filter(|value| !value.is_empty()) {
+        push_line(out, &format!("LOCATION:{}", escape_text(location)));
+    }
+    let event_url = event
+        .location
+        .as_deref()
+        .and_then(|value| url::Url::parse(value).ok())
+        .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+        .map_or(dashboard_url, |_| event.location.as_deref().unwrap());
+    push_line(out, &format!("URL:{event_url}"));
     if event.is_all_day {
         let start = event.start_at.date();
         // DTEND (VALUE=DATE) は排他的なので終了日の翌日。翌日を表せない終了日 (chrono の上限) は DTEND を省く
@@ -178,6 +187,7 @@ mod tests {
             guild_id: "782502586817314816".into(),
             name: "定例ミーティング".into(),
             description: Some("議題;\n1, 2\\3".into()),
+            location: Some("会議室, A;\n2階".into()),
             notifications: serde_json::json!([]),
             notification_mentions: serde_json::json!([]),
             color: "#2196F3".into(),
@@ -234,6 +244,7 @@ mod tests {
         assert!(lines.contains(&"SUMMARY:定例ミーティング".to_owned()));
         // TEXT のエスケープ: ; , \ と改行
         assert!(lines.contains(&"DESCRIPTION:議題\\;\\n1\\, 2\\\\3".to_owned()));
+        assert!(lines.contains(&"LOCATION:会議室\\, A\\;\\n2階".to_owned()));
         assert!(
             lines.contains(&"URL:https://discalendar.app/dashboard/782502586817314816".to_owned())
         );
@@ -245,6 +256,14 @@ mod tests {
         // 作成日時 (2026-08-01 JST) ではなく生成時刻。編集後の取得でもリビジョンが古く見えないため
         assert!(unfold(&ics).contains(&"DTSTAMP:20260903T150000Z".to_owned()));
         assert!(!ics.contains("20260731"));
+    }
+
+    #[test]
+    fn uses_http_location_as_event_url() {
+        let mut e = event(false, "2026-08-22T10:00:00", "2026-08-22T11:00:00");
+        e.location = Some("https://meet.example.com/room".into());
+        let lines = unfold(&render(&[e]));
+        assert!(lines.contains(&"URL:https://meet.example.com/room".to_owned()));
     }
 
     #[test]

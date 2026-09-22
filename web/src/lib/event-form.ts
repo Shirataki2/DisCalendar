@@ -21,12 +21,14 @@ import {
   parseApiDateTime,
   toApiDateTime,
 } from "@/lib/calendar-events";
+import { isValidLocation } from "@/lib/event-location";
 
 // 予定の作成・編集フォーム (旧 NewEvent.vue) のスキーマと API との相互変換。
 // 上限値は api/src/models/events.rs の validate() と揃えている
 
 export const NAME_MAX_CHARS = 32;
 export const DESCRIPTION_MAX_CHARS = 1000;
+export const LOCATION_MAX_CHARS = 200;
 export const NOTIFICATIONS_MAX = 10;
 export const NOTIFICATION_NUM_MIN = 1;
 export const NOTIFICATION_NUM_MAX = 100;
@@ -169,6 +171,13 @@ export const eventFormSchema = z
         DESCRIPTION_MAX_CHARS,
         `説明は${DESCRIPTION_MAX_CHARS}文字以内で入力してください`,
       ),
+    location: z
+      .string()
+      .refine(
+        (value) => Array.from(value).length <= LOCATION_MAX_CHARS,
+        `場所 / URL は${LOCATION_MAX_CHARS}文字以内で入力してください`,
+      )
+      .refine(isValidLocation, "URL は http または https で入力してください"),
     /** Discord のスケジュールイベントとしても作成・同期する (#94) */
     discordEvent: z.boolean(),
   })
@@ -278,9 +287,11 @@ export function toDateRange(values: FormRange): { start: Date; end: Date } {
 export function eventFormToApiInput(values: EventFormValues): ApiEventInput {
   const { start, end } = toDateRange(values);
   const description = values.description.trim();
+  const location = values.location.trim();
   return {
     name: values.name,
     description: description ? description : null,
+    location: location ? location : null,
     notifications: values.notifications,
     notification_mentions: values.notificationMentions,
     color: values.color.toUpperCase(),
@@ -302,6 +313,7 @@ export function eventToFormValues(event: ApiEvent): EventFormValues {
   return {
     name: event.name,
     description: event.description ?? "",
+    location: event.location ?? "",
     color: event.color,
     isAllDay: event.is_all_day,
     startDate: startOfDay(start),
@@ -332,6 +344,7 @@ export function newEventFormValues(
   const base = {
     name: "",
     description: "",
+    location: "",
     color: defaults.defaultColor,
     notifications: (defaults.defaultNotifications ?? defaultNotifications).map(
       ({ num, unit }) => ({ num, unit }),

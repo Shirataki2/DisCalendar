@@ -13,6 +13,7 @@ use crate::error::ApiError;
 /// タイトルの最大文字数 (旧 Web のフォームと同じ)
 pub const NAME_MAX_CHARS: usize = 32;
 pub const DESCRIPTION_MAX_CHARS: usize = 1000;
+pub const LOCATION_MAX_CHARS: usize = 200;
 pub const NOTIFICATIONS_MAX: usize = 10;
 
 /// `events` テーブルの行
@@ -22,6 +23,7 @@ pub struct EventRow {
     pub guild_id: String,
     pub name: String,
     pub description: Option<String>,
+    pub location: Option<String>,
     /// DB に入っている JSONB そのまま (`Notification::decode_all` で読む)
     pub notifications: Value,
     pub notification_mentions: Value,
@@ -49,6 +51,7 @@ pub struct Event {
     #[schema(example = "定例ミーティング")]
     pub name: String,
     pub description: Option<String>,
+    pub location: Option<String>,
     pub notifications: Vec<Notification>,
     pub notification_mentions: Vec<NotificationMention>,
     #[schema(example = "#2196F3")]
@@ -75,6 +78,7 @@ impl From<EventRow> for Event {
             guild_id: row.guild_id,
             name: row.name,
             description: row.description,
+            location: row.location,
             notifications: Notification::decode_all(&row.notifications),
             notification_mentions: serde_json::from_value(row.notification_mentions)
                 .unwrap_or_default(),
@@ -108,6 +112,9 @@ pub struct EventInput {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
+    #[schema(max_length = 200)]
+    pub location: Option<String>,
+    #[serde(default)]
     pub notifications: Vec<Notification>,
     /// 省略時は作成では空、更新では現在の指定を保持する。
     #[serde(default)]
@@ -131,6 +138,13 @@ pub struct EventInput {
 }
 
 impl EventInput {
+    pub fn normalized_location(&self) -> Option<&str> {
+        self.location
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
+
     pub fn validate(&self) -> Result<(), ApiError> {
         crate::recurring::validate(self)?;
         if self.name.trim().is_empty() {
@@ -147,6 +161,30 @@ impl EventInput {
             return Err(ApiError::BadRequest(format!(
                 "description must be at most {DESCRIPTION_MAX_CHARS} characters"
             )));
+        }
+        if let Some(location) = self.normalized_location() {
+            if location.chars().count() > LOCATION_MAX_CHARS {
+                return Err(ApiError::BadRequest(format!(
+                    "location must be at most {LOCATION_MAX_CHARS} characters"
+                )));
+            }
+            if let Some((scheme, _)) = location.split_once(':')
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+                && scheme
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic())
+            {
+                let url = url::Url::parse(location)
+                    .map_err(|_| ApiError::BadRequest("location URL is invalid".into()))?;
+                if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+                    return Err(ApiError::BadRequest(
+                        "location URL must use http or https".into(),
+                    ));
+                }
+            }
         }
         if !is_hex_color(&self.color) {
             return Err(ApiError::BadRequest(
@@ -231,7 +269,7 @@ pub async fn list_between(
     sqlx::query_as!(
         EventRow,
         r#"
-        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,
+        SELECT e.id, e.guild_id, e.name, e.description, e.location, e.notifications, e.notification_mentions, e.color, e.is_all_day,
                e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
@@ -259,7 +297,7 @@ pub async fn list_between_guilds(
     sqlx::query_as!(
         EventRow,
         r#"
-        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,
+        SELECT e.id, e.guild_id, e.name, e.description, e.location, e.notifications, e.notification_mentions, e.color, e.is_all_day,
                e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
@@ -288,7 +326,7 @@ pub async fn list_for_feed(
     sqlx::query_as!(
         EventRow,
         r#"
-        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,
+        SELECT e.id, e.guild_id, e.name, e.description, e.location, e.notifications, e.notification_mentions, e.color, e.is_all_day,
                e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
@@ -341,14 +379,15 @@ pub async fn create<'e>(
     sqlx::query_as!(
         EventRow,
         r#"
-        INSERT INTO events (guild_id, name, description, notifications, color, is_all_day, start_at, end_at, created_at, created_by, notification_mentions)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11::jsonb, '[]'::jsonb))
-        RETURNING id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
+        INSERT INTO events (guild_id, name, description, location, notifications, color, is_all_day, start_at, end_at, created_at, created_by, notification_mentions)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::jsonb, '[]'::jsonb))
+        RETURNING id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
         "#,
         guild_id,
         input.name,
         input.description,
+        input.normalized_location(),
         notifications,
         input.color,
         input.is_all_day,
@@ -369,7 +408,7 @@ pub async fn find_by_id(pool: &PgPool, guild_id: &str, id: i32) -> sqlx::Result<
     sqlx::query_as!(
         EventRow,
         r#"
-        SELECT e.id, e.guild_id, e.name, e.description, e.notifications, e.notification_mentions, e.color, e.is_all_day,
+        SELECT e.id, e.guild_id, e.name, e.description, e.location, e.notifications, e.notification_mentions, e.color, e.is_all_day,
                e.start_at, e.end_at, e.created_at, e.created_by, e.updated_by, e.updated_at,
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
@@ -400,7 +439,7 @@ pub async fn find_by_id_for_update(
     let row = sqlx::query_as!(
         EventRow,
         r#"
-        SELECT id, guild_id, name, description, notifications, notification_mentions, color, is_all_day,
+        SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day,
                start_at, end_at, created_at, created_by, updated_by, updated_at,
                NULL::text AS "discord_scheduled_event_id?"
         FROM events
@@ -441,16 +480,17 @@ pub async fn update_if_unlinked<'e>(
         EventRow,
         r#"
         UPDATE events
-        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9, updated_by = $10, updated_at = $11, notification_mentions = COALESCE($12::jsonb, notification_mentions)
+        SET name = $3, description = $4, location = $5, notifications = $6, color = $7, is_all_day = $8, start_at = $9, end_at = $10, updated_by = $11, updated_at = $12, notification_mentions = COALESCE($13::jsonb, notification_mentions)
         WHERE id = $1 AND guild_id = $2
           AND NOT EXISTS (SELECT 1 FROM event_discord_links l WHERE l.event_id = events.id)
-        RETURNING id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
+        RETURNING id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
         "#,
         id,
         guild_id,
         input.name,
         input.description,
+        input.normalized_location(),
         notifications,
         input.color,
         input.is_all_day,
@@ -484,15 +524,16 @@ pub async fn update<'e>(
         EventRow,
         r#"
         UPDATE events
-        SET name = $3, description = $4, notifications = $5, color = $6, is_all_day = $7, start_at = $8, end_at = $9, updated_by = $10, updated_at = $11, notification_mentions = COALESCE($12::jsonb, notification_mentions)
+        SET name = $3, description = $4, location = $5, notifications = $6, color = $7, is_all_day = $8, start_at = $9, end_at = $10, updated_by = $11, updated_at = $12, notification_mentions = COALESCE($13::jsonb, notification_mentions)
         WHERE id = $1 AND guild_id = $2
-        RETURNING id, guild_id, name, description, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
+        RETURNING id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
         "#,
         id,
         guild_id,
         input.name,
         input.description,
+        input.normalized_location(),
         notifications,
         input.color,
         input.is_all_day,
@@ -534,6 +575,7 @@ mod tests {
             expected_series_version: None,
             name: "test".into(),
             description: None,
+            location: None,
             notifications: vec![],
             notification_mentions: None,
             color: "#2196F3".into(),
@@ -563,6 +605,27 @@ mod tests {
         assert!(i.validate().is_ok());
         i.name = "あ".repeat(NAME_MAX_CHARS + 1);
         assert!(i.validate().is_err());
+    }
+
+    #[test]
+    fn validates_and_normalizes_location() {
+        let mut i = input();
+        i.location = Some(format!("  {}  ", "😀".repeat(LOCATION_MAX_CHARS)));
+        assert!(i.validate().is_ok());
+        assert_eq!(
+            i.normalized_location(),
+            Some("😀".repeat(LOCATION_MAX_CHARS).as_str())
+        );
+        i.location = Some("😀".repeat(LOCATION_MAX_CHARS + 1));
+        assert!(i.validate().is_err());
+        for location in ["javascript:alert(1)", "https://", "ftp://example.com"] {
+            i.location = Some(location.into());
+            assert!(i.validate().is_err(), "{location}");
+        }
+        i.location = Some("https://meet.example.com/room".into());
+        assert!(i.validate().is_ok());
+        i.location = Some("会議室 A".into());
+        assert!(i.validate().is_ok());
     }
 
     #[test]

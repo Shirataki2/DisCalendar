@@ -124,6 +124,7 @@ test.describe("ダイアログ", () => {
     await dialog.getByLabel("開始時刻").fill(CREATE_SAMPLE.startTime);
     await dialog.getByLabel("終了時刻").fill(CREATE_SAMPLE.endTime);
     await dialog.getByLabel("説明").fill(CREATE_SAMPLE.description);
+    await dialog.getByLabel("場所 / URL").fill(CREATE_SAMPLE.location);
     await dialog
       .getByRole("checkbox", { name: "Discord のイベントとしても作成する" })
       .check();

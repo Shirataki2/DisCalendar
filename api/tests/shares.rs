@@ -17,6 +17,7 @@ async fn share_lifecycle_and_public_fields(pool: PgPool) {
         expected_series_version: None,
         name: "共有予定".into(),
         description: Some("説明".into()),
+        location: Some("会議室 A".into()),
         notifications: vec![],
         notification_mentions: None,
         color: "#5865F2".into(),
@@ -49,7 +50,8 @@ async fn share_lifecycle_and_public_fields(pool: PgPool) {
     let public = shares::find(&pool, &link.token).await.unwrap().unwrap();
     let json = serde_json::to_value(public).unwrap();
     assert_eq!(json["guild_name"], "共有サーバー");
-    assert_eq!(json.as_object().unwrap().len(), 8);
+    assert_eq!(json["location"], "会議室 A");
+    assert_eq!(json.as_object().unwrap().len(), 9);
     let updated = EventInput {
         recurrence: None,
         scope: Default::default(),

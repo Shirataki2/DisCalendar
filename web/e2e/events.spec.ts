@@ -64,6 +64,9 @@ test("予定をクリックすると概要が出て、編集ダイアログか�
   await expect(dialog.getByLabel("タイトル")).toHaveValue(createdTitle);
   await dialog.getByLabel("タイトル").fill(editedTitle);
   await dialog.getByLabel("説明").fill("E2E で編集した説明");
+  await dialog
+    .getByLabel("場所 / URL")
+    .fill("https://meet.example.com/e2e-room");
   const updated = page.waitForResponse(
     (res) => eventsApi.test(res.url()) && res.request().method() === "PUT",
   );
@@ -75,6 +78,9 @@ test("予定をクリックすると概要が出て、編集ダイアログか�
   await expect(eventOn(page, createdTitle)).toHaveCount(0);
   const reopened = await openEventPopover(page, editedTitle);
   await expect(reopened).toContainText("E2E で編集した説明");
+  await expect(
+    reopened.getByRole("link", { name: "https://meet.example.com/e2e-room" }),
+  ).toHaveAttribute("rel", "noopener noreferrer");
   await expect(reopened).toContainText(`最終更新:${E2E_USER.name}`);
 });
 
@@ -89,6 +95,9 @@ test("複製すると元の内容が入った複製ダイアログが開き、�
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel("タイトル")).toHaveValue(editedTitle);
   await expect(dialog.getByLabel("説明")).toHaveValue("E2E で編集した説明");
+  await expect(dialog.getByLabel("場所 / URL")).toHaveValue(
+    "https://meet.example.com/e2e-room",
+  );
   const inherited = dialog.getByText("元の予定の日時を引き継いでいます。", {
     exact: false,
   });
@@ -128,8 +137,20 @@ test("複製すると元の内容が入った複製ダイアログが開き、�
 test("タイトルが空のままでは作成できない (フォームの検証)", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "新規作成" }).click();
   const dialog = page.getByRole("dialog", { name: "予定を作成" });
+  const location = dialog.getByLabel("場所 / URL");
+  await expect(location).toBeVisible();
+  await location.fill("あ".repeat(201));
+  await dialog.getByRole("button", { name: "作成" }).click();
+  await expect(
+    dialog.getByText("場所 / URL は200文字以内で入力してください"),
+  ).toBeVisible();
+  await location.fill("");
+  await location.focus();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByLabel("説明")).toBeFocused();
   await dialog.getByRole("button", { name: "作成" }).click();
   await expect(dialog.getByText("タイトルを入力してください")).toBeVisible();
   await dialog.getByRole("button", { name: "キャンセル" }).click();

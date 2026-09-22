@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn create_keeps_the_legacy_parameter_set() {
+    fn create_exposes_the_supported_parameter_set() {
         let commands = all();
         let create = commands.iter().find(|c| c.name == "create").unwrap();
         assert!(create.guild_only);
@@ -149,6 +149,7 @@ mod tests {
                 "end_hour",
                 "end_minute",
                 "description",
+                "location",
                 "is_all_day",
                 "color",
                 "notify_1",

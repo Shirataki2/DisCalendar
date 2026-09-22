@@ -6,6 +6,7 @@
 export interface SampleEvent {
   name: string;
   description: string | null;
+  location: string | null;
   notifications: { num: number; unit: string }[];
   color: string;
   is_all_day: boolean;
@@ -25,6 +26,7 @@ export const CREATE_SAMPLE = {
   name: "もくもく会",
   startTime: "19:30",
   endTime: "21:00",
+  location: "ボイスチャンネル「作業部屋」",
   description: "作業したい人はボイスチャンネルに集合。途中参加・退出は自由です",
 } as const;
 
@@ -49,6 +51,7 @@ export function sampleEvents(today: Date): SampleEvent[] {
   ): SampleEvent => ({
     name,
     description: null,
+    location: null,
     notifications: [],
     color,
     is_all_day: false,
@@ -65,6 +68,7 @@ export function sampleEvents(today: Date): SampleEvent[] {
   ): SampleEvent => ({
     name,
     description: null,
+    location: null,
     notifications: [],
     color,
     is_all_day: true,
@@ -87,6 +91,7 @@ export function sampleEvents(today: Date): SampleEvent[] {
     timed(5, "メンテナンス", "02:00", "04:00", "#95a5a6"),
     timed(editDay, EDIT_TARGET, "20:00", "23:30", "#e91e63", {
       description: "参加者はボイスチャンネルに集合。賞品あり",
+      location: "ボイスチャンネル「ゲーム部」",
       notifications: [
         { num: 30, unit: "minutes" },
         { num: 1, unit: "days" },
@@ -98,6 +103,7 @@ export function sampleEvents(today: Date): SampleEvent[] {
     // ポップオーバーの画像には説明も写す (docs/edit.mdx の alt に合わせる)
     timed(21, POPOVER_TARGET, "19:30", "21:00", "#ff9800", {
       description: "はじめての人も歓迎です。まずは自己紹介から",
+      location: "https://meet.example.com/welcome",
       notifications: [{ num: 1, unit: "hours" }],
     }),
     timed(21, "企画会議", "21:30", "23:00", "#00bcd4"),

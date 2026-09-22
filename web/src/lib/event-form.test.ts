@@ -8,6 +8,7 @@ import {
   eventFormSchema,
   eventFormToApiInput,
   eventToFormValues,
+  LOCATION_MAX_CHARS,
   NAME_MAX_CHARS,
   NOTIFICATION_NUM_MAX,
   NOTIFICATIONS_MAX,
@@ -32,6 +33,7 @@ const valid: EventFormValues = {
   color: "#f44336",
   notifications: [{ num: 1, unit: "days" }],
   description: "",
+  location: "",
   discordEvent: false,
 };
 
@@ -75,6 +77,25 @@ describe("eventFormSchema", () => {
         description: "a".repeat(DESCRIPTION_MAX_CHARS + 1),
       }),
     ).toHaveProperty("description");
+  });
+
+  it("場所の文字数と URL スキームを検証する", () => {
+    expect(
+      issuesOf({ ...valid, location: "😀".repeat(LOCATION_MAX_CHARS) }),
+    ).toEqual({});
+    expect(
+      issuesOf({ ...valid, location: "😀".repeat(LOCATION_MAX_CHARS + 1) }),
+    ).toHaveProperty("location");
+    expect(issuesOf({ ...valid, location: "会議室 A" })).toEqual({});
+    expect(
+      issuesOf({ ...valid, location: "https://meet.example.com/room" }),
+    ).toEqual({});
+    expect(
+      issuesOf({ ...valid, location: "javascript:alert(1)" }),
+    ).toHaveProperty("location");
+    expect(issuesOf({ ...valid, location: "https://" })).toHaveProperty(
+      "location",
+    );
   });
 
   it("色は #RRGGBB のみ", () => {
@@ -206,6 +227,8 @@ describe("eventFormToApiInput", () => {
     expect(eventFormToApiInput(valid)).toEqual({
       name: "定例会",
       description: null,
+      location: null,
+      notification_mentions: undefined,
       notifications: [{ num: 1, unit: "days" }],
       color: "#F44336",
       is_all_day: false,
@@ -245,6 +268,7 @@ const apiEvent: ApiEvent = {
   guild_id: "200000000000000001",
   name: "定例会",
   description: null,
+  location: null,
   notifications: [{ num: 30, unit: "minutes" }],
   color: "#2196F3",
   is_all_day: false,
@@ -262,6 +286,7 @@ describe("eventToFormValues", () => {
     expect(eventToFormValues(apiEvent)).toEqual({
       name: "定例会",
       description: "",
+      location: "",
       color: "#2196F3",
       isAllDay: false,
       startDate: day(23),
@@ -269,6 +294,7 @@ describe("eventToFormValues", () => {
       endDate: day(24),
       endTime: "11:30",
       notifications: [{ num: 30, unit: "minutes" }],
+      notificationMentions: undefined,
       discordEvent: false,
     });
   });
@@ -457,6 +483,7 @@ it("通知メンションを編集・複製・送信で保持し、不正なID�
     id: 1,
     guild_id: "123",
     description: null,
+    location: null,
     created_at: input.start_at,
     created_by: null,
     updated_by: null,
