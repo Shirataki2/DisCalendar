@@ -1,11 +1,11 @@
-const SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9+.-]*:/;
+const SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9+.-]*:(?:$|\S)/;
 
 export function locationUrl(value: string): string | null {
   if (!SCHEME_PATTERN.test(value)) return null;
   try {
     const url = new URL(value);
     return (url.protocol === "http:" || url.protocol === "https:") && url.host
-      ? value
+      ? url.href
       : null;
   } catch {
     return null;

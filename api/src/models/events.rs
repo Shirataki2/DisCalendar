@@ -168,7 +168,8 @@ impl EventInput {
                     "location must be at most {LOCATION_MAX_CHARS} characters"
                 )));
             }
-            if let Some((scheme, _)) = location.split_once(':')
+            if let Some((scheme, rest)) = location.split_once(':')
+                && !rest.chars().next().is_some_and(char::is_whitespace)
                 && scheme
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
@@ -624,8 +625,10 @@ mod tests {
         }
         i.location = Some("https://meet.example.com/room".into());
         assert!(i.validate().is_ok());
-        i.location = Some("会議室 A".into());
-        assert!(i.validate().is_ok());
+        for location in ["会議室 A", "Room: A", "Zoom: 定例会"] {
+            i.location = Some(location.into());
+            assert!(i.validate().is_ok(), "{location}");
+        }
     }
 
     #[test]

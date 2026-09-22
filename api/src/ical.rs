@@ -86,7 +86,7 @@ fn push_vevent(out: &mut String, event: &EventRow, dashboard_url: &str, dtstamp:
         .as_deref()
         .and_then(|value| url::Url::parse(value).ok())
         .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
-        .map_or(dashboard_url, |_| event.location.as_deref().unwrap());
+        .map_or_else(|| dashboard_url.to_owned(), |url| url.to_string());
     push_line(out, &format!("URL:{event_url}"));
     if event.is_all_day {
         let start = event.start_at.date();
@@ -261,9 +261,17 @@ mod tests {
     #[test]
     fn uses_http_location_as_event_url() {
         let mut e = event(false, "2026-08-22T10:00:00", "2026-08-22T11:00:00");
-        e.location = Some("https://meet.example.com/room".into());
+        let location = "https://meet.example.com/会議 室\r\nSUMMARY:injected";
+        e.location = Some(location.into());
         let lines = unfold(&render(&[e]));
-        assert!(lines.contains(&"URL:https://meet.example.com/room".to_owned()));
+        assert!(lines.contains(&format!("URL:{}", url::Url::parse(location).unwrap())));
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.starts_with("SUMMARY:"))
+                .count(),
+            1
+        );
     }
 
     #[test]

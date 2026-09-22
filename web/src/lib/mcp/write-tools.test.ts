@@ -184,6 +184,14 @@ test("文字数をRustと同じUnicode文字単位で検証し、キーはASCII�
     },
   };
   expect((await call("create_event", input)).result.isError).toBeUndefined();
+  expect(
+    (
+      await call("create_event", {
+        ...input,
+        changes: { ...input.changes, location: "Room: A" },
+      })
+    ).result.isError,
+  ).toBeUndefined();
   fetcher.mockClear();
   for (const invalid of [
     { ...input, idempotency_key: "キー" },

@@ -87,6 +87,8 @@ describe("eventFormSchema", () => {
       issuesOf({ ...valid, location: "😀".repeat(LOCATION_MAX_CHARS + 1) }),
     ).toHaveProperty("location");
     expect(issuesOf({ ...valid, location: "会議室 A" })).toEqual({});
+    expect(issuesOf({ ...valid, location: "Room: A" })).toEqual({});
+    expect(issuesOf({ ...valid, location: "Zoom: 定例会" })).toEqual({});
     expect(
       issuesOf({ ...valid, location: "https://meet.example.com/room" }),
     ).toEqual({});

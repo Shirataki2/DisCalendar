@@ -385,7 +385,8 @@ impl EventInput {
                     "場所 / URL は {LOCATION_MAX_CHARS} 文字以内で入力してください"
                 )));
             }
-            if let Some((scheme, _)) = value.split_once(':')
+            if let Some((scheme, rest)) = value.split_once(':')
+                && !rest.chars().next().is_some_and(char::is_whitespace)
                 && scheme
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
@@ -740,6 +741,12 @@ mod tests {
         let mut i = input();
         i.location = Some("javascript:alert(1)".into());
         assert_user_error(i.validate(), "http");
+
+        for location in ["Room: A", "Zoom: 定例会"] {
+            let mut i = input();
+            i.location = Some(location.into());
+            assert!(i.validate().is_ok(), "{location}");
+        }
     }
 
     #[test]
