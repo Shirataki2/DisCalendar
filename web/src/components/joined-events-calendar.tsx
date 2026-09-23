@@ -17,6 +17,7 @@ import {
   datesSetToRange,
   useCalendarBase,
 } from "@/components/calendar-base";
+import { CalendarLegendChip } from "@/components/calendar-legend-chip";
 import { EventPopover, type PopoverAnchor } from "@/components/event-popover";
 import { useCalendarShortcuts } from "@/hooks/use-calendar-shortcuts";
 import { describeApiError } from "@/lib/api";
@@ -175,39 +176,18 @@ export function JoinedEventsCalendar({ guilds }: Props) {
             const color = colors.get(guild.id);
             return (
               <li key={guild.id}>
-                <button
-                  type="button"
-                  aria-pressed={shown}
+                <CalendarLegendChip
+                  name={guild.name}
+                  color={color ?? "#808080"}
+                  shown={shown}
+                  iconUrl={guild.iconUrl}
                   title={
                     shown
                       ? "このサーバーの予定を隠す"
                       : "このサーバーの予定を表示する"
                   }
                   onClick={() => toggleGuild(guild.id)}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs transition-colors hover:bg-foreground/10",
-                    !shown && "opacity-50",
-                  )}
-                >
-                  <span
-                    aria-hidden
-                    className="size-3 shrink-0 rounded-full border-2"
-                    style={
-                      shown
-                        ? { backgroundColor: color, borderColor: color }
-                        : { borderColor: color }
-                    }
-                  />
-                  {guild.iconUrl && (
-                    // biome-ignore lint/performance/noImgElement: Discord CDN のアイコンは最適化不要
-                    <img
-                      src={guild.iconUrl}
-                      alt=""
-                      className="size-4 shrink-0 rounded-full"
-                    />
-                  )}
-                  <span className="max-w-40 truncate">{guild.name}</span>
-                </button>
+                />
               </li>
             );
           })}

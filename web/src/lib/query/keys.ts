@@ -20,6 +20,11 @@ export const queryKeys = {
     ],
     onCountChanged: (guildId: string) => [["admin", "guild", guildId]],
   },
+  external: {
+    all: (guildId: string) => ["external", guildId] as const,
+    range: (guildId: string, start: string, end: string) =>
+      ["external", guildId, { start, end }] as const,
+  },
   /**
    * 横断カレンダー (#98) の予定一覧。"joined" は Snowflake ではないので、
    * ギルド単位の `["events", guildId]` の前方一致とは混ざらない
@@ -39,6 +44,8 @@ export const queryKeys = {
       ["guild", guildId, "permissions"] as const,
     /** iCal フィードの発行状況 (#95) */
     feed: (guildId: string) => ["guild", guildId, "feed"] as const,
+    externalCalendars: (guildId: string) =>
+      ["guild", guildId, "external-calendars"] as const,
     /** 通知先に選べるチャンネル (#181) */
     channels: (guildId: string) => ["guild", guildId, "channels"] as const,
   },

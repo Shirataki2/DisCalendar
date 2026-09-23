@@ -15,6 +15,7 @@ pub mod discord;
 #[path = "../../shared/discord_datetime.rs"]
 pub mod discord_datetime;
 pub mod error;
+pub mod external_calendars;
 pub mod ical;
 pub mod ical_import;
 pub mod logging;
@@ -81,6 +82,11 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             .max_capacity(100_000)
             .time_to_live(std::time::Duration::from_secs(48 * 3600))
             .build(),
+        external_feeds: moka::future::Cache::builder()
+            .max_capacity(100)
+            .time_to_live(std::time::Duration::from_secs(24 * 3600))
+            .build(),
+        external_fetch_slots: tokio::sync::Semaphore::new(3),
         started_at: chrono::Utc::now(),
     });
     if config.admin_discord_user_ids.is_empty() {

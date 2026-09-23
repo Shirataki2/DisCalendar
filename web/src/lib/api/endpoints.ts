@@ -17,6 +17,9 @@ import type {
   AttachmentUrl,
   ChangeScope,
   EventAttachment,
+  ExternalCalendar,
+  ExternalCalendarInput,
+  ExternalCalendarResult,
   Guild,
   GuildChannel,
   GuildConfig,
@@ -292,8 +295,43 @@ export function createApi(request: ApiFetcher) {
       /** フィードの無効化 (管理権限が必要) */
       revokeFeed: (guildId: string) =>
         request<void>(`/guilds/${guildId}/feed`, { method: "DELETE" }),
+      externalCalendars: (guildId: string) =>
+        request<ExternalCalendar[]>(`/guilds/${guildId}/external-calendars`),
+      addExternalCalendar: (guildId: string, input: ExternalCalendarInput) =>
+        request<ExternalCalendar>(`/guilds/${guildId}/external-calendars`, {
+          method: "POST",
+          body: input,
+        }),
+      updateExternalCalendar: (
+        guildId: string,
+        id: number,
+        input: ExternalCalendarInput,
+      ) =>
+        request<ExternalCalendar>(
+          `/guilds/${guildId}/external-calendars/${id}`,
+          { method: "PUT", body: input },
+        ),
+      removeExternalCalendar: (guildId: string, id: number) =>
+        request<void>(`/guilds/${guildId}/external-calendars/${id}`, {
+          method: "DELETE",
+        }),
+      refreshExternalCalendar: (guildId: string, id: number) =>
+        request<ExternalCalendar>(
+          `/guilds/${guildId}/external-calendars/${id}/refresh`,
+          { method: "POST" },
+        ),
     },
     events: createEventsClient(request, (guildId) => `/events/${guildId}`),
+    externalEvents: (
+      guildId: string,
+      start: string,
+      end: string,
+      signal?: AbortSignal,
+    ) =>
+      request<ExternalCalendarResult[]>(
+        `/events/${guildId}/external?${new URLSearchParams({ start, end })}`,
+        { signal },
+      ),
     /**
      * 参加している複数サーバーの予定をまとめて取る (横断カレンダー #98)。閲覧専用で書き込みは無い。
      * guildIds は Bot 参加済みのもの (`guilds.joined` の結果) を渡す。メンバーでないサーバーは api が除外する。

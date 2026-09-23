@@ -10,6 +10,7 @@ import {
   useForm,
   useFormContext,
 } from "react-hook-form";
+import { ExternalCalendarSettings } from "@/components/external-calendar-settings";
 import { NotificationsField } from "@/components/form/notifications-field";
 import {
   AlertDialog,
@@ -405,6 +406,9 @@ function GuildSettingsForm({
           canManage={canManage}
           onError={setError}
         />
+
+        <Separator />
+        <ExternalCalendarSettings guildId={guildId} canManage={canManage} />
 
         {canManage && <WebhookSettings guildId={guildId} />}
 

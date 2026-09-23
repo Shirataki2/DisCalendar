@@ -213,6 +213,39 @@ export interface GuildFeed {
   created_by: string;
 }
 
+/** 外部 ICS 購読。URL は管理権限があるメンバーだけに返る。 */
+export interface ExternalCalendar {
+  id: number;
+  name: string;
+  color: string;
+  url: string | null;
+  created_by: string;
+  created_at: string;
+  last_fetched_at: string | null;
+  last_error: string | null;
+}
+
+export interface ExternalCalendarInput {
+  url: string;
+  name: string;
+  color: string;
+}
+
+export interface ExternalEvent {
+  id: string;
+  calendar_id: number;
+  name: string;
+  description: string | null;
+  is_all_day: boolean;
+  start_at: string;
+  end_at: string;
+}
+
+export interface ExternalCalendarResult {
+  calendar: ExternalCalendar;
+  events: ExternalEvent[];
+}
+
 /** GET /admin/me。ADMIN_DISCORD_USER_IDS に含まれるユーザーだけ 200 (それ以外は 403) */
 export interface AdminMe {
   /** Better Auth の user.id */
