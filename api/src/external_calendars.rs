@@ -376,10 +376,9 @@ fn source_occurrences(
     for local in starts {
         let delta = local - local_start;
         let occurrence = shift_source(&source.start, delta).ok_or("日時が範囲外です")?;
-        // 夏時間開始時の存在しない壁時計時刻は発生しない回として扱う。
-        let Ok(start_at) = ical_import::to_jst(&occurrence, vtimezones) else {
-            continue;
-        };
+        // 欠落時刻を除外すると COUNT の計算も変わるため、未対応として明示する。
+        let start_at = ical_import::to_jst(&occurrence, vtimezones)
+            .map_err(|_| "夏時間の切り替えで変換できない日時を含んでいます")?;
         if let Some((limit, utc)) = until {
             let compared = if utc {
                 start_at
@@ -452,6 +451,22 @@ mod tests {
             ical_import::parse_subscription(&ics.replace("COUNT=3", "UNTIL=20261101T133000Z"))
                 .unwrap();
         assert_eq!(visible(&until, 1, start, end).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn reports_nonexistent_recurrence_time() {
+        let parsed = ical_import::parse_subscription("BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:gap\nDTSTAMP:20260101T000000Z\nDTSTART;TZID=America/New_York:20260301T023000\nDURATION:PT1H\nRRULE:FREQ=WEEKLY;BYDAY=SU;COUNT=3\nSUMMARY:Gap\nEND:VEVENT\nEND:VCALENDAR").unwrap();
+        assert!(parsed.skipped.is_empty());
+        assert!(
+            visible(
+                &parsed,
+                1,
+                "2026-03-01T00:00:00".parse().unwrap(),
+                "2026-03-20T00:00:00".parse().unwrap()
+            )
+            .unwrap_err()
+            .contains("夏時間")
+        );
     }
 
     #[test]

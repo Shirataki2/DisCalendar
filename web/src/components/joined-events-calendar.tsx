@@ -165,10 +165,10 @@ export function JoinedEventsCalendar({ guilds }: Props) {
           ref={legendRef}
           aria-label="サーバーの凡例"
           className={cn(
-            "flex min-w-0 flex-wrap gap-1.5",
+            "flex min-w-0 flex-wrap gap-1.5 p-1",
             legendExpanded
               ? "max-h-32 overflow-y-auto"
-              : "max-h-7 overflow-hidden",
+              : "max-h-11 overflow-hidden",
           )}
         >
           {guilds.map((guild) => {
@@ -196,7 +196,10 @@ export function JoinedEventsCalendar({ guilds }: Props) {
           <button
             type="button"
             aria-expanded={legendExpanded}
-            onClick={() => setLegendExpanded((value) => !value)}
+            onClick={() => {
+              legendRef.current?.scrollTo({ top: 0 });
+              setLegendExpanded((value) => !value);
+            }}
             className="shrink-0 text-xs text-muted-foreground underline hover:text-foreground"
           >
             {legendExpanded
