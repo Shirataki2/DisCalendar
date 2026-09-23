@@ -22,6 +22,8 @@ export const queryKeys = {
   },
   external: {
     all: (guildId: string) => ["external", guildId] as const,
+    displayErrors: (guildId: string) =>
+      ["external-display-errors", guildId] as const,
     range: (guildId: string, start: string, end: string) =>
       ["external", guildId, { start, end }] as const,
   },

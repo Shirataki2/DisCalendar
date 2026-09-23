@@ -120,6 +120,11 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
       (item: { name: string }) => item.name === "取得失敗",
     );
     created.push(second.id);
+    const duplicate = await page.request.put(`${base}/${second.id}`, {
+      data: { url: first.url, name: "重複", color: "#123456" },
+    });
+    expect(duplicate.status()).toBe(400);
+
     await page.keyboard.press("Escape");
     await expect(
       page
@@ -285,4 +290,51 @@ test.describe("390px の外部カレンダー", () => {
       await page.request.delete(`${base}/${id}`);
     }
   });
+});
+
+test("表示期間の展開エラーを開いている設定にも表示する", async ({ page }) => {
+  const events = Array.from(
+    { length: 40 },
+    (_, index) =>
+      `BEGIN:VEVENT\r\nUID:overflow-${index}\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20261001T100000\r\nDURATION:PT1H\r\nRRULE:FREQ=DAILY;COUNT=40\r\nSUMMARY:予定${index}\r\nEND:VEVENT\r\n`,
+  ).join("");
+  const receiver = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/calendar" });
+    res.end(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${events}END:VCALENDAR\r\n`);
+  });
+  await new Promise<void>((resolve) =>
+    receiver.listen(0, "127.0.0.1", resolve),
+  );
+  const address = receiver.address();
+  if (!address || typeof address === "string")
+    throw new Error("ICS モックの起動に失敗");
+  const guildId = E2E_GUILDS.admin.id;
+  const base = `/local/api/guilds/${guildId}/external-calendars`;
+  let id: number | undefined;
+  try {
+    await page.clock.setFixedTime(new Date("2026-10-01T12:00:00+09:00"));
+    await page.goto(`/dashboard/${guildId}?date=2026-10-01`);
+    const added = await page.request.post(base, {
+      data: {
+        url: `http://webhook.test:${address.port}/overflow.ics`,
+        name: "上限確認",
+        color: "#123456",
+      },
+    });
+    expect(added.status()).toBe(201);
+    id = (await added.json()).id;
+    await page.reload();
+    await page.getByRole("button", { name: "サーバー設定" }).click();
+    const item = page.getByRole("listitem").filter({ hasText: "上限確認" });
+    await expect(item).toContainText("表示中の期間を展開できません");
+    await expect(item).toContainText("1000");
+    const stored = await page.request.get(base);
+    const calendar = (await stored.json()).find(
+      (value: { id: number }) => value.id === id,
+    );
+    expect(calendar.last_error).toBeNull();
+  } finally {
+    if (id) await page.request.delete(`${base}/${id}`);
+    await new Promise<void>((resolve) => receiver.close(() => resolve()));
+  }
 });

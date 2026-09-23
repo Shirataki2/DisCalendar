@@ -9,6 +9,13 @@ import type { ExternalCalendarInput } from "@/lib/api/types";
 import type { EventRange } from "./events";
 import { queryKeys } from "./keys";
 
+export function useExternalDisplayErrors(guildId: string) {
+  return useQuery<Record<number, string>>({
+    queryKey: queryKeys.external.displayErrors(guildId),
+    queryFn: skipToken,
+  });
+}
+
 export function useExternalCalendars(guildId: string) {
   return useQuery({
     queryKey: queryKeys.guild.externalCalendars(guildId),
@@ -34,6 +41,14 @@ export function useExternalEvents(
               range.start,
               range.end,
               signal,
+            );
+            client.setQueryData(
+              queryKeys.external.displayErrors(guildId),
+              Object.fromEntries(
+                result
+                  .filter(({ calendar }) => calendar.last_error)
+                  .map(({ calendar }) => [calendar.id, calendar.last_error]),
+              ),
             );
             await client.invalidateQueries({
               queryKey: queryKeys.guild.externalCalendars(guildId),

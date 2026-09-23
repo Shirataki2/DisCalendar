@@ -54,6 +54,17 @@ fn validate(input: &CalendarInput) -> Result<(), ApiError> {
     Ok(())
 }
 
+fn calendar_write_error(error: sqlx::Error) -> ApiError {
+    if error
+        .as_database_error()
+        .is_some_and(|db| db.is_unique_violation())
+    {
+        ApiError::BadRequest("この URL は登録済みです".into())
+    } else {
+        ApiError::Database(error)
+    }
+}
+
 async fn rows(pool: &PgPool, guild_id: &str) -> Result<Vec<Calendar>, ApiError> {
     Ok(sqlx::query_as::<_, Calendar>(
         "SELECT * FROM guild_external_calendars WHERE guild_id=$1 ORDER BY id",
@@ -129,7 +140,7 @@ pub async fn create(
     }
     let calendar = sqlx::query_as::<_, Calendar>("INSERT INTO guild_external_calendars (guild_id,url,name,color,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *")
         .bind(member.guild_id()).bind(&body.url).bind(body.name.trim()).bind(&body.color)
-        .bind(&member.user.discord_user_id).bind(now_jst()).fetch_one(&mut *tx).await?;
+        .bind(&member.user.discord_user_id).bind(now_jst()).fetch_one(&mut *tx).await.map_err(calendar_write_error)?;
     tx.commit().await?;
     Ok(HttpResponse::Created().json(calendar.view(true)))
 }
@@ -145,21 +156,8 @@ pub async fn update(
     require_manage(&member)?;
     validate(&body)?;
     let old = row(&state.pool, member.guild_id(), id.1).await?;
-    if old.url != body.url
-        && sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM guild_external_calendars WHERE guild_id=$1 AND url=$2 AND id<>$3",
-        )
-        .bind(member.guild_id())
-        .bind(&body.url)
-        .bind(id.1)
-        .fetch_optional(&state.pool)
-        .await?
-        .is_some()
-    {
-        return Err(ApiError::BadRequest("この URL は登録済みです".into()));
-    }
     let calendar = sqlx::query_as::<_, Calendar>("UPDATE guild_external_calendars SET url=$3,name=$4,color=$5,last_fetched_at=CASE WHEN url=$3 THEN last_fetched_at ELSE NULL END,last_error=CASE WHEN url=$3 THEN last_error ELSE NULL END,etag=CASE WHEN url=$3 THEN etag ELSE NULL END,last_modified=CASE WHEN url=$3 THEN last_modified ELSE NULL END WHERE guild_id=$1 AND id=$2 RETURNING *")
-        .bind(member.guild_id()).bind(id.1).bind(&body.url).bind(body.name.trim()).bind(&body.color).fetch_one(&state.pool).await?;
+        .bind(member.guild_id()).bind(id.1).bind(&body.url).bind(body.name.trim()).bind(&body.color).fetch_one(&state.pool).await.map_err(calendar_write_error)?;
     if old.url != body.url {
         state.external_feeds.invalidate(&id.1).await;
     }

@@ -10,6 +10,7 @@ import { DEFAULT_COLOR } from "@/lib/event-form";
 import {
   useExternalCalendarActions,
   useExternalCalendars,
+  useExternalDisplayErrors,
 } from "@/lib/query/external-calendars";
 
 export function ExternalCalendarSettings({
@@ -20,6 +21,7 @@ export function ExternalCalendarSettings({
   canManage: boolean;
 }) {
   const calendars = useExternalCalendars(guildId);
+  const displayErrors = useExternalDisplayErrors(guildId);
   const actions = useExternalCalendarActions(guildId);
   const [editing, setEditing] = useState<number | null>(null);
   const [input, setInput] = useState<ExternalCalendarInput>({
@@ -152,6 +154,13 @@ export function ExternalCalendarSettings({
                   ? calendar.last_fetched_at.replace("T", " ")
                   : "まだ取得していません"}
               </p>
+              {displayErrors.data?.[calendar.id] &&
+                displayErrors.data[calendar.id] !== calendar.last_error && (
+                  <p role="status" className="mt-1 text-xs text-destructive">
+                    表示中の期間を展開できません:{" "}
+                    {displayErrors.data[calendar.id]}
+                  </p>
+                )}
               {calendar.last_error && (
                 <p role="status" className="mt-1 text-xs text-destructive">
                   取得できません: {calendar.last_error}
