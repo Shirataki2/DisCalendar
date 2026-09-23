@@ -244,6 +244,7 @@ export interface ExternalEvent {
 export interface ExternalCalendarResult {
   calendar: ExternalCalendar;
   events: ExternalEvent[];
+  warning: string | null;
 }
 
 /** GET /admin/me。ADMIN_DISCORD_USER_IDS に含まれるユーザーだけ 200 (それ以外は 403) */

@@ -3,6 +3,8 @@ import { expect, test } from "@playwright/test";
 import { eventOn } from "./calendar";
 import { E2E_GUILDS } from "./fixtures";
 
+test.use({ serviceWorkers: "block" });
+
 test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", async ({ page }) => {
   const title = `E2E 外部予定 ${Date.now()}`;
   const requests: (string | undefined)[] = [];
@@ -28,7 +30,7 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
         "content-type": "application/octet-stream",
       });
       res.end(
-        `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:external-e2e\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20261001T100000\r\nDTEND:20261001T110000\r\nSUMMARY:${title}\r\nDESCRIPTION:外部から取得した説明\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
+        `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:external-e2e\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20261001T100000\r\nDTEND:20261001T110000\r\nSUMMARY:${title}\r\nDESCRIPTION:外部から取得した説明${"詳".repeat(1100)}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
       );
       return;
     }
@@ -76,6 +78,7 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
     created.push(first.id);
     await page.keyboard.press("Escape");
     await expect(eventOn(page, title)).toBeVisible();
+    await expect(page.getByText("一部省略", { exact: true })).toBeVisible();
     const chip = page
       .getByRole("list", { name: "外部カレンダーの凡例" })
       .getByRole("button", { name: "大会日程" });
@@ -186,6 +189,51 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
     expect(unsupported.events).toEqual([]);
   } finally {
     for (const id of created) await page.request.delete(`${base}/${id}`);
+    await new Promise<void>((resolve) => receiver.close(() => resolve()));
+  }
+});
+
+test("表示中の取得が完了したら、開いている設定の取得状態も更新する", async ({
+  page,
+}) => {
+  let finish: (() => void) | undefined;
+  const receiver = createServer((_req, res) => {
+    finish = () => {
+      finish = undefined;
+      res.writeHead(500).end();
+    };
+  });
+  await new Promise<void>((resolve) =>
+    receiver.listen(0, "127.0.0.1", resolve),
+  );
+  const address = receiver.address();
+  if (!address || typeof address === "string")
+    throw new Error("ICS モックの起動に失敗");
+  const guildId = E2E_GUILDS.admin.id;
+  const base = `/local/api/guilds/${guildId}/external-calendars`;
+  const response = await page.request.post(base, {
+    data: {
+      url: `http://webhook.test:${address.port}/slow.ics`,
+      name: "遅い購読先",
+      color: "#2196F3",
+    },
+  });
+  expect(response.status()).toBe(201);
+  const id = (await response.json()).id;
+  try {
+    await page.goto(`/dashboard/${guildId}`);
+    await expect.poll(() => !!finish).toBe(true);
+    await page.getByRole("button", { name: "サーバー設定" }).click();
+    const section = page.getByRole("region", {
+      name: "外部カレンダーを重ねて表示する",
+    });
+    await expect(section).toContainText("まだ取得していません");
+    finish?.();
+    await expect(section).toContainText("取得できません");
+    await expect(section).not.toContainText("まだ取得していません");
+  } finally {
+    finish?.();
+    await page.request.delete(`${base}/${id}`);
     await new Promise<void>((resolve) => receiver.close(() => resolve()));
   }
 });

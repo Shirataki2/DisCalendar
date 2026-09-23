@@ -21,14 +21,25 @@ export function useExternalEvents(
   range: EventRange | null,
   enabled = true,
 ) {
+  const client = useQueryClient();
   return useQuery({
     queryKey: range
       ? queryKeys.external.range(guildId, range.start, range.end)
       : queryKeys.external.all(guildId),
     queryFn:
       range && enabled
-        ? ({ signal }) =>
-            api.externalEvents(guildId, range.start, range.end, signal)
+        ? async ({ signal }) => {
+            const result = await api.externalEvents(
+              guildId,
+              range.start,
+              range.end,
+              signal,
+            );
+            await client.invalidateQueries({
+              queryKey: queryKeys.guild.externalCalendars(guildId),
+            });
+            return result;
+          }
         : skipToken,
   });
 }

@@ -25,6 +25,7 @@ pub struct CalendarInput {
 pub struct ExternalCalendarResult {
     pub calendar: CalendarView,
     pub events: Vec<ExternalEvent>,
+    pub warning: Option<String>,
 }
 
 fn require_manage(member: &GuildMember) -> Result<(), ApiError> {
@@ -213,12 +214,29 @@ pub async fn events(
         let state = state.clone();
         async move {
             let parsed = external_calendars::load(&state, &mut calendar, false).await;
-            let events = parsed
+            let warning = parsed
+                .as_ref()
+                .filter(|items| {
+                    items
+                        .events
+                        .iter()
+                        .any(|item| !item.truncated_fields.is_empty())
+                })
+                .map(|_| "長いタイトルまたは説明を省略して表示しています".to_owned());
+            let events = match parsed
                 .map(|items| external_calendars::visible(&items, calendar.id, start, end))
-                .unwrap_or_default();
+            {
+                Some(Ok(events)) => events,
+                Some(Err(error)) => {
+                    calendar.last_error = Some(error.into());
+                    Vec::new()
+                }
+                None => Vec::new(),
+            };
             ExternalCalendarResult {
                 calendar: calendar.view(can_manage),
                 events,
+                warning,
             }
         }
     }))

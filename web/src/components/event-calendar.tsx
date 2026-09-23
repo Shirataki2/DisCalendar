@@ -709,15 +709,24 @@ export function EventCalendar({
             aria-label="外部カレンダーの凡例"
             className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto"
           >
-            {externalQuery.data?.map(({ calendar }) => {
+            {externalQuery.data?.map(({ calendar, warning }) => {
               const shown = !hiddenExternal.has(calendar.id);
               return (
-                <li key={calendar.id}>
+                <li
+                  key={calendar.id}
+                  title={calendar.last_error ?? warning ?? undefined}
+                >
                   <CalendarLegendChip
                     name={calendar.name}
                     color={calendar.color}
                     shown={shown}
-                    error={calendar.last_error ? "取得できません" : null}
+                    error={
+                      calendar.last_error
+                        ? "取得できません"
+                        : warning
+                          ? "一部省略"
+                          : null
+                    }
                     onClick={() => {
                       setExternalPopover(null);
                       setHiddenExternal((previous) => {

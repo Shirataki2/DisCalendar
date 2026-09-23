@@ -4,7 +4,7 @@ use std::{
     time::{Duration as StdDuration, Instant},
 };
 
-use chrono::{Duration, FixedOffset, NaiveDateTime};
+use chrono::{Duration, NaiveDateTime};
 use mailrs_ical::CalDateTime;
 use reqwest::header;
 use serde::Serialize;
@@ -249,7 +249,7 @@ async fn fetch(
             body.extend_from_slice(&chunk);
         }
         let text = std::str::from_utf8(&body).map_err(|_| "ICS の文字コードを読み取れません")?;
-        let parsed = ical_import::parse(text).map_err(|_| "ICS を解析できません")?;
+        let parsed = ical_import::parse_subscription(text).map_err(|_| "ICS を解析できません")?;
         if parsed.total_count > MAX_EVENTS {
             return Err("予定が 200 件を超えています");
         }
@@ -284,49 +284,39 @@ pub fn visible(
     calendar_id: i64,
     start: NaiveDateTime,
     end: NaiveDateTime,
-) -> Vec<ExternalEvent> {
+) -> Result<Vec<ExternalEvent>, &'static str> {
     let mut result = Vec::new();
     for item in &parsed.events {
         let event = &item.event;
-        let duration = event.end_at - event.start_at;
-        let overlap = duration
-            + if event.is_all_day {
-                Duration::days(1)
-            } else {
-                Duration::zero()
-            };
-        let starts = if let Some(rule) = event.recurrence.as_ref().filter(|rule| rule.enabled()) {
-            match parsed.sources.get(&item.source_index) {
-                Some(source) if matches!(source.start, CalDateTime::Zoned { .. }) => {
-                    zoned_starts(source, &parsed.vtimezones, start, end, overlap)
-                }
-                _ => rule
-                    .rrule(event.start_at)
-                    .ok()
-                    .and_then(|rrule| {
-                        recurrence::between(
-                            &rrule,
-                            event.start_at,
-                            start
-                                .checked_sub_signed(overlap)
-                                .unwrap_or(NaiveDateTime::MIN),
-                            end,
-                        )
-                        .ok()
-                    })
-                    .unwrap_or_default(),
-            }
-        } else {
-            vec![event.start_at]
-        };
-        for occurrence in starts {
-            if occurrence < end
-                && occurrence
-                    .checked_add_signed(overlap)
+        let source = parsed
+            .sources
+            .get(&item.source_index)
+            .ok_or("元日時を読み取れません")?;
+        let occurrences = source_occurrences(
+            source,
+            event.recurrence.as_ref().filter(|rule| rule.enabled()),
+            &parsed.vtimezones,
+            event,
+            start,
+            end,
+        )?;
+        for (occurrence, ends_at) in occurrences {
+            let exclusive_end = if event.is_all_day {
+                ends_at
+                    .checked_add_signed(Duration::days(1))
                     .unwrap_or(NaiveDateTime::MAX)
-                    > start
-                && let Some(ends_at) = occurrence.checked_add_signed(duration)
-            {
+            } else {
+                ends_at
+            };
+            let overlaps = if occurrence == exclusive_end {
+                occurrence >= start
+            } else {
+                exclusive_end > start
+            };
+            if occurrence < end && overlaps {
+                if result.len() == MAX_VISIBLE {
+                    return Err("表示する予定が 1000 件を超えています。表示期間を短くしてください");
+                }
                 result.push(ExternalEvent {
                     id: format!("{calendar_id}:{}:{occurrence}", item.source_index),
                     calendar_id,
@@ -336,86 +326,99 @@ pub fn visible(
                     start_at: occurrence,
                     end_at: ends_at,
                 });
-                if result.len() == MAX_VISIBLE {
-                    return result;
-                }
             }
         }
     }
-    result
+    Ok(result)
 }
 
-/// 元の壁時計で各回を計算してから JST に変換する。UTC の UNTIL は変換後に判定する。
-fn zoned_starts(
+/// 元の壁時計で開始を計算してから JST に変換する。UTC の UNTIL は変換後に判定する。
+fn source_occurrences(
     source: &ical_import::SourceRecurrence,
+    rule: Option<&recurrence::Rule>,
     vtimezones: &[mailrs_ical::VTimezone],
+    event: &ical_import::ImportEventInput,
     start: NaiveDateTime,
     end: NaiveDateTime,
-    overlap: Duration,
-) -> Vec<NaiveDateTime> {
-    let CalDateTime::Zoned { tz_name, local } = &source.start else {
-        return Vec::new();
-    };
-    let Some(raw) = source.rule.as_deref() else {
-        return Vec::new();
-    };
-    let parts: Vec<_> = raw.split(';').collect();
-    let until = parts.iter().find_map(|part| {
-        part.split_once('=')
-            .filter(|(key, _)| key.eq_ignore_ascii_case("UNTIL"))
-            .map(|(_, value)| value)
-    });
-    let local_rule = parts
-        .iter()
-        .filter(|part| !part.to_ascii_uppercase().starts_with("UNTIL="))
-        .copied()
-        .collect::<Vec<_>>()
-        .join(";");
-    let Some(starts) = ical_import::parse_rule(&local_rule, *local)
-        .ok()
-        .and_then(|rule| rule.rrule(*local).ok())
-        .and_then(|rule| {
-            let from = start
-                .checked_sub_signed(overlap + Duration::days(2))
-                .unwrap_or(NaiveDateTime::MIN);
-            let to = end
-                .checked_add_signed(Duration::days(2))
-                .unwrap_or(NaiveDateTime::MAX);
-            recurrence::between(&rule, *local, from, to).ok()
+) -> Result<Vec<(NaiveDateTime, NaiveDateTime)>, &'static str> {
+    let local_start = ical_import::source_local(&source.start)?;
+    let until = source
+        .rule
+        .as_deref()
+        .and_then(|raw| {
+            raw.split(';').find_map(|part| {
+                part.split_once('=')
+                    .filter(|(key, _)| key.eq_ignore_ascii_case("UNTIL"))
+                    .map(|(_, value)| value)
+            })
         })
-    else {
-        return Vec::new();
+        .map(ical_import::parse_until)
+        .transpose()
+        .map_err(|_| "繰り返し終了日が不正です")?;
+    // 日付変更と夏時間の差を含めて候補を拾い、変換後に正確な表示範囲で絞る。
+    let overlap = event.end_at - event.start_at + Duration::days(2);
+    let from = start
+        .checked_sub_signed(overlap)
+        .unwrap_or(NaiveDateTime::MIN);
+    let to = end
+        .checked_add_signed(Duration::days(2))
+        .unwrap_or(NaiveDateTime::MAX);
+    let starts = if let Some(rule) = rule {
+        let raw = rule
+            .rrule(local_start)
+            .map_err(|_| "繰り返し条件を読み取れません")?;
+        recurrence::between(&raw, local_start, from, to)
+            .map_err(|_| "繰り返しの計算上限に達しました。表示期間を短くしてください")?
+    } else {
+        vec![local_start]
     };
-    starts
-        .into_iter()
-        .filter_map(|local| {
-            let utc = mailrs_ical::vtimezone::caldatetime_to_utc(
-                &CalDateTime::Zoned {
-                    tz_name: tz_name.clone(),
-                    local,
-                },
-                vtimezones,
-            )?;
-            if !until.is_none_or(|value| {
-                if value.ends_with('Z') {
-                    NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%SZ")
-                        .is_ok_and(|limit| utc.naive_utc() <= limit)
-                } else if value.len() == 8 {
-                    chrono::NaiveDate::parse_from_str(value, "%Y%m%d")
-                        .is_ok_and(|limit| local.date() <= limit)
-                } else {
-                    NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S")
-                        .is_ok_and(|limit| local <= limit)
-                }
-            }) {
-                return None;
+    let mut result = Vec::new();
+    for local in starts {
+        let delta = local - local_start;
+        let occurrence = shift_source(&source.start, delta).ok_or("日時が範囲外です")?;
+        // 夏時間開始時の存在しない壁時計時刻は発生しない回として扱う。
+        let Ok(start_at) = ical_import::to_jst(&occurrence, vtimezones) else {
+            continue;
+        };
+        if let Some((limit, utc)) = until {
+            let compared = if utc {
+                start_at
+                    .checked_sub_signed(Duration::hours(9))
+                    .ok_or("日時が範囲外です")?
+            } else {
+                local
+            };
+            if compared > limit {
+                continue;
             }
-            Some(
-                utc.with_timezone(&FixedOffset::east_opt(9 * 3600).expect("JST offset is valid"))
-                    .naive_local(),
-            )
-        })
-        .collect()
+        }
+        // RFC 5545 3.8.5.3: DTEND は初回と同じ実時間、DURATION の日・週だけは暦上の長さ。
+        let end_at = if !event.is_all_day && source.duration_days > 0 {
+            let days = Duration::try_days(source.duration_days).ok_or("日時が範囲外です")?;
+            let after_days = shift_source(&occurrence, days).ok_or("日時が範囲外です")?;
+            ical_import::to_jst(&after_days, vtimezones)?
+                .checked_add_signed(source.duration.unwrap_or_default() - days)
+                .ok_or("日時が範囲外です")?
+        } else {
+            start_at
+                .checked_add_signed(event.end_at - event.start_at)
+                .ok_or("日時が範囲外です")?
+        };
+        result.push((start_at, end_at));
+    }
+    Ok(result)
+}
+
+fn shift_source(value: &CalDateTime, delta: Duration) -> Option<CalDateTime> {
+    Some(match value {
+        CalDateTime::Zoned { tz_name, local } => CalDateTime::Zoned {
+            tz_name: tz_name.clone(),
+            local: local.checked_add_signed(delta)?,
+        },
+        CalDateTime::Utc(utc) => CalDateTime::Utc(utc.checked_add_signed(delta)?),
+        CalDateTime::Floating(local) => CalDateTime::Floating(local.checked_add_signed(delta)?),
+        CalDateTime::Date(date) => CalDateTime::Date(date.checked_add_signed(delta)?),
+    })
 }
 
 #[cfg(test)]
@@ -423,25 +426,88 @@ mod tests {
     use super::*;
     #[test]
     fn displays_only_overlapping_events() {
-        let parsed = ical_import::parse("BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:one\nDTSTAMP:20260101T000000Z\nDTSTART:20261001T100000\nDTEND:20261001T110000\nSUMMARY:大会\nEND:VEVENT\nEND:VCALENDAR").unwrap();
+        let parsed = ical_import::parse_subscription("BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:one\nDTSTAMP:20260101T000000Z\nDTSTART:20261001T100000\nDTEND:20261001T110000\nSUMMARY:大会\nEND:VEVENT\nEND:VCALENDAR").unwrap();
         let start = "2026-10-01T10:30:00".parse().unwrap();
         let end = "2026-10-01T11:30:00".parse().unwrap();
-        assert_eq!(visible(&parsed, 1, start, end).len(), 1);
-        assert!(visible(&parsed, 1, end, end + Duration::hours(1)).is_empty());
+        assert_eq!(visible(&parsed, 1, start, end).unwrap().len(), 1);
+        assert!(
+            visible(&parsed, 1, end, end + Duration::hours(1))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
     fn expands_zoned_recurrence_across_dst_in_source_timezone() {
         let ics = "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:ny-weekly\nDTSTAMP:20260101T000000Z\nDTSTART;TZID=America/New_York:20261025T090000\nDTEND;TZID=America/New_York:20261025T100000\nRRULE:FREQ=WEEKLY;BYDAY=SU;COUNT=3\nSUMMARY:Morning\nEND:VEVENT\nEND:VCALENDAR";
-        let parsed = ical_import::parse(ics).unwrap();
+        let parsed = ical_import::parse_subscription(ics).unwrap();
         let start = "2026-10-25T00:00:00".parse().unwrap();
         let end = "2026-11-09T00:00:00".parse().unwrap();
-        let dates = visible(&parsed, 1, start, end);
+        let dates = visible(&parsed, 1, start, end).unwrap();
         assert_eq!(dates.len(), 3);
         assert_eq!(dates[0].start_at.to_string(), "2026-10-25 22:00:00");
         assert_eq!(dates[1].start_at.to_string(), "2026-11-01 23:00:00");
         assert_eq!(dates[2].start_at.to_string(), "2026-11-08 23:00:00");
-        let until = ical_import::parse(&ics.replace("COUNT=3", "UNTIL=20261101T133000Z")).unwrap();
-        assert_eq!(visible(&until, 1, start, end).len(), 1);
+        let until =
+            ical_import::parse_subscription(&ics.replace("COUNT=3", "UNTIL=20261101T133000Z"))
+                .unwrap();
+        assert_eq!(visible(&until, 1, start, end).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn validates_weekdays_before_jst_conversion_and_keeps_exact_dtend_duration() {
+        let ics = "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:weekly\nDTSTAMP:20260101T000000Z\nDTSTART;TZID=America/Los_Angeles:20261025T230000\nDTEND;TZID=America/Los_Angeles:20261026T000000\nRRULE:FREQ=WEEKLY;BYDAY=SU;COUNT=2\nSUMMARY:Night\nEND:VEVENT\nEND:VCALENDAR";
+        let parsed = ical_import::parse_subscription(ics).unwrap();
+        assert!(parsed.skipped.is_empty());
+        let start = "2026-10-25T00:00:00".parse().unwrap();
+        let end = "2026-11-04T00:00:00".parse().unwrap();
+        let dates = visible(&parsed, 1, start, end).unwrap();
+        assert_eq!(dates[0].start_at.to_string(), "2026-10-26 15:00:00");
+        assert_eq!(dates[1].start_at.to_string(), "2026-11-02 16:00:00");
+
+        let ny = ics
+            .replace("America/Los_Angeles", "America/New_York")
+            .replace("20261025T230000", "20261025T013000")
+            .replace("20261026T000000", "20261025T033000");
+        let parsed = ical_import::parse_subscription(&ny).unwrap();
+        let dates = visible(&parsed, 1, start, end).unwrap();
+        // DTEND は初回と同じ実時間 (2 時間) を保つ。
+        assert_eq!(dates[1].end_at - dates[1].start_at, Duration::hours(2));
+        let nominal = ny.replace(
+            "DTEND;TZID=America/New_York:20261025T033000",
+            "DURATION:P1D",
+        );
+        let parsed = ical_import::parse_subscription(&nominal).unwrap();
+        let dates = visible(&parsed, 1, start, end).unwrap();
+        assert_eq!(dates[0].end_at - dates[0].start_at, Duration::hours(24));
+        assert_eq!(dates[1].end_at - dates[1].start_at, Duration::hours(25));
+    }
+
+    #[test]
+    fn includes_zero_length_at_range_start_and_reports_expansion_limit() {
+        let event = "BEGIN:VEVENT\nUID:one\nDTSTAMP:20260101T000000Z\nDTSTART:20261001T000000\nSUMMARY:大会\nEND:VEVENT\n";
+        let parsed = ical_import::parse_subscription(&format!(
+            "BEGIN:VCALENDAR\nVERSION:2.0\n{event}END:VCALENDAR"
+        ))
+        .unwrap();
+        let start = "2026-10-01T00:00:00".parse().unwrap();
+        assert_eq!(
+            visible(&parsed, 1, start, start + Duration::days(1))
+                .unwrap()
+                .len(),
+            1
+        );
+        let repeated = event
+            .replace("SUMMARY:", "RRULE:FREQ=DAILY;COUNT=400\nSUMMARY:")
+            .repeat(3);
+        let parsed = ical_import::parse_subscription(&format!(
+            "BEGIN:VCALENDAR\nVERSION:2.0\n{repeated}END:VCALENDAR"
+        ))
+        .unwrap();
+        assert!(
+            visible(&parsed, 1, start, start + Duration::days(400))
+                .unwrap_err()
+                .contains("1000")
+        );
     }
 }
