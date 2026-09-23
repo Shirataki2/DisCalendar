@@ -16,6 +16,7 @@ pub mod discord;
 pub mod discord_datetime;
 pub mod error;
 pub mod ical;
+pub mod ical_import;
 pub mod logging;
 pub mod mcp;
 pub mod models;

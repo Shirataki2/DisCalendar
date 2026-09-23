@@ -12,6 +12,7 @@ import type {
   ApiEvent,
   ApiEventInput,
   ChangeScope,
+  ImportEventInput,
   MyPermissions,
 } from "@/lib/api/types";
 import { revalidateAdminPagesQuietly } from "./admin-cache";
@@ -192,6 +193,16 @@ export function useCreateEvent(
     onSuccess: () => invalidateEvents(queryClient, source, guildId, true),
     onError: (error) =>
       refetchPermissionsOnBotError(queryClient, guildId, error),
+  });
+}
+
+export function useImportEvents(guildId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (events: ImportEventInput[]) =>
+      api.events.bulkImport(guildId, events),
+    onSuccess: () =>
+      invalidateEvents(queryClient, dashboardEventsSource, guildId, true),
   });
 }
 

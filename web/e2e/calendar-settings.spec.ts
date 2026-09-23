@@ -217,6 +217,7 @@ test("個人既定値は新規作成と再読込に反映され、編集・複�
   for (const reload of [false, true]) {
     if (reload) await page.reload();
     await page.getByRole("button", { name: "新規作成" }).click();
+    await page.getByRole("menuitem", { name: /予定を作成/ }).click();
     const create = page.getByRole("dialog", { name: "予定を作成" });
     await expect(create.getByLabel("色", { exact: true })).toContainText(
       "#2196F3",
@@ -275,6 +276,7 @@ test("不正な通知は保存せず、通知なしも保存できる", async ({
   await reopened.getByRole("button", { name: "既定値を保存" }).click();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "新規作成" }).click();
+  await page.getByRole("menuitem", { name: /予定を作成/ }).click();
   await expect(
     page.getByRole("dialog").getByLabel("通知のタイミング (数値)"),
   ).toHaveCount(0);
@@ -425,6 +427,7 @@ test("複数日の終日範囲でも深夜の繰越を往復でき、時間指�
   await expect(dialog.getByLabel("終了日")).toContainText("2026/09/16");
   await dialog.getByRole("button", { name: "キャンセル" }).click();
   await page.getByRole("button", { name: "新規作成" }).click();
+  await page.getByRole("menuitem", { name: /予定を作成/ }).click();
   await expect(dialog.getByLabel("終了日")).toContainText("2026/09/10");
   await allDay.check();
   await allDay.uncheck();
