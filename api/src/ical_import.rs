@@ -81,6 +81,15 @@ pub struct ParsedCalendar {
     pub events: Vec<ParsedImportEvent>,
     pub total_count: usize,
     pub skipped: Vec<SkippedImport>,
+    /// 外部購読では夏時間を保つため、JST 変換前の繰り返し条件も保持する。
+    pub sources: BTreeMap<usize, SourceRecurrence>,
+    pub vtimezones: Vec<VTimezone>,
+}
+
+#[derive(Debug)]
+pub struct SourceRecurrence {
+    pub start: CalDateTime,
+    pub rule: Option<String>,
 }
 
 fn skip(counts: &mut BTreeMap<&'static str, usize>, reason: &'static str) {
@@ -152,6 +161,7 @@ pub fn parse(contents: &str) -> Result<ParsedCalendar, String> {
     };
 
     let mut events = Vec::new();
+    let mut sources = BTreeMap::new();
     for (source_index, invite) in lifted {
         let reason = if exceptional_uids.contains(&invite.uid) {
             Some("recurrence_exceptions")
@@ -164,8 +174,15 @@ pub fn parse(contents: &str) -> Result<ParsedCalendar, String> {
             skip(&mut counts, reason);
             continue;
         }
+        let source = SourceRecurrence {
+            start: invite.dtstart.clone(),
+            rule: invite.rrule.clone(),
+        };
         match convert(source_index, invite, &vtimezones) {
-            Ok(event) => events.push(event),
+            Ok(event) => {
+                sources.insert(source_index, source);
+                events.push(event);
+            }
             Err(reason) => skip(&mut counts, reason),
         }
     }
@@ -180,6 +197,8 @@ pub fn parse(contents: &str) -> Result<ParsedCalendar, String> {
                 count,
             })
             .collect(),
+        sources,
+        vtimezones,
     })
 }
 
@@ -301,7 +320,7 @@ fn to_jst(value: &CalDateTime, vtimezones: &[VTimezone]) -> Result<NaiveDateTime
     }
 }
 
-fn parse_rule(raw: &str, start: NaiveDateTime) -> Result<Rule, String> {
+pub(crate) fn parse_rule(raw: &str, start: NaiveDateTime) -> Result<Rule, String> {
     let mut parts = BTreeMap::new();
     for part in raw.split(';') {
         let (key, value) = part

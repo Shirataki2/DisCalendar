@@ -6,6 +6,7 @@ import { E2E_GUILDS } from "./fixtures";
 test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", async ({ page }) => {
   const title = `E2E 外部予定 ${Date.now()}`;
   const requests: (string | undefined)[] = [];
+  let failedRequests = 0;
   let receiverPort = 0;
   const receiver = createServer((req, res) => {
     if (req.url === "/private-redirect.ics") {
@@ -31,6 +32,14 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
       );
       return;
     }
+    if (req.url === "/exception.ics") {
+      res.writeHead(200, { "content-type": "text/calendar" });
+      res.end(
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:exception-e2e\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20261001T100000\r\nRRULE:FREQ=DAILY;COUNT=3\r\nEXDATE:20261002T100000\r\nSUMMARY:例外付き\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+      );
+      return;
+    }
+    failedRequests++;
     res.writeHead(500).end("失敗した URL や本文は画面に出さない");
   });
   await new Promise<void>((resolve) =>
@@ -80,9 +89,19 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
     await page.keyboard.press("Escape");
 
     await page.getByRole("button", { name: "サーバー設定" }).click();
+    const refreshed = page.waitForResponse((response) =>
+      response.url().includes(`${base}/${first.id}/refresh`),
+    );
     await section.getByRole("button", { name: "今すぐ取得" }).click();
+    expect((await (await refreshed).json()).last_error).toBeNull();
     await expect.poll(() => requests.length).toBe(2);
     expect(requests[1]).toBe('"sample-1"');
+    await expect(
+      section.getByRole("listitem").filter({ hasText: "大会日程" }),
+    ).not.toContainText("取得できません");
+    await page.keyboard.press("Escape");
+    await expect(eventOn(page, title)).toBeVisible();
+    await page.getByRole("button", { name: "サーバー設定" }).click();
 
     await section.getByLabel("表示名").fill("取得失敗");
     await section
@@ -105,6 +124,13 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
         .getByText("取得できません"),
     ).toBeVisible();
     await expect(eventOn(page, title)).toBeVisible();
+    await expect.poll(() => failedRequests).toBe(1);
+    const range = new URLSearchParams({
+      start: "2026-10-01T00:00:00",
+      end: "2026-10-02T00:00:00",
+    });
+    await page.request.get(`/local/api/events/${guildId}/external?${range}`);
+    expect(failedRequests).toBe(1);
     const member = await page.request.get(
       `/local/api/guilds/${E2E_GUILDS.member.id}/external-calendars`,
     );
@@ -130,10 +156,6 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
     });
     expect(redirected.status()).toBe(201);
     created.push((await redirected.json()).id);
-    const range = new URLSearchParams({
-      start: "2026-10-01T00:00:00",
-      end: "2026-10-02T00:00:00",
-    });
     const checked = await page.request.get(
       `/local/api/events/${guildId}/external?${range}`,
     );
@@ -143,6 +165,25 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
     );
     expect(blocked.calendar.last_error).toContain("公開インターネット");
     expect(blocked.events).toEqual([]);
+
+    const exceptional = await page.request.post(base, {
+      data: {
+        url: `http://webhook.test:${address.port}/exception.ics`,
+        name: "例外付き",
+        color: "#2196F3",
+      },
+    });
+    expect(exceptional.status()).toBe(201);
+    created.push((await exceptional.json()).id);
+    const withException = await page.request.get(
+      `/local/api/events/${guildId}/external?${range}`,
+    );
+    const unsupported = (await withException.json()).find(
+      (item: { calendar: { name: string } }) =>
+        item.calendar.name === "例外付き",
+    );
+    expect(unsupported.calendar.last_error).toContain("例外付き");
+    expect(unsupported.events).toEqual([]);
   } finally {
     for (const id of created) await page.request.delete(`${base}/${id}`);
     await new Promise<void>((resolve) => receiver.close(() => resolve()));
