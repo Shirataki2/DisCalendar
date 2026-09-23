@@ -160,7 +160,9 @@ pub async fn update(
     }
     let calendar = sqlx::query_as::<_, Calendar>("UPDATE guild_external_calendars SET url=$3,name=$4,color=$5,last_fetched_at=CASE WHEN url=$3 THEN last_fetched_at ELSE NULL END,last_error=CASE WHEN url=$3 THEN last_error ELSE NULL END,etag=CASE WHEN url=$3 THEN etag ELSE NULL END,last_modified=CASE WHEN url=$3 THEN last_modified ELSE NULL END WHERE guild_id=$1 AND id=$2 RETURNING *")
         .bind(member.guild_id()).bind(id.1).bind(&body.url).bind(body.name.trim()).bind(&body.color).fetch_one(&state.pool).await?;
-    state.external_feeds.invalidate(&id.1).await;
+    if old.url != body.url {
+        state.external_feeds.invalidate(&id.1).await;
+    }
     Ok(web::Json(calendar.view(true)))
 }
 

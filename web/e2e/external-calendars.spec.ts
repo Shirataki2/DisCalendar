@@ -134,6 +134,19 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
     });
     await page.request.get(`/local/api/events/${guildId}/external?${range}`);
     expect(failedRequests).toBe(1);
+    const renamed = await page.request.put(`${base}/${first.id}`, {
+      data: { url: first.url, name: "表示名のみ変更", color: "#123456" },
+    });
+    expect(renamed.status()).toBe(200);
+    const cached = await page.request.get(
+      `/local/api/events/${guildId}/external?${range}`,
+    );
+    const unchanged = (await cached.json()).find(
+      (item: { calendar: { id: number } }) => item.calendar.id === first.id,
+    );
+    expect(unchanged.events).toHaveLength(1);
+    expect(unchanged.calendar.name).toBe("表示名のみ変更");
+    expect(requests).toHaveLength(2);
     const member = await page.request.get(
       `/local/api/guilds/${E2E_GUILDS.member.id}/external-calendars`,
     );
