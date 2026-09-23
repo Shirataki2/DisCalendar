@@ -91,12 +91,13 @@ const ACQUIRE_RETRY_INTERVAL: Duration = Duration::from_millis(200);
 pub const KNOWN_WORDS_TTL: Duration = Duration::from_secs(600);
 /// 読み取りを禁止するテーブル (Better Auth のトークン類を持つ)。このロールには権限を与えず、
 /// さらに実行計画にこれらが出てくる文は実行前に拒否する (スキーマに関係なく名前で判定)
-pub const PROTECTED_TABLES: [&str; 15] = [
+pub const PROTECTED_TABLES: [&str; 16] = [
     "account",
     "session",
     "verification",
     "push_subscriptions",
     "guild_webhooks",
+    "guild_external_calendars",
     "mcp_event_operations",
     "jwks",
     "oauthClient",

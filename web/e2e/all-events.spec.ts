@@ -187,6 +187,14 @@ test.describe("スマホ幅", () => {
     await page.goto("/dashboard/all");
     await expect(page.getByRole("grid")).toBeVisible();
     const legend = page.getByRole("list", { name: "サーバーの凡例" });
+    // 折り畳み時も先頭のチップとフォーカス枠を切らない。
+    const first = legend.getByRole("button").first();
+    const bounds = await legend.boundingBox();
+    const chip = await first.boundingBox();
+    if (!bounds || !chip) throw new Error("凡例の位置を取得できません");
+    expect(chip.y + chip.height + 3).toBeLessThanOrEqual(
+      bounds.y + bounds.height,
+    );
     // 5 サーバーは 375px の 1 行に収まらないので、あふれた分の数を出す開閉ボタンが出る
     const expand = page.getByRole("button", {
       name: /^他 \d+ サーバーを表示$/,
@@ -198,6 +206,7 @@ test.describe("スマホ幅", () => {
     await expect(last).not.toBeInViewport();
 
     await expand.click();
+    await last.scrollIntoViewIfNeeded();
     await expect(last).toBeInViewport();
     const collapse = page.getByRole("button", { name: "凡例を折りたたむ" });
     await expect(collapse).toHaveAttribute("aria-expanded", "true");

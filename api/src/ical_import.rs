@@ -81,6 +81,17 @@ pub struct ParsedCalendar {
     pub events: Vec<ParsedImportEvent>,
     pub total_count: usize,
     pub skipped: Vec<SkippedImport>,
+    /// 外部購読では夏時間を保つため、JST 変換前の繰り返し条件も保持する。
+    pub sources: BTreeMap<usize, SourceRecurrence>,
+    pub vtimezones: Vec<VTimezone>,
+}
+
+#[derive(Debug)]
+pub struct SourceRecurrence {
+    pub start: CalDateTime,
+    pub duration: Option<Duration>,
+    pub duration_days: i64,
+    pub rule: Option<String>,
 }
 
 fn skip(counts: &mut BTreeMap<&'static str, usize>, reason: &'static str) {
@@ -89,6 +100,15 @@ fn skip(counts: &mut BTreeMap<&'static str, usize>, reason: &'static str) {
 
 /// 構文が壊れたファイルだけをエラーにし、個々の扱えない VEVENT は理由別にスキップする。
 pub fn parse(contents: &str) -> Result<ParsedCalendar, String> {
+    parse_calendar(contents, false)
+}
+
+/// 購読は保存用の JST ルールに変えず、元の壁時計で繰り返しを検証する。
+pub fn parse_subscription(contents: &str) -> Result<ParsedCalendar, String> {
+    parse_calendar(contents, true)
+}
+
+fn parse_calendar(contents: &str, subscription: bool) -> Result<ParsedCalendar, String> {
     if contents.len() > ICS_MAX_BYTES {
         return Err("ICS ファイルは 1 MiB 以下にしてください".into());
     }
@@ -129,7 +149,25 @@ pub fn parse(contents: &str) -> Result<ParsedCalendar, String> {
                 {
                     exceptional_uids.insert(invite.uid.clone());
                 }
-                lifted.push((index + 1, invite));
+                let days = calendar.children[0]
+                    .properties
+                    .iter()
+                    .find(|property| property.name.eq_ignore_ascii_case("DURATION"))
+                    .and_then(|property| {
+                        let date = property
+                            .value
+                            .trim_start_matches('+')
+                            .strip_prefix('P')?
+                            .split('T')
+                            .next()?;
+                        if let Some(weeks) = date.strip_suffix('W') {
+                            weeks.parse::<i64>().ok()?.checked_mul(7)
+                        } else {
+                            date.strip_suffix('D')?.parse::<i64>().ok()
+                        }
+                    })
+                    .unwrap_or(0);
+                lifted.push((index + 1, invite, days));
             }
             Err(_) => skip(&mut counts, "invalid_event"),
         }
@@ -152,7 +190,8 @@ pub fn parse(contents: &str) -> Result<ParsedCalendar, String> {
     };
 
     let mut events = Vec::new();
-    for (source_index, invite) in lifted {
+    let mut sources = BTreeMap::new();
+    for (source_index, invite, duration_days) in lifted {
         let reason = if exceptional_uids.contains(&invite.uid) {
             Some("recurrence_exceptions")
         } else if invite.status == Some(EventStatus::Cancelled) {
@@ -164,8 +203,17 @@ pub fn parse(contents: &str) -> Result<ParsedCalendar, String> {
             skip(&mut counts, reason);
             continue;
         }
-        match convert(source_index, invite, &vtimezones) {
-            Ok(event) => events.push(event),
+        let source = SourceRecurrence {
+            start: invite.dtstart.clone(),
+            duration: invite.duration,
+            duration_days,
+            rule: invite.rrule.clone(),
+        };
+        match convert(source_index, invite, &vtimezones, subscription) {
+            Ok(event) => {
+                sources.insert(source_index, source);
+                events.push(event);
+            }
             Err(reason) => skip(&mut counts, reason),
         }
     }
@@ -180,6 +228,8 @@ pub fn parse(contents: &str) -> Result<ParsedCalendar, String> {
                 count,
             })
             .collect(),
+        sources,
+        vtimezones,
     })
 }
 
@@ -187,12 +237,18 @@ fn convert(
     source_index: usize,
     invite: ParsedInvite,
     vtimezones: &[VTimezone],
+    subscription: bool,
 ) -> Result<ParsedImportEvent, &'static str> {
     let (start_at, end_at, is_all_day) = convert_dates(&invite, vtimezones)?;
+    let recurrence_start = if subscription {
+        source_local(&invite.dtstart)?
+    } else {
+        start_at
+    };
     let recurrence = invite
         .rrule
         .as_deref()
-        .map(|raw| parse_rule(raw, start_at))
+        .map(|raw| parse_rule_inner(raw, recurrence_start, subscription))
         .transpose()
         .map_err(|_| "unsupported_recurrence")?;
 
@@ -223,8 +279,12 @@ fn convert(
         end_at,
         recurrence,
     };
-    let estimated_occurrences =
-        estimate_occurrences(&event).map_err(|_| "unsupported_recurrence")?;
+    let estimated_occurrences = if subscription {
+        // 購読は保存しないため、実体化する件数の見積もりは不要。
+        0
+    } else {
+        estimate_occurrences(&event).map_err(|_| "unsupported_recurrence")?
+    };
     Ok(ParsedImportEvent {
         source_index,
         event,
@@ -287,7 +347,18 @@ fn midnight(date: NaiveDate) -> Result<NaiveDateTime, &'static str> {
     date.and_hms_opt(0, 0, 0).ok_or("invalid_date")
 }
 
-fn to_jst(value: &CalDateTime, vtimezones: &[VTimezone]) -> Result<NaiveDateTime, &'static str> {
+pub(crate) fn source_local(value: &CalDateTime) -> Result<NaiveDateTime, &'static str> {
+    match value {
+        CalDateTime::Floating(local) | CalDateTime::Zoned { local, .. } => Ok(*local),
+        CalDateTime::Utc(utc) => Ok(utc.naive_utc()),
+        CalDateTime::Date(date) => midnight(*date),
+    }
+}
+
+pub(crate) fn to_jst(
+    value: &CalDateTime,
+    vtimezones: &[VTimezone],
+) -> Result<NaiveDateTime, &'static str> {
     match value {
         CalDateTime::Floating(value) => Ok(*value),
         CalDateTime::Date(date) => midnight(*date),
@@ -301,7 +372,7 @@ fn to_jst(value: &CalDateTime, vtimezones: &[VTimezone]) -> Result<NaiveDateTime
     }
 }
 
-fn parse_rule(raw: &str, start: NaiveDateTime) -> Result<Rule, String> {
+fn parse_rule_inner(raw: &str, start: NaiveDateTime, defer_until: bool) -> Result<Rule, String> {
     let mut parts = BTreeMap::new();
     for part in raw.split(';') {
         let (key, value) = part
@@ -382,9 +453,30 @@ fn parse_rule(raw: &str, start: NaiveDateTime) -> Result<Rule, String> {
         },
         _ => return Err("対応していない繰り返し条件です".into()),
     };
-    apply_ending(&mut rule, parts.get("COUNT"), parts.get("UNTIL"), start)?;
+    if defer_until && let Some(until) = parts.get("UNTIL") {
+        if parts.contains_key("COUNT") {
+            return Err("COUNT と UNTIL は同時に指定できません".into());
+        }
+        parse_until(until)?;
+    } else {
+        apply_ending(&mut rule, parts.get("COUNT"), parts.get("UNTIL"), start)?;
+    }
     rule.rrule(start)?;
     Ok(rule)
+}
+
+pub(crate) fn parse_until(value: &str) -> Result<(NaiveDateTime, bool), String> {
+    let utc = value.ends_with('Z');
+    let date = if utc {
+        NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%SZ").ok()
+    } else if value.len() == 8 {
+        NaiveDate::parse_from_str(value, "%Y%m%d")
+            .ok()
+            .and_then(|date| date.and_hms_opt(23, 59, 59))
+    } else {
+        NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S").ok()
+    };
+    Ok((date.ok_or("繰り返し終了日が不正です")?, utc))
 }
 
 fn apply_ending(
@@ -402,20 +494,13 @@ fn apply_ending(
             Ok(())
         }
         (None, Some(until)) => {
-            let boundary = if until.ends_with('Z') {
-                NaiveDateTime::parse_from_str(until, "%Y%m%dT%H%M%SZ")
-                    .map_err(|_| "繰り返し終了日が不正です")?
-                    .and_utc()
-                    .with_timezone(&FixedOffset::east_opt(9 * 3600).expect("JST offset is valid"))
-                    .naive_local()
-            } else if until.len() == 8 {
-                NaiveDate::parse_from_str(until, "%Y%m%d")
-                    .map_err(|_| "繰り返し終了日が不正です")?
-                    .and_hms_opt(23, 59, 59)
+            let (boundary, utc) = parse_until(until)?;
+            let boundary = if utc {
+                boundary
+                    .checked_add_signed(Duration::hours(9))
                     .ok_or("繰り返し終了日が不正です")?
             } else {
-                NaiveDateTime::parse_from_str(until, "%Y%m%dT%H%M%S")
-                    .map_err(|_| "繰り返し終了日が不正です")?
+                boundary
             };
             let from = boundary
                 .checked_sub_signed(Duration::days(370))

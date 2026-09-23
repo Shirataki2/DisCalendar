@@ -10,6 +10,7 @@ mod admin_status;
 mod admin_users;
 mod attachments;
 pub(crate) mod events;
+mod external_calendars;
 mod feeds;
 mod guilds;
 mod health;
@@ -50,6 +51,11 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(feeds::get_feed)
                 .service(feeds::issue_feed)
                 .service(feeds::revoke_feed)
+                .service(external_calendars::list)
+                .service(external_calendars::create)
+                .service(external_calendars::update)
+                .service(external_calendars::remove)
+                .service(external_calendars::refresh)
                 .service(webhooks::list)
                 .service(webhooks::create)
                 .service(webhooks::set_enabled)
@@ -78,6 +84,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(crate::recurring::preview)
                 .service(imports::preview)
                 .service(imports::bulk)
+                .service(external_calendars::events)
                 .service(events::list)
                 .service(events::create)
                 .service(events::update)

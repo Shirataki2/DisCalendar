@@ -12,6 +12,8 @@ import {
 
 // 同じケースで複数回ロールを付け替えるため、再確認の制限時間を含める。
 test.setTimeout(120_000);
+// API の失敗モックが Service Worker の通信に迂回されないようにする。
+test.use({ serviceWorkers: "block" });
 
 const guild = E2E_GUILDS.editorRoles;
 const role = E2E_EDITOR_ROLES[0];

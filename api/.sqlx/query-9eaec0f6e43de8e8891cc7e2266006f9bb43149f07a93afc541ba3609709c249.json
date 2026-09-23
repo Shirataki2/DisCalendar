@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT $1::text AS \"guild_id!\", g.name AS \"name?\", g.avatar_url AS \"avatar_url?\", g.locale AS \"locale?\",\n               (g.guild_id IS NOT NULL) AS \"registered!\",\n               COALESCE(c.restricted, false) AS \"restricted!\",\n               (SELECT s.channel_id FROM event_settings s WHERE s.guild_id = $1 ORDER BY s.id LIMIT 1) AS channel_id,\n               (SELECT count(*) FROM events e WHERE e.guild_id = $1) AS \"event_count!\"\n        FROM (SELECT 1) AS one\n        LEFT JOIN guilds g ON g.guild_id = $1\n        LEFT JOIN guild_config c ON c.guild_id = $1\n        WHERE g.guild_id IS NOT NULL\n           OR c.guild_id IS NOT NULL\n           OR EXISTS (SELECT 1 FROM event_settings s WHERE s.guild_id = $1)\n           OR EXISTS (SELECT 1 FROM events e WHERE e.guild_id = $1)\n        ",
+  "query": "\n        SELECT $1::text AS \"guild_id!\", g.name AS \"name?\", g.avatar_url AS \"avatar_url?\", g.locale AS \"locale?\",\n               (g.guild_id IS NOT NULL) AS \"registered!\",\n               COALESCE(c.restricted, false) AS \"restricted!\",\n               (SELECT s.channel_id FROM event_settings s WHERE s.guild_id = $1 ORDER BY s.id LIMIT 1) AS channel_id,\n               (SELECT count(*) FROM events e WHERE e.guild_id = $1) AS \"event_count!\"\n        FROM (SELECT 1) AS one\n        LEFT JOIN guilds g ON g.guild_id = $1\n        LEFT JOIN guild_config c ON c.guild_id = $1\n        WHERE g.guild_id IS NOT NULL\n           OR c.guild_id IS NOT NULL\n           OR EXISTS (SELECT 1 FROM event_settings s WHERE s.guild_id = $1)\n           OR EXISTS (SELECT 1 FROM guild_external_calendars WHERE guild_id = $1)\n           OR EXISTS (SELECT 1 FROM events e WHERE e.guild_id = $1)\n        ",
   "describe": {
     "columns": [
       {
@@ -83,5 +83,5 @@
       null
     ]
   },
-  "hash": "6f1620aa014e5a1b38bffe4c347a715ba03ff62c28da6eba2e2ff13601c569b7"
+  "hash": "9eaec0f6e43de8e8891cc7e2266006f9bb43149f07a93afc541ba3609709c249"
 }
