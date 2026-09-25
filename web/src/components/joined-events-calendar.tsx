@@ -16,6 +16,7 @@ import {
   calendarBaseOptions,
   datesSetToRange,
   useCalendarBase,
+  useCalendarToolbarElements,
 } from "@/components/calendar-base";
 import { CalendarLegendChip } from "@/components/calendar-legend-chip";
 import { EventPopover, type PopoverAnchor } from "@/components/event-popover";
@@ -85,6 +86,7 @@ function useOverflowCount(
  */
 export function JoinedEventsCalendar({ guilds }: Props) {
   const calendarRef = useRef<CalendarRef>(null);
+  const toolbarElements = useCalendarToolbarElements(calendarRef);
   const { initialView, firstDay, scrollTime } = useCalendarBase();
   // キーボードショートカット (#160)。閲覧専用なので "n" (新規作成) は渡さない
   useCalendarShortcuts({ calendarRef });
@@ -229,6 +231,7 @@ export function JoinedEventsCalendar({ guilds }: Props) {
           <Calendar
             ref={calendarRef}
             {...calendarBaseOptions}
+            toolbarElements={toolbarElements}
             initialView={initialView}
             firstDay={firstDay}
             scrollTime={scrollTime}
