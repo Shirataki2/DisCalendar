@@ -26,7 +26,6 @@ test("新規予定の部分失敗から添付だけ再試行し、画像確認�
   const title = `添付 ${Date.now()}`;
   await page.goto(`/dashboard/${guild}`);
   await page.getByRole("button", { name: "新規作成" }).click();
-  await page.getByRole("menuitem", { name: /予定を作成/ }).click();
   const form = page.getByRole("dialog", { name: "予定を作成" });
   await form.getByLabel("タイトル").fill(` ${title} `);
   await expect(
@@ -438,7 +437,6 @@ test("保存先が未設定でも添付以外の予定作成を続けられる",
   );
   await page.goto(`/dashboard/${guild}`);
   await page.getByRole("button", { name: "新規作成" }).click();
-  await page.getByRole("menuitem", { name: /予定を作成/ }).click();
   const form = page.getByRole("dialog", { name: "予定を作成" });
   await expect(
     form.getByText("添付ファイルは現在利用できません"),
@@ -479,7 +477,6 @@ test("予定保存の応答前に閉じても、次に開いたフォームを�
   try {
     await page.goto(`/dashboard/${guild}`);
     await page.getByRole("button", { name: "新規作成" }).click();
-    await page.getByRole("menuitem", { name: /予定を作成/ }).click();
     const form = page.getByRole("dialog", { name: "予定を作成" });
     await form.getByLabel("タイトル").fill("保存応答待ちの予定");
     await expect(
@@ -494,7 +491,6 @@ test("予定保存の応答前に閉じても、次に開いたフォームを�
     await page.getByRole("button", { name: "破棄して閉じる" }).click();
     await expect(form).not.toBeVisible();
     await page.getByRole("button", { name: "新規作成" }).click();
-    await page.getByRole("menuitem", { name: /予定を作成/ }).click();
     await form.getByLabel("タイトル").fill("次の予定");
     const response = page.waitForResponse(
       (r) =>

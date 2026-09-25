@@ -35,7 +35,7 @@ test("390pxでプレビューし、重複を選び直して共通色で取り込
   expect(duplicate.status()).toBe(201);
 
   await page.goto(`/dashboard/${guild}`);
-  await page.getByRole("button", { name: "新規作成" }).click();
+  await page.getByRole("button", { name: "作成メニューを開く" }).click();
   await page.getByRole("menuitem", { name: "ICSファイルから取り込む" }).click();
   const dialog = page.getByRole("dialog", {
     name: "ICSファイルから取り込む",
