@@ -547,50 +547,64 @@ export function EventCalendar({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           {eventsSource === dashboardEventsSource ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    type="button"
-                    size="lg"
-                    disabled={!canEdit}
-                    title={
-                      canEdit
-                        ? "予定を新規作成、またはICSファイルから取り込む"
-                        : "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます"
-                    }
-                    className={cn(
-                      "rounded-full bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600",
-                      guide?.target === "create" &&
-                        "ring-2 ring-indigo-300 ring-offset-4 ring-offset-background",
-                    )}
-                  />
+            <div
+              className={cn(
+                "inline-flex rounded-full",
+                guide?.target === "create" &&
+                  "ring-2 ring-indigo-300 ring-offset-4 ring-offset-background",
+              )}
+            >
+              <Button
+                type="button"
+                size="lg"
+                onClick={openCreateDefault}
+                disabled={!canEdit}
+                title={
+                  canEdit
+                    ? "新規作成 (n)"
+                    : "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます"
                 }
+                className="h-11 rounded-l-full rounded-r-none bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600 focus-visible:z-10"
               >
                 <PlusIcon />
                 新規作成
-                <ChevronDownIcon className="ml-1" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-64">
-                <DropdownMenuItem
-                  className="min-h-11"
-                  onClick={openCreateDefault}
-                >
-                  <PlusIcon />
-                  予定を作成
-                  <DropdownMenuShortcut>n</DropdownMenuShortcut>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="min-h-11"
-                  onClick={() =>
-                    setImportDefaultColor(currentSettings().defaultColor)
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  disabled={!canEdit}
+                  render={
+                    <Button
+                      type="button"
+                      size="icon-lg"
+                      aria-label="作成メニューを開く"
+                      title="作成メニューを開く"
+                      className="size-11 rounded-l-none rounded-r-full border-l-white/40 bg-amber-700 text-white hover:bg-amber-600 focus-visible:z-10"
+                    />
                   }
                 >
-                  <FileUpIcon />
-                  ICSファイルから取り込む
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  <ChevronDownIcon />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-64">
+                  <DropdownMenuItem
+                    className="min-h-11"
+                    onClick={openCreateDefault}
+                  >
+                    <PlusIcon />
+                    予定を作成
+                    <DropdownMenuShortcut>n</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="min-h-11"
+                    onClick={() =>
+                      setImportDefaultColor(currentSettings().defaultColor)
+                    }
+                  >
+                    <FileUpIcon />
+                    ICSファイルから取り込む
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           ) : (
             <Button
               type="button"

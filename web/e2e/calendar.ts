@@ -76,13 +76,7 @@ export async function dragEventTo(page: Page, event: Locator, target: Locator) {
 /** 「新規作成」からタイトルだけ入れて予定を作る (日時は既定の「今の HH:00 〜 HH:30」) */
 export async function createEvent(page: Page, title: string) {
   await page.getByRole("button", { name: "新規作成" }).click();
-  const createItem = page.getByRole("menuitem", { name: /予定を作成/ });
   const dialog = page.getByRole("dialog", { name: "予定を作成" });
-  const openedMenu = await Promise.race([
-    createItem.waitFor({ state: "visible" }).then(() => true),
-    dialog.waitFor({ state: "visible" }).then(() => false),
-  ]);
-  if (openedMenu) await createItem.click();
   await expect(dialog).toBeVisible();
   await dialog.getByLabel("タイトル").fill(title);
   await dialog.getByRole("button", { name: "作成" }).click();

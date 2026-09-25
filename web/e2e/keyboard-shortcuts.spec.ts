@@ -134,7 +134,7 @@ test.describe("編集できるサーバーのカレンダー", () => {
     await expect(viewTab(page, "4日")).toHaveAttribute("title", "4日 (4)");
     await expect(
       page.getByRole("button", { name: "新規作成" }),
-    ).toHaveAttribute("title", "予定を新規作成、またはICSファイルから取り込む");
+    ).toHaveAttribute("title", "新規作成 (n)");
   });
 });
 

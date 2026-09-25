@@ -13,7 +13,6 @@ for (const width of [320, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`/dashboard/${guild}`);
     await page.getByRole("button", { name: "新規作成", exact: true }).click();
-    await page.getByRole("menuitem", { name: /予定を作成/ }).click();
     await page.addStyleTag({
       content: "nextjs-portal { display: none !important; }",
     });
@@ -217,7 +216,6 @@ test("設定の取消・キーボード・開始日の不一致と未保存確�
     content: "nextjs-portal { display: none !important; }",
   });
   await page.getByRole("button", { name: "新規作成", exact: true }).click();
-  await page.getByRole("menuitem", { name: /予定を作成/ }).click();
   const form = page.getByRole("dialog", { name: "予定を作成", exact: true });
   await form.getByRole("button", { name: "繰り返しなし" }).focus();
   await page.keyboard.press("Enter");

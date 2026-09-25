@@ -6,7 +6,6 @@ const guild = E2E_GUILDS.admin.id;
 test.beforeEach(async ({ page }) => {
   await page.goto(`/dashboard/${guild}`);
   await page.getByRole("button", { name: "新規作成" }).click();
-  await page.getByRole("menuitem", { name: /予定を作成/ }).click();
 });
 
 for (const close of ["Escape", "Close", "キャンセル"]) {
@@ -21,7 +20,6 @@ for (const close of ["Escape", "Close", "キャンセル"]) {
     await closeForm();
     await expect(form).toBeHidden();
     await page.getByRole("button", { name: "新規作成" }).click();
-    await page.getByRole("menuitem", { name: /予定を作成/ }).click();
     await form.getByLabel("タイトル").fill("未保存の予定");
     await form.getByLabel("開始日", { exact: true }).click();
     await page.locator('[data-selected-single="true"]').press("ArrowRight");
@@ -43,7 +41,6 @@ for (const close of ["Escape", "Close", "キャンセル"]) {
     await page.getByRole("button", { name: "破棄して閉じる" }).click();
     await expect(form).toBeHidden();
     await page.getByRole("button", { name: "新規作成" }).click();
-    await page.getByRole("menuitem", { name: /予定を作成/ }).click();
     await expect(form.getByLabel("タイトル")).toHaveValue("");
     await expect(
       form.getByRole("checkbox", { name: "終日", exact: true }),
