@@ -61,7 +61,7 @@ jobs:
           # --comment で PR にインラインコメントを付ける (無いと実行ログにしか出ない)
           prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
           claude_args: |
-            --model claude-opus-5
+            --model claude-opus-5-5
             --append-system-prompt "This is a non-interactive CI session: ending your turn terminates the entire run immediately and any background work is lost."
       # Claude のやり取りの全文 (ツールの実行結果を含む) を artifact に残す。show_full_output を常用せずに
       # 「レビューが最後まで走ったか」を後から確認するため。中身は PR の差分・コメントと AGENTS.md 程度だが
