@@ -9,7 +9,7 @@ import Calendar, {
   type EventClickInfo,
   type EventInput,
 } from "@fullcalendar/react";
-import { addDays } from "date-fns";
+import { addDays, format } from "date-fns";
 import { ChevronDownIcon, FileUpIcon, PlusIcon } from "lucide-react";
 import {
   type CSSProperties,
@@ -25,6 +25,7 @@ import {
   datesSetToRange,
   useCalendarBase,
 } from "@/components/calendar-base";
+import { CalendarLegendChip } from "@/components/calendar-legend-chip";
 import {
   type EventDialogState,
   EventFormDialog,
@@ -67,10 +68,12 @@ import type {
   ApiEvent,
   ApiEventInput,
   ChangeScope,
+  ExternalEvent,
   Notification,
 } from "@/lib/api/types";
 import {
   describeEventRange,
+  parseApiDateTime,
   sourceOf,
   toApiEventInput,
   toCalendarEvent,
@@ -94,6 +97,7 @@ import {
   useEventsQuery,
   useUpdateEvent,
 } from "@/lib/query/events";
+import { useExternalEvents } from "@/lib/query/external-calendars";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -271,6 +275,13 @@ export function EventCalendar({
   const quickAddId = useRef(0);
   const [range, setRange] = useState<EventRange | null>(null);
   const [popover, setPopover] = useState<PopoverState | null>(null);
+  const [externalPopover, setExternalPopover] = useState<{
+    id: string;
+    anchor: PopoverAnchor;
+  } | null>(null);
+  const [hiddenExternal, setHiddenExternal] = useState<ReadonlySet<number>>(
+    () => new Set(),
+  );
   const [quickAdd, setQuickAdd] = useState<QuickAddState | null>(null);
   const [dialog, setDialog] = useState<EventDialogState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiEvent | null>(null);
@@ -311,6 +322,9 @@ export function EventCalendar({
     [eventsSource, guildId, dialog],
   );
   const eventsQuery = useEventsQuery(guildId, range, eventsSource);
+  const externalEnabled =
+    eventsSource === dashboardEventsSource && !settingsOverride;
+  const externalQuery = useExternalEvents(guildId, range, externalEnabled);
   const createEvent = useCreateEvent(guildId, eventsSource);
   const updateEvent = useUpdateEvent(guildId, eventsSource);
   const deleteEvent = useDeleteEvent(guildId, eventsSource);
@@ -328,7 +342,33 @@ export function EventCalendar({
             ]
           : [],
     }));
-    if (!quickAdd) return current;
+    const external = externalEnabled
+      ? (externalQuery.data ?? []).flatMap(({ calendar, events }) =>
+          hiddenExternal.has(calendar.id)
+            ? []
+            : events.map(
+                (event): EventInput => ({
+                  id: `external:${event.id}`,
+                  title: event.name,
+                  start: event.is_all_day
+                    ? event.start_at.slice(0, 10)
+                    : event.start_at,
+                  end: event.is_all_day
+                    ? format(
+                        addDays(parseApiDateTime(event.end_at), 1),
+                        "yyyy-MM-dd",
+                      )
+                    : event.end_at,
+                  allDay: event.is_all_day,
+                  color: calendar.color,
+                  textColor: readableTextColor(calendar.color),
+                  editable: false,
+                  extendedProps: { externalSource: event },
+                }),
+              ),
+        )
+      : [];
+    if (!quickAdd) return [...current, ...external];
     const input = eventFormToApiInput({
       ...quickAdd.values,
       name: quickAdd.title,
@@ -346,8 +386,23 @@ export function EventCalendar({
       editable: false,
       classNames: ["pointer-events-none"],
     };
-    return [...current, preview];
-  }, [eventsQuery.data, quickAdd, guide?.target]);
+    return [...current, ...external, preview];
+  }, [
+    eventsQuery.data,
+    externalQuery.data,
+    externalEnabled,
+    hiddenExternal,
+    quickAdd,
+    guide?.target,
+  ]);
+  const selectedExternal =
+    externalPopover &&
+    externalQuery.data
+      ?.flatMap((calendar) => calendar.events)
+      .find((event) => event.id === externalPopover.id);
+  const selectedExternalCalendar = externalQuery.data?.find(
+    (item) => item.calendar.id === selectedExternal?.calendar_id,
+  )?.calendar;
   // ポップオーバーに出す予定はキャッシュから最新を引く (ドラッグ後などに古い内容を出さない)
   const popoverEvent = useMemo(
     () =>
@@ -396,10 +451,23 @@ export function EventCalendar({
   // クリックで概要ポップオーバー (旧実装の右クリック / 長押し相当)。
   // 予定の要素は再描画で差し替わるので、クリック時点の位置を仮想要素として覚えておく
   const handleEventClick = (info: EventClickInfo) => {
+    const external = info.event.extendedProps.externalSource as
+      | ExternalEvent
+      | undefined;
+    if (external) {
+      const rect = info.el.getBoundingClientRect();
+      setPopover(null);
+      setExternalPopover({
+        id: external.id,
+        anchor: { getBoundingClientRect: () => rect },
+      });
+      return;
+    }
     const source = sourceOf(info.event);
     if (!source) return;
     const rect = info.el.getBoundingClientRect();
     setQuickAdd(null);
+    setExternalPopover(null);
     setPopover({
       eventId: source.id,
       anchor: { getBoundingClientRect: () => rect },
@@ -532,6 +600,7 @@ export function EventCalendar({
   const overlayOpen = !!(
     dialog ||
     popoverEvent ||
+    selectedExternal ||
     quickAdd ||
     deleteTarget ||
     scopeRequest ||
@@ -649,6 +718,56 @@ export function EventCalendar({
             </span>
           )}
         </div>
+        {externalEnabled && (externalQuery.data?.length ?? 0) > 0 && (
+          <ul
+            aria-label="外部カレンダーの凡例"
+            className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto"
+          >
+            {externalQuery.data?.map(({ calendar, warning }) => {
+              const shown = !hiddenExternal.has(calendar.id);
+              return (
+                <li
+                  key={calendar.id}
+                  title={calendar.last_error ?? warning ?? undefined}
+                >
+                  <CalendarLegendChip
+                    name={calendar.name}
+                    color={calendar.color}
+                    shown={shown}
+                    error={
+                      calendar.last_error
+                        ? "取得できません"
+                        : warning
+                          ? "一部省略"
+                          : null
+                    }
+                    onClick={() => {
+                      setExternalPopover(null);
+                      setHiddenExternal((previous) => {
+                        const next = new Set(previous);
+                        if (shown) next.add(calendar.id);
+                        else next.delete(calendar.id);
+                        return next;
+                      });
+                    }}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {externalEnabled && externalQuery.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            外部カレンダーを取得できませんでした。
+            <button
+              type="button"
+              className="underline"
+              onClick={() => void externalQuery.refetch()}
+            >
+              再試行
+            </button>
+          </p>
+        )}
         {/* calendar-shell は globals.css の微調整の起点 (FullCalendar のクラス名はハッシュで指せない) */}
         <div
           className="calendar-shell min-h-0 flex-1"
@@ -703,6 +822,32 @@ export function EventCalendar({
           onDelete={openDelete}
           onClose={() => setPopover(null)}
         />
+        <Popover
+          open={!!selectedExternal}
+          onOpenChange={(open) => {
+            if (!open) setExternalPopover(null);
+          }}
+        >
+          {selectedExternal && (
+            <PopoverContent
+              anchor={externalPopover?.anchor}
+              side="right"
+              align="start"
+              className="w-80 max-w-[calc(100vw-1rem)]"
+            >
+              <PopoverTitle>{selectedExternal.name}</PopoverTitle>
+              <PopoverDescription>
+                {selectedExternalCalendar?.name} · 外部カレンダーの予定
+              </PopoverDescription>
+              <p className="text-sm">{describeEventRange(selectedExternal)}</p>
+              {selectedExternal.description && (
+                <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                  {selectedExternal.description}
+                </p>
+              )}
+            </PopoverContent>
+          )}
+        </Popover>
         {quickAdd && (
           <QuickAddPopover
             guidance={guide?.inlineContent}

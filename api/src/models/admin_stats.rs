@@ -84,6 +84,7 @@ pub async fn counts<'e>(
             (SELECT count(*) FROM (
                 SELECT guild_id FROM guilds
                 UNION SELECT guild_id FROM guild_config
+                UNION SELECT guild_id FROM guild_external_calendars
                 UNION SELECT guild_id FROM event_settings
                 UNION SELECT guild_id FROM events
             ) k) AS "known_guilds!",
@@ -143,6 +144,7 @@ pub async fn left_guilds<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<Vec<
         ),
         known AS (
             SELECT guild_id FROM guild_config
+            UNION SELECT guild_id FROM guild_external_calendars
             UNION SELECT guild_id FROM event_settings
             UNION SELECT guild_id FROM counts
         )

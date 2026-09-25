@@ -24,6 +24,8 @@ pub struct AppState {
     /// 日次アクティビティ (#81) を同じ日に何度も書きに行かないためのキャッシュ
     /// (Better Auth の user.id → 記録済みの JST の日付)
     pub activity_days: moka::future::Cache<String, chrono::NaiveDate>,
+    pub external_feeds: moka::future::Cache<i64, crate::external_calendars::CachedFeed>,
+    pub external_fetch_slots: tokio::sync::Semaphore,
     pub admin: AdminConfig,
     /// プロセスの起動時刻 (`GET /admin/status` の稼働時間、#37)
     pub started_at: chrono::DateTime<chrono::Utc>,

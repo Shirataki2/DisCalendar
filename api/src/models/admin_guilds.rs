@@ -2,7 +2,7 @@
 //!
 //! Bot は退出時に `guilds` の行を消す (bot/src/event.rs) が、予定 (`events`) や設定 (`guild_config` /
 //! `event_settings`) の行は残る。運用で見たいのはそういう「退出済みだがデータが残っているギルド」も含むので、
-//! 一覧の起点は `guilds` だけでなく 4 テーブルに出てくる guild_id の和集合にする。
+//! 一覧の起点は `guilds` だけでなく 5 テーブルに出てくる guild_id の和集合にする。
 //! `guilds` に行が無いものは `name` / `avatar_url` / `locale` が null、`registered` が false になる。
 //! Bot の現在の参加状況 (Discord API) は routes 側で足す。
 
@@ -57,6 +57,7 @@ pub async fn list<'e>(
         WITH known AS (
             SELECT guild_id FROM guilds
             UNION SELECT guild_id FROM guild_config
+            UNION SELECT guild_id FROM guild_external_calendars
             UNION SELECT guild_id FROM event_settings
             UNION SELECT guild_id FROM events
         ),
@@ -92,6 +93,7 @@ pub async fn count<'e>(executor: impl PgExecutor<'e>, q: &str) -> sqlx::Result<i
         WITH known AS (
             SELECT guild_id FROM guilds
             UNION SELECT guild_id FROM guild_config
+            UNION SELECT guild_id FROM guild_external_calendars
             UNION SELECT guild_id FROM event_settings
             UNION SELECT guild_id FROM events
         )
@@ -126,6 +128,7 @@ pub async fn find<'e>(
         WHERE g.guild_id IS NOT NULL
            OR c.guild_id IS NOT NULL
            OR EXISTS (SELECT 1 FROM event_settings s WHERE s.guild_id = $1)
+           OR EXISTS (SELECT 1 FROM guild_external_calendars WHERE guild_id = $1)
            OR EXISTS (SELECT 1 FROM events e WHERE e.guild_id = $1)
         "#,
         guild_id
@@ -164,6 +167,7 @@ pub async fn exists<'e>(executor: impl PgExecutor<'e>, guild_id: &str) -> sqlx::
             EXISTS (SELECT 1 FROM guilds WHERE guild_id = $1)
             OR EXISTS (SELECT 1 FROM guild_config WHERE guild_id = $1)
             OR EXISTS (SELECT 1 FROM event_settings WHERE guild_id = $1)
+            OR EXISTS (SELECT 1 FROM guild_external_calendars WHERE guild_id = $1)
             OR EXISTS (SELECT 1 FROM events WHERE guild_id = $1)
         ) AS "exists!"
         "#,

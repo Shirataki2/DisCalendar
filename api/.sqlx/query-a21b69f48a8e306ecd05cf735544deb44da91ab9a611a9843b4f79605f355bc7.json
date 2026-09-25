@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH known AS (\n            SELECT guild_id FROM guilds\n            UNION SELECT guild_id FROM guild_config\n            UNION SELECT guild_id FROM guild_external_calendars\n            UNION SELECT guild_id FROM event_settings\n            UNION SELECT guild_id FROM events\n        )\n        SELECT count(*) AS \"count!\"\n        FROM known k\n        LEFT JOIN guilds g ON g.guild_id = k.guild_id\n        WHERE $1::text = '' OR k.guild_id = $1 OR g.name ILIKE $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a21b69f48a8e306ecd05cf735544deb44da91ab9a611a9843b4f79605f355bc7"
+}

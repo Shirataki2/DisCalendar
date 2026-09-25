@@ -8,7 +8,7 @@ use discalendar_api::{
     auth::AuthUser,
     models::{
         admin_audit::{self, AuditEntry},
-        admin_stats, admin_status, admin_users,
+        admin_guilds, admin_stats, admin_status, admin_users,
     },
 };
 use sqlx::PgPool;
@@ -406,4 +406,31 @@ async fn audit_logs_are_listed_newest_first_and_filterable(pool: PgPool) {
         actions,
         vec!["event.update", "sql.select", "user.revoke_sessions"]
     );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn external_subscription_only_guild_is_visible_to_admin(pool: PgPool) {
+    create_auth_tables(&pool).await;
+    sqlx::query("INSERT INTO guild_external_calendars (guild_id, url, name, color, created_by, created_at) VALUES ($1, 'https://example.com/feed.ics', '外部予定', '#123456', 'user', now())")
+        .bind(LEFT_GUILD).execute(&pool).await.unwrap();
+    let list = admin_guilds::list(&pool, "", 1).await.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].guild_id, LEFT_GUILD);
+    assert!(!list[0].registered);
+    assert_eq!(admin_guilds::count(&pool, "").await.unwrap(), 1);
+    assert!(
+        admin_guilds::find(&pool, LEFT_GUILD)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(admin_guilds::exists(&pool, LEFT_GUILD).await.unwrap());
+    let counts = admin_stats::counts(&pool, dt("2026-09-23T00:00:00"))
+        .await
+        .unwrap();
+    assert_eq!(counts.known_guilds, 1);
+    assert_eq!(counts.left_guilds, 1);
+    let left = admin_stats::left_guilds(&pool).await.unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].guild_id, LEFT_GUILD);
 }
