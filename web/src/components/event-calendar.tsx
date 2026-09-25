@@ -24,6 +24,7 @@ import {
   calendarBaseOptions,
   datesSetToRange,
   useCalendarBase,
+  useCalendarToolbarElements,
 } from "@/components/calendar-base";
 import { CalendarLegendChip } from "@/components/calendar-legend-chip";
 import {
@@ -271,6 +272,7 @@ export function EventCalendar({
   const settings = settingsOverride ?? savedSettings;
   const currentSettings = () => settingsOverride ?? readCalendarSettings();
   const calendarRef = useRef<CalendarRef>(null);
+  const toolbarElements = useCalendarToolbarElements(calendarRef);
   const eventToOpen = useRef(initialEventId);
   const quickAddId = useRef(0);
   const [range, setRange] = useState<EventRange | null>(null);
@@ -781,6 +783,7 @@ export function EventCalendar({
             <Calendar
               ref={calendarRef}
               {...calendarBaseOptions}
+              toolbarElements={toolbarElements}
               initialView={initialView}
               initialDate={initialDate}
               firstDay={firstDay}

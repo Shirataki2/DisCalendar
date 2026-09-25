@@ -2,6 +2,7 @@
 
 import type {
   CalendarOptions,
+  CalendarRef,
   DatesSetInfo,
   DayCellInfo,
   DayHeaderInfo,
@@ -14,7 +15,8 @@ import jaLocale from "@fullcalendar/react/locales/ja";
 import classicThemePlugin from "@fullcalendar/react/themes/classic";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
 import { addHours, format, startOfHour } from "date-fns";
-import { useEffect, useState } from "react";
+import { type RefObject, useEffect, useMemo, useState } from "react";
+import { CalendarDateJump } from "@/components/calendar-date-jump";
 import {
   readCalendarSettings,
   readLastCalendarView,
@@ -172,7 +174,8 @@ export const calendarBaseOptions = {
   listDayHeaderClass,
   headerToolbar: {
     start: "prev,next today",
-    center: "title",
+    // dateJump は日付を指定して移動するボタン (#59)。中身は useCalendarToolbarElements が渡す
+    center: "title dateJump",
     end: "dayGridMonth,timeGridWeek,timeGridFourDay,timeGridDay,listMonth",
   },
   views: {
@@ -213,6 +216,19 @@ export const calendarBaseOptions = {
   longPressDelay: 400,
   height: "100%",
 } satisfies CalendarOptions;
+
+/**
+ * ヘッダツールバーに置く独自の要素 (headerToolbar の dateJump)。
+ * 中身がカレンダーの API を呼ぶので、calendarBaseOptions (静的) ではなく各コンポーネントから渡す
+ */
+export function useCalendarToolbarElements(
+  calendarRef: RefObject<CalendarRef | null>,
+): NonNullable<CalendarOptions["toolbarElements"]> {
+  return useMemo(
+    () => ({ dateJump: <CalendarDateJump calendarRef={calendarRef} /> }),
+    [calendarRef],
+  );
+}
 
 /**
  * マウント後に決めるカレンダーの初期状態。
