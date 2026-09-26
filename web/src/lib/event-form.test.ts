@@ -79,6 +79,17 @@ describe("eventFormSchema", () => {
     ).toHaveProperty("description");
   });
 
+  it("説明は Markdown 記号を含む1000文字を上限にし、元の文字列を送る", () => {
+    const description = `**${"あ".repeat(996)}**`;
+    expect(issuesOf({ ...valid, description })).toEqual({});
+    expect(eventFormToApiInput({ ...valid, description }).description).toBe(
+      description,
+    );
+    expect(
+      issuesOf({ ...valid, description: `${description}あ` }),
+    ).toHaveProperty("description");
+  });
+
   it("場所の文字数と URL スキームを検証する", () => {
     expect(
       issuesOf({ ...valid, location: "😀".repeat(LOCATION_MAX_CHARS) }),

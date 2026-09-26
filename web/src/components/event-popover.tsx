@@ -14,6 +14,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { EventAttachments } from "@/components/event-attachments";
 import { EventAuthors } from "@/components/event-authors";
+import { EventDescription } from "@/components/event-description";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import { useLastValue } from "@/hooks/use-last-value";
@@ -168,9 +169,9 @@ export function EventPopover({
             />
           )}
           {shown.description && (
-            <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
+            <EventDescription className="mt-1 max-h-40 overflow-y-auto text-xs text-muted-foreground">
               {shown.description}
-            </p>
+            </EventDescription>
           )}
         </div>
         {guidance && <div className="px-3 pb-3">{guidance}</div>}

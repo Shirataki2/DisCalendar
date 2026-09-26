@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { EventDescription } from "@/components/event-description";
 import { getSharedEvent } from "@/lib/api/public-share";
 import { describeEventRange } from "@/lib/calendar-events";
 import { locationUrl } from "@/lib/event-location";
@@ -87,9 +88,7 @@ export default async function SharePage({ params }: Props) {
           </p>
         )}
         {event.description && (
-          <p className="whitespace-pre-wrap break-words leading-relaxed">
-            {event.description}
-          </p>
+          <EventDescription>{event.description}</EventDescription>
         )}
         <div className="border-t pt-6">
           <Link
