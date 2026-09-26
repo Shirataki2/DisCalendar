@@ -20,6 +20,7 @@ import {
   AttachmentPicker,
   EventAttachments,
 } from "@/components/event-attachments";
+import { EventDescription } from "@/components/event-description";
 import { EventShareControls } from "@/components/event-share-controls";
 import { ColorPicker } from "@/components/form/color-picker";
 import { DatePicker } from "@/components/form/date-picker";
@@ -202,6 +203,7 @@ function EventForm({
   const attachmentEventId =
     savedEvent?.id ?? (state.mode === "edit" ? state.event.id : undefined);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [previewDescription, setPreviewDescription] = useState(false);
   const [mentionUserId, setMentionUserId] = useState("");
   const isEdit = state.mode === "edit";
   const initialRecurrence: RecurrenceRule =
@@ -260,6 +262,11 @@ function EventForm({
     if (focusedSubmit.current === submitCount) return;
     focusedSubmit.current = submitCount;
     if (!Object.keys(errors).length) return;
+    if (errors.description && previewDescription) {
+      setPreviewDescription(false);
+      focusedSubmit.current = 0;
+      return;
+    }
     const invalid = formRef.current?.querySelector<HTMLElement>(
       '[aria-invalid="true"], [data-invalid="true"], [data-slot="field-error"]',
     );
@@ -276,7 +283,7 @@ function EventForm({
     if (!target.matches("input, button, textarea")) target.tabIndex = -1;
     target.focus({ preventScroll: true });
     target.scrollIntoView({ block: "nearest" });
-  }, [errors, submitCount]);
+  }, [errors, submitCount, previewDescription]);
   const notifications = useWatch({ control, name: "notifications" });
   // 次のキー入力より前に破棄判定を更新し、設定直後のEscapeでも入力を保護する。
   useLayoutEffect(() => {
@@ -657,12 +664,56 @@ function EventForm({
 
             <Field data-invalid={errors.description ? true : undefined}>
               <FieldLabel htmlFor="event-form-description">説明</FieldLabel>
-              <Textarea
-                id="event-form-description"
-                rows={3}
-                aria-invalid={errors.description ? true : undefined}
-                {...register("description")}
-              />
+              <div className="grid">
+                <Textarea
+                  id="event-form-description"
+                  rows={3}
+                  className={`col-start-1 row-start-1 max-h-64${previewDescription ? " invisible" : ""}`}
+                  tabIndex={previewDescription ? -1 : undefined}
+                  aria-hidden={previewDescription || undefined}
+                  aria-describedby="event-description-help"
+                  aria-invalid={errors.description ? true : undefined}
+                  {...register("description")}
+                />
+                {previewDescription && (
+                  <section
+                    id="event-description-preview"
+                    aria-label="説明のプレビュー"
+                    // biome-ignore lint/a11y/noNoninteractiveTabindex: 長いプレビューをキーボードでスクロールできるようにする
+                    tabIndex={0}
+                    className="col-start-1 row-start-1 min-h-16 min-w-0 max-h-64 overflow-auto rounded-lg border px-2.5 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring"
+                  >
+                    {description ? (
+                      <EventDescription>{description}</EventDescription>
+                    ) : (
+                      <p className="text-muted-foreground">
+                        説明を入力すると、ここにプレビューが表示されます。
+                      </p>
+                    )}
+                  </section>
+                )}
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <a
+                  id="event-description-help"
+                  href="/docs/edit#description-format"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-h-11 content-center rounded text-xs text-primary underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  **太字**・- リストなどの書式
+                </a>
+                <Button
+                  type="button"
+                  variant={previewDescription ? "secondary" : "outline"}
+                  size="sm"
+                  className="min-h-11 shrink-0"
+                  aria-pressed={previewDescription}
+                  onClick={() => setPreviewDescription(!previewDescription)}
+                >
+                  プレビュー
+                </Button>
+              </div>
               <div className="flex items-start justify-between gap-2">
                 <FieldError errors={[errors.description]} />
                 <FieldDescription className="ml-auto shrink-0 text-xs">
