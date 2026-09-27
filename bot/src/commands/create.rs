@@ -22,6 +22,8 @@ use crate::{
     },
 };
 
+pub mod from_message;
+
 /// 予定を新たに作成します
 #[poise::command(slash_command, guild_only)]
 pub async fn create(
@@ -107,7 +109,7 @@ pub async fn create(
     save(ctx, validated).await
 }
 
-/// `/create` と `/quick` の共通保存経路。確認待ちの後も最新の設定で認可する。
+/// `/create`・`/quick`・「予定にする」の共通保存経路。確認待ちの後も最新の設定で認可する。
 async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotError> {
     let Some(guild_id) = ctx.guild_id() else {
         return Err(BotError::user("このコマンドはサーバー内でのみ実行できます"));
@@ -150,6 +152,11 @@ async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotErro
 
     let mut embed = CreateEmbed::new()
         .title(&event.name)
+        .url(format!(
+            "{}/dashboard/{}",
+            ctx.data().site_base_url.trim_end_matches('/'),
+            guild_id
+        ))
         .colour(validated.color.rgb())
         .timestamp(Timestamp::now())
         .fields([
@@ -203,12 +210,16 @@ pub async fn quick(
     #[description = "所要時間 (分)。省略時は 60 分、1〜10080 分"] duration: Option<i64>,
 ) -> Result<(), BotError> {
     let validated = quick_input(name, &date, &time, duration, now_jst())?;
+    confirm_and_save(ctx, validated).await
+}
+
+async fn confirm_and_save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotError> {
     let confirm_id = format!("{}:quick:confirm", ctx.id());
     let cancel_id = format!("{}:quick:cancel", ctx.id());
     let reply = ctx.send(poise::CreateReply::default()
         .ephemeral(true)
         .embed(CreateEmbed::new().title(&validated.name).description(format!(
-            "開始: {} JST\n終了: {} JST\n所要時間: {} 分（省略時は 60 分）\n事前通知: なし（開始時の通知はサーバー設定に従います）\nこの内容で保存しますか？（2 分以内）",
+            "開始: {} JST\n終了: {} JST\n所要時間: {} 分\n事前通知: なし（開始時の通知はサーバー設定に従います）\nこの内容で保存しますか？（2 分以内）",
             validated.start.format("%Y-%m-%d %H:%M"),
             validated.end.format("%Y-%m-%d %H:%M"),
             (validated.end - validated.start).num_minutes(),
@@ -242,7 +253,7 @@ pub async fn quick(
                 .content(if confirmed {
                     "保存しています…"
                 } else {
-                    "作成を取り消しました。再度 /quick で入力できます"
+                    "作成を取り消しました。もう一度コマンドを実行して入力できます"
                 })
                 .components(vec![]),
         )
