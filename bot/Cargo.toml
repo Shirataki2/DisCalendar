@@ -15,6 +15,8 @@ path = "src/main.rs"
 rrule.workspace = true
 # poise 0.6 は serenity 0.12 に対応。serenity の型は poise::serenity_prelude 経由で使う
 poise = "0.6"
+# poise でも使う regex でメッセージ中の日時候補を読み取る
+regex = "1"
 # sync: reconcile と upsert の直列化に tokio::sync::RwLock を使う
 tokio = { workspace = true, features = ["sync"] }
 sqlx.workspace = true

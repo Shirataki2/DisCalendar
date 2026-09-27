@@ -1444,6 +1444,7 @@ dependencies = [
  "dotenvy",
  "jpholiday",
  "poise",
+ "regex",
  "rrule",
  "sentry",
  "serde",

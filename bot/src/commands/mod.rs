@@ -1,6 +1,6 @@
 //! スラッシュコマンド (旧 `commands/` 相当)。
 //!
-//! ユーザー向けのコマンド (help / create / quick / list / init / settings / invite) はスラッシュコマンドのみ。
+//! スラッシュコマンドと、メッセージ用コンテキストメニュー「予定にする」を提供する。
 //! 旧版の `cal ...` プレフィックスは MESSAGE_CONTENT 特権インテントがないとメッセージ本文が届かないので設けない。
 //! `register` (スラッシュコマンドの登録、オーナー専用) だけはメンション (`@DisCalendar register`) で呼ぶ
 //! プレフィックスコマンド (Bot 宛てのメンションがあるメッセージは本文が届く)
@@ -26,6 +26,7 @@ pub fn all() -> Vec<poise::Command<Data, BotError>> {
         help::help(),
         create::create(),
         create::quick(),
+        create::from_message::from_message(),
         list::list(),
         init::init(),
         settings::settings(),
@@ -110,11 +111,17 @@ mod tests {
                 );
             }
         }
-        // Discord に送る定義が組み立てられる (slash の 7 つ)
+        // Discord に送る定義が組み立てられる (slash 7 つ + メッセージコマンド)
         assert_eq!(
             poise::builtins::create_application_commands(&commands).len(),
-            7
+            8
         );
+        let message = commands.iter().find(|c| c.name == "from_message").unwrap();
+        assert_eq!(message.context_menu_name.as_deref(), Some("予定にする"));
+        assert!(message.context_menu_action.is_some());
+        assert!(message.slash_action.is_none());
+        assert!(message.guild_only);
+        assert!(message.ephemeral);
     }
 
     #[test]
