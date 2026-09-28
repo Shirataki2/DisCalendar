@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type KeyboardEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,10 @@ export function GuildDigestSettingsSection({
   const values = draft ?? query.data;
   const disabled =
     !canManage || update.isPending || query.isFetching || query.isError;
+  const canSave =
+    !!values &&
+    !disabled &&
+    (!!configured || (!values.daily_enabled && !values.weekly_enabled));
   const change = (patch: Partial<GuildDigestSettings>) => {
     if (!values) return;
     setDraft({ ...values, ...patch });
@@ -50,6 +54,12 @@ export function GuildDigestSettingsSection({
       setSaved(true);
     } catch (cause) {
       setError(describeApiError(cause));
+    }
+  };
+  const saveOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      if (canSave) void save();
     }
   };
   return (
@@ -101,6 +111,7 @@ export function GuildDigestSettingsSection({
                 id="digest-daily-time"
                 type="time"
                 step={60}
+                onKeyDown={saveOnEnter}
                 value={values.daily_time}
                 disabled={disabled || !values.daily_enabled}
                 onChange={(e) => change({ daily_time: e.target.value })}
@@ -145,6 +156,7 @@ export function GuildDigestSettingsSection({
                 id="digest-weekly-time"
                 type="time"
                 step={60}
+                onKeyDown={saveOnEnter}
                 value={values.weekly_time}
                 disabled={disabled || !values.weekly_enabled}
                 onChange={(e) => change({ weekly_time: e.target.value })}
@@ -176,10 +188,7 @@ export function GuildDigestSettingsSection({
             type="button"
             variant="outline"
             className="min-h-11 justify-self-start"
-            disabled={
-              disabled ||
-              (!configured && (values.daily_enabled || values.weekly_enabled))
-            }
+            disabled={!canSave}
             onClick={save}
           >
             {update.isPending ? "まとめ投稿を保存中…" : "まとめ投稿を保存"}

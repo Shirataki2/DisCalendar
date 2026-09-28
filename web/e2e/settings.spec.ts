@@ -424,9 +424,15 @@ test.describe("予定のまとめ投稿 (#172)", () => {
       await section
         .getByRole("checkbox", { name: "予定が無い日は投稿しない" })
         .uncheck();
-      await section
-        .getByRole("button", { name: "まとめ投稿を保存", exact: true })
-        .click();
+      if (width === 1280) {
+        // 時刻欄の Enter で親フォームを送信して閉じず、この節だけを保存する。
+        await section.getByLabel("毎週の投稿時刻 (JST)").press("Enter");
+      } else {
+        await section
+          .getByRole("button", { name: "まとめ投稿を保存", exact: true })
+          .click();
+      }
+      await expect(dialog).toBeVisible();
       await expect(section.getByRole("status")).toHaveText(
         "まとめ投稿の設定を保存しました",
       );
