@@ -24,6 +24,7 @@ import type {
   GuildChannel,
   GuildConfig,
   GuildConfigInput,
+  GuildDigestSettings,
   GuildFeed,
   GuildRole,
   GuildWebhook,
@@ -265,6 +266,13 @@ export function createApi(request: ApiFetcher) {
         return request<Guild[]>(`/guilds/joined?${query}`);
       },
       get: (guildId: string) => request<Guild>(`/guilds/${guildId}`),
+      digest: (guildId: string, signal?: AbortSignal) =>
+        request<GuildDigestSettings>(`/guilds/${guildId}/digest`, { signal }),
+      updateDigest: (guildId: string, input: GuildDigestSettings) =>
+        request<GuildDigestSettings>(`/guilds/${guildId}/digest`, {
+          method: "PUT",
+          body: input,
+        }),
       config: (guildId: string) =>
         request<GuildConfig>(`/guilds/${guildId}/config`),
       /** サーバー設定の更新 (管理権限が必要。通知先は Bot が投稿できるチャンネルでないと 400) */

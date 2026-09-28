@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT daily_enabled, to_char(daily_time, 'HH24:MI') AS \"daily_time!\",\n               weekly_enabled, weekly_day, to_char(weekly_time, 'HH24:MI') AS \"weekly_time!\", skip_empty\n        FROM guild_digest_settings WHERE guild_id = $1\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "daily_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "daily_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "daily_time!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "weekly_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "weekly_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "weekly_day",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "weekly_day"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "weekly_time!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "skip_empty",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "skip_empty"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "42d18b3e516a7cb0c1e1913807460d03d92d30e5d074dd254aafccf9eeed5e47"
+}

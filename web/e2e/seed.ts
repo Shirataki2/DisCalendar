@@ -220,7 +220,7 @@ export async function seedDatabase(databaseUrl: string): Promise<string> {
       // CASCADE は events を参照する子テーブル (event_discord_links #94 など) も一緒に空にするため。
       // guild_feed_tokens (#95) は FK を持たないので明示する
       await client.query(
-        "TRUNCATE events, event_series, guild_config, guilds, guild_feed_tokens RESTART IDENTITY CASCADE",
+        "TRUNCATE events, event_series, guild_config, guild_digest_settings, guilds, guild_feed_tokens RESTART IDENTITY CASCADE",
       );
       await client.query('DELETE FROM "session"');
       await client.query('DELETE FROM "account"');

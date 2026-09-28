@@ -215,3 +215,19 @@ Web で選んだ予定単位の `events.notification_mentions` を、事前通�
 `allowed_mentions` は選択された対象だけを許可し、プレーンテキストへのフォールバックでも予定名・説明中のメンションは無効化する。
 メンション権限の最終判定は [Discord](https://docs.discord.com/developers/resources/message#allowed-mentions-object) が行う。Bot に `MENTION_EVERYONE` がなければ @everyone は通知されず、ロールは `mentionable` のものだけが通知される。予定の通知そのものは送信する。
 DB の値が壊れている場合もメンションだけを外して通知を継続する。`/create`・`/quick` の予定は既定でメンションなし。
+
+## 今日・今週のまとめ投稿 (#172)
+
+Web のサーバー設定で有効にすると、`tasks/digest.rs` が60秒間隔で通知先 (`event_settings` の先頭行) へ投稿します。
+日次は JST の当日、週次は設定曜日から7日間に重なる予定が対象で、繰り返し予定も取得前に展開します。
+空の期間を省略した場合もその日の処理済みとして記録します。前日以前の投稿は遡りません。
+1つの埋め込みに収まる先頭の予定 (最大25件・合計6,000文字) と、残件数・カレンダーへのリンクを表示します。
+
+`guild_digest_settings` の行を `FOR UPDATE SKIP LOCKED` で排他し、送信後に同じトランザクションで日次・週次それぞれの投稿済み日付を保存します。
+既知の恒久エラーは通知タスクと同じ判定で処理済みにし、一時エラーは次の tick で再試行します。1ギルドの処理は30秒で打ち切ります。
+送信ごとにギルド・JST 日付・種別から作る固定 nonce と Discord の `enforce_nonce` も使います。
+ただし Discord の重複判定は直近数分で、Discord 送信と DB commit は不可分ではありません。
+送信成功後・commit 前の障害が長引いた場合の二重投稿までは保証できません。
+
+DB マイグレーションは API が実行します。api / bot は同じリリースで更新してください。
+戻す場合は両方を停止し、バックアップ後に `api/rollback/20260928000000_drop_guild_digest_settings.sql` を実行します。

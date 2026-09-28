@@ -13,6 +13,7 @@ pub mod admin_stats;
 pub mod admin_status;
 pub mod admin_users;
 pub mod attachments;
+pub mod digest;
 pub mod event_links;
 pub mod events;
 pub mod feed_tokens;

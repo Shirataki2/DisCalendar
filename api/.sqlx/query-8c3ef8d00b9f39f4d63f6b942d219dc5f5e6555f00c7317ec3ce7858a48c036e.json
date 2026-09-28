@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO guild_digest_settings\n            (guild_id, daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time, skip_empty)\n        VALUES ($1, $2, $3, $4, $5, $6, $7)\n        ON CONFLICT (guild_id) DO UPDATE SET\n            daily_enabled = EXCLUDED.daily_enabled, daily_time = EXCLUDED.daily_time,\n            weekly_enabled = EXCLUDED.weekly_enabled, weekly_day = EXCLUDED.weekly_day,\n            weekly_time = EXCLUDED.weekly_time, skip_empty = EXCLUDED.skip_empty\n    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Time",
+        "Bool",
+        "Int2",
+        "Time",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8c3ef8d00b9f39f4d63f6b942d219dc5f5e6555f00c7317ec3ce7858a48c036e"
+}

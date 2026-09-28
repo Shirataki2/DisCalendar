@@ -41,6 +41,7 @@ export const queryKeys = {
     members: (guildId: string, ids: string[]) =>
       ["guild", guildId, "members", ids] as const,
     detail: (guildId: string) => ["guild", guildId] as const,
+    digest: (guildId: string) => ["guild", guildId, "digest"] as const,
     config: (guildId: string) => ["guild", guildId, "config"] as const,
     myPermissions: (guildId: string) =>
       ["guild", guildId, "permissions"] as const,

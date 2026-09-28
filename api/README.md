@@ -45,6 +45,7 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | GET | `/guilds/{guild_id}/channels` | 通知先に選べるチャンネル (テキスト / アナウンス) と Bot がそこに投稿できるか (`can_post` と足りない権限)。返すのは呼び出した本人に「チャンネルを見る」があるチャンネルだけ。Discord の応答を 1 分キャッシュ (#181) |
 | GET | `/guilds/{guild_id}/config` | ギルド設定 (`restricted` / `editor_role_ids` / `notify_at_start` / `default_notifications` / `notification_channel_id` / `notification_channel_configured`)。通知先は `/init` と同じ `event_settings` の先頭の行で、ID は管理権限を持つ呼び出し元にだけ返す (それ以外は設定済みかどうかだけ) |
 | PUT | `/guilds/{guild_id}/config` | ギルド設定の更新 (管理権限が必要)。`restricted` 以外は省略すると変更しない。`editor_role_ids` は最大25件、空配列で全解除。指定されたロールは同一ギルドの選択可能なロールか確認する。通知先を変えるときは Bot が投稿できるチャンネルか確認し、できなければ 400 (#181) |
+| GET / PUT | `/guilds/{guild_id}/digest` | まとめ投稿の設定。GET はメンバー、PUT はサーバー管理権限が必要。`daily_enabled` / `daily_time` / `weekly_enabled` / `weekly_day` / `weekly_time` / `skip_empty` を全て指定。時刻は JST の `HH:mm`、曜日は月曜=0〜日曜=6。有効化には通知先設定が必要。Bot の投稿済み日付は変更しない |
 | GET | `/events/{guild_id}?start=&end=` | 期間に重なる予定 |
 | POST | `/events/{guild_id}` | 予定の作成 (201) |
 | POST | `/events/{guild_id}/recurrence/preview` | 保存せず直近3回を確認 |
