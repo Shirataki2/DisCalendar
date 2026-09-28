@@ -1,5 +1,5 @@
 //! JST の今日 / 投稿曜日から 7 日間の予定を通知先へ投稿する。
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use poise::serenity_prelude::{self as serenity, CreateEmbed, CreateEmbedFooter};
@@ -49,16 +49,21 @@ impl Settings {
 pub async fn run_loop(ctx: serenity::Context, data: Data) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut pending = HashMap::new();
     loop {
         interval.tick().await;
-        if let Err(error) = tick(&ctx.http, &data).await {
+        if let Err(error) = tick(&ctx.http, &data, now_jst(), &mut pending).await {
             tracing::error!(%error, "failed to load digest settings");
         }
     }
 }
 
-async fn tick(http: &Arc<serenity::Http>, data: &Data) -> Result<(), BotError> {
-    let now = now_jst();
+async fn tick(
+    http: &Arc<serenity::Http>,
+    data: &Data,
+    now: NaiveDateTime,
+    pending: &mut HashMap<String, [Option<NaiveDateTime>; 2]>,
+) -> Result<(), BotError> {
     let guilds = sqlx::query!(r#"
         SELECT guild_id FROM guild_digest_settings
         WHERE (daily_enabled AND daily_time <= $1 AND (last_daily_date IS NULL OR last_daily_date < $2))
@@ -68,39 +73,54 @@ async fn tick(http: &Arc<serenity::Http>, data: &Data) -> Result<(), BotError> {
     "#, now.time(), now.date(), now.weekday().num_days_from_monday() as i16)
     .fetch_all(&data.pool)
     .await?;
-    let mut tasks = tokio::task::JoinSet::new();
     for guild in guilds {
-        // 遅いギルドが他のギルドの当日分を止めないよう、最大4ギルドを並行処理する。
-        if tasks.len() >= 4
-            && let Some(Err(error)) = tasks.join_next().await
-        {
-            tracing::error!(%error, "digest task failed");
+        let dates = pending.entry(guild.guild_id).or_default();
+        for date in dates {
+            date.get_or_insert(now);
         }
-        let http = http.clone();
-        let data = data.clone();
-        tasks.spawn(async move {
-            for kind in [Kind::Daily, Kind::Weekly] {
-                // 1 ギルドの通信障害・レート制限が後続を無期限に止めない。
-                let result = tokio::time::timeout(
-                    std::time::Duration::from_secs(30),
-                    post(&http, &data.pool, &data.site_base_url, &guild.guild_id, kind),
-                )
-                .await;
-                match result {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) => {
-                        tracing::warn!(%error, guild_id = %guild.guild_id, ?kind, "digest failed; retry next tick")
-                    }
-                    Err(_) => {
-                        tracing::warn!(guild_id = %guild.guild_id, ?kind, "digest timed out; retry next tick")
+    }
+    // 一時エラーの対象日時は次の tick にも引き継ぐ。再起動前の過去分は追送しない。
+    let mut jobs = pending.clone().into_iter();
+    let mut tasks = tokio::task::JoinSet::new();
+    loop {
+        // 遅いギルドが他のギルドの当日分を止めないよう、最大4ギルドを並行処理する。
+        while tasks.len() < 4 {
+            let Some((guild, mut dates)) = jobs.next() else {
+                break;
+            };
+            let http = http.clone();
+            let data = data.clone();
+            tasks.spawn(async move {
+                for (kind, date) in [Kind::Daily, Kind::Weekly].into_iter().zip(&mut dates) {
+                    let Some(target) = *date else { continue };
+                    // 1 ギルドの通信障害・レート制限が後続を無期限に止めない。
+                    let result = tokio::time::timeout(
+                        std::time::Duration::from_secs(30),
+                        post(&http, &data.pool, &data.site_base_url, &guild, kind, target),
+                    ).await;
+                    match result {
+                        Ok(Ok(())) => *date = None,
+                        Ok(Err(error)) => {
+                            tracing::warn!(%error, guild_id = %guild, ?kind, "digest failed; retry next tick")
+                        }
+                        Err(_) => {
+                            tracing::warn!(guild_id = %guild, ?kind, "digest timed out; retry next tick")
+                        }
                     }
                 }
+                (guild, dates)
+            });
+        }
+        match tasks.join_next().await {
+            Some(Ok((guild, dates))) => {
+                if dates.iter().all(Option::is_none) {
+                    pending.remove(&guild);
+                } else {
+                    pending.insert(guild, dates);
+                }
             }
-        });
-    }
-    while let Some(result) = tasks.join_next().await {
-        if let Err(error) = result {
-            tracing::error!(%error, "digest task failed");
+            Some(Err(error)) => tracing::error!(%error, "digest task failed"),
+            None => break,
         }
     }
     Ok(())
@@ -112,8 +132,8 @@ async fn post(
     site: &str,
     guild: &str,
     kind: Kind,
+    now: NaiveDateTime,
 ) -> Result<(), BotError> {
-    let now = now_jst();
     let Some(channel) = event_settings::get(pool, guild).await? else {
         return Ok(());
     };
@@ -139,14 +159,16 @@ async fn post(
     else {
         return Ok(());
     };
-    // 準備中の設定変更・別プロセスの投稿・JST の日付またぎを確認する。
-    let current = now_jst();
-    if current.date() != now.date() || !settings.due(kind, current) {
+    // 設定変更・別プロセスの投稿を再確認する。対象日時は tick の判定から変えない。
+    if !settings.due(kind, now) {
         return Ok(());
     }
     if !settings.skip_empty || !events.is_empty() {
         if let (Ok(channel_id), Ok(guild_id)) = (
-            channel.channel_id.parse::<serenity::ChannelId>(),
+            channel
+                .channel_id
+                .parse::<std::num::NonZeroU64>()
+                .map(serenity::ChannelId::from),
             guild.parse::<u64>(),
         ) {
             // Discord の nonce は直近数分のみ有効。送信直後の DB 障害や短い再起動時の重複を抑止する。
@@ -295,7 +317,7 @@ mod tests {
             .unwrap();
         tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            post(&http, &pool, "https://example.com", "1", Kind::Daily),
+            post(&http, &pool, "https://example.com", "1", Kind::Daily, now),
         )
         .await
         .unwrap()
@@ -309,7 +331,7 @@ mod tests {
         for kind in [Kind::Daily, Kind::Daily, Kind::Weekly, Kind::Weekly] {
             tokio::time::timeout(
                 std::time::Duration::from_secs(2),
-                post(&http, &single, "https://example.com", "1", kind),
+                post(&http, &single, "https://example.com", "1", kind, now),
             )
             .await
             .unwrap()
@@ -322,29 +344,81 @@ mod tests {
 
     #[sqlx::test(migrations = "../api/migrations")]
     async fn invalid_destination_is_processed_without_retry(pool: PgPool) {
-        sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, skip_empty) VALUES ('1', true, '00:00', false)")
-            .execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO event_settings (guild_id, channel_id) VALUES ('1', 'invalid')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        let now = now_jst();
         let http = serenity::HttpBuilder::new("test")
             .proxy("http://127.0.0.1:1")
             .ratelimiter_disabled(true)
             .build();
-        post(&http, &pool, "https://example.com", "1", Kind::Daily)
+        for channel in ["invalid", "0"] {
+            sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, skip_empty) VALUES ('1', true, '00:00', false) ON CONFLICT (guild_id) DO UPDATE SET last_daily_date = NULL")
+                .execute(&pool).await.unwrap();
+            event_settings::set(&pool, "1", channel).await.unwrap();
+            post(&http, &pool, "https://example.com", "1", Kind::Daily, now)
+                .await
+                .unwrap();
+            let date: NaiveDate = sqlx::query_scalar(
+                "SELECT last_daily_date FROM guild_digest_settings WHERE guild_id='1'",
+            )
+            .fetch_one(&pool)
             .await
             .unwrap();
-        let date: NaiveDate = sqlx::query_scalar(
-            "SELECT last_daily_date FROM guild_digest_settings WHERE guild_id='1'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(date, now_jst().date());
-        post(&http, &pool, "https://example.com", "1", Kind::Daily)
+            assert_eq!(date, now.date());
+            post(&http, &pool, "https://example.com", "1", Kind::Daily, now)
+                .await
+                .unwrap();
+        }
+    }
+
+    #[sqlx::test(migrations = "../api/migrations")]
+    async fn retries_keep_the_tick_date_across_midnight(pool: PgPool) {
+        let target: NaiveDateTime = "2026-09-28T23:59:00".parse().unwrap();
+        sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time, skip_empty) VALUES ('1', true, '23:59', false, 0, '23:59', false), ('2', false, '23:59', true, 0, '23:59', false)")
+            .execute(&pool).await.unwrap();
+        for guild in ["1", "2"] {
+            event_settings::set(&pool, guild, "11").await.unwrap();
+        }
+        let http = Arc::new(
+            serenity::HttpBuilder::new("test")
+                .proxy("http://127.0.0.1:1")
+                .ratelimiter_disabled(true)
+                .build(),
+        );
+        let data = Data {
+            pool: pool.clone(),
+            site_base_url: "https://example.com".into(),
+            log_channel_id: None,
+            invite_url: String::new(),
+            support_guild_id: None,
+            guild_sync: Arc::new(tokio::sync::Mutex::new(())),
+            tasks_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            presence_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        };
+        let mut pending = HashMap::new();
+        tick(&http, &data, target, &mut pending).await.unwrap();
+        assert_eq!(pending["1"], [Some(target), None]);
+        assert_eq!(pending["2"], [None, Some(target)]);
+
+        // 旧対象期間は空なので再送不要。期間を翌日へずらすと予定を拾い、HTTP 接続で失敗する。
+        sqlx::query("UPDATE guild_digest_settings SET skip_empty = true")
+            .execute(&pool)
             .await
             .unwrap();
+        sqlx::query("INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES ('1', '翌日の予定', '[]', '2026-09-29 12:00', '2026-09-29 13:00'), ('2', '翌週の予定', '[]', '2026-10-05 12:00', '2026-10-05 13:00')")
+            .execute(&pool).await.unwrap();
+        tick(&http, &data, target + Duration::minutes(1), &mut pending)
+            .await
+            .unwrap();
+        assert!(pending.is_empty());
+        let dates: Vec<(String, Option<NaiveDate>, Option<NaiveDate>)> = sqlx::query_as(
+            "SELECT guild_id, last_daily_date, last_weekly_date FROM guild_digest_settings ORDER BY guild_id",
+        ).fetch_all(&pool).await.unwrap();
+        assert_eq!(
+            dates,
+            vec![
+                ("1".into(), Some(target.date()), None),
+                ("2".into(), None, Some(target.date())),
+            ]
+        );
     }
 
     #[sqlx::test(migrations = "../api/migrations")]
@@ -375,7 +449,8 @@ mod tests {
             tasks_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             presence_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         };
-        let task = tokio::spawn(async move { tick(&http, &data).await });
+        let task =
+            tokio::spawn(async move { tick(&http, &data, now_jst(), &mut HashMap::new()).await });
         let _connection =
             tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
                 .await
