@@ -1,4 +1,6 @@
 //! JST の今日 / 投稿曜日から 7 日間の予定を通知先へ投稿する。
+use std::sync::Arc;
+
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use poise::serenity_prelude::{self as serenity, CreateEmbed, CreateEmbedFooter};
 use sqlx::PgPool;
@@ -55,33 +57,50 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
     }
 }
 
-async fn tick(http: &serenity::Http, data: &Data) -> Result<(), BotError> {
+async fn tick(http: &Arc<serenity::Http>, data: &Data) -> Result<(), BotError> {
     let now = now_jst();
     let guilds = sqlx::query!(r#"
         SELECT guild_id FROM guild_digest_settings
         WHERE (daily_enabled AND daily_time <= $1 AND (last_daily_date IS NULL OR last_daily_date < $2))
            OR (weekly_enabled AND weekly_day = $3 AND weekly_time <= $1
                AND (last_weekly_date IS NULL OR last_weekly_date < $2))
+        ORDER BY guild_id
     "#, now.time(), now.date(), now.weekday().num_days_from_monday() as i16)
     .fetch_all(&data.pool)
     .await?;
+    let mut tasks = tokio::task::JoinSet::new();
     for guild in guilds {
-        for kind in [Kind::Daily, Kind::Weekly] {
-            // 1 ギルドの通信障害・レート制限が後続を無期限に止めない。
-            let result = tokio::time::timeout(
-                std::time::Duration::from_secs(30),
-                post(http, &data.pool, &data.site_base_url, &guild.guild_id, kind),
-            )
-            .await;
-            match result {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => {
-                    tracing::warn!(%error, guild_id = %guild.guild_id, ?kind, "digest failed; retry next tick")
-                }
-                Err(_) => {
-                    tracing::warn!(guild_id = %guild.guild_id, ?kind, "digest timed out; retry next tick")
+        // 遅いギルドが他のギルドの当日分を止めないよう、最大4ギルドを並行処理する。
+        if tasks.len() >= 4
+            && let Some(Err(error)) = tasks.join_next().await
+        {
+            tracing::error!(%error, "digest task failed");
+        }
+        let http = http.clone();
+        let data = data.clone();
+        tasks.spawn(async move {
+            for kind in [Kind::Daily, Kind::Weekly] {
+                // 1 ギルドの通信障害・レート制限が後続を無期限に止めない。
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    post(&http, &data.pool, &data.site_base_url, &guild.guild_id, kind),
+                )
+                .await;
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => {
+                        tracing::warn!(%error, guild_id = %guild.guild_id, ?kind, "digest failed; retry next tick")
+                    }
+                    Err(_) => {
+                        tracing::warn!(guild_id = %guild.guild_id, ?kind, "digest timed out; retry next tick")
+                    }
                 }
             }
+        });
+    }
+    while let Some(result) = tasks.join_next().await {
+        if let Err(error) = result {
+            tracing::error!(%error, "digest task failed");
         }
     }
     Ok(())
@@ -126,40 +145,44 @@ async fn post(
         return Ok(());
     }
     if !settings.skip_empty || !events.is_empty() {
-        let channel_id = channel
-            .channel_id
-            .parse::<serenity::ChannelId>()
-            .map_err(|_| BotError::user("invalid digest channel ID"))?;
-        let guild_id = guild
-            .parse::<u64>()
-            .map_err(|_| BotError::user("invalid digest guild ID"))?;
-        // Discord の nonce は直近数分のみ有効。送信直後の DB 障害や短い再起動時の重複を抑止する。
-        // 送信成功と DB commit は分散トランザクションではないため、長い障害時の exactly-once は保証しない。
-        let nonce = format!(
-            "{:x}-{:x}-{}",
-            guild_id,
-            now.date().num_days_from_ce(),
-            if matches!(kind, Kind::Daily) {
-                "d"
-            } else {
-                "w"
+        if let (Ok(channel_id), Ok(guild_id)) = (
+            channel.channel_id.parse::<serenity::ChannelId>(),
+            guild.parse::<u64>(),
+        ) {
+            // Discord の nonce は直近数分のみ有効。送信直後の DB 障害や短い再起動時の重複を抑止する。
+            // 送信成功と DB commit は分散トランザクションではないため、長い障害時の exactly-once は保証しない。
+            let nonce = format!(
+                "{:x}-{:x}-{}",
+                guild_id,
+                now.date().num_days_from_ce(),
+                if matches!(kind, Kind::Daily) {
+                    "d"
+                } else {
+                    "w"
+                }
+            );
+            let message = serenity::CreateMessage::new()
+                .embed(build_embed(
+                    kind,
+                    start.date(),
+                    &events,
+                    &format!("{}/dashboard/{guild}", site.trim_end_matches('/')),
+                ))
+                .allowed_mentions(serenity::CreateAllowedMentions::new())
+                .nonce(serenity::Nonce::String(nonce))
+                .enforce_nonce(true);
+            if let Err(error) = channel_id.send_message(http, message).await {
+                if !super::notify::is_permanent_discord_error(&error) {
+                    return Err(error.into());
+                }
+                tracing::warn!(%error, guild_id = guild, ?kind, "digest channel permanently unreachable; marking processed");
             }
-        );
-        let message = serenity::CreateMessage::new()
-            .embed(build_embed(
-                kind,
-                start.date(),
-                &events,
-                &format!("{}/dashboard/{guild}", site.trim_end_matches('/')),
-            ))
-            .allowed_mentions(serenity::CreateAllowedMentions::new())
-            .nonce(serenity::Nonce::String(nonce))
-            .enforce_nonce(true);
-        if let Err(error) = channel_id.send_message(http, message).await {
-            if !super::notify::is_permanent_discord_error(&error) {
-                return Err(error.into());
-            }
-            tracing::warn!(%error, guild_id = guild, ?kind, "digest channel permanently unreachable; marking processed");
+        } else {
+            tracing::warn!(
+                guild_id = guild,
+                ?kind,
+                "invalid digest destination; marking processed"
+            );
         }
     }
     sqlx::query!(
@@ -295,6 +318,79 @@ mod tests {
         single.close().await;
         let dates: (NaiveDate, NaiveDate) = sqlx::query_as("SELECT last_daily_date, last_weekly_date FROM guild_digest_settings WHERE guild_id='1'").fetch_one(&pool).await.unwrap();
         assert_eq!(dates, (now.date(), now.date()));
+    }
+
+    #[sqlx::test(migrations = "../api/migrations")]
+    async fn invalid_destination_is_processed_without_retry(pool: PgPool) {
+        sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, skip_empty) VALUES ('1', true, '00:00', false)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO event_settings (guild_id, channel_id) VALUES ('1', 'invalid')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let http = serenity::HttpBuilder::new("test")
+            .proxy("http://127.0.0.1:1")
+            .ratelimiter_disabled(true)
+            .build();
+        post(&http, &pool, "https://example.com", "1", Kind::Daily)
+            .await
+            .unwrap();
+        let date: NaiveDate = sqlx::query_scalar(
+            "SELECT last_daily_date FROM guild_digest_settings WHERE guild_id='1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(date, now_jst().date());
+        post(&http, &pool, "https://example.com", "1", Kind::Daily)
+            .await
+            .unwrap();
+    }
+
+    #[sqlx::test(migrations = "../api/migrations")]
+    async fn slow_discord_request_does_not_block_other_guilds(pool: PgPool) {
+        sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, skip_empty) VALUES ('1', true, '00:00', false), ('2', true, '00:00', true)")
+            .execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO event_settings (guild_id, channel_id) VALUES ('1', '11'), ('2', '22')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // 先頭ギルドへの HTTP 応答を保留し、後続の空期間が先に処理済みになることを確認する。
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let http = Arc::new(
+            serenity::HttpBuilder::new("test")
+                .proxy(format!("http://{}", listener.local_addr().unwrap()))
+                .ratelimiter_disabled(true)
+                .build(),
+        );
+        let data = Data {
+            pool: pool.clone(),
+            site_base_url: "https://example.com".into(),
+            log_channel_id: None,
+            invite_url: String::new(),
+            support_guild_id: None,
+            guild_sync: Arc::new(tokio::sync::Mutex::new(())),
+            tasks_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            presence_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        };
+        let task = tokio::spawn(async move { tick(&http, &data).await });
+        let _connection =
+            tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let done: bool = sqlx::query_scalar("SELECT last_daily_date IS NOT NULL FROM guild_digest_settings WHERE guild_id='2'").fetch_one(&pool).await.unwrap();
+                if done { break }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }).await;
+        task.abort();
+        let _ = task.await;
+        assert!(result.is_ok(), "送信待ちのギルドが後続をブロックしている");
     }
 
     #[test]

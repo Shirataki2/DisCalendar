@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT guild_id FROM guild_digest_settings\n        WHERE (daily_enabled AND daily_time <= $1 AND (last_daily_date IS NULL OR last_daily_date < $2))\n           OR (weekly_enabled AND weekly_day = $3 AND weekly_time <= $1\n               AND (last_weekly_date IS NULL OR last_weekly_date < $2))\n    ",
+  "query": "\n        SELECT guild_id FROM guild_digest_settings\n        WHERE (daily_enabled AND daily_time <= $1 AND (last_daily_date IS NULL OR last_daily_date < $2))\n           OR (weekly_enabled AND weekly_day = $3 AND weekly_time <= $1\n               AND (last_weekly_date IS NULL OR last_weekly_date < $2))\n        ORDER BY guild_id\n    ",
   "describe": {
     "columns": [
       {
@@ -26,5 +26,5 @@
       false
     ]
   },
-  "hash": "7581fa5f3cbfc45b4a8132c18eb5f678bcd4ce4634c06260f4dd441cc44f0bce"
+  "hash": "5c7c9f28898c09fb3a61fec2584b43e65a4b98d54016f9246c30695941991483"
 }
