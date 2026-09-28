@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time,\n               skip_empty, last_daily_date, last_weekly_date\n        FROM guild_digest_settings WHERE guild_id = $1 FOR UPDATE SKIP LOCKED\n    ",
+  "query": "\n        SELECT daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time,\n               skip_empty, last_daily_date, last_weekly_date\n        FROM guild_digest_settings WHERE guild_id = $1\n          AND EXISTS (SELECT 1 FROM guilds WHERE guild_id = $1)\n        FOR UPDATE SKIP LOCKED\n    ",
   "describe": {
     "columns": [
       {
@@ -108,5 +108,5 @@
       true
     ]
   },
-  "hash": "6effbf6c1885b9c309da942c064796b84591b873fca97455c8222815e8c0e990"
+  "hash": "0103aa19c7af06a3e2940803fa70d5153438f8fb714eea575df8b199fa91941b"
 }

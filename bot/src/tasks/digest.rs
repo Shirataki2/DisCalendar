@@ -77,19 +77,32 @@ async fn tick(
         } else {
             date.and_hms_opt(23, 59, 59).unwrap()
         };
-        let guilds = sqlx::query!(r#"
-        SELECT guild_id FROM guild_digest_settings
-        WHERE (daily_enabled AND daily_time <= $1 AND (last_daily_date IS NULL OR last_daily_date < $2))
-           OR (weekly_enabled AND weekly_day = $3 AND weekly_time <= $1
-               AND (last_weekly_date IS NULL OR last_weekly_date < $2))
+        let guilds = sqlx::query!(
+            r#"
+        SELECT guild_id, daily_due AS "daily_due!", weekly_due AS "weekly_due!"
+        FROM (
+            SELECT guild_id,
+                daily_enabled AND daily_time <= $1
+                    AND (last_daily_date IS NULL OR last_daily_date < $2) AS daily_due,
+                weekly_enabled AND weekly_day = $3 AND weekly_time <= $1
+                    AND (last_weekly_date IS NULL OR last_weekly_date < $2) AS weekly_due
+            FROM guild_digest_settings INNER JOIN guilds USING (guild_id)
+        ) AS candidates
+        WHERE daily_due OR weekly_due
         ORDER BY guild_id
-    "#, now.time(), now.date(), now.weekday().num_days_from_monday() as i16)
-    .fetch_all(&data.pool)
-    .await?;
+    "#,
+            now.time(),
+            now.date(),
+            now.weekday().num_days_from_monday() as i16
+        )
+        .fetch_all(&data.pool)
+        .await?;
         for guild in guilds {
             let dates = pending.entry(guild.guild_id).or_default();
-            for date in dates {
-                date.get_or_insert(now);
+            for (date, due) in dates.iter_mut().zip([guild.daily_due, guild.weekly_due]) {
+                if due {
+                    date.get_or_insert(now);
+                }
             }
         }
         date = date.succ_opt().unwrap();
@@ -120,7 +133,8 @@ async fn tick(
                         post(&http, &data.pool, &data.site_base_url, &guild, kind, target),
                     ).await;
                     match result {
-                        Ok(Ok(())) => *date = None,
+                        Ok(Ok(true)) => *date = None,
+                        Ok(Ok(false)) => {}
                         Ok(Err(error)) => {
                             tracing::warn!(%error, guild_id = %guild, ?kind, "digest failed; retry next tick")
                         }
@@ -147,6 +161,7 @@ async fn tick(
     Ok(())
 }
 
+/// true は処理完了、false は行ロック競合による再試行。
 async fn post(
     http: &serenity::Http,
     pool: &PgPool,
@@ -154,7 +169,7 @@ async fn post(
     guild: &str,
     kind: Kind,
     now: NaiveDateTime,
-) -> Result<(), BotError> {
+) -> Result<bool, BotError> {
     let start = now.date().and_time(NaiveTime::MIN);
     let end = start + Duration::days(if matches!(kind, Kind::Daily) { 1 } else { 7 });
     // 展開は自身でトランザクションを開くため、投稿用の接続を確保する前に終える。
@@ -168,18 +183,24 @@ async fn post(
         r#"
         SELECT daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time,
                skip_empty, last_daily_date, last_weekly_date
-        FROM guild_digest_settings WHERE guild_id = $1 FOR UPDATE SKIP LOCKED
+        FROM guild_digest_settings WHERE guild_id = $1
+          AND EXISTS (SELECT 1 FROM guilds WHERE guild_id = $1)
+        FOR UPDATE SKIP LOCKED
     "#,
         guild
     )
     .fetch_optional(&mut *tx)
     .await?
     else {
-        return Ok(());
+        // 行が残っているならロック競合なので再試行する。削除・退出済みなら完了扱い。
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM guild_digest_settings INNER JOIN guilds USING (guild_id) WHERE guild_id=$1)",
+        ).bind(guild).fetch_one(&mut *tx).await?;
+        return Ok(!exists);
     };
     // 設定変更・別プロセスの投稿を再確認する。対象日時は tick の判定から変えない。
     if !settings.due(kind, now) {
-        return Ok(());
+        return Ok(true);
     }
     if !settings.skip_empty || !events.is_empty() {
         // Web / Bot の通知先更新と同じロックを取り、送信直前の通知先を読む。
@@ -188,7 +209,7 @@ async fn post(
             .execute(&mut *tx)
             .await?;
         let Some(channel) = event_settings::fetch(&mut *tx, guild).await? else {
-            return Ok(());
+            return Ok(true);
         };
         if let (Ok(channel_id), Ok(guild_id)) = (
             channel
@@ -247,7 +268,7 @@ async fn post(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(())
+    Ok(true)
 }
 
 /// Discord の制限を UTF-16 単位で保守的に数え、長い旧データでも投稿を止めない。
@@ -322,6 +343,13 @@ fn build_embed(kind: Kind, date: NaiveDate, events: &[Event], calendar: &str) ->
 mod tests {
     use super::*;
 
+    async fn seed_guilds(pool: &PgPool) {
+        sqlx::query("INSERT INTO guilds (guild_id, name) VALUES ('1', 'test1'), ('2', 'test2')")
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
     fn test_data(pool: &PgPool) -> Data {
         Data {
             pool: pool.clone(),
@@ -337,6 +365,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../api/migrations")]
     async fn locks_skip_concurrent_ticks_and_empty_periods_are_recorded(pool: PgPool) {
+        seed_guilds(&pool).await;
         let now = now_jst();
         sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time) VALUES ('1', true, '00:00', true, $1, '00:00')")
             .bind(now.weekday().num_days_from_monday() as i16).execute(&pool).await.unwrap();
@@ -354,13 +383,14 @@ mod tests {
             .execute(&mut *lock)
             .await
             .unwrap();
-        tokio::time::timeout(
+        let done = tokio::time::timeout(
             std::time::Duration::from_secs(2),
             post(&http, &pool, "https://example.com", "1", Kind::Daily, now),
         )
         .await
         .unwrap()
         .unwrap();
+        assert!(!done, "ロック競合は再試行に残す");
         lock.rollback().await.unwrap();
         let single = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
@@ -383,6 +413,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../api/migrations")]
     async fn invalid_destination_is_processed_without_retry(pool: PgPool) {
+        seed_guilds(&pool).await;
         let now = now_jst();
         let http = serenity::HttpBuilder::new("test")
             .proxy("http://127.0.0.1:1")
@@ -410,6 +441,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../api/migrations")]
     async fn retries_keep_the_tick_date_across_midnight(pool: PgPool) {
+        seed_guilds(&pool).await;
         let target: NaiveDateTime = "2026-09-28T23:59:00".parse().unwrap();
         sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time, skip_empty) VALUES ('1', true, '23:59', false, 0, '23:59', false), ('2', false, '23:59', true, 0, '23:59', false)")
             .execute(&pool).await.unwrap();
@@ -461,8 +493,9 @@ mod tests {
 
     #[sqlx::test(migrations = "../api/migrations")]
     async fn delayed_tick_collects_deadlines_before_midnight(pool: PgPool) {
+        seed_guilds(&pool).await;
         let before: NaiveDateTime = "2026-09-28T23:58:00".parse().unwrap();
-        sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time) VALUES ('1', true, '23:59', true, 0, '23:59')")
+        sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time) VALUES ('1', true, '23:59', true, 0, '23:59'), ('2', true, '23:59', true, 1, '00:00')")
             .execute(&pool).await.unwrap();
         let http = Arc::new(
             serenity::HttpBuilder::new("test")
@@ -491,10 +524,14 @@ mod tests {
         let dates: (NaiveDate, NaiveDate) = sqlx::query_as("SELECT last_daily_date, last_weekly_date FROM guild_digest_settings WHERE guild_id='1'")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(dates, (before.date(), before.date()));
+        let dates: (NaiveDate, NaiveDate) = sqlx::query_as("SELECT last_daily_date, last_weekly_date FROM guild_digest_settings WHERE guild_id='2'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(dates, (before.date(), before.date().succ_opt().unwrap()));
     }
 
     #[sqlx::test(migrations = "../api/migrations")]
     async fn destination_is_reread_after_channel_update_lock(pool: PgPool) {
+        seed_guilds(&pool).await;
         sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, skip_empty) VALUES ('1', true, '00:00', false)")
             .execute(&pool).await.unwrap();
         event_settings::set(&pool, "1", "11").await.unwrap();
@@ -549,7 +586,42 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../api/migrations")]
+    async fn departed_guild_is_removed_from_pending(pool: PgPool) {
+        seed_guilds(&pool).await;
+        let now = now_jst();
+        sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, skip_empty) VALUES ('1', true, '00:00', false)")
+            .execute(&pool).await.unwrap();
+        event_settings::set(&pool, "1", "11").await.unwrap();
+        let http = Arc::new(
+            serenity::HttpBuilder::new("test")
+                .proxy("http://127.0.0.1:1")
+                .ratelimiter_disabled(true)
+                .build(),
+        );
+        let data = test_data(&pool);
+        let mut pending = HashMap::new();
+        tick(&http, &data, now, now, &mut pending).await.unwrap();
+        assert!(pending.contains_key("1"));
+        sqlx::query("DELETE FROM guilds WHERE guild_id='1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        tick(&http, &data, now, now, &mut pending).await.unwrap();
+        assert!(pending.is_empty());
+        let untouched: bool = sqlx::query_scalar(
+            "SELECT last_daily_date IS NULL FROM guild_digest_settings WHERE guild_id='1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(untouched);
+        tick(&http, &data, now, now, &mut pending).await.unwrap();
+        assert!(pending.is_empty());
+    }
+
+    #[sqlx::test(migrations = "../api/migrations")]
     async fn slow_discord_request_does_not_block_other_guilds(pool: PgPool) {
+        seed_guilds(&pool).await;
         sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, skip_empty) VALUES ('1', true, '00:00', false), ('2', true, '00:00', true)")
             .execute(&pool).await.unwrap();
         sqlx::query(

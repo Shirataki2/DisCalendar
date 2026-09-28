@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT guild_id, daily_due AS \"daily_due!\", weekly_due AS \"weekly_due!\"\n        FROM (\n            SELECT guild_id,\n                daily_enabled AND daily_time <= $1\n                    AND (last_daily_date IS NULL OR last_daily_date < $2) AS daily_due,\n                weekly_enabled AND weekly_day = $3 AND weekly_time <= $1\n                    AND (last_weekly_date IS NULL OR last_weekly_date < $2) AS weekly_due\n            FROM guild_digest_settings INNER JOIN guilds USING (guild_id)\n        ) AS candidates\n        WHERE daily_due OR weekly_due\n        ORDER BY guild_id\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guild_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "guild_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "daily_due!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "weekly_due!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Time",
+        "Date",
+        "Int2"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "5a9e2420ed8c348a1b090090d0992fbc42a5555603ebd457378cf7bcd57a66ae"
+}
