@@ -1107,3 +1107,42 @@ async fn notification_mentions_survive_all_update_paths_and_omission(pool: PgPoo
         .unwrap();
     assert_eq!(legacy.notification_mentions, serde_json::json!([]));
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn digest_settings_preserve_bot_history_and_guild_isolation(pool: PgPool) {
+    use discalendar_api::models::digest::{self, DigestSettings};
+    assert_eq!(
+        digest::get(&pool, GUILD).await.unwrap(),
+        DigestSettings::default()
+    );
+    let input = DigestSettings {
+        daily_enabled: true,
+        ..Default::default()
+    };
+    digest::put(&pool, GUILD, &input).await.unwrap();
+    sqlx::query("UPDATE guild_digest_settings SET last_daily_date='2026-09-28', last_weekly_date='2026-09-21' WHERE guild_id=$1")
+        .bind(GUILD).execute(&pool).await.unwrap();
+    let changed = DigestSettings {
+        weekly_enabled: true,
+        weekly_day: 6,
+        daily_time: "23:59".into(),
+        ..input
+    };
+    digest::put(&pool, GUILD, &changed).await.unwrap();
+    assert_eq!(digest::get(&pool, GUILD).await.unwrap(), changed);
+    assert_eq!(
+        digest::get(&pool, OTHER_GUILD).await.unwrap(),
+        DigestSettings::default()
+    );
+    let dates: (chrono::NaiveDate, chrono::NaiveDate) = sqlx::query_as(
+        "SELECT last_daily_date, last_weekly_date FROM guild_digest_settings WHERE guild_id=$1",
+    )
+    .bind(GUILD)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        dates,
+        ("2026-09-28".parse().unwrap(), "2026-09-21".parse().unwrap())
+    );
+}

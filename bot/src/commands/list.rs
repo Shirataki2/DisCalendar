@@ -66,7 +66,7 @@ pub async fn list(
 }
 
 /// 一覧の 1 件分の本文
-fn describe(event: &Event) -> String {
+pub(crate) fn describe(event: &Event) -> String {
     let notifications = event.notifications();
     let notifications = if notifications.is_empty() {
         "なし".to_owned()

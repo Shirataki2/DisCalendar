@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import type {
   GuildConfig,
   GuildConfigInput,
+  GuildDigestSettings,
   GuildFeed,
   MyPermissions,
 } from "@/lib/api/types";
@@ -187,5 +188,25 @@ export function useGuildRolesQuery(
     queryFn: ({ signal }) => api.guilds.roles(guildId, signal, forMentions),
     refetchOnMount: "always",
     retry: false,
+  });
+}
+
+export function useGuildDigestQuery(guildId: string) {
+  return useQuery({
+    queryKey: queryKeys.guild.digest(guildId),
+    queryFn: ({ signal }) => api.guilds.digest(guildId, signal),
+    refetchOnMount: "always",
+  });
+}
+
+export function useUpdateGuildDigest(guildId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: GuildDigestSettings) =>
+      api.guilds.updateDigest(guildId, input),
+    onMutate: () =>
+      queryClient.cancelQueries({ queryKey: queryKeys.guild.digest(guildId) }),
+    onSuccess: (settings) =>
+      queryClient.setQueryData(queryKeys.guild.digest(guildId), settings),
   });
 }

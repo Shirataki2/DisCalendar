@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE guild_digest_settings SET\n            last_daily_date = CASE WHEN $2 THEN $3 ELSE last_daily_date END,\n            last_weekly_date = CASE WHEN NOT $2 THEN $3 ELSE last_weekly_date END\n        WHERE guild_id = $1\n    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Date"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6fbc2f3521d024709ffbc5daeb96df81ba132361499a3d72d72f32ca6881cf80"
+}

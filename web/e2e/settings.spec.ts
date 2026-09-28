@@ -48,7 +48,7 @@ async function saveSettings(page: Page, dialog: ReturnType<Page["getByRole"]>) {
   const saved = page.waitForResponse(
     (res) => res.url().includes(configApi) && res.request().method() === "PUT",
   );
-  await dialog.getByRole("button", { name: "保存" }).click();
+  await dialog.getByRole("button", { name: "保存", exact: true }).click();
   expect((await saved).status()).toBe(200);
   await expect(dialog).toBeHidden();
 }
@@ -86,7 +86,7 @@ test.describe("管理権限のあるギルド", () => {
     const checkbox = dialog.getByRole("checkbox", { name: RESTRICTED_LABEL });
     await expect(checkbox).toBeChecked();
     await checkbox.uncheck();
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(dialog).toBeHidden();
 
     await page.reload();
@@ -302,7 +302,9 @@ test.describe("管理権限のないギルド (restricted)", () => {
     await expect(
       dialog.getByRole("button", { name: "通知を追加" }),
     ).toBeDisabled();
-    await expect(dialog.getByRole("button", { name: "保存" })).toBeDisabled();
+    await expect(
+      dialog.getByRole("button", { name: "保存", exact: true }),
+    ).toBeDisabled();
   });
 
   test("API 側でも予定の作成と設定変更が拒否される (表示だけの制御ではない)", async ({
@@ -379,5 +381,130 @@ test.describe("設定の補足", () => {
         fullPage: true,
       });
     });
+  });
+});
+
+test.describe("予定のまとめ投稿 (#172)", () => {
+  const digestApi = `/local/api/guilds/${E2E_GUILDS.admin.id}/digest`;
+  const defaults = {
+    daily_enabled: false,
+    daily_time: "08:00",
+    weekly_enabled: false,
+    weekly_day: 0,
+    weekly_time: "08:00",
+    skip_empty: true,
+  };
+
+  for (const width of [1280, 390]) {
+    test(`${width}px で投稿設定を保存し、再表示できる`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize({ width, height: 844 });
+      expect(
+        (await page.request.put(digestApi, { data: defaults })).status(),
+      ).toBe(200);
+      await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+      const dialog = await openSettings(page);
+      const section = dialog.getByRole("region", {
+        name: "予定のまとめを投稿する",
+      });
+      const daily = section.getByRole("checkbox", {
+        name: "毎日、今日の予定を投稿する",
+      });
+      await expect(daily).toBeEnabled();
+      await daily.focus();
+      await page.keyboard.press("Space");
+      await expect(daily).toBeChecked();
+      await section.getByLabel("毎日の投稿時刻 (JST)").fill("09:15");
+      await section
+        .getByRole("checkbox", { name: "毎週、今週の予定を投稿する" })
+        .check();
+      await section.getByLabel("毎週の投稿曜日").selectOption("6");
+      await section.getByLabel("毎週の投稿時刻 (JST)").fill("18:30");
+      await section
+        .getByRole("checkbox", { name: "予定が無い日は投稿しない" })
+        .uncheck();
+      if (width === 1280) {
+        // 時刻欄の Enter で親フォームを送信して閉じず、この節だけを保存する。
+        await section.getByLabel("毎週の投稿時刻 (JST)").press("Enter");
+      } else {
+        await section
+          .getByRole("button", { name: "まとめ投稿を保存", exact: true })
+          .click();
+      }
+      await expect(dialog).toBeVisible();
+      await expect(section.getByRole("status")).toHaveText(
+        "まとめ投稿の設定を保存しました",
+      );
+      expect(await (await page.request.get(digestApi)).json()).toEqual({
+        daily_enabled: true,
+        daily_time: "09:15",
+        weekly_enabled: true,
+        weekly_day: 6,
+        weekly_time: "18:30",
+        skip_empty: false,
+      });
+      expect(
+        await dialog.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth,
+        ),
+      ).toBe(true);
+      await section.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: testInfo.outputPath(`digest-${width}.png`),
+      });
+      await dialog.getByRole("button", { name: "キャンセル" }).click();
+      await page.reload();
+      const reopened = await openSettings(page);
+      await expect(reopened.getByLabel("毎日の投稿時刻 (JST)")).toHaveValue(
+        "09:15",
+      );
+      await expect(reopened.getByLabel("毎週の投稿曜日")).toHaveValue("6");
+      await expect(reopened.getByLabel("毎週の投稿時刻 (JST)")).toHaveValue(
+        "18:30",
+      );
+      await expect(
+        reopened.getByRole("checkbox", { name: "予定が無い日は投稿しない" }),
+      ).not.toBeChecked();
+      expect(
+        (await page.request.put(digestApi, { data: defaults })).status(),
+      ).toBe(200);
+    });
+  }
+
+  test("API で時刻・曜日・管理権限を検証し、未設定の案内を表示する", async ({
+    page,
+  }) => {
+    for (const patch of [
+      { daily_time: "24:00" },
+      { weekly_time: "8:00" },
+      { weekly_day: 7 },
+      { weekly_day: -1 },
+    ]) {
+      expect(
+        (
+          await page.request.put(digestApi, { data: { ...defaults, ...patch } })
+        ).status(),
+      ).toBe(400);
+    }
+    const memberApi = `/local/api/guilds/${E2E_GUILDS.member.id}/digest`;
+    expect((await page.request.get(memberApi)).status()).toBe(200);
+    expect(
+      (await page.request.put(memberApi, { data: defaults })).status(),
+    ).toBe(403);
+    await page.goto(`/dashboard/${E2E_GUILDS.member.id}`);
+    const dialog = await openSettings(page);
+    const section = dialog.getByRole("region", {
+      name: "予定のまとめを投稿する",
+    });
+    await expect(
+      section.getByText("先に通知先を設定してください。", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      section.getByRole("checkbox", { name: "毎日、今日の予定を投稿する" }),
+    ).toBeDisabled();
+    await expect(
+      section.getByRole("button", { name: "まとめ投稿を保存" }),
+    ).toBeDisabled();
   });
 });

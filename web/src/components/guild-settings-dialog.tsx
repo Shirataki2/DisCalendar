@@ -12,6 +12,7 @@ import {
 } from "react-hook-form";
 import { ExternalCalendarSettings } from "@/components/external-calendar-settings";
 import { NotificationsField } from "@/components/form/notifications-field";
+import { GuildDigestSettingsSection } from "@/components/guild-digest-settings";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -397,6 +398,14 @@ function GuildSettingsForm({
           canManage={canManage}
           currentChannelId={config?.notification_channel_id ?? null}
           configured={config?.notification_channel_configured ?? false}
+        />
+
+        <Separator />
+
+        <GuildDigestSettingsSection
+          guildId={guildId}
+          canManage={canManage}
+          configured={config?.notification_channel_configured}
         />
 
         <Separator />

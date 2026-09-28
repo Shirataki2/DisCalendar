@@ -449,6 +449,51 @@ pub async fn put_config(
     Ok(web::Json(config))
 }
 
+/// まとめ投稿の設定。未保存なら毎日・毎週とも無効。
+#[utoipa::path(tag = "guilds", params(("guild_id" = String, Path)),
+    responses((status = 200, body = crate::models::digest::DigestSettings),
+              (status = 401, body = ErrorBody), (status = 403, body = ErrorBody)))]
+#[get("/{guild_id}/digest")]
+pub async fn get_digest(
+    member: GuildMember,
+    state: web::Data<AppState>,
+) -> Result<web::Json<crate::models::digest::DigestSettings>, ApiError> {
+    Ok(web::Json(
+        crate::models::digest::get(&state.pool, member.guild_id()).await?,
+    ))
+}
+
+/// 投稿済み日付を変更せず、管理権限のあるメンバーが投稿スケジュールを保存する。
+#[utoipa::path(tag = "guilds", params(("guild_id" = String, Path)),
+    request_body = crate::models::digest::DigestSettings,
+    responses((status = 200, body = crate::models::digest::DigestSettings),
+              (status = 400, body = ErrorBody), (status = 401, body = ErrorBody),
+              (status = 403, body = ErrorBody)))]
+#[put("/{guild_id}/digest")]
+pub async fn put_digest(
+    member: GuildMember,
+    body: web::Json<crate::models::digest::DigestSettings>,
+    state: web::Data<AppState>,
+) -> Result<web::Json<crate::models::digest::DigestSettings>, ApiError> {
+    if !member.permissions().can_manage_server() {
+        return Err(ApiError::Forbidden(
+            "manage permission is required to change digest settings".into(),
+        ));
+    }
+    body.validate()?;
+    if (body.daily_enabled || body.weekly_enabled)
+        && !guilds::get_config(&state.pool, member.guild_id())
+            .await?
+            .notification_channel_configured
+    {
+        return Err(ApiError::BadRequest(
+            "configure a notification channel first".into(),
+        ));
+    }
+    crate::models::digest::put(&state.pool, member.guild_id(), &body).await?;
+    Ok(body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

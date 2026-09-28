@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time,\n               skip_empty, last_daily_date, last_weekly_date\n        FROM guild_digest_settings WHERE guild_id = $1\n          AND EXISTS (SELECT 1 FROM guilds WHERE guild_id = $1)\n        FOR UPDATE SKIP LOCKED\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "daily_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "daily_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "daily_time",
+        "type_info": "Time",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "daily_time"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "weekly_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "weekly_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "weekly_day",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "weekly_day"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "weekly_time",
+        "type_info": "Time",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "weekly_time"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "skip_empty",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "skip_empty"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "last_daily_date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "last_daily_date"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "last_weekly_date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "guild_digest_settings",
+            "name": "last_weekly_date"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "0103aa19c7af06a3e2940803fa70d5153438f8fb714eea575df8b199fa91941b"
+}

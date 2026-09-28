@@ -484,7 +484,7 @@ const PERMANENT_DISCORD_ERROR_CODES: [isize; 4] = [
     50083, // Thread is archived
 ];
 
-fn is_permanent_discord_error(error: &serenity::Error) -> bool {
+pub(super) fn is_permanent_discord_error(error: &serenity::Error) -> bool {
     let serenity::Error::Http(http_error) = error else {
         return false;
     };

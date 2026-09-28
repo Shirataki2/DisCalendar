@@ -799,3 +799,13 @@ export interface AttachmentReservation {
   id: string;
   upload: AttachmentUrl;
 }
+
+/** JST のまとめ投稿設定。曜日は月曜=0〜日曜=6、時刻は HH:mm。 */
+export interface GuildDigestSettings {
+  daily_enabled: boolean;
+  daily_time: string;
+  weekly_enabled: boolean;
+  weekly_day: number;
+  weekly_time: string;
+  skip_empty: boolean;
+}

@@ -47,6 +47,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(guilds::roles)
                 .service(guilds::get_config)
                 .service(guilds::put_config)
+                .service(guilds::get_digest)
+                .service(guilds::put_digest)
                 // iCal フィードの発行状況と発行・無効化 (#95)
                 .service(feeds::get_feed)
                 .service(feeds::issue_feed)

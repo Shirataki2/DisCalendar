@@ -138,6 +138,21 @@ test.describe("ダイアログ", () => {
   });
 
   test("lp/settings.png (サーバー設定)", async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 2100 });
+    const digest = await page.request.put(
+      `/local/api/guilds/${guildId}/digest`,
+      {
+        data: {
+          daily_enabled: true,
+          daily_time: "08:00",
+          weekly_enabled: true,
+          weekly_day: 0,
+          weekly_time: "08:00",
+          skip_empty: true,
+        },
+      },
+    );
+    expect(digest.status()).toBe(200);
     // iCal フィード (#95) は発行済みの状態 (URL とコピーボタンが出ている) を見せる。
     // 撮影用 DB は毎回初期化されるので、ここで発行しても次の撮影には残らない
     const issued = await page.request.post(`/local/api/guilds/${guildId}/feed`);
