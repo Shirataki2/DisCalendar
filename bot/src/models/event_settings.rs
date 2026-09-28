@@ -13,7 +13,7 @@ pub async fn get(pool: &PgPool, guild_id: &str) -> sqlx::Result<Option<EventSett
     fetch(pool, guild_id).await
 }
 
-async fn fetch<'e>(
+pub(crate) async fn fetch<'e>(
     executor: impl PgExecutor<'e>,
     guild_id: &str,
 ) -> sqlx::Result<Option<EventSettings>> {

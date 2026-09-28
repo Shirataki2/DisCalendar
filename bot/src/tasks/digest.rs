@@ -50,10 +50,13 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut pending = HashMap::new();
+    let mut checked_at = now_jst();
     loop {
         interval.tick().await;
-        if let Err(error) = tick(&ctx.http, &data, now_jst(), &mut pending).await {
-            tracing::error!(%error, "failed to load digest settings");
+        let now = now_jst();
+        match tick(&ctx.http, &data, checked_at, now, &mut pending).await {
+            Ok(()) => checked_at = now,
+            Err(error) => tracing::error!(%error, "failed to load digest settings"),
         }
     }
 }
@@ -61,10 +64,20 @@ pub async fn run_loop(ctx: serenity::Context, data: Data) {
 async fn tick(
     http: &Arc<serenity::Http>,
     data: &Data,
+    since: NaiveDateTime,
     now: NaiveDateTime,
     pending: &mut HashMap<String, [Option<NaiveDateTime>; 2]>,
 ) -> Result<(), BotError> {
-    let guilds = sqlx::query!(r#"
+    // 前のバッチ処理中に日付が変わっても、その間に到来した期限を拾う。
+    // 起動時の since は現在日時なので、起動前の過去分は拾わない。
+    let mut date = since.date();
+    while date <= now.date() {
+        let now = if date == now.date() {
+            now
+        } else {
+            date.and_hms_opt(23, 59, 59).unwrap()
+        };
+        let guilds = sqlx::query!(r#"
         SELECT guild_id FROM guild_digest_settings
         WHERE (daily_enabled AND daily_time <= $1 AND (last_daily_date IS NULL OR last_daily_date < $2))
            OR (weekly_enabled AND weekly_day = $3 AND weekly_time <= $1
@@ -73,18 +86,26 @@ async fn tick(
     "#, now.time(), now.date(), now.weekday().num_days_from_monday() as i16)
     .fetch_all(&data.pool)
     .await?;
-    for guild in guilds {
-        let dates = pending.entry(guild.guild_id).or_default();
-        for date in dates {
-            date.get_or_insert(now);
+        for guild in guilds {
+            let dates = pending.entry(guild.guild_id).or_default();
+            for date in dates {
+                date.get_or_insert(now);
+            }
         }
+        date = date.succ_opt().unwrap();
     }
     // 一時エラーの対象日時は次の tick にも引き継ぐ。再起動前の過去分は追送しない。
     let mut jobs = pending.clone().into_iter();
     let mut tasks = tokio::task::JoinSet::new();
+    // ponytail: 上限1では送信中の接続は空けられない。通常運用は2以上で1接続を残す。
+    let concurrency = data
+        .pool
+        .options()
+        .get_max_connections()
+        .saturating_sub(1)
+        .clamp(1, 4) as usize;
     loop {
-        // 遅いギルドが他のギルドの当日分を止めないよう、最大4ギルドを並行処理する。
-        while tasks.len() < 4 {
+        while tasks.len() < concurrency {
             let Some((guild, mut dates)) = jobs.next() else {
                 break;
             };
@@ -134,9 +155,6 @@ async fn post(
     kind: Kind,
     now: NaiveDateTime,
 ) -> Result<(), BotError> {
-    let Some(channel) = event_settings::get(pool, guild).await? else {
-        return Ok(());
-    };
     let start = now.date().and_time(NaiveTime::MIN);
     let end = start + Duration::days(if matches!(kind, Kind::Daily) { 1 } else { 7 });
     // 展開は自身でトランザクションを開くため、投稿用の接続を確保する前に終える。
@@ -164,6 +182,14 @@ async fn post(
         return Ok(());
     }
     if !settings.skip_empty || !events.is_empty() {
+        // Web / Bot の通知先更新と同じロックを取り、送信直前の通知先を読む。
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(guild)
+            .execute(&mut *tx)
+            .await?;
+        let Some(channel) = event_settings::fetch(&mut *tx, guild).await? else {
+            return Ok(());
+        };
         if let (Ok(channel_id), Ok(guild_id)) = (
             channel
                 .channel_id
@@ -296,6 +322,19 @@ fn build_embed(kind: Kind, date: NaiveDate, events: &[Event], calendar: &str) ->
 mod tests {
     use super::*;
 
+    fn test_data(pool: &PgPool) -> Data {
+        Data {
+            pool: pool.clone(),
+            site_base_url: "https://example.com".into(),
+            log_channel_id: None,
+            invite_url: String::new(),
+            support_guild_id: None,
+            guild_sync: Arc::new(tokio::sync::Mutex::new(())),
+            tasks_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            presence_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        }
+    }
+
     #[sqlx::test(migrations = "../api/migrations")]
     async fn locks_skip_concurrent_ticks_and_empty_periods_are_recorded(pool: PgPool) {
         let now = now_jst();
@@ -383,18 +422,11 @@ mod tests {
                 .ratelimiter_disabled(true)
                 .build(),
         );
-        let data = Data {
-            pool: pool.clone(),
-            site_base_url: "https://example.com".into(),
-            log_channel_id: None,
-            invite_url: String::new(),
-            support_guild_id: None,
-            guild_sync: Arc::new(tokio::sync::Mutex::new(())),
-            tasks_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            presence_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-        };
+        let data = test_data(&pool);
         let mut pending = HashMap::new();
-        tick(&http, &data, target, &mut pending).await.unwrap();
+        tick(&http, &data, target, target, &mut pending)
+            .await
+            .unwrap();
         assert_eq!(pending["1"], [Some(target), None]);
         assert_eq!(pending["2"], [None, Some(target)]);
 
@@ -405,9 +437,15 @@ mod tests {
             .unwrap();
         sqlx::query("INSERT INTO events (guild_id, name, notifications, start_at, end_at) VALUES ('1', '翌日の予定', '[]', '2026-09-29 12:00', '2026-09-29 13:00'), ('2', '翌週の予定', '[]', '2026-10-05 12:00', '2026-10-05 13:00')")
             .execute(&pool).await.unwrap();
-        tick(&http, &data, target + Duration::minutes(1), &mut pending)
-            .await
-            .unwrap();
+        tick(
+            &http,
+            &data,
+            target,
+            target + Duration::minutes(1),
+            &mut pending,
+        )
+        .await
+        .unwrap();
         assert!(pending.is_empty());
         let dates: Vec<(String, Option<NaiveDate>, Option<NaiveDate>)> = sqlx::query_as(
             "SELECT guild_id, last_daily_date, last_weekly_date FROM guild_digest_settings ORDER BY guild_id",
@@ -419,6 +457,95 @@ mod tests {
                 ("2".into(), None, Some(target.date())),
             ]
         );
+    }
+
+    #[sqlx::test(migrations = "../api/migrations")]
+    async fn delayed_tick_collects_deadlines_before_midnight(pool: PgPool) {
+        let before: NaiveDateTime = "2026-09-28T23:58:00".parse().unwrap();
+        sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time) VALUES ('1', true, '23:59', true, 0, '23:59')")
+            .execute(&pool).await.unwrap();
+        let http = Arc::new(
+            serenity::HttpBuilder::new("test")
+                .proxy("http://127.0.0.1:1")
+                .ratelimiter_disabled(true)
+                .build(),
+        );
+        let data = test_data(&pool);
+        let mut pending = HashMap::new();
+        tick(&http, &data, before, before, &mut pending)
+            .await
+            .unwrap();
+        let empty: bool = sqlx::query_scalar("SELECT last_daily_date IS NULL AND last_weekly_date IS NULL FROM guild_digest_settings WHERE guild_id='1'")
+            .fetch_one(&pool).await.unwrap();
+        assert!(empty);
+        // 先行バッチが2分かかった場合。初回検索時にまだ期限前だった予定も拾う。
+        tick(
+            &http,
+            &data,
+            before,
+            before + Duration::minutes(2),
+            &mut pending,
+        )
+        .await
+        .unwrap();
+        let dates: (NaiveDate, NaiveDate) = sqlx::query_as("SELECT last_daily_date, last_weekly_date FROM guild_digest_settings WHERE guild_id='1'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(dates, (before.date(), before.date()));
+    }
+
+    #[sqlx::test(migrations = "../api/migrations")]
+    async fn destination_is_reread_after_channel_update_lock(pool: PgPool) {
+        sqlx::query("INSERT INTO guild_digest_settings (guild_id, daily_enabled, daily_time, skip_empty) VALUES ('1', true, '00:00', false)")
+            .execute(&pool).await.unwrap();
+        event_settings::set(&pool, "1", "11").await.unwrap();
+        let mut update = pool.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('1'))")
+            .execute(&mut *update)
+            .await
+            .unwrap();
+        let worker_pool = pool.clone();
+        let task = tokio::spawn(async move {
+            let http = serenity::HttpBuilder::new("test")
+                .proxy("http://127.0.0.1:1")
+                .ratelimiter_disabled(true)
+                .build();
+            post(
+                &http,
+                &worker_pool,
+                "https://example.com",
+                "1",
+                Kind::Daily,
+                now_jst(),
+            )
+            .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                assert!(!task.is_finished(), "通知先更新のロックを待たずに投稿した");
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND NOT granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database()))")
+                    .fetch_one(&pool).await.unwrap();
+                if waiting { break }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }).await.unwrap();
+        // 新しい通知先は不正値として記録される。古い11へ送信するとHTTP接続で失敗する。
+        sqlx::query("UPDATE event_settings SET channel_id='0' WHERE guild_id='1'")
+            .execute(&mut *update)
+            .await
+            .unwrap();
+        update.commit().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let recorded: bool = sqlx::query_scalar(
+            "SELECT last_daily_date IS NOT NULL FROM guild_digest_settings WHERE guild_id='1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(recorded);
     }
 
     #[sqlx::test(migrations = "../api/migrations")]
@@ -439,18 +566,10 @@ mod tests {
                 .ratelimiter_disabled(true)
                 .build(),
         );
-        let data = Data {
-            pool: pool.clone(),
-            site_base_url: "https://example.com".into(),
-            log_channel_id: None,
-            invite_url: String::new(),
-            support_guild_id: None,
-            guild_sync: Arc::new(tokio::sync::Mutex::new(())),
-            tasks_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            presence_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-        };
-        let task =
-            tokio::spawn(async move { tick(&http, &data, now_jst(), &mut HashMap::new()).await });
+        let data = test_data(&pool);
+        let task = tokio::spawn(async move {
+            tick(&http, &data, now_jst(), now_jst(), &mut HashMap::new()).await
+        });
         let _connection =
             tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
                 .await
