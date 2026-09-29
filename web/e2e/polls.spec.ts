@@ -8,6 +8,14 @@ const guild = E2E_GUILDS.polls.id;
 test("日程調整を作成・投票・確定するとカレンダーに予定が出る", async ({
   page,
 }) => {
+  let releaseConfig!: () => void;
+  const configReady = new Promise<void>((resolve) => {
+    releaseConfig = resolve;
+  });
+  await page.route(`**/guilds/${guild}/config`, async (route) => {
+    await configReady;
+    await route.continue();
+  });
   await page.goto(`/dashboard/${guild}/polls`);
   await page
     .getByRole("button", { name: "日程調整を作成", exact: true })
@@ -22,6 +30,13 @@ test("日程調整を作成・投票・確定するとカレンダーに予定�
   await expect(
     page.getByRole("heading", { name: title, exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "この候補で確定", exact: true }).first(),
+  ).toBeDisabled();
+  releaseConfig();
+  await expect(
+    page.getByRole("button", { name: "この候補で確定", exact: true }).first(),
+  ).toBeEnabled();
   await page
     .getByRole("button", { name: "○ 参加できる", exact: true })
     .first()
@@ -54,6 +69,9 @@ test("日程調整を作成・投票・確定するとカレンダーに予定�
     .first()
     .click();
   const event = page.getByRole("dialog", { name: "予定を作成" });
+  await expect(
+    event.getByText(`保存先: ${E2E_GUILDS.polls.name}`, { exact: true }),
+  ).toBeVisible();
   await expect(event.getByLabel("タイトル", { exact: false })).toHaveValue(
     title,
   );
