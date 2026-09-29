@@ -150,6 +150,10 @@ export function PollPage({
   const router = useRouter();
   const client = useQueryClient();
   const config = useGuildConfigQuery(guildId);
+  const guild = useQuery({
+    queryKey: queryKeys.guild.detail(guildId),
+    queryFn: () => api.guilds.get(guildId),
+  });
   const permissions = useMyPermissionsQuery(guildId);
   const refresh = useRefreshMyPermissions(guildId);
   const canEdit = canEditEvents(permissions.data);
@@ -184,6 +188,7 @@ export function PollPage({
     !!poll?.deadline && Date.parse(`${poll.deadline}+09:00`) <= Date.now();
   const open = poll?.status === "open" && !expired;
   function confirm(option: PollOption, poll: PollDetail) {
+    if (!config.isSuccess || !guild.isSuccess) return;
     const start = parseApiDateTime(`${option.start_at.slice(0, 10)}T00:00:00`),
       end = parseApiDateTime(`${option.end_at.slice(0, 10)}T00:00:00`);
     setConfirmation({
@@ -302,7 +307,11 @@ export function PollPage({
                       <Button
                         variant="secondary"
                         className="min-h-11"
-                        disabled={action.isPending}
+                        disabled={
+                          action.isPending ||
+                          !config.isSuccess ||
+                          !guild.isSuccess
+                        }
                         onClick={() => confirm(option, poll)}
                       >
                         この候補で確定
@@ -313,6 +322,20 @@ export function PollPage({
               );
             })}
           </section>
+          {canEdit && (config.isError || guild.isError) && (
+            <p role="alert">
+              保存先・通知設定を取得できませんでした。
+              <Button
+                variant="outline"
+                onClick={() => {
+                  void config.refetch();
+                  void guild.refetch();
+                }}
+              >
+                再取得
+              </Button>
+            </p>
+          )}
           <VoteTable poll={poll} />
           {action.isError && (
             <p role="alert" className="text-destructive">
@@ -379,7 +402,7 @@ export function PollPage({
           )}
           <EventFormDialog
             fixedSchedule
-            guildName="日程調整の確定"
+            guildName={guild.data?.name ?? ""}
             mentionGuildId={guildId}
             state={confirmation?.state ?? null}
             onClose={() => setConfirmation(null)}

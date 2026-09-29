@@ -33,10 +33,10 @@ fn input() -> PollInput {
 #[sqlx::test(migrations = "./migrations")]
 async fn votes_edit_deadline_and_atomic_confirmation(pool: PgPool) {
     let mut input = input();
-    let id = polls::save(&pool, "111", "333", None, &input)
+    let detail = polls::save(&pool, "111", "333", None, &input)
         .await
         .unwrap();
-    let detail = polls::detail(&pool, "111", id, "333").await.unwrap();
+    let id = detail.poll.id;
     let first = detail.options[0].id;
     let second = detail.options[1].id;
     assert!(matches!(

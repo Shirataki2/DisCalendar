@@ -146,20 +146,29 @@ pub async fn detail(
     user: &str,
 ) -> Result<PollDetail, ApiError> {
     let mut tx = pool.begin().await?;
+    let detail = detail_in(&mut tx, guild, id, user).await?;
+    tx.commit().await?;
+    Ok(detail)
+}
+async fn detail_in(
+    conn: &mut PgConnection,
+    guild: &str,
+    id: i32,
+    user: &str,
+) -> Result<PollDetail, ApiError> {
     // 候補を編集している途中の状態を返さない。
     let mut poll: Poll =
         sqlx::query_as("SELECT * FROM schedule_polls WHERE guild_id=$1 AND id=$2 FOR SHARE")
             .bind(guild)
             .bind(id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut *conn)
             .await?
             .ok_or_else(|| ApiError::NotFound("日程調整が見つかりません".into()))?;
     poll.status = poll.effective_status().to_owned();
     let options = sqlx::query_as("SELECT o.*, count(*) FILTER (WHERE v.answer='yes') AS yes, count(*) FILTER (WHERE v.answer='maybe') AS maybe, count(*) FILTER (WHERE v.answer='no') AS no FROM schedule_poll_options o LEFT JOIN schedule_poll_votes v ON v.option_id=o.id WHERE o.poll_id=$1 GROUP BY o.id ORDER BY o.position")
-        .bind(id).fetch_all(&mut *tx).await?;
+        .bind(id).fetch_all(&mut *conn).await?;
     let votes = sqlx::query_as("SELECT v.option_id, v.user_id, v.answer FROM schedule_poll_votes v JOIN schedule_poll_options o ON o.id=v.option_id WHERE o.poll_id=$1 ORDER BY v.user_id, o.position")
-        .bind(id).fetch_all(&mut *tx).await?;
-    tx.commit().await?;
+        .bind(id).fetch_all(&mut *conn).await?;
     Ok(PollDetail {
         poll,
         options,
@@ -173,7 +182,7 @@ pub async fn save(
     user: &str,
     id: Option<i32>,
     input: &PollInput,
-) -> Result<i32, ApiError> {
+) -> Result<PollDetail, ApiError> {
     input.validate()?;
     let mut tx = pool.begin().await?;
     let id = if let Some(id) = id {
@@ -239,8 +248,9 @@ pub async fn save(
                 .bind(id).bind(option.start_at).bind(option.end_at).bind(option.is_all_day).bind(position as i32).execute(&mut *tx).await?;
         }
     }
+    let detail = detail_in(&mut tx, guild, id, user).await?;
     tx.commit().await?;
-    Ok(id)
+    Ok(detail)
 }
 pub async fn vote(
     pool: &PgPool,

@@ -85,19 +85,12 @@ pub async fn create(
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, ApiError> {
     ensure_can_edit(&state.pool, &member).await?;
-    let id = polls::save(
+    let poll = polls::save(
         &state.pool,
         member.guild_id(),
         &member.user.discord_user_id,
         None,
         &body,
-    )
-    .await?;
-    let poll = polls::detail(
-        &state.pool,
-        member.guild_id(),
-        id,
-        &member.user.discord_user_id,
     )
     .await?;
     let announcement = announce(&state, &poll, false).await;
@@ -113,7 +106,7 @@ pub async fn update(
 ) -> Result<web::Json<PollDetail>, ApiError> {
     let _writer = event_links::lock_writer(&state.pool, member.guild_id()).await?;
     ensure_can_edit(&state.pool, &member).await?;
-    polls::save(
+    let poll = polls::save(
         &state.pool,
         member.guild_id(),
         &member.user.discord_user_id,
@@ -121,15 +114,7 @@ pub async fn update(
         &body,
     )
     .await?;
-    Ok(web::Json(
-        polls::detail(
-            &state.pool,
-            member.guild_id(),
-            path.poll_id,
-            &member.user.discord_user_id,
-        )
-        .await?,
-    ))
+    Ok(web::Json(poll))
 }
 #[utoipa::path(tag="polls",params(PollPath),request_body=VoteInput,responses((status=204),(status=409,body=ErrorBody)))]
 #[put("/{guild_id}/{poll_id}/vote")]
