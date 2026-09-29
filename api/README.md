@@ -198,5 +198,6 @@ PUT は `expected_version` を必須とし、未変更の候補IDと回答を保
 編集・削除・確定は既存のギルド単位writerロックで直列化し、投票とは親の行ロックで排他する。
 メンバー名照会は予定の操作者に加え、同じギルドの日程調整の作成者・回答者だけを許可する。
 作成・確定レスポンスの `announcement` は `sent` / `not_configured` / `failed`。投稿失敗で保存は取り消さない。
-戻す場合は `rollback/20260929091000_drop_poll_confirmed_event_index.sql` →
-`rollback/20260929090000_drop_schedule_polls.sql` の順で実行し、両方のマイグレーション履歴を除去する。候補・回答は失われ、確定済みの予定は残る。
+戻す場合は `rollback/20260929092000_drop_poll_vote_user_index.sql` →
+`rollback/20260929091000_drop_poll_confirmed_event_index.sql` →
+`rollback/20260929090000_drop_schedule_polls.sql` の順で実行し、3件のマイグレーション履歴を除去する。候補・回答は失われ、確定済みの予定は残る。
