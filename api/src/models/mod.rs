@@ -20,6 +20,7 @@ pub mod feed_tokens;
 pub mod guilds;
 pub mod notification_mentions;
 pub mod notifications;
+pub mod polls;
 pub mod push;
 pub mod shares;
 pub mod user_activity;

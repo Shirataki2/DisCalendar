@@ -86,6 +86,7 @@ export type EventDialogState =
   | { mode: "edit"; event: ApiEvent; scope?: ChangeScope };
 
 interface Props {
+  fixedSchedule?: boolean;
   previewRecurrence?: (
     start: string,
     rule: RecurrenceRule,
@@ -128,6 +129,7 @@ const NAME_INPUT_ID = "event-form-name";
 
 /** 予定の作成・編集ダイアログ (旧 NewEvent.vue 相当) */
 export function EventFormDialog({
+  fixedSchedule,
   previewRecurrence,
   guidance,
   guildName,
@@ -160,6 +162,7 @@ export function EventFormDialog({
       >
         {shown && (
           <EventForm
+            fixedSchedule={fixedSchedule}
             previewRecurrence={previewRecurrence}
             state={shown}
             guildName={guildName}
@@ -186,6 +189,7 @@ interface FormProps extends Omit<Props, "state"> {
 // ダイアログが開くたびにマウントされる (Base UI の Dialog は閉じると Popup を unmount する) ので、
 // useForm の defaultValues で初期値が決まる
 function EventForm({
+  fixedSchedule,
   previewRecurrence,
   state,
   guildName,
@@ -533,6 +537,7 @@ function EventForm({
                   name="startDate"
                   render={({ field }) => (
                     <DatePicker
+                      disabled={fixedSchedule}
                       id="event-form-start-date"
                       value={field.value}
                       onChange={handleStartDateChange}
@@ -549,7 +554,7 @@ function EventForm({
                 <Input
                   id="event-form-start-time"
                   type="time"
-                  disabled={isAllDay}
+                  disabled={isAllDay || fixedSchedule}
                   aria-invalid={errors.startTime ? true : undefined}
                   {...register("startTime")}
                 />
@@ -561,6 +566,7 @@ function EventForm({
                   name="isAllDay"
                   render={({ field }) => (
                     <Checkbox
+                      disabled={fixedSchedule}
                       id="event-form-all-day"
                       checked={field.value}
                       onCheckedChange={(checked) => {
@@ -605,6 +611,7 @@ function EventForm({
                   name="endDate"
                   render={({ field }) => (
                     <DatePicker
+                      disabled={fixedSchedule}
                       id="event-form-end-date"
                       value={field.value}
                       onChange={(date) => {
@@ -622,7 +629,7 @@ function EventForm({
                 <Input
                   id="event-form-end-time"
                   type="time"
-                  disabled={isAllDay}
+                  disabled={isAllDay || fixedSchedule}
                   aria-invalid={errors.endTime ? true : undefined}
                   {...register("endTime")}
                 />

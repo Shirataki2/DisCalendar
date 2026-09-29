@@ -27,7 +27,9 @@ export function dashboardReturnPath(value: string | null): string {
   const url = new URL(value, "https://discalendar.invalid");
   if (
     url.origin !== "https://discalendar.invalid" ||
-    !/^\/dashboard(?:\/(?:all|[0-9]{1,20}))?$/.test(url.pathname) ||
+    !/^\/dashboard(?:\/(?:all|[0-9]{1,20}(?:\/polls(?:\/[1-9][0-9]{0,9})?)?))?$/.test(
+      url.pathname,
+    ) ||
     `${url.pathname}${url.search}` !== value
   )
     return "/dashboard";

@@ -184,3 +184,18 @@ migrations/         スキーマ (適用済みのファイルは変更禁止、�
 予定の添付ファイルの設定・API・テスト・回収手順は[添付ファイルの運用](../docs/attachments.md)を参照。
 
 繰り返し予定の条件・対象範囲・競合・移行は [繰り返し予定のAPI契約](../docs/recurring-events.md) を参照。
+
+### 日程調整 (#169・第1段階)
+
+`/polls/{guild_id}` の GET / POST で最新100件の一覧・作成、`/{poll_id}` の GET / PUT / DELETE で詳細・編集・削除。
+全ルートで `GuildMember` を必須にし、投票以外の書き込みは予定と同じ編集権限を要求する。
+候補は1〜5件、タイトル32文字・説明1000文字以内、JST naive。終日の終了日は期間に含み、時刻は0時。
+PUT は `expected_version` を必須とし、未変更の候補IDと回答を保持する。日時変更・削除した候補の回答は失われる。
+`/{poll_id}/vote` の PUT は `{option_id,answer}` (`yes` / `maybe` / `no`) で本人の回答を上書きする。
+`/close` の POST は `{expected_version}` で締め切る。期限超過も読み取り・投票時に closed として扱う。
+`/confirm` の POST は `{option_id,expected_version,event: EventInput}`。候補日時を一致させ、繰り返しなしで送る。
+既存の予定作成処理を通し、予定・確定状態・Webhookを同じトランザクションで保存する。
+編集・削除・確定は既存のギルド単位writerロックで直列化し、投票とは親の行ロックで排他する。
+メンバー名照会は予定の操作者に加え、同じギルドの日程調整の作成者・回答者だけを許可する。
+作成・確定レスポンスの `announcement` は `sent` / `not_configured` / `failed`。投稿失敗で保存は取り消さない。
+戻す場合は `rollback/20260929090000_drop_schedule_polls.sql` を使う。候補・回答は失われ、確定済みの予定は残る。

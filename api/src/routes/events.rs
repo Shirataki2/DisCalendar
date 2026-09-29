@@ -223,8 +223,19 @@ pub async fn create(
     body: web::Json<EventInput>,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, ApiError> {
+    let event = create_for_member(&member, &body, &state, None).await?;
+    Ok(HttpResponse::Created().json(event))
+}
+
+/// 日程調整の確定も通常作成と同じ検証・Discord補償・Webhookを通す。
+pub(crate) async fn create_for_member(
+    member: &GuildMember,
+    body: &EventInput,
+    state: &AppState,
+    confirmation: Option<&crate::models::polls::Confirmation>,
+) -> Result<Event, ApiError> {
     let _writer = event_links::lock_writer(&state.pool, member.guild_id()).await?;
-    ensure_can_edit(&state.pool, &member).await?;
+    ensure_can_edit(&state.pool, member).await?;
     body.validate()?;
     crate::models::notification_mentions::validate_targets(
         &state.discord,
@@ -235,18 +246,23 @@ pub async fn create(
     .await?;
     // 作成では省略 (フラグを知らない古いクライアント) は「作らない」として扱う
     let discord_scheduled_event = body.discord_scheduled_event.unwrap_or(false);
-    events::validate_discord_flag(&body, discord_scheduled_event, now_jst())?;
+    events::validate_discord_flag(body, discord_scheduled_event, now_jst())?;
     if discord_scheduled_event {
-        ensure_can_create_events(&member)?;
+        ensure_can_create_events(member)?;
     }
     let guild_id = member.guild_id();
+    if let Some(confirmation) = confirmation {
+        let mut tx = state.pool.begin().await?;
+        crate::models::polls::validate_confirmation(&mut tx, guild_id, confirmation, body).await?;
+        tx.commit().await?;
+    }
 
     if !discord_scheduled_event {
         let mut tx = state.pool.begin().await?;
         let row = events::create(
             &mut *tx,
             guild_id,
-            &body,
+            body,
             now_jst(),
             &member.user.discord_user_id,
         )
@@ -255,7 +271,7 @@ pub async fn create(
             &mut tx,
             guild_id,
             row.id,
-            &body,
+            body,
             &member.user.discord_user_id,
         )
         .await?;
@@ -268,9 +284,12 @@ pub async fn create(
             &member.user.discord_user_id,
         )
         .await?;
+        if let Some(confirmation) = confirmation {
+            crate::models::polls::confirm(&mut tx, guild_id, confirmation, body, event.id).await?;
+        }
         tx.commit().await?;
         tracing::info!(guild_id, event_id = event.id, user_id = %member.user.discord_user_id, "event created");
-        return Ok(HttpResponse::Created().json(event));
+        return Ok(event);
     }
 
     // Discord 連携あり (#94): 先に Discord にイベントを作り、成功したら短いトランザクションで
@@ -279,10 +298,7 @@ pub async fn create(
     // DB 側が失敗したら作ってしまったイベントを後始末する
     let scheduled_event_id = state
         .discord
-        .create_scheduled_event(
-            guild_id,
-            &payload_for(&state.site_base_url, guild_id, &body),
-        )
+        .create_scheduled_event(guild_id, &payload_for(&state.site_base_url, guild_id, body))
         .await
         .map_err(|err| describe_create_error(guild_id, &body.name, err))?;
     let result: Result<events::EventRow, ApiError> = async {
@@ -293,7 +309,7 @@ pub async fn create(
         let row = events::create(
             &mut *tx,
             guild_id,
-            &body,
+            body,
             now_jst(),
             &member.user.discord_user_id,
         )
@@ -307,6 +323,9 @@ pub async fn create(
             &member.user.discord_user_id,
         )
         .await?;
+        if let Some(confirmation) = confirmation {
+            crate::models::polls::confirm(&mut tx, guild_id, confirmation, body, row.id).await?;
+        }
         tx.commit().await?;
         Ok(row)
     }
@@ -315,13 +334,13 @@ pub async fn create(
         Ok(row) => row,
         Err(err) => {
             // COMMIT の応答だけ失われて実は保存されていることがあるので、確かめてから消す
-            cleanup_unsaved_scheduled_event(&state, guild_id, &scheduled_event_id).await;
+            cleanup_unsaved_scheduled_event(state, guild_id, &scheduled_event_id).await;
             return Err(err);
         }
     };
     row.discord_scheduled_event_id = Some(scheduled_event_id);
     tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event created with a discord scheduled event");
-    Ok(HttpResponse::Created().json(Event::from(row)))
+    Ok(Event::from(row))
 }
 
 /// 予定の更新 (全フィールド置き換え)

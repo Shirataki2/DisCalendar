@@ -777,6 +777,22 @@ impl DiscordClient {
         }))
     }
 
+    pub async fn post_poll_announcement(
+        &self,
+        channel: &str,
+        body: &serde_json::Value,
+    ) -> Result<(), DiscordError> {
+        checked_id(channel)?;
+        self.send(
+            reqwest::Method::POST,
+            &format!("/channels/{channel}/messages"),
+            Some(body),
+        )
+        .await?
+        .ok_or(DiscordError::InvalidId)?;
+        Ok(())
+    }
+
     /// GET して JSON にデコードする。
     /// 404 (Unknown Guild / Unknown Member) と 403 (Missing Access = Bot 未参加) は `Ok(None)`。
     /// 429 は Retry-After が短ければ 1 回だけ待って再試行する

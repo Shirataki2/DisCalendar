@@ -84,6 +84,15 @@ export interface E2EGuild {
  *   他のテストからは参照しない (api の権限キャッシュが変わったまま残るため)
  */
 export const E2E_GUILDS = {
+  polls: {
+    id: "200000000000000010",
+    name: "E2E Polls Guild",
+    permissions: "8",
+    owner: true,
+    botJoined: true,
+    botCreateEvents: true,
+    userCreateEvents: true,
+  },
   editorRoles: {
     id: "200000000000000009",
     name: displayName(
@@ -189,7 +198,10 @@ const SCREENSHOT_GUILDS: E2EGuild[] = SCREENSHOT
 /** Discord モックが返し、seed が DB に入れるギルドの全体 */
 export const E2E_ALL_GUILDS: E2EGuild[] = [
   ...Object.values(E2E_GUILDS).filter(
-    (guild) => !SCREENSHOT || guild.id !== E2E_GUILDS.editorRoles.id,
+    (guild) =>
+      !SCREENSHOT ||
+      (guild.id !== E2E_GUILDS.editorRoles.id &&
+        guild.id !== E2E_GUILDS.polls.id),
   ),
   ...SCREENSHOT_GUILDS,
 ];

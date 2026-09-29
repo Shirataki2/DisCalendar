@@ -51,10 +51,15 @@ pub async fn profiles(
 ) -> Result<web::Json<Vec<MemberProfile>>, ApiError> {
     let ids = parse_ids(&query.ids)?;
     // 任意 ID による Discord API の総当たりを防ぐ。クライアントは操作者を保存時に偽装できない。
-    let authors = events::author_ids(&state.pool, member.guild_id(), &ids).await?;
+    let mut authors = events::author_ids(&state.pool, member.guild_id(), &ids).await?;
+    let participants: Vec<String> = sqlx::query_scalar("SELECT created_by FROM schedule_polls WHERE guild_id=$1 AND created_by=ANY($2) UNION SELECT v.user_id FROM schedule_poll_votes v JOIN schedule_poll_options o ON o.id=v.option_id JOIN schedule_polls p ON p.id=o.poll_id WHERE p.guild_id=$1 AND v.user_id=ANY($2)")
+        .bind(member.guild_id()).bind(&ids).fetch_all(&state.pool).await?;
+    authors.extend(participants);
+    authors.sort();
+    authors.dedup();
     if authors.len() != ids.len() {
         return Err(ApiError::BadRequest(
-            "ids must be authors of events in this guild".into(),
+            "ids must be event authors or poll participants in this guild".into(),
         ));
     }
     let profiles = stream::iter(ids)

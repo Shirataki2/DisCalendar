@@ -809,3 +809,45 @@ export interface GuildDigestSettings {
   weekly_time: string;
   skip_empty: boolean;
 }
+
+/** 日程調整の日時は予定と同じJST。終日の終了日は期間に含む。 */
+export interface SchedulePoll {
+  id: number;
+  guild_id: string;
+  title: string;
+  description: string | null;
+  created_by: string;
+  deadline: string | null;
+  status: "open" | "closed" | "confirmed";
+  confirmed_event_id: number | null;
+  version: number;
+  created_at: string;
+}
+export interface PollOptionInput {
+  id?: number;
+  start_at: string;
+  end_at: string;
+  is_all_day: boolean;
+}
+export interface PollOption extends PollOptionInput {
+  id: number;
+  poll_id: number;
+  position: number;
+  yes: number;
+  maybe: number;
+  no: number;
+}
+export type PollAnswer = "yes" | "maybe" | "no";
+export interface PollDetail extends SchedulePoll {
+  options: PollOption[];
+  votes: { option_id: number; user_id: string; answer: PollAnswer }[];
+  current_user_id: string;
+}
+export interface PollInput {
+  title: string;
+  description: string | null;
+  deadline: string | null;
+  options: PollOptionInput[];
+  expected_version?: number;
+}
+export type PollAnnouncement = "sent" | "not_configured" | "failed";
