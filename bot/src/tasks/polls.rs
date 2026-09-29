@@ -93,6 +93,12 @@ async fn sync_one(
         return Ok(());
     }
     let mut tx = pool.begin().await?;
+    // 通知先更新と同じ順序でギルド→調整をロックし、更新中なら新しい設定を待つ。
+    // ロックは送信内容を確定する短いトランザクションだけで保持する。
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext(guild_id)) FROM schedule_polls WHERE id=$1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     let poll:Option<Poll>=sqlx::query_as("SELECT p.* FROM schedule_polls p JOIN guilds g ON g.guild_id=p.guild_id WHERE p.id=$1 FOR SHARE OF p")
         .bind(id).fetch_optional(&mut *tx).await?;
     let Some(poll) = poll else {
@@ -484,6 +490,43 @@ mod db_tests {
                 .await
                 .unwrap();
         assert_eq!(channel, "4");
+        // 設定の更新中に同期を始めても、コミット後の通知先を使う。
+        sqlx::query("UPDATE schedule_poll_posts SET next_attempt_at='epoch' WHERE poll_id=1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut setting = pool.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('1'))")
+            .execute(&mut *setting)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE event_settings SET channel_id='6' WHERE guild_id='1'")
+            .execute(&mut *setting)
+            .await
+            .unwrap();
+        let sync_pool = pool.clone();
+        let mut syncing =
+            tokio::spawn(
+                async move { sync_one(&http, &sync_pool, "https://example.com", 1).await },
+            );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut syncing)
+                .await
+                .is_err()
+        );
+        setting.commit().await.unwrap();
+        assert!(syncing.await.unwrap().is_err()); // 投稿失敗でも送信先は更新済み。
+        let channel: String =
+            sqlx::query_scalar("SELECT channel_id FROM schedule_poll_posts WHERE poll_id=1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(channel, "6");
+        let http = serenity::HttpBuilder::new("test")
+            .proxy("http://127.0.0.1:1")
+            .ratelimiter_disabled(true)
+            .build();
+
         // 初回失敗後に締切を迎えた調整は、キューにも送信直前にも除外する。
         sqlx::query("UPDATE schedule_polls SET status='closed' WHERE id=1")
             .execute(&pool)
