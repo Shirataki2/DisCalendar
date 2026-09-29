@@ -17,6 +17,7 @@ mod health;
 mod imports;
 mod member;
 mod members;
+mod polls;
 mod push;
 mod shares;
 mod webhooks;
@@ -27,6 +28,17 @@ use utoipa_actix_web::{scope, service_config::ServiceConfig};
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(health::index)
         .service(health::healthz)
+        .service(
+            scope("/polls")
+                .service(polls::list)
+                .service(polls::detail)
+                .service(polls::create)
+                .service(polls::update)
+                .service(polls::vote)
+                .service(polls::close)
+                .service(polls::remove)
+                .service(polls::confirm),
+        )
         .service(push::list)
         .service(push::subscribe)
         .service(push::settings)

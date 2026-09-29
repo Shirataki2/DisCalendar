@@ -132,7 +132,7 @@ function refetchPermissions(
 }
 
 /** Bot の権限不足 (403 `bot_permission`) で失敗したときに取り直す */
-function refetchPermissionsOnBotError(
+export function refetchPermissionsOnBotError(
   queryClient: ReturnType<typeof useQueryClient>,
   guildId: string,
   error: unknown,

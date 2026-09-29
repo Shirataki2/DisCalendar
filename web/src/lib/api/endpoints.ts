@@ -33,10 +33,15 @@ import type {
   MemberProfile,
   MyPermissions,
   OpsResult,
+  PollAnnouncement,
+  PollAnswer,
+  PollDetail,
+  PollInput,
   PushScope,
   PushSettings,
   PushSubscriptionInput,
   RecurrenceRule,
+  SchedulePoll,
   ShareLink,
   SqlHistoryEntry,
   SqlResult,
@@ -135,6 +140,50 @@ export type EventsClient = Omit<
  */
 export function createApi(request: ApiFetcher) {
   return {
+    polls: {
+      list: (guild: string, signal?: AbortSignal) =>
+        request<SchedulePoll[]>(`/polls/${guild}`, { signal }),
+      detail: (guild: string, id: number, signal?: AbortSignal) =>
+        request<PollDetail>(`/polls/${guild}/${id}`, { signal }),
+      create: (guild: string, input: PollInput) =>
+        request<{ poll: PollDetail; announcement: PollAnnouncement }>(
+          `/polls/${guild}`,
+          { method: "POST", body: input },
+        ),
+      update: (guild: string, id: number, input: PollInput) =>
+        request<PollDetail>(`/polls/${guild}/${id}`, {
+          method: "PUT",
+          body: input,
+        }),
+      vote: (
+        guild: string,
+        id: number,
+        option_id: number,
+        answer: PollAnswer,
+      ) =>
+        request<void>(`/polls/${guild}/${id}/vote`, {
+          method: "PUT",
+          body: { option_id, answer },
+        }),
+      close: (guild: string, id: number, expected_version: number) =>
+        request<void>(`/polls/${guild}/${id}/close`, {
+          method: "POST",
+          body: { expected_version },
+        }),
+      remove: (guild: string, id: number) =>
+        request<void>(`/polls/${guild}/${id}`, { method: "DELETE" }),
+      confirm: (
+        guild: string,
+        id: number,
+        option_id: number,
+        expected_version: number,
+        event: ApiEventInput,
+      ) =>
+        request<{ event: ApiEvent; announcement: PollAnnouncement }>(
+          `/polls/${guild}/${id}/confirm`,
+          { method: "POST", body: { option_id, expected_version, event } },
+        ),
+    },
     attachments: {
       limits: (guildId: string) =>
         request<AttachmentLimits>(`/guilds/${guildId}/attachments`),

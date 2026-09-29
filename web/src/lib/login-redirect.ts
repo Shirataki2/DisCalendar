@@ -27,11 +27,26 @@ export function dashboardReturnPath(value: string | null): string {
   const url = new URL(value, "https://discalendar.invalid");
   if (
     url.origin !== "https://discalendar.invalid" ||
-    !/^\/dashboard(?:\/(?:all|[0-9]{1,20}))?$/.test(url.pathname) ||
+    !/^\/dashboard(?:\/(?:all|[0-9]{1,20}(?:\/polls(?:\/[1-9][0-9]{0,9})?)?))?$/.test(
+      url.pathname,
+    ) ||
     `${url.pathname}${url.search}` !== value
   )
     return "/dashboard";
 
+  // 作成直後の古い共有URLも、案内表示だけのパラメーターを落として投票ページへ戻す。
+  if (
+    /\/polls\/[1-9][0-9]*$/.test(url.pathname) &&
+    url.searchParams.has("announcement")
+  ) {
+    const values = url.searchParams.getAll("announcement");
+    if (
+      values.length !== 1 ||
+      !["sent", "failed", "not_configured"].includes(values[0])
+    )
+      return "/dashboard";
+    url.searchParams.delete("announcement");
+  }
   for (const key of url.searchParams.keys()) {
     if (key !== "date" && key !== "event") return "/dashboard";
   }
@@ -44,7 +59,7 @@ export function dashboardReturnPath(value: string | null): string {
         !calendarEventParam(url.searchParams.get("event"))))
   )
     return "/dashboard";
-  return value;
+  return `${url.pathname}${url.search}`;
 }
 
 export function loginUrl(returnTo: string | null): string {

@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { dashboardReturnPath, loginUrl } from "./login-redirect";
 
 describe("ログイン後のカレンダーへの復帰", () => {
-  it.each(["/dashboard", "/dashboard/all", "/dashboard/123456789012345678"])(
-    "カレンダーのパス %s を保持する",
-    (path) => {
-      expect(dashboardReturnPath(path)).toBe(path);
-    },
-  );
+  it.each([
+    "/dashboard",
+    "/dashboard/all",
+    "/dashboard/123/polls",
+    "/dashboard/123/polls/42",
+    "/dashboard/123456789012345678",
+  ])("カレンダーのパス %s を保持する", (path) => {
+    expect(dashboardReturnPath(path)).toBe(path);
+  });
 
   it.each([
     "/dashboard/123?date=2026-12-31",
@@ -24,6 +27,8 @@ describe("ログイン後のカレンダーへの復帰", () => {
     "//example.com",
     "/dashboard/../admin",
     "/admin",
+    "/dashboard/123/polls/0",
+    "/dashboard/123/polls/42/other",
     "/dashboard/123?next=https://example.com",
     "/dashboard/123?date=2026-02-31&event=42",
     "/dashboard/123?date=2026-12-31&event=0",
@@ -35,6 +40,15 @@ describe("ログイン後のカレンダーへの復帰", () => {
   ])("許可していない戻り先 %s はサーバー一覧に戻す", (path) => {
     expect(dashboardReturnPath(path)).toBe("/dashboard");
   });
+
+  it.each(["sent", "failed", "not_configured"])(
+    "作成直後の案内 %s を除いて投票ページへ復帰する",
+    (status) => {
+      expect(
+        dashboardReturnPath(`/dashboard/123/polls/42?announcement=${status}`),
+      ).toBe("/dashboard/123/polls/42");
+    },
+  );
 
   it("通常のログイン URL は維持し、サーバーへのリンクだけ戻り先を付ける", () => {
     expect(loginUrl(null)).toBe("/login");

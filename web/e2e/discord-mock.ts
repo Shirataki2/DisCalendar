@@ -304,6 +304,16 @@ export function startDiscordMock(port: number): Promise<Server> {
       return json(200, { joined: joinedGuilds.has(guild.id) });
     }
 
+    // 日程調整の案内投稿 (#169)。
+    if (
+      /^\/channels\/40000000000000000[12]\/messages$/.test(url.pathname) &&
+      req.method === "POST"
+    ) {
+      if (auth !== `Bot ${E2E_BOT_TOKEN}`)
+        return json(401, { message: "Unauthorized" });
+      return json(200, { id: "900000000000001001" });
+    }
+
     // スケジュールイベント (#94)。Bot トークン + 「イベントの作成」権限が必要
     const scheduledMatch =
       /^\/guilds\/(\d+)\/scheduled-events(?:\/(\d+))?$/.exec(url.pathname);

@@ -8,6 +8,7 @@ import {
   eventFormSchema,
   eventFormToApiInput,
   eventToFormValues,
+  formStartAt,
   LOCATION_MAX_CHARS,
   NAME_MAX_CHARS,
   NOTIFICATION_NUM_MAX,
@@ -524,4 +525,28 @@ it("通知メンションを編集・複製・送信で保持し、不正なID�
       }).success,
     ).toBe(false);
   }
+});
+
+it("DSTで欠落する時刻もJSTとして過去判定する", () => {
+  const values = {
+    ...valid,
+    startDate: new Date(2026, 2, 8),
+    startTime: "02:30",
+    discordEvent: true,
+  };
+  expect(formStartAt(values)).toBe("2026-03-08T02:30:00");
+  expect(
+    withCheckedDiscordEvent(values, new Date("2026-03-07T18:00:00Z"))
+      .discordEvent,
+  ).toBe(false);
+});
+
+it("繰り返しの開始にはタイムゾーン変換せずJSTの曜日を保つ", () => {
+  expect(
+    formStartAt({
+      ...valid,
+      startDate: new Date(2026, 0, 2),
+      startTime: "01:00",
+    }),
+  ).toBe("2026-01-02T01:00:00");
 });
