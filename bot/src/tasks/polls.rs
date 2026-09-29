@@ -52,7 +52,7 @@ async fn tick(http: &serenity::Http, data: &Data) -> Result<(), BotError> {
         SELECT p.id FROM schedule_polls p JOIN guilds g ON g.guild_id=p.guild_id
         LEFT JOIN schedule_poll_posts s ON s.poll_id=p.id
         WHERE COALESCE(s.next_attempt_at,'epoch') <= $1
-        AND (s.poll_id IS NOT NULL OR (p.status='open' AND (p.deadline IS NULL OR p.deadline>$1)))
+        AND (s.message_id IS NOT NULL OR (p.status='open' AND (p.deadline IS NULL OR p.deadline>$1)))
         AND (s.poll_id IS NULL OR s.synced_revision<>p.discord_revision
              OR (NOT s.closed AND (p.status<>'open' OR p.deadline<=$1)))
         AND (s.message_id IS NOT NULL OR EXISTS (SELECT 1 FROM event_settings es WHERE es.guild_id=p.guild_id))
@@ -104,6 +104,9 @@ async fn sync_one(
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?;
+    if closed && post.as_ref().is_none_or(|post| post.message_id.is_none()) {
+        return Ok(());
+    }
     if post.as_ref().is_some_and(|s| {
         s.next_attempt_at > now_jst()
             || (s.synced_revision == poll.discord_revision && s.closed == closed)
@@ -481,5 +484,25 @@ mod db_tests {
                 .await
                 .unwrap();
         assert_eq!(channel, "4");
+        // 初回失敗後に締切を迎えた調整は、キューにも送信直前にも除外する。
+        sqlx::query("UPDATE schedule_polls SET status='closed' WHERE id=1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE schedule_poll_posts SET next_attempt_at='epoch' WHERE poll_id=1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        tick(&http, &data).await.unwrap();
+        let due: bool = sqlx::query_scalar(
+            "SELECT next_attempt_at='epoch' FROM schedule_poll_posts WHERE poll_id=1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(due);
+        sync_one(&http, &pool, "https://example.com", 1)
+            .await
+            .unwrap();
     }
 }
