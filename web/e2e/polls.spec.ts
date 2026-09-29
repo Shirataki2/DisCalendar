@@ -359,6 +359,7 @@ test.describe("JST候補と個人設定の引継ぎ", () => {
   test("DSTで欠落する時刻もそのまま確定し、個人の色と通知なしを使う", async ({
     page,
   }) => {
+    await page.clock.setFixedTime(new Date("2026-03-07T18:00:00Z"));
     const option = {
       start_at: "2026-03-08T02:30:00",
       end_at: "2026-03-08T03:00:00",
@@ -385,6 +386,11 @@ test.describe("JST候補と個人設定の引継ぎ", () => {
       await expect(dialog.getByLabel("開始時刻", { exact: true })).toHaveValue(
         "02:30",
       );
+      await expect(
+        dialog.getByRole("checkbox", {
+          name: "Discord のイベントとしても作成する",
+        }),
+      ).toBeDisabled();
       const confirmed = page.waitForResponse(
         (r) => r.url().endsWith("/confirm") && r.request().method() === "POST",
       );

@@ -65,7 +65,7 @@ import type {
   ChangeScope,
   RecurrenceRule,
 } from "@/lib/api/types";
-import { nowInJst, toApiDateTime } from "@/lib/calendar-events";
+import { toApiDateTime } from "@/lib/calendar-events";
 import {
   DESCRIPTION_MAX_CHARS,
   type EventFormValues,
@@ -340,7 +340,7 @@ function EventForm({
       ? formStartAt({ isAllDay, startDate, startTime })
       : null;
   const discordStartsInPast =
-    startAt !== null && startAt.getTime() <= nowInJst().getTime();
+    startAt !== null && startAt.getTime() <= Date.now();
   const discordLocked =
     !isLinkedEdit &&
     discordSync !== undefined &&

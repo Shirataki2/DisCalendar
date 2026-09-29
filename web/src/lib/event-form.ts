@@ -233,9 +233,10 @@ function combine(date: Date, time: string): Date {
 export function formStartAt(
   values: Pick<EventFormValues, "isAllDay" | "startDate" | "startTime">,
 ): Date | null {
-  if (values.isAllDay) return startOfDay(values.startDate);
-  if (!TIME_PATTERN.test(values.startTime)) return null;
-  return combine(values.startDate, values.startTime);
+  if (!values.isAllDay && !TIME_PATTERN.test(values.startTime)) return null;
+  return new Date(
+    `${format(values.startDate, "yyyy-MM-dd")}T${values.isAllDay ? "00:00" : values.startTime}:00+09:00`,
+  );
 }
 
 /**
@@ -252,7 +253,7 @@ export function withCheckedDiscordEvent(
 ): EventFormValues {
   if (!values.discordEvent) return values;
   const startAt = formStartAt(values);
-  if (startAt === null || startAt.getTime() > nowInJst(now).getTime()) {
+  if (startAt === null || startAt.getTime() > now.getTime()) {
     return values;
   }
   return { ...values, discordEvent: false };
