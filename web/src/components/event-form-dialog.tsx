@@ -65,7 +65,6 @@ import type {
   ChangeScope,
   RecurrenceRule,
 } from "@/lib/api/types";
-import { toApiDateTime } from "@/lib/calendar-events";
 import {
   DESCRIPTION_MAX_CHARS,
   type EventFormValues,
@@ -340,7 +339,7 @@ function EventForm({
       ? formStartAt({ isAllDay, startDate, startTime })
       : null;
   const discordStartsInPast =
-    startAt !== null && startAt.getTime() <= Date.now();
+    startAt !== null && Date.parse(`${startAt}+09:00`) <= Date.now();
   const discordLocked =
     !isLinkedEdit &&
     discordSync !== undefined &&
@@ -412,7 +411,7 @@ function EventForm({
       {editingRecurrence && previewRecurrence && (
         <RecurrenceSettings
           value={recurrence}
-          start={startAt ? toApiDateTime(startAt) : ""}
+          start={startAt ?? ""}
           preview={previewRecurrence}
           onDirty={setRecurrenceDraftDirty}
           onCancel={() => {

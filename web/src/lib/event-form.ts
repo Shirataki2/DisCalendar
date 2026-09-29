@@ -227,16 +227,14 @@ function combine(date: Date, time: string): Date {
 }
 
 /**
- * フォームの開始日時。時刻が未入力・不正なら null。
+ * フォームの開始日時をJST文字列で返す。時刻が未入力・不正なら null。
  * Discord 連携 (#94) の「開始が過去なら連携できない」の判定に使う (api 側の検証と同じ条件)
  */
 export function formStartAt(
   values: Pick<EventFormValues, "isAllDay" | "startDate" | "startTime">,
-): Date | null {
+): string | null {
   if (!values.isAllDay && !TIME_PATTERN.test(values.startTime)) return null;
-  return new Date(
-    `${format(values.startDate, "yyyy-MM-dd")}T${values.isAllDay ? "00:00" : values.startTime}:00+09:00`,
-  );
+  return `${format(values.startDate, "yyyy-MM-dd")}T${values.isAllDay ? "00:00" : values.startTime}:00`;
 }
 
 /**
@@ -253,7 +251,7 @@ export function withCheckedDiscordEvent(
 ): EventFormValues {
   if (!values.discordEvent) return values;
   const startAt = formStartAt(values);
-  if (startAt === null || startAt.getTime() > now.getTime()) {
+  if (startAt === null || Date.parse(`${startAt}+09:00`) > now.getTime()) {
     return values;
   }
   return { ...values, discordEvent: false };
