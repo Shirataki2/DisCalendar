@@ -356,6 +356,28 @@ test("確定中にBotの権限が失われたら再確認の導線を表示す�
 
 test.describe("JST候補と個人設定の引継ぎ", () => {
   test.use({ timezoneId: "America/New_York" });
+  test("DST欠落時刻の現在時刻でも未来の締切を作成できる", async ({ page }) => {
+    await page.clock.setFixedTime(new Date("2099-03-07T17:30:00Z"));
+    await page.goto(`/dashboard/${guild}/polls`);
+    await page
+      .getByRole("button", { name: "日程調整を作成", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "日程調整を作成" });
+    await dialog.getByLabel("タイトル", { exact: true }).fill("DST締切");
+    await dialog.getByLabel("締切（任意・日本時間）").fill("2099-03-08T03:00");
+    const saved = page.waitForResponse(
+      (r) =>
+        r.url().endsWith(`/polls/${guild}`) && r.request().method() === "POST",
+    );
+    await dialog
+      .getByRole("button", { name: "日程調整を作成", exact: true })
+      .click();
+    const response = await saved;
+    expect(response.status()).toBe(201);
+    const { poll } = await response.json();
+    expect(poll.deadline).toBe("2099-03-08T03:00:00");
+    await page.request.delete(`/local/api/polls/${guild}/${poll.id}`);
+  });
   test("DSTで欠落する時刻もそのまま確定し、個人の色と通知なしを使う", async ({
     page,
   }) => {

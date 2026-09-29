@@ -78,10 +78,7 @@ export function PollFormDialog({
               );
               return;
             }
-            if (
-              deadline &&
-              `${deadline}:00` <= format(nowInJst(), "yyyy-MM-dd'T'HH:mm:ss")
-            ) {
+            if (deadline && Date.parse(`${deadline}:00+09:00`) <= Date.now()) {
               setError("締切は未来の日時にしてください");
               return;
             }
