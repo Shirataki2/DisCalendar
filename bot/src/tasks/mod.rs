@@ -13,6 +13,7 @@
 mod digest;
 mod icon_updater;
 mod notify;
+mod polls;
 mod presence;
 
 use poise::serenity_prelude as serenity;
@@ -22,6 +23,7 @@ use crate::data::Data;
 
 /// シャードに依存しない定期タスクをそれぞれ独立した tokio タスクとして起動する
 pub fn spawn_all(ctx: serenity::Context, data: Data) {
+    tokio::spawn(polls::run_loop(ctx.clone(), data.clone()));
     tokio::spawn(digest::run_loop(ctx.clone(), data.clone()));
     tokio::spawn(notify::run_loop(ctx.clone(), data.clone()));
     tokio::spawn(icon_updater::run_loop(ctx, data));

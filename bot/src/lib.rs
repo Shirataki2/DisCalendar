@@ -142,3 +142,8 @@ async fn shutdown_signal() {
 pub mod recurrence;
 #[path = "../../shared/recurring_events.rs"]
 pub mod recurring_events;
+
+#[path = "../../shared/poll_votes.rs"]
+pub mod poll_votes;
+
+pub mod polls;

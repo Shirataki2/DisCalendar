@@ -250,24 +250,19 @@ pub async fn vote(
     user: &str,
     answer: &str,
 ) -> Result<(), ApiError> {
-    if !matches!(answer, "yes" | "maybe" | "no") {
-        return Err(ApiError::BadRequest(
+    use crate::poll_votes::VoteOutcome;
+    match crate::poll_votes::vote(pool, guild, id, option, user, answer).await? {
+        VoteOutcome::Saved => Ok(()),
+        VoteOutcome::Closed => Err(ApiError::Conflict("投票は締め切られています".into())),
+        VoteOutcome::NotFound => Err(ApiError::NotFound(
+            "日程調整または候補が見つかりません".into(),
+        )),
+        VoteOutcome::InvalidAnswer => Err(ApiError::BadRequest(
             "回答はyes / maybe / noで指定してください".into(),
-        ));
+        )),
     }
-    let mut tx = pool.begin().await?;
-    let poll = lock(&mut tx, guild, id).await?;
-    if poll.effective_status() != "open" {
-        return Err(ApiError::Conflict("投票は締め切られています".into()));
-    }
-    let changed = sqlx::query("INSERT INTO schedule_poll_votes (option_id,user_id,answer,updated_at) SELECT id,$3,$4,$5 FROM schedule_poll_options WHERE poll_id=$1 AND id=$2 ON CONFLICT (option_id,user_id) DO UPDATE SET answer=EXCLUDED.answer,updated_at=EXCLUDED.updated_at")
-        .bind(id).bind(option).bind(user).bind(answer).bind(now_jst()).execute(&mut *tx).await?;
-    if changed.rows_affected() == 0 {
-        return Err(ApiError::NotFound("候補が見つかりません".into()));
-    }
-    tx.commit().await?;
-    Ok(())
 }
+
 #[derive(Clone, Deserialize, ToSchema)]
 pub struct Confirmation {
     pub poll_id: i32,

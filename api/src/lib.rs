@@ -383,3 +383,6 @@ pub mod recurrence;
 pub mod recurring_events;
 
 pub mod recurring;
+
+#[path = "../../shared/poll_votes.rs"]
+pub mod poll_votes;

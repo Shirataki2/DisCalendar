@@ -19,6 +19,12 @@ pub async fn handle_event(
     data: &Data,
 ) -> Result<(), BotError> {
     match event {
+        FullEvent::InteractionCreate {
+            interaction: serenity::Interaction::Component(component),
+        } if component.data.custom_id.starts_with("poll:") => {
+            crate::polls::handle(ctx, data, component).await?;
+        }
+
         FullEvent::Ready { data_about_bot } => {
             tracing::info!(
                 shard = ctx.shard_id.0,
