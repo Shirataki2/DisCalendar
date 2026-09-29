@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -19,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { readCalendarSettings } from "@/hooks/use-calendar-settings";
 import { api, describeApiError } from "@/lib/api";
 import type {
+  MemberProfile,
   PollAnnouncement,
   PollAnswer,
   PollDetail,
@@ -446,21 +442,34 @@ export function PollPage({
 }
 function VoteTable({ poll }: { poll: PollDetail }) {
   const ids = [...new Set(poll.votes.map((v) => v.user_id))].sort();
-  const chunks: string[][] = [];
-  for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i + 20));
-  const profiles = useQueries({
-    queries: chunks.map((ids) => ({
-      queryKey: queryKeys.guild.members(poll.guild_id, ids),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        api.guilds.members(poll.guild_id, ids, signal),
-      staleTime: 60_000,
-      retry: false,
-    })),
+  const profiles = useQuery({
+    queryKey: queryKeys.guild.members(poll.guild_id, ids),
+    queryFn: async ({ signal }) => {
+      const members: MemberProfile[] = [];
+      // 20人ずつ逐次取得し、参加者が多くてもDiscord照会を一斉に発生させない。
+      for (let i = 0; i < ids.length; i += 20) {
+        signal.throwIfAborted();
+        try {
+          members.push(
+            ...(await api.guilds.members(
+              poll.guild_id,
+              ids.slice(i, i + 20),
+              signal,
+            )),
+          );
+        } catch (error) {
+          if (signal.aborted) throw error;
+          // 失敗した組だけID表示にし、ほかの参加者名は取得する。
+        }
+      }
+      return members;
+    },
+    enabled: ids.length > 0,
+    staleTime: 60_000,
+    retry: false,
   });
   const members = new Map(
-    profiles
-      .flatMap((q) => q.data ?? [])
-      .map((member) => [member.user_id, member]),
+    (profiles.data ?? []).map((member) => [member.user_id, member]),
   );
   const votes = new Map(
     poll.votes.map((vote) => [

@@ -433,3 +433,64 @@ test.describe("JST候補と個人設定の引継ぎ", () => {
     }
   });
 });
+
+test("多数の参加者名を逐次取得し、一部失敗でも他の名前を表示する", async ({
+  page,
+}) => {
+  const db = new Pool({ connectionString: DATABASE_URL });
+  const result = await page.request.post(`/local/api/polls/${guild}`, {
+    data: {
+      title: "多数の回答",
+      options: [
+        {
+          start_at: "2099-01-01T20:00:00",
+          end_at: "2099-01-01T21:00:00",
+          is_all_day: false,
+        },
+      ],
+    },
+  });
+  const { poll } = await result.json();
+  let active = 0,
+    peak = 0,
+    count = 0;
+  try {
+    await db.query(
+      "INSERT INTO schedule_poll_votes(option_id,user_id,answer,updated_at) SELECT $1,(500000000000000000+i)::text,'yes',now() FROM generate_series(1,41) AS i",
+      [poll.options[0].id],
+    );
+    await page.route(`**/guilds/${guild}/members?*`, async (route) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      count += 1;
+      const index = count;
+      const ids =
+        new URL(route.request().url()).searchParams.get("ids")?.split(",") ??
+        [];
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await route.fulfill({
+        status: index === 2 ? 503 : 200,
+        json:
+          index === 2
+            ? {}
+            : ids.map((user_id) => ({
+                user_id,
+                display_name: `参加者${user_id.slice(-2)}`,
+                avatar_url: null,
+              })),
+      });
+      active -= 1;
+    });
+    await page.goto(`/dashboard/${guild}/polls/${poll.id}`);
+    await expect(page.getByText("参加者41", { exact: true })).toBeVisible();
+    await expect(page.getByText("参加者01", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("500000000000000021", { exact: true }),
+    ).toBeVisible();
+    expect(count).toBe(3);
+    expect(peak).toBe(1);
+  } finally {
+    await page.request.delete(`/local/api/polls/${guild}/${poll.id}`);
+    await db.end();
+  }
+});
