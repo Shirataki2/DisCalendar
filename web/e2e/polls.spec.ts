@@ -335,3 +335,55 @@ test("確定中にBotの権限が失われたら再確認の導線を表示す�
     await page.request.delete(`/local/api/polls/${guild}/${poll.id}`);
   }
 });
+
+test.describe("JST候補と個人設定の引継ぎ", () => {
+  test.use({ timezoneId: "America/New_York" });
+  test("DSTで欠落する時刻もそのまま確定し、個人の色と通知なしを使う", async ({
+    page,
+  }) => {
+    const option = {
+      start_at: "2026-03-08T02:30:00",
+      end_at: "2026-03-08T03:00:00",
+      is_all_day: false,
+    };
+    const created = await page.request.post(`/local/api/polls/${guild}`, {
+      data: { title: "DST候補", options: [option] },
+    });
+    expect(created.status()).toBe(201);
+    const { poll } = await created.json();
+    let eventId: number | undefined;
+    try {
+      await page.addInitScript(() =>
+        localStorage.setItem(
+          "discalendar-calendar-settings",
+          JSON.stringify({ defaultColor: "#2196F3", defaultNotifications: [] }),
+        ),
+      );
+      await page.goto(`/dashboard/${guild}/polls/${poll.id}`);
+      await page
+        .getByRole("button", { name: "この候補で確定", exact: true })
+        .click();
+      const dialog = page.getByRole("dialog", { name: "予定を作成" });
+      await expect(dialog.getByLabel("開始時刻", { exact: true })).toHaveValue(
+        "02:30",
+      );
+      const confirmed = page.waitForResponse(
+        (r) => r.url().endsWith("/confirm") && r.request().method() === "POST",
+      );
+      await dialog.getByRole("button", { name: "作成", exact: true }).click();
+      const response = await confirmed;
+      expect(response.status()).toBe(201);
+      const { event } = await response.json();
+      eventId = event.id;
+      expect(event).toMatchObject({
+        ...option,
+        color: "#2196F3",
+        notifications: [],
+      });
+    } finally {
+      await page.request.delete(`/local/api/polls/${guild}/${poll.id}`);
+      if (eventId)
+        await page.request.delete(`/local/api/events/${guild}/${eventId}`);
+    }
+  });
+});

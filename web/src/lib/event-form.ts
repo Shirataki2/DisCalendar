@@ -1,7 +1,6 @@
 import {
   addMinutes,
   format,
-  isBefore,
   max,
   set,
   setHours,
@@ -16,11 +15,7 @@ import type {
   Notification,
   NotificationUnit,
 } from "@/lib/api/types";
-import {
-  nowInJst,
-  parseApiDateTime,
-  toApiDateTime,
-} from "@/lib/calendar-events";
+import { nowInJst, parseApiDateTime } from "@/lib/calendar-events";
 import { isValidLocation } from "@/lib/event-location";
 
 // 予定の作成・編集フォーム (旧 NewEvent.vue) のスキーマと API との相互変換。
@@ -202,18 +197,14 @@ export const eventFormSchema = z
       }
       if (!valid) return;
     }
-    const { start, end } = toDateRange(values);
-    if (isBefore(end, start)) {
+    const { start, end } = formDateTimes(values);
+    if (end < start) {
       ctx.addIssue({
         code: "custom",
         path: [values.isAllDay ? "endDate" : "endTime"],
         message: "終了日時を開始日時より前にすることはできません",
       });
-    } else if (
-      values.discordEvent &&
-      !values.isAllDay &&
-      end.getTime() === start.getTime()
-    ) {
+    } else if (values.discordEvent && !values.isAllDay && end === start) {
       // Discord の外部イベントは終了が開始より後である必要がある (api の validate_discord_flag と同じ条件)
       ctx.addIssue({
         code: "custom",
@@ -284,8 +275,16 @@ export function toDateRange(values: FormRange): { start: Date; end: Date } {
   };
 }
 
+// JSTの壁時計をローカルDateに結合するとDSTの欠落時刻が補正されるため、検証と送信は文字列で揃える。
+function formDateTimes(values: FormRange): { start: string; end: string } {
+  return {
+    start: `${format(values.startDate, "yyyy-MM-dd")}T${values.isAllDay ? "00:00" : values.startTime}:00`,
+    end: `${format(values.endDate, "yyyy-MM-dd")}T${values.isAllDay ? "00:00" : values.endTime}:00`,
+  };
+}
+
 export function eventFormToApiInput(values: EventFormValues): ApiEventInput {
-  const { start, end } = toDateRange(values);
+  const { start, end } = formDateTimes(values);
   const description = values.description.trim();
   const location = values.location.trim();
   return {
@@ -296,8 +295,8 @@ export function eventFormToApiInput(values: EventFormValues): ApiEventInput {
     notification_mentions: values.notificationMentions,
     color: values.color.toUpperCase(),
     is_all_day: values.isAllDay,
-    start_at: toApiDateTime(start),
-    end_at: toApiDateTime(end),
+    start_at: start,
+    end_at: end,
     discord_scheduled_event: values.discordEvent,
   };
 }
@@ -308,8 +307,8 @@ export function eventFormToApiInput(values: EventFormValues): ApiEventInput {
  * 作成時に新しい Discord イベントも作られる
  */
 export function eventToFormValues(event: ApiEvent): EventFormValues {
-  const start = parseApiDateTime(event.start_at);
-  const end = parseApiDateTime(event.end_at);
+  const start = parseApiDateTime(`${event.start_at.slice(0, 10)}T00:00:00`);
+  const end = parseApiDateTime(`${event.end_at.slice(0, 10)}T00:00:00`);
   return {
     name: event.name,
     description: event.description ?? "",
@@ -317,9 +316,9 @@ export function eventToFormValues(event: ApiEvent): EventFormValues {
     color: event.color,
     isAllDay: event.is_all_day,
     startDate: startOfDay(start),
-    startTime: format(start, "HH:mm"),
+    startTime: event.start_at.slice(11, 16),
     endDate: startOfDay(end),
-    endTime: format(end, "HH:mm"),
+    endTime: event.end_at.slice(11, 16),
     notificationMentions: event.notification_mentions?.map((mention) => ({
       ...mention,
     })),

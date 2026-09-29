@@ -6,7 +6,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { addDays } from "date-fns";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -17,6 +16,7 @@ import {
 } from "@/components/event-form-dialog";
 import { PollFormDialog } from "@/components/poll-form-dialog";
 import { Button } from "@/components/ui/button";
+import { readCalendarSettings } from "@/hooks/use-calendar-settings";
 import { api, describeApiError } from "@/lib/api";
 import type {
   PollAnnouncement,
@@ -184,8 +184,8 @@ export function PollPage({
     !!poll?.deadline && Date.parse(`${poll.deadline}+09:00`) <= Date.now();
   const open = poll?.status === "open" && !expired;
   function confirm(option: PollOption, poll: PollDetail) {
-    const start = parseApiDateTime(option.start_at),
-      end = parseApiDateTime(option.end_at);
+    const start = parseApiDateTime(`${option.start_at.slice(0, 10)}T00:00:00`),
+      end = parseApiDateTime(`${option.end_at.slice(0, 10)}T00:00:00`);
     setConfirmation({
       option,
       version: poll.version,
@@ -194,10 +194,14 @@ export function PollPage({
         values: {
           ...newEventFormValues(
             start,
-            option.is_all_day ? addDays(end, 1) : end,
-            option.is_all_day,
+            end,
+            false,
             config.data?.default_notifications,
+            readCalendarSettings(),
           ),
+          isAllDay: option.is_all_day,
+          startTime: option.start_at.slice(11, 16),
+          endTime: option.end_at.slice(11, 16),
           name: poll.title,
           description: poll.description ?? "",
         },
