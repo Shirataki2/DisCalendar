@@ -41,6 +41,15 @@ describe("ログイン後のカレンダーへの復帰", () => {
     expect(dashboardReturnPath(path)).toBe("/dashboard");
   });
 
+  it.each(["sent", "failed", "not_configured"])(
+    "作成直後の案内 %s を除いて投票ページへ復帰する",
+    (status) => {
+      expect(
+        dashboardReturnPath(`/dashboard/123/polls/42?announcement=${status}`),
+      ).toBe("/dashboard/123/polls/42");
+    },
+  );
+
   it("通常のログイン URL は維持し、サーバーへのリンクだけ戻り先を付ける", () => {
     expect(loginUrl(null)).toBe("/login");
     expect(loginUrl("/dashboard")).toBe("/login");

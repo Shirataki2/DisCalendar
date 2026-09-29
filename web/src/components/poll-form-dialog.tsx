@@ -26,6 +26,7 @@ export function PollFormDialog({
   onClose: () => void;
   onSave: (input: PollInput) => Promise<void>;
 }) {
+  const [version] = useState(poll?.version);
   const [title, setTitle] = useState(poll?.title ?? "");
   const [description, setDescription] = useState(poll?.description ?? "");
   const [deadline, setDeadline] = useState(poll?.deadline?.slice(0, 16) ?? "");
@@ -104,7 +105,7 @@ export function PollFormDialog({
                 description: description || null,
                 deadline: deadline ? `${deadline}:00` : null,
                 options,
-                expected_version: poll?.version,
+                expected_version: version,
               });
             } catch (err) {
               setError(describeApiError(err));

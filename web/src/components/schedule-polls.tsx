@@ -9,7 +9,7 @@ import {
 import { addDays } from "date-fns";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { EventDescription } from "@/components/event-description";
 import {
   type EventDialogState,
@@ -26,7 +26,11 @@ import type {
 } from "@/lib/api/types";
 import { parseApiDateTime } from "@/lib/calendar-events";
 import { newEventFormValues } from "@/lib/event-form";
-import { dashboardEventsSource, invalidateEvents } from "@/lib/query/events";
+import {
+  dashboardEventsSource,
+  invalidateEvents,
+  refetchPermissionsOnBotError,
+} from "@/lib/query/events";
 import {
   canEditEvents,
   useGuildConfigQuery,
@@ -156,6 +160,14 @@ export function PollPage({
     state: EventDialogState;
   } | null>(null);
   const [announcement, setAnnouncement] = useState(initialAnnouncement);
+  useEffect(() => {
+    if (initialAnnouncement)
+      window.history.replaceState(
+        null,
+        "",
+        `/dashboard/${guildId}/polls/${pollId}`,
+      );
+  }, [guildId, pollId, initialAnnouncement]);
   const query = useQuery({
     queryKey: queryKeys.polls.detail(guildId, pollId),
     queryFn: ({ signal }) => api.polls.detail(guildId, pollId, signal),
@@ -380,13 +392,18 @@ export function PollPage({
             }}
             onSubmit={async (input) => {
               if (!confirmation) throw new Error("候補を選択してください");
-              const result = await api.polls.confirm(
-                guildId,
-                pollId,
-                confirmation.option.id,
-                confirmation.version,
-                input,
-              );
+              const result = await api.polls
+                .confirm(
+                  guildId,
+                  pollId,
+                  confirmation.option.id,
+                  confirmation.version,
+                  input,
+                )
+                .catch((error: unknown) => {
+                  refetchPermissionsOnBotError(client, guildId, error);
+                  throw error;
+                });
               setAnnouncement(result.announcement);
               await Promise.all([
                 changed(),
@@ -413,7 +430,17 @@ function VoteTable({ poll }: { poll: PollDetail }) {
       retry: false,
     })),
   });
-  const members = profiles.flatMap((q) => q.data ?? []);
+  const members = new Map(
+    profiles
+      .flatMap((q) => q.data ?? [])
+      .map((member) => [member.user_id, member]),
+  );
+  const votes = new Map(
+    poll.votes.map((vote) => [
+      `${vote.user_id}/${vote.option_id}`,
+      vote.answer,
+    ]),
+  );
   return (
     <section className="space-y-3">
       <h2 className="font-semibold">みんなの回答</h2>
@@ -444,7 +471,7 @@ function VoteTable({ poll }: { poll: PollDetail }) {
             </thead>
             <tbody>
               {ids.map((id) => {
-                const member = members.find((m) => m.user_id === id);
+                const member = members.get(id);
                 return (
                   <tr key={id} className="border-t">
                     <th scope="row" className="p-3 text-left font-normal">
@@ -459,9 +486,7 @@ function VoteTable({ poll }: { poll: PollDetail }) {
                       </span>
                     </th>
                     {poll.options.map((o) => {
-                      const answer = poll.votes.find(
-                        (v) => v.user_id === id && v.option_id === o.id,
-                      )?.answer;
+                      const answer = votes.get(`${id}/${o.id}`);
                       return (
                         <td key={o.id} className="p-3 text-center">
                           {answer

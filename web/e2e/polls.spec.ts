@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { Pool } from "pg";
+import { setGuildEventPermissions } from "./discord-mock";
 import { DATABASE_URL } from "./env";
 import { E2E_CHANNELS, E2E_GUILDS } from "./fixtures";
 
@@ -35,6 +36,7 @@ test("日程調整を作成・投票・確定するとカレンダーに予定�
   await expect(
     page.getByRole("button", { name: "△ 未定", exact: true }).first(),
   ).toHaveAttribute("aria-pressed", "true");
+  expect(new URL(page.url()).search).toBe("");
   await page.reload();
   await expect(
     page.getByRole("button", { name: "△ 未定", exact: true }).first(),
@@ -217,5 +219,119 @@ test("一般メンバーの投票・締切とDiscord連携付き確定を検証�
       await page.request.delete(`/local/api/events/${guild}/${eventId}`);
     await db.query("DELETE FROM event_settings WHERE guild_id=$1", [guild]);
     await db.end();
+  }
+});
+
+test("編集を開いた後の再取得でも他の編集者の変更を上書きしない", async ({
+  page,
+}) => {
+  const input = {
+    title: "競合確認",
+    description: null,
+    deadline: null,
+    options: [
+      {
+        start_at: "2099-01-01T10:00:00",
+        end_at: "2099-01-01T11:00:00",
+        is_all_day: false,
+      },
+    ],
+  };
+  const created = await page.request.post(`/local/api/polls/${guild}`, {
+    data: input,
+  });
+  const { poll } = await created.json();
+  try {
+    await page.goto(`/dashboard/${guild}/polls/${poll.id}`);
+    await page.getByRole("button", { name: "候補を編集" }).click();
+    const dialog = page.getByRole("dialog", { name: "日程調整を編集" });
+    await dialog.getByLabel("タイトル", { exact: true }).fill("古い画面の変更");
+    expect(
+      (
+        await page.request.put(`/local/api/polls/${guild}/${poll.id}`, {
+          data: {
+            ...input,
+            title: "別の編集者の変更",
+            options: poll.options,
+            expected_version: poll.version,
+          },
+        })
+      ).status(),
+    ).toBe(200);
+    // 詳細の15秒ポーリングがフォームへ新しいpropsを渡した後に保存する。
+    await expect(
+      page.getByRole("heading", {
+        name: "別の編集者の変更",
+        includeHidden: true,
+      }),
+    ).toBeVisible({ timeout: 25_000 });
+    const response = page.waitForResponse(
+      (r) =>
+        r.url().endsWith(`/polls/${guild}/${poll.id}`) &&
+        r.request().method() === "PUT",
+    );
+    await dialog.getByRole("button", { name: "変更を保存" }).click();
+    expect((await response).status()).toBe(409);
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    const current = await page.request.get(
+      `/local/api/polls/${guild}/${poll.id}`,
+    );
+    expect((await current.json()).title).toBe("別の編集者の変更");
+  } finally {
+    await page.request.delete(`/local/api/polls/${guild}/${poll.id}`);
+  }
+});
+
+test("確定中にBotの権限が失われたら再確認の導線を表示する", async ({
+  page,
+}) => {
+  await setGuildEventPermissions(guild, {
+    botCreateEvents: true,
+    userCreateEvents: true,
+  });
+  await page.request.post(`/local/api/guilds/${guild}/@me/permissions/refresh`);
+  const response = await page.request.post(`/local/api/polls/${guild}`, {
+    data: {
+      title: "Bot権限の再確認",
+      options: [
+        {
+          start_at: "2099-01-01T10:00:00",
+          end_at: "2099-01-01T11:00:00",
+          is_all_day: false,
+        },
+      ],
+    },
+  });
+  const { poll } = await response.json();
+  try {
+    await page.goto(`/dashboard/${guild}/polls/${poll.id}`);
+    await page.getByRole("button", { name: "この候補で確定" }).click();
+    const dialog = page.getByRole("dialog", { name: "予定を作成" });
+    const checkbox = dialog.getByRole("checkbox", {
+      name: "Discord のイベントとしても作成する",
+    });
+    await checkbox.check();
+    await setGuildEventPermissions(guild, {
+      botCreateEvents: false,
+      userCreateEvents: true,
+    });
+    await dialog.getByRole("button", { name: "作成", exact: true }).click();
+    await expect(checkbox).toBeDisabled();
+    await expect(
+      dialog.getByRole("button", { name: "権限を再確認" }),
+    ).toBeVisible();
+    expect(
+      (
+        await (
+          await page.request.get(`/local/api/polls/${guild}/${poll.id}`)
+        ).json()
+      ).status,
+    ).toBe("open");
+  } finally {
+    await setGuildEventPermissions(guild, null);
+    await page.request.post(
+      `/local/api/guilds/${guild}/@me/permissions/refresh`,
+    );
+    await page.request.delete(`/local/api/polls/${guild}/${poll.id}`);
   }
 });
