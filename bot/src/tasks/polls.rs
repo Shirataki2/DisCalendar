@@ -110,7 +110,7 @@ async fn sync_one(
     }) {
         return Ok(());
     }
-    let channel = if let Some(ref post) = post {
+    let channel = if let Some(post) = post.as_ref().filter(|post| post.message_id.is_some()) {
         post.channel_id.clone()
     } else {
         let channel: Option<String> = sqlx::query_scalar(
@@ -122,7 +122,7 @@ async fn sync_one(
         let Some(channel) = channel else {
             return Ok(());
         };
-        sqlx::query("INSERT INTO schedule_poll_posts(poll_id,channel_id) VALUES ($1,$2)")
+        sqlx::query("INSERT INTO schedule_poll_posts(poll_id,channel_id) VALUES ($1,$2) ON CONFLICT (poll_id) DO UPDATE SET channel_id=EXCLUDED.channel_id")
             .bind(id)
             .bind(&channel)
             .execute(&mut *tx)
@@ -465,5 +465,21 @@ mod db_tests {
                 .await
                 .unwrap();
         assert_eq!(after, rows[0].1);
+        // 初回投稿が失敗した調整は、変更後の通知先に再送する。
+        sqlx::query("UPDATE event_settings SET channel_id='4' WHERE guild_id='1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE schedule_poll_posts SET next_attempt_at='epoch' WHERE poll_id=1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        tick(&http, &data).await.unwrap();
+        let channel: String =
+            sqlx::query_scalar("SELECT channel_id FROM schedule_poll_posts WHERE poll_id=1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(channel, "4");
     }
 }
