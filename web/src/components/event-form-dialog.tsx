@@ -56,6 +56,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useLastValue } from "@/hooks/use-last-value";
 import { ApiError, describeApiError } from "@/lib/api";
@@ -126,6 +127,9 @@ interface Props {
 
 const NAME_INPUT_ID = "event-form-name";
 
+/** 基本 / 繰り返し・通知 / 添付・共有 のタブ。項目が多いので基本情報以外を分ける */
+type EventFormTab = "basic" | "notify" | "files";
+
 /** 予定の作成・編集ダイアログ (旧 NewEvent.vue 相当) */
 export function EventFormDialog({
   fixedSchedule,
@@ -156,7 +160,7 @@ export function EventFormDialog({
       disablePointerDismissal
     >
       <DialogContent
-        className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0 sm:max-w-2xl [&>[data-slot=dialog-close]]:size-11"
+        className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0 sm:min-h-[min(40rem,calc(100dvh-2rem))] sm:max-w-2xl [&>[data-slot=dialog-close]]:size-11"
         initialFocus={() => document.getElementById(NAME_INPUT_ID)}
       >
         {shown && (
@@ -208,6 +212,7 @@ function EventForm({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [previewDescription, setPreviewDescription] = useState(false);
   const [mentionUserId, setMentionUserId] = useState("");
+  const [tab, setTab] = useState<EventFormTab>("basic");
   const isEdit = state.mode === "edit";
   const initialRecurrence: RecurrenceRule =
     state.mode === "edit" && state.event.recurrence
@@ -260,7 +265,17 @@ function EventForm({
   } = form;
   const formRef = useRef<HTMLFormElement>(null);
   const focusedSubmit = useRef(0);
-  // 折りたたみを開いてから、最初のエラーへキーボードフォーカスも移す。
+  const pendingFocus = useRef<HTMLElement | null>(null);
+  // 別タブの入力欄は、タブを切り替えて表示されてからフォーカスする。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: タブの切り替えを契機に動かす
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (!target) return;
+    pendingFocus.current = null;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "nearest" });
+  }, [tab]);
+  // エラーのあるタブに切り替え、折りたたみを開いてから、最初のエラーへキーボードフォーカスも移す。
   useEffect(() => {
     if (focusedSubmit.current === submitCount) return;
     focusedSubmit.current = submitCount;
@@ -284,10 +299,34 @@ function EventForm({
       : (invalid.querySelector<HTMLElement>("input, button, textarea") ??
         invalid);
     if (!target.matches("input, button, textarea")) target.tabIndex = -1;
+    const targetTab = invalid
+      .closest<HTMLElement>("[data-event-tab]")
+      ?.getAttribute("data-event-tab") as EventFormTab | null | undefined;
+    if (targetTab && targetTab !== tab) {
+      pendingFocus.current = target;
+      setTab(targetTab);
+      return;
+    }
     target.focus({ preventScroll: true });
     target.scrollIntoView({ block: "nearest" });
-  }, [errors, submitCount, previewDescription]);
+  }, [errors, submitCount, previewDescription, tab]);
   const notifications = useWatch({ control, name: "notifications" });
+  const notificationSummary = notifications.length
+    ? notifications
+        .map(
+          ({ num, unit }) =>
+            `${num}${NOTIFICATION_UNITS.find((item) => item.value === unit)?.label ?? unit}`,
+        )
+        .join("、")
+    : "なし";
+  const hasFilesTab = !!mentionGuildId || (isEdit && !!allowShare);
+  const notifyErrors = !!(errors.notifications || errors.notificationMentions);
+  const tabErrors = {
+    notify: notifyErrors,
+    basic: Object.keys(errors).some(
+      (key) => key !== "notifications" && key !== "notificationMentions",
+    ),
+  };
   // 次のキー入力より前に破棄判定を更新し、設定直後のEscapeでも入力を保護する。
   useLayoutEffect(() => {
     closeGuard.current = () => {
@@ -449,359 +488,423 @@ function EventForm({
           </DialogHeader>
         )}
 
-        <div
-          className="min-h-0 space-y-5 overflow-y-auto overscroll-contain p-4"
-          data-testid="event-form-fields"
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as EventFormTab)}
+          className="min-h-0 flex-1 gap-0"
         >
-          {guidance}
-          {state.mode === "edit" && state.event.recurrence && (
-            <p className="rounded-md border p-3 text-sm">
-              {state.scope === "future"
-                ? "この回以降を変更します。回数を変えなければ、消費済みの開催枠を差し引きます。個別編集済みの回は保持し、新しい条件から外れる個別編集済みの回・添付のある回は単発として残します。"
-                : "この回のみを変更します。繰り返し条件は変更されません。"}
-            </p>
-          )}
-          {previewRecurrence && (
-            <div className="space-y-2">
-              <Button
-                ref={recurrenceButton}
-                type="button"
-                variant="outline"
-                className="h-auto min-h-11 w-full justify-between whitespace-normal"
-                disabled={
-                  recurringSingleEdit ||
-                  isLinkedEdit ||
-                  isSubmitting ||
-                  uploads.busy
-                }
-                onClick={() => setEditingRecurrence(true)}
-              >
-                {describeRecurrence(recurrence)}
-                <span aria-hidden="true">›</span>
-              </Button>
-              {isLinkedEdit && (
-                <p className="text-sm text-muted-foreground">
-                  Discordイベント連携を解除して保存すると、繰り返しを設定できます。
+          <div className="shrink-0 border-b px-4 py-2">
+            <TabsList className="w-full group-data-horizontal/tabs:h-11 sm:w-fit">
+              <TabsTrigger value="basic" className="px-3">
+                基本
+                <TabErrorDot show={tabErrors.basic} />
+              </TabsTrigger>
+              <TabsTrigger value="notify" className="px-3">
+                {previewRecurrence ? "繰り返し・通知" : "通知"}
+                <TabErrorDot show={tabErrors.notify} />
+              </TabsTrigger>
+              {hasFilesTab && (
+                <TabsTrigger value="files" className="px-3">
+                  添付・共有
+                </TabsTrigger>
+              )}
+            </TabsList>
+          </div>
+
+          <div
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
+            data-testid="event-form-fields"
+          >
+            <TabsContent
+              value="basic"
+              keepMounted
+              data-event-tab="basic"
+              className="space-y-5"
+            >
+              {guidance}
+              {state.mode === "edit" && state.event.recurrence && (
+                <p className="rounded-md border p-3 text-sm">
+                  {state.scope === "future"
+                    ? "この回以降を変更します。回数を変えなければ、消費済みの開催枠を差し引きます。個別編集済みの回は保持し、新しい条件から外れる個別編集済みの回・添付のある回は単発として残します。"
+                    : "この回のみを変更します。繰り返し条件は変更されません。"}
                 </p>
               )}
-              {recurrenceEnabled && (
-                <p className="text-sm text-muted-foreground">
-                  Discordイベント連携は後日対応です。添付ファイルは選択した回だけに保存します。
+              {state.mode === "duplicate" && (
+                <p className="rounded-md bg-muted p-3 text-sm">
+                  元の予定の日時を引き継いでいます。保存前に確認してください。
+                  <span className="mt-1 block font-medium">
+                    {format(initialValues.startDate, "yyyy/M/d")}{" "}
+                    {initialValues.isAllDay ? "終日" : initialValues.startTime}
+                    {" ～ "}
+                    {format(initialValues.endDate, "yyyy/M/d")}{" "}
+                    {initialValues.isAllDay ? "" : initialValues.endTime}
+                    （日本時間）
+                  </span>
                 </p>
               )}
-            </div>
-          )}
-          {state.mode === "duplicate" && (
-            <p className="rounded-md bg-muted p-3 text-sm">
-              元の予定の日時を引き継いでいます。保存前に確認してください。
-              <span className="mt-1 block font-medium">
-                {format(initialValues.startDate, "yyyy/M/d")}{" "}
-                {initialValues.isAllDay ? "終日" : initialValues.startTime}
-                {" ～ "}
-                {format(initialValues.endDate, "yyyy/M/d")}{" "}
-                {initialValues.isAllDay ? "" : initialValues.endTime}
-                （日本時間）
-              </span>
-            </p>
-          )}
-          <FieldGroup className="gap-4">
-            <Field data-invalid={errors.name ? true : undefined}>
-              <FieldLabel htmlFor={NAME_INPUT_ID}>
-                タイトル
-                <span aria-hidden className="text-destructive">
-                  *
-                </span>
-              </FieldLabel>
-              <Input
-                id={NAME_INPUT_ID}
-                placeholder="タイトルを入力"
-                aria-invalid={errors.name ? true : undefined}
-                {...register("name")}
-              />
-              <div className="flex items-start justify-between gap-2">
-                <FieldError errors={[errors.name]} />
-                <FieldDescription className="ml-auto shrink-0 text-xs">
-                  {charCount(name)}/{NAME_MAX_CHARS}
-                </FieldDescription>
-              </div>
-            </Field>
+              <FieldGroup className="gap-4">
+                <Field data-invalid={errors.name ? true : undefined}>
+                  <FieldLabel htmlFor={NAME_INPUT_ID}>
+                    タイトル
+                    <span aria-hidden className="text-destructive">
+                      *
+                    </span>
+                  </FieldLabel>
+                  <Input
+                    id={NAME_INPUT_ID}
+                    placeholder="タイトルを入力"
+                    aria-invalid={errors.name ? true : undefined}
+                    {...register("name")}
+                  />
+                  <div className="flex items-start justify-between gap-2">
+                    <FieldError errors={[errors.name]} />
+                    <FieldDescription className="ml-auto shrink-0 text-xs">
+                      {charCount(name)}/{NAME_MAX_CHARS}
+                    </FieldDescription>
+                  </div>
+                </Field>
 
-            {/* 開始行 (開始日・開始時刻・終日) と終了行 (終了日・終了時刻・色) で
-            列の位置が揃うよう、1 つのグリッドで 2 行に並べる */}
-            <div className="grid gap-4 sm:grid-cols-[1fr_8rem_auto]">
-              <Field data-invalid={errors.startDate ? true : undefined}>
-                <FieldLabel htmlFor="event-form-start-date">開始日</FieldLabel>
-                <Controller
-                  control={control}
-                  name="startDate"
-                  render={({ field }) => (
-                    <DatePicker
-                      disabled={fixedSchedule}
-                      id="event-form-start-date"
-                      value={field.value}
-                      onChange={handleStartDateChange}
-                      invalid={!!errors.startDate}
+                {/* 開始行 (開始日・開始時刻・終日) と終了行 (終了日・終了時刻・色) で
+                列の位置が揃うよう、1 つのグリッドで 2 行に並べる */}
+                <div className="grid gap-4 sm:grid-cols-[1fr_8rem_auto]">
+                  <Field data-invalid={errors.startDate ? true : undefined}>
+                    <FieldLabel htmlFor="event-form-start-date">
+                      開始日
+                    </FieldLabel>
+                    <Controller
+                      control={control}
+                      name="startDate"
+                      render={({ field }) => (
+                        <DatePicker
+                          disabled={fixedSchedule}
+                          id="event-form-start-date"
+                          value={field.value}
+                          onChange={handleStartDateChange}
+                          invalid={!!errors.startDate}
+                        />
+                      )}
                     />
-                  )}
-                />
-                <FieldError errors={[errors.startDate]} />
-              </Field>
-              <Field data-invalid={errors.startTime ? true : undefined}>
-                <FieldLabel htmlFor="event-form-start-time">
-                  開始時刻
-                </FieldLabel>
-                <Input
-                  id="event-form-start-time"
-                  type="time"
-                  disabled={isAllDay || fixedSchedule}
-                  aria-invalid={errors.startTime ? true : undefined}
-                  {...register("startTime")}
-                />
-                <FieldError errors={[errors.startTime]} />
-              </Field>
-              <Field orientation="horizontal" className="sm:mt-7 sm:w-auto">
-                <Controller
-                  control={control}
-                  name="isAllDay"
-                  render={({ field }) => (
-                    <Checkbox
-                      disabled={fixedSchedule}
-                      id="event-form-all-day"
-                      checked={field.value}
-                      onCheckedChange={(checked) => {
-                        // 終日から始めたフォームの既定時刻だけ繰り越す。時間指定の既存日時には加算しない。
-                        if (
-                          !checked &&
-                          initialValues.isAllDay &&
-                          getValues("endTime") < getValues("startTime")
-                        ) {
-                          endDateBeforeRollover.current = getValues("endDate");
-                          setValue(
-                            "endDate",
-                            addDays(getValues("endDate"), 1),
-                            {
-                              shouldDirty: true,
-                            },
-                          );
-                        }
-                        if (checked && endDateBeforeRollover.current) {
-                          // 日付を手で変えていなければ、自動補完だけを取り消す。
-                          setValue("endDate", endDateBeforeRollover.current, {
-                            shouldDirty: true,
-                          });
-                          endDateBeforeRollover.current = null;
-                        }
-                        field.onChange(checked);
-                      }}
+                    <FieldError errors={[errors.startDate]} />
+                  </Field>
+                  <Field data-invalid={errors.startTime ? true : undefined}>
+                    <FieldLabel htmlFor="event-form-start-time">
+                      開始時刻
+                    </FieldLabel>
+                    <Input
+                      id="event-form-start-time"
+                      type="time"
+                      disabled={isAllDay || fixedSchedule}
+                      aria-invalid={errors.startTime ? true : undefined}
+                      {...register("startTime")}
                     />
-                  )}
-                />
-                <FieldLabel
-                  htmlFor="event-form-all-day"
-                  className="font-normal"
-                >
-                  終日
-                </FieldLabel>
-              </Field>
-              <Field data-invalid={errors.endDate ? true : undefined}>
-                <FieldLabel htmlFor="event-form-end-date">終了日</FieldLabel>
-                <Controller
-                  control={control}
-                  name="endDate"
-                  render={({ field }) => (
-                    <DatePicker
-                      disabled={fixedSchedule}
-                      id="event-form-end-date"
-                      value={field.value}
-                      onChange={(date) => {
-                        endDateBeforeRollover.current = null;
-                        field.onChange(date);
-                      }}
-                      invalid={!!errors.endDate}
+                    <FieldError errors={[errors.startTime]} />
+                  </Field>
+                  <Field orientation="horizontal" className="sm:mt-7 sm:w-auto">
+                    <Controller
+                      control={control}
+                      name="isAllDay"
+                      render={({ field }) => (
+                        <Checkbox
+                          disabled={fixedSchedule}
+                          id="event-form-all-day"
+                          checked={field.value}
+                          onCheckedChange={(checked) => {
+                            // 終日から始めたフォームの既定時刻だけ繰り越す。時間指定の既存日時には加算しない。
+                            if (
+                              !checked &&
+                              initialValues.isAllDay &&
+                              getValues("endTime") < getValues("startTime")
+                            ) {
+                              endDateBeforeRollover.current =
+                                getValues("endDate");
+                              setValue(
+                                "endDate",
+                                addDays(getValues("endDate"), 1),
+                                {
+                                  shouldDirty: true,
+                                },
+                              );
+                            }
+                            if (checked && endDateBeforeRollover.current) {
+                              // 日付を手で変えていなければ、自動補完だけを取り消す。
+                              setValue(
+                                "endDate",
+                                endDateBeforeRollover.current,
+                                {
+                                  shouldDirty: true,
+                                },
+                              );
+                              endDateBeforeRollover.current = null;
+                            }
+                            field.onChange(checked);
+                          }}
+                        />
+                      )}
                     />
-                  )}
-                />
-                <FieldError errors={[errors.endDate]} />
-              </Field>
-              <Field data-invalid={errors.endTime ? true : undefined}>
-                <FieldLabel htmlFor="event-form-end-time">終了時刻</FieldLabel>
-                <Input
-                  id="event-form-end-time"
-                  type="time"
-                  disabled={isAllDay || fixedSchedule}
-                  aria-invalid={errors.endTime ? true : undefined}
-                  {...register("endTime")}
-                />
-                <FieldError errors={[errors.endTime]} />
-              </Field>
-              <Field data-invalid={errors.color ? true : undefined}>
-                <FieldLabel htmlFor="event-form-color">色</FieldLabel>
-                <Controller
-                  control={control}
-                  name="color"
-                  render={({ field }) => (
-                    <ColorPicker
-                      id="event-form-color"
-                      value={field.value}
-                      onChange={field.onChange}
-                      invalid={!!errors.color}
-                      className="sm:w-36"
+                    <FieldLabel
+                      htmlFor="event-form-all-day"
+                      className="font-normal"
+                    >
+                      終日
+                    </FieldLabel>
+                  </Field>
+                  <Field data-invalid={errors.endDate ? true : undefined}>
+                    <FieldLabel htmlFor="event-form-end-date">
+                      終了日
+                    </FieldLabel>
+                    <Controller
+                      control={control}
+                      name="endDate"
+                      render={({ field }) => (
+                        <DatePicker
+                          disabled={fixedSchedule}
+                          id="event-form-end-date"
+                          value={field.value}
+                          onChange={(date) => {
+                            endDateBeforeRollover.current = null;
+                            field.onChange(date);
+                          }}
+                          invalid={!!errors.endDate}
+                        />
+                      )}
                     />
-                  )}
-                />
-                <FieldError errors={[errors.color]} />
-              </Field>
-            </div>
+                    <FieldError errors={[errors.endDate]} />
+                  </Field>
+                  <Field data-invalid={errors.endTime ? true : undefined}>
+                    <FieldLabel htmlFor="event-form-end-time">
+                      終了時刻
+                    </FieldLabel>
+                    <Input
+                      id="event-form-end-time"
+                      type="time"
+                      disabled={isAllDay || fixedSchedule}
+                      aria-invalid={errors.endTime ? true : undefined}
+                      {...register("endTime")}
+                    />
+                    <FieldError errors={[errors.endTime]} />
+                  </Field>
+                  <Field data-invalid={errors.color ? true : undefined}>
+                    <FieldLabel htmlFor="event-form-color">色</FieldLabel>
+                    <Controller
+                      control={control}
+                      name="color"
+                      render={({ field }) => (
+                        <ColorPicker
+                          id="event-form-color"
+                          value={field.value}
+                          onChange={field.onChange}
+                          invalid={!!errors.color}
+                          className="sm:w-36"
+                        />
+                      )}
+                    />
+                    <FieldError errors={[errors.color]} />
+                  </Field>
+                </div>
 
-            <Field data-invalid={errors.location ? true : undefined}>
-              <FieldLabel htmlFor="event-form-location">場所 / URL</FieldLabel>
-              <Input
-                id="event-form-location"
-                aria-invalid={errors.location ? true : undefined}
-                {...register("location")}
-              />
-              <div className="flex items-start justify-between gap-2">
-                <FieldError errors={[errors.location]} />
-                <FieldDescription className="ml-auto shrink-0 text-xs">
-                  {charCount(location)}/{LOCATION_MAX_CHARS}
-                </FieldDescription>
-              </div>
-            </Field>
+                <Field data-invalid={errors.location ? true : undefined}>
+                  <FieldLabel htmlFor="event-form-location">
+                    場所 / URL
+                  </FieldLabel>
+                  <Input
+                    id="event-form-location"
+                    aria-invalid={errors.location ? true : undefined}
+                    {...register("location")}
+                  />
+                  <div className="flex items-start justify-between gap-2">
+                    <FieldError errors={[errors.location]} />
+                    <FieldDescription className="ml-auto shrink-0 text-xs">
+                      {charCount(location)}/{LOCATION_MAX_CHARS}
+                    </FieldDescription>
+                  </div>
+                </Field>
 
-            <Field data-invalid={errors.description ? true : undefined}>
-              <FieldLabel htmlFor="event-form-description">説明</FieldLabel>
-              <div className="grid">
-                <Textarea
-                  id="event-form-description"
-                  rows={3}
-                  className={`col-start-1 row-start-1 max-h-64${previewDescription ? " invisible" : ""}`}
-                  tabIndex={previewDescription ? -1 : undefined}
-                  aria-hidden={previewDescription || undefined}
-                  aria-describedby="event-description-help"
-                  aria-invalid={errors.description ? true : undefined}
-                  {...register("description")}
-                />
-                {previewDescription && (
-                  <section
-                    id="event-description-preview"
-                    aria-label="説明のプレビュー"
-                    // biome-ignore lint/a11y/noNoninteractiveTabindex: 長いプレビューをキーボードでスクロールできるようにする
-                    tabIndex={0}
-                    className="col-start-1 row-start-1 min-h-16 min-w-0 max-h-64 overflow-auto rounded-lg border px-2.5 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring"
-                  >
-                    {description ? (
-                      <EventDescription>{description}</EventDescription>
-                    ) : (
-                      <p className="text-muted-foreground">
-                        説明を入力すると、ここにプレビューが表示されます。
-                      </p>
+                <Field data-invalid={errors.description ? true : undefined}>
+                  <FieldLabel htmlFor="event-form-description">説明</FieldLabel>
+                  <div className="grid">
+                    <Textarea
+                      id="event-form-description"
+                      rows={3}
+                      className={`col-start-1 row-start-1 max-h-64${previewDescription ? " invisible" : ""}`}
+                      tabIndex={previewDescription ? -1 : undefined}
+                      aria-hidden={previewDescription || undefined}
+                      aria-describedby="event-description-help"
+                      aria-invalid={errors.description ? true : undefined}
+                      {...register("description")}
+                    />
+                    {previewDescription && (
+                      <section
+                        id="event-description-preview"
+                        aria-label="説明のプレビュー"
+                        // biome-ignore lint/a11y/noNoninteractiveTabindex: 長いプレビューをキーボードでスクロールできるようにする
+                        tabIndex={0}
+                        className="col-start-1 row-start-1 min-h-16 min-w-0 max-h-64 overflow-auto rounded-lg border px-2.5 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring"
+                      >
+                        {description ? (
+                          <EventDescription>{description}</EventDescription>
+                        ) : (
+                          <p className="text-muted-foreground">
+                            説明を入力すると、ここにプレビューが表示されます。
+                          </p>
+                        )}
+                      </section>
                     )}
-                  </section>
-                )}
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <a
-                  id="event-description-help"
-                  href="/docs/edit#description-format"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="min-h-11 content-center rounded text-xs text-primary underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring"
-                >
-                  **太字**・- リストなどの書式
-                </a>
-                <Button
-                  type="button"
-                  variant={previewDescription ? "secondary" : "outline"}
-                  size="sm"
-                  className="min-h-11 shrink-0"
-                  aria-pressed={previewDescription}
-                  onClick={() => setPreviewDescription(!previewDescription)}
-                >
-                  プレビュー
-                </Button>
-              </div>
-              <div className="flex items-start justify-between gap-2">
-                <FieldError errors={[errors.description]} />
-                <FieldDescription className="ml-auto shrink-0 text-xs">
-                  {charCount(description)}/{DESCRIPTION_MAX_CHARS}
-                </FieldDescription>
-              </div>
-            </Field>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <a
+                      id="event-description-help"
+                      href="/docs/edit#description-format"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="min-h-11 content-center rounded text-xs text-primary underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring"
+                    >
+                      **太字**・- リストなどの書式
+                    </a>
+                    <Button
+                      type="button"
+                      variant={previewDescription ? "secondary" : "outline"}
+                      size="sm"
+                      className="min-h-11 shrink-0"
+                      aria-pressed={previewDescription}
+                      onClick={() => setPreviewDescription(!previewDescription)}
+                    >
+                      プレビュー
+                    </Button>
+                  </div>
+                  <div className="flex items-start justify-between gap-2">
+                    <FieldError errors={[errors.description]} />
+                    <FieldDescription className="ml-auto shrink-0 text-xs">
+                      {charCount(description)}/{DESCRIPTION_MAX_CHARS}
+                    </FieldDescription>
+                  </div>
+                </Field>
 
-            {/* 通知の一覧はサーバー設定の「既定の事前通知」(#181) と同じ部品 */}
-            <details className="rounded-lg border p-3">
-              <summary className="min-h-11 cursor-pointer content-center rounded-sm text-sm font-medium focus-visible:outline-2 focus-visible:outline-ring">
-                事前通知
-                <span className="ml-2 font-normal text-muted-foreground">
-                  {notifications.length
-                    ? notifications
-                        .map(
-                          ({ num, unit }) =>
-                            `${num}${NOTIFICATION_UNITS.find((item) => item.value === unit)?.label ?? unit}`,
-                        )
-                        .join("、")
-                    : "なし"}
-                </span>
-              </summary>
-              <div className="pt-3">
-                <NotificationsField label="通知" />
-              </div>
-            </details>
-            {mentionGuildId && (
-              <NotificationMentionsField
-                guildId={mentionGuildId}
-                userId={mentionUserId}
-                onUserIdChange={setMentionUserId}
-              />
-            )}
+                {discordSync &&
+                  !recurrenceEnabled &&
+                  !(state.mode === "edit" && state.event.recurrence) && (
+                    <DiscordEventField
+                      control={control}
+                      isLinkedEdit={isLinkedEdit}
+                      botCreateEvents={discordSync.botCreateEvents}
+                      canCreateEvents={discordSync.canCreateEvents}
+                      startsInPast={discordStartsInPast}
+                      onRefresh={discordSync.onRefresh}
+                    />
+                  )}
+              </FieldGroup>
+            </TabsContent>
 
-            {mentionGuildId && (
-              <>
-                {attachmentEventId && (
-                  <EventAttachments
+            <TabsContent
+              value="notify"
+              keepMounted
+              data-event-tab="notify"
+              className="space-y-5"
+            >
+              {previewRecurrence && (
+                <div className="space-y-2">
+                  <Button
+                    ref={recurrenceButton}
+                    type="button"
+                    variant="outline"
+                    className="h-auto min-h-11 w-full justify-between whitespace-normal"
+                    disabled={
+                      recurringSingleEdit ||
+                      isLinkedEdit ||
+                      isSubmitting ||
+                      uploads.busy
+                    }
+                    onClick={() => setEditingRecurrence(true)}
+                  >
+                    {describeRecurrence(recurrence)}
+                    <span aria-hidden="true">›</span>
+                  </Button>
+                  {isLinkedEdit && (
+                    <p className="text-sm text-muted-foreground">
+                      Discordイベント連携を解除して保存すると、繰り返しを設定できます。
+                    </p>
+                  )}
+                  {recurrenceEnabled && (
+                    <p className="text-sm text-muted-foreground">
+                      Discordイベント連携は後日対応です。添付ファイルは選択した回だけに保存します。
+                    </p>
+                  )}
+                </div>
+              )}
+              <FieldGroup className="gap-4">
+                {/* 通知の一覧はサーバー設定の「既定の事前通知」(#181) と同じ部品 */}
+                <section
+                  aria-labelledby="event-form-notifications-heading"
+                  className="rounded-lg border p-3"
+                >
+                  <h3
+                    id="event-form-notifications-heading"
+                    className="text-sm font-medium"
+                  >
+                    事前通知
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      {notificationSummary}
+                    </span>
+                  </h3>
+                  <div className="pt-3">
+                    <NotificationsField label="通知" />
+                  </div>
+                </section>
+                {mentionGuildId && (
+                  <NotificationMentionsField
                     guildId={mentionGuildId}
-                    eventId={attachmentEventId}
-                    editable={!uploads.busy}
+                    userId={mentionUserId}
+                    onUserIdChange={setMentionUserId}
                   />
                 )}
-                <AttachmentPicker
-                  guildId={mentionGuildId}
-                  eventId={attachmentEventId}
-                  items={uploads.items}
-                  onChange={uploads.setItems}
-                  busy={uploads.busy || isSubmitting}
-                  onRemove={uploads.discard}
-                  onRetry={() => {
-                    if (attachmentEventId)
-                      void uploads.upload(attachmentEventId);
-                  }}
-                />
-                {savedEvent && uploads.items.length > 0 && (
-                  <p role="status" className="text-sm">
-                    予定は保存済みです。添付ファイルの送信を完了してください。
-                  </p>
+              </FieldGroup>
+            </TabsContent>
+
+            {hasFilesTab && (
+              <TabsContent
+                value="files"
+                keepMounted
+                data-event-tab="files"
+                className="space-y-5"
+              >
+                {mentionGuildId && (
+                  <>
+                    {attachmentEventId && (
+                      <EventAttachments
+                        guildId={mentionGuildId}
+                        eventId={attachmentEventId}
+                        editable={!uploads.busy}
+                      />
+                    )}
+                    <AttachmentPicker
+                      guildId={mentionGuildId}
+                      eventId={attachmentEventId}
+                      items={uploads.items}
+                      onChange={uploads.setItems}
+                      busy={uploads.busy || isSubmitting}
+                      onRemove={uploads.discard}
+                      onRetry={() => {
+                        if (attachmentEventId)
+                          void uploads.upload(attachmentEventId);
+                      }}
+                    />
+                    {savedEvent && uploads.items.length > 0 && (
+                      <p role="status" className="text-sm">
+                        予定は保存済みです。添付ファイルの送信を完了してください。
+                      </p>
+                    )}
+                  </>
                 )}
-              </>
+
+                {isEdit && allowShare && (
+                  <EventShareControls
+                    key={state.event.id}
+                    event={state.event}
+                  />
+                )}
+              </TabsContent>
             )}
-
-            {discordSync &&
-              !recurrenceEnabled &&
-              !(state.mode === "edit" && state.event.recurrence) && (
-                <DiscordEventField
-                  control={control}
-                  isLinkedEdit={isLinkedEdit}
-                  botCreateEvents={discordSync.botCreateEvents}
-                  canCreateEvents={discordSync.canCreateEvents}
-                  startsInPast={discordStartsInPast}
-                  onRefresh={discordSync.onRefresh}
-                />
-              )}
-          </FieldGroup>
-
-          {isEdit && allowShare && (
-            <EventShareControls key={state.event.id} event={state.event} />
-          )}
-        </div>
+          </div>
+        </Tabs>
 
         {submitError && (
           <div
@@ -867,6 +970,17 @@ function EventForm({
         </AlertDialogContent>
       </AlertDialog>
     </FormProvider>
+  );
+}
+
+/** 入力エラーを含むタブの目印。色だけに頼らないよう読み上げ用の文言も付ける */
+function TabErrorDot({ show }: { show: boolean }) {
+  if (!show) return null;
+  return (
+    <>
+      <span aria-hidden className="size-2 rounded-full bg-destructive" />
+      <span className="sr-only">（入力エラーあり）</span>
+    </>
   );
 }
 

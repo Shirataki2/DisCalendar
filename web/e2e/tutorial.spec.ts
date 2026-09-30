@@ -1,6 +1,11 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { Pool } from "pg";
-import { createEvent, eventOn, openEventPopover } from "./calendar";
+import {
+  createEvent,
+  eventOn,
+  openEventPopover,
+  openEventTab,
+} from "./calendar";
 import { DATABASE_URL } from "./env";
 import { E2E_GUILDS, E2E_USER } from "./fixtures";
 
@@ -60,7 +65,7 @@ test.describe("公開チュートリアル", () => {
     await edit
       .getByLabel("説明", { exact: true })
       .fill("ボイスチャンネルに集まろう");
-    await edit.locator("summary").filter({ hasText: "事前通知" }).click();
+    await openEventTab(edit, "通知");
     await edit.getByLabel("通知のタイミング (数値)").first().fill("2");
     await edit.getByRole("button", { name: "保存", exact: true }).click();
     await expect(edit).toBeHidden();

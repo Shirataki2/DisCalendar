@@ -1,10 +1,14 @@
-//! 日程調整の永続ボタン。Gatewayからの本人・ギルド・投稿IDを検証して回答する。
+//! 日程調整の永続ボタン。Gatewayからの本人・ギルド・投稿IDを検証して回答し、投稿の集計を更新する。
 use crate::{
     data::Data,
     error::BotError,
     poll_votes::{self, VoteOutcome},
+    tasks::polls::sync_one,
 };
-use poise::serenity_prelude::{self as serenity, ComponentInteraction, EditInteractionResponse};
+use poise::serenity_prelude::{
+    self as serenity, ComponentInteraction, CreateInteractionResponse,
+    CreateInteractionResponseFollowup,
+};
 
 pub fn custom_id(poll: i32, option: i32, answer: &str) -> String {
     format!("poll:{poll}:{option}:{answer}")
@@ -27,11 +31,21 @@ pub async fn handle(
     data: &Data,
     interaction: &ComponentInteraction,
 ) -> Result<(), BotError> {
-    // DBやDiscordの再確認より先にACKし、本人にだけ回答結果を返す。
-    interaction.defer_ephemeral(&ctx.http).await?;
+    // 投稿を更新する形でACKし、成功時はチャンネルに何も出さない (押すたびのephemeralは邪魔になる)。
+    interaction
+        .create_response(&ctx.http, CreateInteractionResponse::Acknowledge)
+        .await?;
     let result = record(data, interaction).await;
     let text = match &result {
-        Ok(VoteOutcome::Saved) => "回答を保存しました。集計はまもなく更新されます。",
+        Ok(VoteOutcome::Saved) => {
+            // 押した投稿の集計をすぐ反映する。他で同期中・失敗時は定期同期に任せる。
+            if let Some((poll, _, _)) = parse_custom_id(&interaction.data.custom_id)
+                && let Err(error) = sync_one(&ctx.http, &data.pool, &data.site_base_url, poll).await
+            {
+                tracing::warn!(poll_id = poll, %error, "poll message refresh after vote failed");
+            }
+            return Ok(());
+        }
         Ok(VoteOutcome::Closed) => "投票は締め切られています。Webで結果を確認してください。",
         Ok(VoteOutcome::NotFound) => {
             "日程調整または候補が変更・削除されています。最新の投稿かWebをご確認ください。"
@@ -41,8 +55,14 @@ pub async fn handle(
         }
         Err(_) => "回答を保存できませんでした。少し待って再度お試しください。",
     };
+    // 保存できなかったときだけ、本人にだけ見える形で知らせる。
     interaction
-        .edit_response(&ctx.http, EditInteractionResponse::new().content(text))
+        .create_followup(
+            &ctx.http,
+            CreateInteractionResponseFollowup::new()
+                .ephemeral(true)
+                .content(text),
+        )
         .await?;
     result?;
     Ok(())

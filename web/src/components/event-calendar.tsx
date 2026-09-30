@@ -10,7 +10,12 @@ import Calendar, {
   type EventInput,
 } from "@fullcalendar/react";
 import { addDays, format } from "date-fns";
-import { ChevronDownIcon, FileUpIcon, PlusIcon } from "lucide-react";
+import {
+  CalendarCheckIcon,
+  ChevronDownIcon,
+  FileUpIcon,
+  PlusIcon,
+} from "lucide-react";
 import Link from "next/link";
 import {
   type CSSProperties,
@@ -693,9 +698,10 @@ export function EventCalendar({
           {eventsSource === dashboardEventsSource && (
             <Button
               variant="outline"
-              className="min-h-11 rounded-full"
+              className="min-h-11 rounded-full px-5"
               render={<Link href={`/dashboard/${guildId}/polls`} />}
             >
+              <CalendarCheckIcon />
               日程調整
             </Button>
           )}

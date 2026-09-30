@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
-import { createEvent, openEventPopover } from "./calendar";
+import { createEvent, openEventPopover, openEventTab } from "./calendar";
 import { WEB_URL } from "./env";
 import { E2E_GUILDS } from "./fixtures";
 
@@ -145,6 +145,7 @@ test("編集画面からコピーと無効化ができる", async ({ page }) => 
   const popover = await openEventPopover(page, name);
   await popover.getByRole("button", { name: "編集", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "予定を編集" });
+  await openEventTab(dialog, "添付・共有");
   await dialog
     .getByRole("button", { name: "共有リンクをコピー", exact: true })
     .click();

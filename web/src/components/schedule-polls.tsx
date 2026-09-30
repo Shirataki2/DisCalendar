@@ -1,6 +1,16 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  CheckCircle2Icon,
+  CheckIcon,
+  ChevronLeftIcon,
+  ClockIcon,
+  LockIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -10,7 +20,17 @@ import {
   EventFormDialog,
 } from "@/components/event-form-dialog";
 import { PollFormDialog } from "@/components/poll-form-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { readCalendarSettings } from "@/hooks/use-calendar-settings";
 import { api, describeApiError } from "@/lib/api";
 import type {
@@ -19,6 +39,7 @@ import type {
   PollAnswer,
   PollDetail,
   PollOption,
+  SchedulePoll,
 } from "@/lib/api/types";
 import { parseApiDateTime } from "@/lib/calendar-events";
 import { newEventFormValues } from "@/lib/event-form";
@@ -34,17 +55,94 @@ import {
   useRefreshMyPermissions,
 } from "@/lib/query/guild";
 import { queryKeys } from "@/lib/query/keys";
+import { cn } from "@/lib/utils";
 
-const statusLabels = {
-  open: "進行中",
-  closed: "締切済み",
-  confirmed: "確定済み",
+type PollStatus = SchedulePoll["status"];
+/** ステータスごとの表示。進行中 = 緑、締切済み = 琥珀、確定済み = 青で一覧・詳細を揃える */
+const statusStyles: Record<
+  PollStatus,
+  { label: string; badge: string; accent: string; surface: string; dot: string }
+> = {
+  open: {
+    label: "進行中",
+    badge:
+      "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+    accent: "border-l-emerald-500 dark:border-l-emerald-400",
+    surface:
+      "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100",
+    dot: "bg-emerald-500",
+  },
+  closed: {
+    label: "締切済み",
+    badge: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+    accent: "border-l-amber-500 dark:border-l-amber-400",
+    surface:
+      "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100",
+    dot: "bg-amber-500",
+  },
+  confirmed: {
+    label: "確定済み",
+    badge: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+    accent: "border-l-sky-500 dark:border-l-sky-400",
+    surface:
+      "border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100",
+    dot: "bg-sky-500",
+  },
 };
-const answers: { value: PollAnswer; label: string }[] = [
-  { value: "yes", label: "○ 参加できる" },
-  { value: "maybe", label: "△ 未定" },
-  { value: "no", label: "× 参加できない" },
+/** 回答ごとの色。押した回答ボタン・集計・回答表で共通にする */
+const answers: {
+  value: PollAnswer;
+  mark: string;
+  label: string;
+  selected: string;
+  chip: string;
+  text: string;
+}[] = [
+  {
+    value: "yes",
+    mark: "○",
+    label: "○ 参加できる",
+    selected:
+      "bg-emerald-600 text-white hover:bg-emerald-600/90 dark:bg-emerald-500 dark:text-emerald-950",
+    chip: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+    text: "text-emerald-700 dark:text-emerald-400",
+  },
+  {
+    value: "maybe",
+    mark: "△",
+    label: "△ 未定",
+    selected:
+      "bg-amber-500 text-white hover:bg-amber-500/90 dark:bg-amber-400 dark:text-amber-950",
+    chip: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+    text: "text-amber-700 dark:text-amber-400",
+  },
+  {
+    value: "no",
+    mark: "×",
+    label: "× 参加できない",
+    selected:
+      "bg-rose-600 text-white hover:bg-rose-600/90 dark:bg-rose-500 dark:text-rose-950",
+    chip: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+    text: "text-rose-700 dark:text-rose-400",
+  },
 ];
+/** 締切を過ぎた進行中の調整は、API の更新を待たずに締切済みとして表示する */
+function effectiveStatus(poll: SchedulePoll): PollStatus {
+  const expired =
+    !!poll.deadline && Date.parse(`${poll.deadline}+09:00`) <= Date.now();
+  return poll.status === "open" && expired ? "closed" : poll.status;
+}
+function StatusBadge({ status }: { status: PollStatus }) {
+  return (
+    <Badge className={statusStyles[status].badge}>
+      <span
+        aria-hidden
+        className={cn("size-1.5 rounded-full", statusStyles[status].dot)}
+      />
+      {statusStyles[status].label}
+    </Badge>
+  );
+}
 export function PollList({ guildId }: { guildId: string }) {
   const router = useRouter();
   const client = useQueryClient();
@@ -57,65 +155,115 @@ export function PollList({ guildId }: { guildId: string }) {
     refetchInterval: 30_000,
   });
   return (
-    <main className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
+    <main className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
       <Link
         href={`/dashboard/${guildId}`}
-        className="inline-flex min-h-11 items-center underline"
+        className="inline-flex min-h-11 items-center gap-1 text-sm underline-offset-4 hover:underline"
       >
+        <ChevronLeftIcon aria-hidden className="size-4" />
         カレンダーに戻る
       </Link>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">日程調整</h1>
-        <Button
-          className="min-h-11"
-          disabled={!canEdit}
-          onClick={() => setCreating(true)}
-        >
-          日程調整を作成
-        </Button>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        候補日への回答を集め、そのまま予定にできます。最新100件を表示します。
-      </p>
-      {query.isPending && <p role="status">読み込み中…</p>}
-      {query.isError && (
-        <p role="alert">
-          {describeApiError(query.error)}{" "}
-          <Button variant="outline" onClick={() => query.refetch()}>
-            再試行
-          </Button>
-        </p>
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <h1 className="text-2xl font-bold">日程調整</h1>
+          </CardTitle>
+          <CardDescription>
+            候補日への回答を集め、そのまま予定にできます。最新100件を表示します。
+          </CardDescription>
+          <CardAction>
+            <Button
+              className="min-h-11"
+              disabled={!canEdit}
+              onClick={() => setCreating(true)}
+            >
+              <PlusIcon />
+              日程調整を作成
+            </Button>
+          </CardAction>
+        </CardHeader>
+      </Card>
+      {query.isPending && (
+        <Card>
+          <CardContent>
+            <p role="status">読み込み中…</p>
+          </CardContent>
+        </Card>
       )}
-      {query.data &&
-        (["open", "closed", "confirmed"] as const).map((status) => (
-          <section key={status} className="space-y-3">
-            <h2 className="font-semibold">{statusLabels[status]}</h2>
-            <ul className="space-y-2">
-              {query.data
-                .filter((p) => p.status === status)
-                .map((p) => (
-                  <li key={p.id}>
-                    <Link
-                      className="block rounded-lg border p-4 hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
-                      href={`/dashboard/${guildId}/polls/${p.id}`}
-                    >
-                      <span className="block break-words font-medium">
-                        {p.title}
-                      </span>
-                      <span className="text-sm text-muted-foreground">
-                        締切: {p.deadline ? dateTime(p.deadline) : "なし"}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-            </ul>
-            {!query.data.some((p) => p.status === status) && (
-              <p className="text-sm text-muted-foreground">
-                日程調整はありません。
-              </p>
-            )}
-          </section>
-        ))}
+      {query.isError && (
+        <Card>
+          <CardContent>
+            <p role="alert" className="flex flex-wrap items-center gap-2">
+              {describeApiError(query.error)}
+              <Button variant="outline" onClick={() => query.refetch()}>
+                再試行
+              </Button>
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      {query.data && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          {(["open", "closed", "confirmed"] as const).map((status) => {
+            const polls = query.data.filter(
+              (p) => effectiveStatus(p) === status,
+            );
+            return (
+              <Card
+                key={status}
+                size="sm"
+                role="region"
+                aria-labelledby={`polls-${status}`}
+              >
+                <CardHeader className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "size-2.5 rounded-full",
+                      statusStyles[status].dot,
+                    )}
+                  />
+                  <h2 id={`polls-${status}`} className="font-semibold">
+                    {statusStyles[status].label}
+                  </h2>
+                  <Badge variant="secondary" className="ml-auto">
+                    {polls.length}件
+                  </Badge>
+                </CardHeader>
+                <CardContent>
+                  {polls.length ? (
+                    <ul className="space-y-2">
+                      {polls.map((p) => (
+                        <li key={p.id}>
+                          <Link
+                            className={cn(
+                              "block rounded-lg border border-l-4 bg-background p-3 transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring",
+                              statusStyles[status].accent,
+                            )}
+                            href={`/dashboard/${guildId}/polls/${p.id}`}
+                          >
+                            <span className="block break-words font-medium">
+                              {p.title}
+                            </span>
+                            <span className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                              <ClockIcon aria-hidden className="size-3.5" />
+                              締切: {p.deadline ? dateTime(p.deadline) : "なし"}
+                            </span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="rounded-lg border border-dashed p-3 text-center text-sm text-muted-foreground">
+                      日程調整はありません。
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
       {creating && (
         <PollFormDialog
           poll={null}
@@ -180,9 +328,9 @@ export function PollPage({
     mutationFn: async (fn: () => Promise<void>) => fn(),
     onSettled: changed,
   });
-  const expired =
-    !!poll?.deadline && Date.parse(`${poll.deadline}+09:00`) <= Date.now();
-  const open = poll?.status === "open" && !expired;
+  const status = poll ? effectiveStatus(poll) : "open";
+  const open = !!poll && status === "open";
+  const topYes = Math.max(0, ...(poll?.options.map((o) => o.yes) ?? []));
   function confirm(option: PollOption, poll: PollDetail) {
     if (!config.isSuccess || !guild.isSuccess) return;
     const start = parseApiDateTime(`${option.start_at.slice(0, 10)}T00:00:00`),
@@ -210,116 +358,154 @@ export function PollPage({
     });
   }
   return (
-    <main className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
+    <main className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
       <Link
         href={`/dashboard/${guildId}/polls`}
-        className="inline-flex min-h-11 items-center underline"
+        className="inline-flex min-h-11 items-center gap-1 text-sm underline-offset-4 hover:underline"
       >
+        <ChevronLeftIcon aria-hidden className="size-4" />
         日程調整の一覧に戻る
       </Link>
-      {query.isPending && <p role="status">読み込み中…</p>}
+      {query.isPending && (
+        <Card>
+          <CardContent>
+            <p role="status">読み込み中…</p>
+          </CardContent>
+        </Card>
+      )}
       {query.isError && (
-        <p role="alert">
-          {describeApiError(query.error)}{" "}
-          <Button variant="outline" onClick={() => query.refetch()}>
-            再試行
-          </Button>
-        </p>
+        <Card>
+          <CardContent>
+            <p role="alert" className="flex flex-wrap items-center gap-2">
+              {describeApiError(query.error)}
+              <Button variant="outline" onClick={() => query.refetch()}>
+                再試行
+              </Button>
+            </p>
+          </CardContent>
+        </Card>
       )}
       {poll && (
         <>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              {
-                statusLabels[
-                  expired && poll.status === "open" ? "closed" : poll.status
-                ]
-              }
-              ・日本時間
-            </p>
-            <h1 className="break-words text-2xl font-bold">{poll.title}</h1>
-            <p>締切: {poll.deadline ? dateTime(poll.deadline) : "なし"}</p>
-            {poll.description && (
-              <EventDescription>{poll.description}</EventDescription>
+          <Card
+            className={cn(
+              "border-l-4 border-transparent",
+              statusStyles[status].accent,
             )}
-          </div>
-          <Announcement status={announcement} />
-          {poll.status === "confirmed" && (
-            <p className="rounded-lg border p-3">
-              日程が確定しました。
-              <Link href={`/dashboard/${guildId}`} className="ml-2 underline">
-                カレンダーを見る
-              </Link>
-            </p>
-          )}
-          {!open && poll.status !== "confirmed" && (
-            <p role="status">
-              投票は締め切られています。集計から予定を確定できます。
-            </p>
-          )}
-          <section className="space-y-3" aria-label="候補と自分の回答">
-            <h2 className="font-semibold">候補と自分の回答</h2>
-            {poll.options.map((option, index) => {
-              const mine = poll.votes.find(
-                (v) =>
-                  v.option_id === option.id &&
-                  v.user_id === poll.current_user_id,
-              )?.answer;
-              return (
-                <div
-                  key={option.id}
-                  className="space-y-3 rounded-lg border p-4"
-                >
-                  <h3 className="font-medium">
-                    候補 {index + 1}: {optionLabel(option)}
-                  </h3>
-                  <p className="text-sm" aria-live="polite">
-                    ○ {option.yes}人 / △ {option.maybe}人 / × {option.no}人
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {answers.map((answer) => (
-                      <Button
-                        key={answer.value}
-                        type="button"
-                        className="min-h-11"
-                        variant={mine === answer.value ? "default" : "outline"}
-                        aria-pressed={mine === answer.value}
-                        disabled={!open || action.isPending}
-                        onClick={() =>
-                          action.mutate(() =>
-                            api.polls.vote(
-                              guildId,
-                              pollId,
-                              option.id,
-                              answer.value,
-                            ),
-                          )
-                        }
-                      >
-                        {answer.label}
-                      </Button>
-                    ))}
-                    {canEdit && poll.status !== "confirmed" && (
-                      <Button
-                        variant="secondary"
-                        className="min-h-11"
-                        disabled={
-                          action.isPending ||
-                          !config.isSuccess ||
-                          !guild.isSuccess
-                        }
-                        onClick={() => confirm(option, poll)}
-                      >
-                        この候補で確定
-                      </Button>
+          >
+            <CardHeader>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <StatusBadge status={status} />
+                日本時間
+              </div>
+              <h1 className="break-words text-2xl font-bold">{poll.title}</h1>
+              <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                <ClockIcon aria-hidden className="size-4" />
+                締切: {poll.deadline ? dateTime(poll.deadline) : "なし"}
+              </p>
+            </CardHeader>
+            {(poll.description ||
+              announcement ||
+              poll.status === "confirmed" ||
+              !open) && (
+              <CardContent className="space-y-3">
+                {poll.description && (
+                  <EventDescription>{poll.description}</EventDescription>
+                )}
+                <Announcement status={announcement} />
+                {poll.status === "confirmed" && (
+                  <p
+                    className={cn(
+                      "flex flex-wrap items-center gap-x-2 rounded-lg border p-3 text-sm",
+                      statusStyles.confirmed.surface,
                     )}
-                  </div>
-                </div>
-              );
-            })}
-          </section>
+                  >
+                    <CheckCircle2Icon aria-hidden className="size-4" />
+                    日程が確定しました。
+                    <Link
+                      href={`/dashboard/${guildId}`}
+                      className="font-medium underline underline-offset-4"
+                    >
+                      カレンダーを見る
+                    </Link>
+                  </p>
+                )}
+                {!open && poll.status !== "confirmed" && (
+                  <p
+                    role="status"
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg border p-3 text-sm",
+                      statusStyles.closed.surface,
+                    )}
+                  >
+                    <LockIcon aria-hidden className="size-4 shrink-0" />
+                    投票は締め切られています。集計から予定を確定できます。
+                  </p>
+                )}
+              </CardContent>
+            )}
+            {canEdit && (
+              <CardFooter className="flex-wrap gap-2 [&>button]:min-h-11">
+                {open && (
+                  <>
+                    <Button
+                      variant="outline"
+                      disabled={action.isPending}
+                      onClick={() => setEditing(true)}
+                    >
+                      <PencilIcon />
+                      候補を編集
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={action.isPending}
+                      onClick={() => {
+                        if (window.confirm("投票を締め切りますか？"))
+                          action.mutate(() =>
+                            api.polls.close(guildId, pollId, poll.version),
+                          );
+                      }}
+                    >
+                      <LockIcon />
+                      投票を締め切る
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="destructive"
+                  className="sm:ml-auto"
+                  disabled={action.isPending}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "日程調整と回答を削除しますか？ 確定済みの予定は残ります。",
+                      )
+                    )
+                      action.mutate(async () => {
+                        await api.polls.remove(guildId, pollId);
+                        router.push(`/dashboard/${guildId}/polls`);
+                      });
+                  }}
+                >
+                  <Trash2Icon />
+                  日程調整を削除
+                </Button>
+              </CardFooter>
+            )}
+          </Card>
+          {action.isError && (
+            <p
+              role="alert"
+              className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
+            >
+              {describeApiError(action.error)}
+            </p>
+          )}
           {canEdit && (config.isError || guild.isError) && (
-            <p role="alert">
+            <p
+              role="alert"
+              className="flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
+            >
               保存先・通知設定を取得できませんでした。
               <Button
                 variant="outline"
@@ -332,59 +518,118 @@ export function PollPage({
               </Button>
             </p>
           )}
+          <Card role="region" aria-labelledby="poll-options-title">
+            <CardHeader>
+              <CardTitle>
+                <h2 id="poll-options-title" className="font-semibold">
+                  候補と自分の回答
+                </h2>
+              </CardTitle>
+              <CardDescription>
+                {open
+                  ? "候補ごとに ○ / △ / × を選んでください。何度でも変更できます。"
+                  : "回答の受付は終了しました。"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ol className="grid gap-3 md:grid-cols-2">
+                {poll.options.map((option, index) => {
+                  const mine = poll.votes.find(
+                    (v) =>
+                      v.option_id === option.id &&
+                      v.user_id === poll.current_user_id,
+                  )?.answer;
+                  const leading = topYes > 0 && option.yes === topYes;
+                  return (
+                    <li
+                      key={option.id}
+                      className={cn(
+                        "flex flex-col gap-3 rounded-lg border p-3",
+                        leading && "border-emerald-300 dark:border-emerald-800",
+                      )}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                          {index + 1}
+                        </span>
+                        <h3 className="min-w-0 flex-1 break-words font-medium">
+                          <span className="sr-only">候補 {index + 1}: </span>
+                          {optionLabel(option)}
+                        </h3>
+                        {leading && (
+                          <Badge className={answers[0].chip}>○が最多</Badge>
+                        )}
+                      </div>
+                      <p
+                        className="flex flex-wrap gap-1.5 text-xs"
+                        aria-live="polite"
+                      >
+                        {answers.map((answer) => (
+                          <span
+                            key={answer.value}
+                            className={cn(
+                              "rounded-full px-2 py-0.5 font-medium",
+                              answer.chip,
+                            )}
+                          >
+                            {answer.mark} {option[answer.value]}人
+                          </span>
+                        ))}
+                      </p>
+                      <fieldset className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
+                        <legend className="sr-only">
+                          候補 {index + 1} への回答
+                        </legend>
+                        {answers.map((answer) => (
+                          <Button
+                            key={answer.value}
+                            type="button"
+                            variant="ghost"
+                            className={cn(
+                              "h-auto min-h-11 whitespace-normal px-1 text-xs sm:text-sm",
+                              mine === answer.value
+                                ? answer.selected
+                                : "bg-background hover:bg-background/70",
+                            )}
+                            aria-pressed={mine === answer.value}
+                            disabled={!open || action.isPending}
+                            onClick={() =>
+                              action.mutate(() =>
+                                api.polls.vote(
+                                  guildId,
+                                  pollId,
+                                  option.id,
+                                  answer.value,
+                                ),
+                              )
+                            }
+                          >
+                            {answer.label}
+                          </Button>
+                        ))}
+                      </fieldset>
+                      {canEdit && poll.status !== "confirmed" && (
+                        <Button
+                          variant="secondary"
+                          className="mt-auto min-h-11 self-end"
+                          disabled={
+                            action.isPending ||
+                            !config.isSuccess ||
+                            !guild.isSuccess
+                          }
+                          onClick={() => confirm(option, poll)}
+                        >
+                          <CheckIcon />
+                          この候補で確定
+                        </Button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            </CardContent>
+          </Card>
           <VoteTable poll={poll} />
-          {action.isError && (
-            <p role="alert" className="text-destructive">
-              {describeApiError(action.error)}
-            </p>
-          )}
-          {canEdit && (
-            <div className="flex flex-wrap gap-2">
-              {open && (
-                <>
-                  <Button
-                    variant="outline"
-                    className="min-h-11"
-                    disabled={action.isPending}
-                    onClick={() => setEditing(true)}
-                  >
-                    候補を編集
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="min-h-11"
-                    disabled={action.isPending}
-                    onClick={() => {
-                      if (window.confirm("投票を締め切りますか？"))
-                        action.mutate(() =>
-                          api.polls.close(guildId, pollId, poll.version),
-                        );
-                    }}
-                  >
-                    投票を締め切る
-                  </Button>
-                </>
-              )}
-              <Button
-                variant="destructive"
-                className="min-h-11"
-                disabled={action.isPending}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "日程調整と回答を削除しますか？ 確定済みの予定は残ります。",
-                    )
-                  )
-                    action.mutate(async () => {
-                      await api.polls.remove(guildId, pollId);
-                      router.push(`/dashboard/${guildId}/polls`);
-                    });
-                }}
-              >
-                日程調整を削除
-              </Button>
-            </div>
-          )}
           {editing && (
             <PollFormDialog
               poll={poll}
@@ -478,67 +723,88 @@ function VoteTable({ poll }: { poll: PollDetail }) {
     ]),
   );
   return (
-    <section className="space-y-3">
-      <h2 className="font-semibold">みんなの回答</h2>
-      {ids.length === 0 ? (
-        <p className="text-sm text-muted-foreground">まだ回答はありません。</p>
-      ) : (
-        <section
-          className="overflow-x-auto rounded-lg border"
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: 横スクロールする表をキーボードで操作する
-          tabIndex={0}
-          aria-label="候補と参加者の回答表"
-        >
-          <table className="w-full text-sm">
-            <caption className="sr-only">
-              ○ 参加できる、△ 未定、× 参加できない、— 未回答
-            </caption>
-            <thead>
-              <tr>
-                <th className="p-3 text-left" scope="col">
-                  参加者
-                </th>
-                {poll.options.map((o, i) => (
-                  <th key={o.id} scope="col" className="whitespace-nowrap p-3">
-                    候補 {i + 1}
+    <Card role="region" aria-labelledby="poll-votes-title">
+      <CardHeader>
+        <CardTitle>
+          <h2 id="poll-votes-title" className="font-semibold">
+            みんなの回答
+          </h2>
+        </CardTitle>
+        <CardDescription>{ids.length}人が回答しています。</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {ids.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-3 text-center text-sm text-muted-foreground">
+            まだ回答はありません。
+          </p>
+        ) : (
+          <section
+            className="overflow-x-auto rounded-lg border"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: 横スクロールする表をキーボードで操作する
+            tabIndex={0}
+            aria-label="候補と参加者の回答表"
+          >
+            <table className="w-full text-sm">
+              <caption className="sr-only">
+                ○ 参加できる、△ 未定、× 参加できない、— 未回答
+              </caption>
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="p-3 text-left" scope="col">
+                    参加者
                   </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {ids.map((id) => {
-                const member = members.get(id);
-                return (
-                  <tr key={id} className="border-t">
-                    <th scope="row" className="p-3 text-left font-normal">
-                      <span className="flex items-center gap-2">
-                        {member?.avatar_url && (
-                          <Avatar url={member.avatar_url} />
-                        )}
-                        <span className="max-w-40 break-words">
-                          {member?.display_name ?? id}
-                          {id === poll.current_user_id && "（自分）"}
-                        </span>
-                      </span>
+                  {poll.options.map((o, i) => (
+                    <th
+                      key={o.id}
+                      scope="col"
+                      className="whitespace-nowrap p-3"
+                    >
+                      候補 {i + 1}
                     </th>
-                    {poll.options.map((o) => {
-                      const answer = votes.get(`${id}/${o.id}`);
-                      return (
-                        <td key={o.id} className="p-3 text-center">
-                          {answer
-                            ? { yes: "○", maybe: "△", no: "×" }[answer]
-                            : "—"}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
-      )}
-    </section>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ids.map((id) => {
+                  const member = members.get(id);
+                  return (
+                    <tr key={id} className="border-t">
+                      <th scope="row" className="p-3 text-left font-normal">
+                        <span className="flex items-center gap-2">
+                          {member?.avatar_url && (
+                            <Avatar url={member.avatar_url} />
+                          )}
+                          <span className="max-w-40 break-words">
+                            {member?.display_name ?? id}
+                            {id === poll.current_user_id && "（自分）"}
+                          </span>
+                        </span>
+                      </th>
+                      {poll.options.map((o) => {
+                        const answer = answers.find(
+                          (a) => a.value === votes.get(`${id}/${o.id}`),
+                        );
+                        return (
+                          <td
+                            key={o.id}
+                            className={cn(
+                              "p-3 text-center font-semibold",
+                              answer ? answer.text : "text-muted-foreground",
+                            )}
+                          >
+                            {answer ? answer.mark : "—"}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 function Avatar({ url }: { url: string }) {
@@ -548,7 +814,15 @@ function Avatar({ url }: { url: string }) {
 function Announcement({ status }: { status: PollAnnouncement | undefined }) {
   if (!status) return null;
   return (
-    <p role="status" className="rounded-lg bg-muted p-3 text-sm">
+    <p
+      role="status"
+      className={cn(
+        "rounded-lg border p-3 text-sm",
+        status === "failed"
+          ? "border-destructive/30 bg-destructive/10 text-destructive"
+          : "bg-muted",
+      )}
+    >
       {status === "sent"
         ? "Discordの通知チャンネルに案内を投稿しました。"
         : status === "not_configured"

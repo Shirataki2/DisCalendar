@@ -76,7 +76,7 @@ async fn tick(http: &serenity::Http, data: &Data) -> Result<(), BotError> {
     }
     Ok(())
 }
-async fn sync_one(
+pub(crate) async fn sync_one(
     http: &serenity::Http,
     pool: &PgPool,
     base: &str,
@@ -255,6 +255,10 @@ fn message(
             ),
             false,
         );
+        // 締切・確定後はボタン行を外し、状態と集計だけを残す。
+        if closed {
+            continue;
+        }
         rows.push(CreateActionRow::Buttons(
             [
                 ("yes", "○", ButtonStyle::Success),
@@ -266,7 +270,6 @@ fn message(
                 CreateButton::new(custom_id(poll.id, option.id, answer))
                     .label(format!("候補{} {label}", index + 1))
                     .style(style)
-                    .disabled(closed)
             })
             .collect(),
         ));
@@ -277,7 +280,7 @@ fn message(
 mod tests {
     use super::*;
     #[test]
-    fn five_candidates_fit_and_closed_buttons_are_disabled() {
+    fn five_candidates_fit_and_closed_polls_have_no_buttons() {
         let poll = Poll {
             id: 1,
             guild_id: "123".into(),
@@ -298,18 +301,19 @@ mod tests {
                 no: 0,
             })
             .collect::<Vec<_>>();
-        let (embed, rows) = message(&poll, &options, "https://example.com", true);
+        let (_, rows) = message(&poll, &options, "https://example.com", false);
         let json = serde_json::to_value(rows).unwrap();
         assert_eq!(json.as_array().unwrap().len(), 5);
         for row in json.as_array().unwrap() {
             assert_eq!(row["components"].as_array().unwrap().len(), 3);
             for button in row["components"].as_array().unwrap() {
-                assert_eq!(button["disabled"], true);
                 assert!(
                     crate::polls::parse_custom_id(button["custom_id"].as_str().unwrap()).is_some()
                 );
             }
         }
+        let (embed, rows) = message(&poll, &options, "https://example.com", true);
+        assert!(rows.is_empty());
         assert!(
             serde_json::to_string(&embed)
                 .unwrap()
@@ -324,7 +328,7 @@ mod db_tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[sqlx::test(migrations = "../api/migrations")]
-    async fn post_once_refresh_votes_and_disable_after_deadline(pool: PgPool) {
+    async fn post_once_refresh_votes_and_remove_buttons_after_deadline(pool: PgPool) {
         sqlx::query("INSERT INTO guilds(guild_id,name) VALUES ('1','test')")
             .execute(&pool)
             .await
@@ -413,14 +417,14 @@ mod db_tests {
             .execute(&pool)
             .await
             .unwrap();
-        // 期限だけが過ぎた場合にも、revision差分なしでボタンを無効化する。
+        // 期限だけが過ぎた場合にも、revision差分なしでボタンを外す。
         sqlx::query("UPDATE schedule_poll_posts SET synced_revision=(SELECT discord_revision FROM schedule_polls WHERE id=$1) WHERE poll_id=$1").bind(poll).execute(&pool).await.unwrap();
         sync_one(&http, &pool, "https://example.com", poll)
             .await
             .unwrap();
         let (method, body) = received.recv().await.unwrap();
         assert_eq!(method, "PATCH");
-        assert_eq!(body["components"][0]["components"][0]["disabled"], true);
+        assert_eq!(body["components"], serde_json::json!([]));
         sync_one(&http, &pool, "https://example.com", poll)
             .await
             .unwrap();

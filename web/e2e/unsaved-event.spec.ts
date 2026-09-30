@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createEvent, openEventPopover } from "./calendar";
+import { createEvent, openEventPopover, openEventTab } from "./calendar";
 import { E2E_GUILDS } from "./fixtures";
 
 const guild = E2E_GUILDS.admin.id;
@@ -65,6 +65,7 @@ test("添付だけの変更と保存失敗でも、編集を続けると入力�
   page,
 }) => {
   const form = page.getByRole("dialog", { name: "予定を作成" });
+  await openEventTab(form, "添付・共有");
   const picker = form.getByLabel("ファイルを添付", { exact: true });
   await expect(picker).toBeEnabled();
   await picker.setInputFiles({
@@ -75,6 +76,7 @@ test("添付だけの変更と保存失敗でも、編集を続けると入力�
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "編集を続ける" }).click();
   await expect(form.getByText("資料.pdf", { exact: false })).toBeVisible();
+  await openEventTab(form, "基本");
   await form.getByLabel("タイトル").fill("保存失敗の予定");
   await page.route(`**/local/api/events/${guild}`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
@@ -85,6 +87,7 @@ test("添付だけの変更と保存失敗でも、編集を続けると入力�
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "編集を続ける" }).click();
   await expect(form.getByLabel("タイトル")).toHaveValue("保存失敗の予定");
+  await openEventTab(form, "添付・共有");
   await expect(form.getByText("資料.pdf", { exact: false })).toBeVisible();
 });
 
@@ -121,10 +124,7 @@ test("追加前のメンションIDも保持し、空に戻すと確認せず閉
   page,
 }) => {
   const form = page.getByRole("dialog", { name: "予定を作成" });
-  await form
-    .locator("summary")
-    .filter({ hasText: "通知のメンション先" })
-    .click();
+  await openEventTab(form, "繰り返し・通知");
   const input = form.getByLabel("メンションするユーザーID");
   await input.fill("100000000000000001");
   await page.keyboard.press("Escape");

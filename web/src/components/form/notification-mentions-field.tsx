@@ -45,12 +45,9 @@ export function NotificationMentionsField({
     (BigInt(permissions.data?.permissions ?? "0") & BigInt(131072)) !==
       BigInt(0);
   const [error, setError] = useState<string | null>(null);
-  const detailsRef = useRef<HTMLDetailsElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (!error || !detailsRef.current) return;
-    detailsRef.current.open = true;
-    inputRef.current?.focus();
+    if (error) inputRef.current?.focus();
   }, [error]);
   const [adding, setAdding] = useState(false);
   const userIds = mentions.flatMap((m) => (m.type === "user" ? [m.id] : []));
@@ -96,14 +93,17 @@ export function NotificationMentionsField({
         : `@${profiles.data?.find((p) => p.user_id === mention.id)?.display_name ?? mention.id}`;
 
   return (
-    <details ref={detailsRef} className="rounded-lg border p-3">
-      <summary className="min-h-11 cursor-pointer content-center rounded-sm text-sm font-medium focus-visible:outline-2 focus-visible:outline-ring">
+    <section
+      aria-labelledby="notification-mentions-heading"
+      className="rounded-lg border p-3"
+    >
+      <h3 id="notification-mentions-heading" className="text-sm font-medium">
         通知のメンション先
         <span className="ml-2 break-words font-normal text-muted-foreground">
           {mentions.length ? mentions.map(mentionLabel).join("、") : "なし"}
           {userId && "（ユーザーIDを入力中）"}
         </span>
-      </summary>
+      </h3>
       <Field
         className="pt-3"
         data-invalid={errors.notificationMentions ? true : undefined}
@@ -258,6 +258,6 @@ export function NotificationMentionsField({
         )}
         <FieldError>{error ?? errors.notificationMentions?.message}</FieldError>
       </Field>
-    </details>
+    </section>
   );
 }
