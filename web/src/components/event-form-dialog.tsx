@@ -326,6 +326,7 @@ function EventForm({
     basic: Object.keys(errors).some(
       (key) => key !== "notifications" && key !== "notificationMentions",
     ),
+    files: !!savedEvent && uploads.items.length > 0,
   };
   // 次のキー入力より前に破棄判定を更新し、設定直後のEscapeでも入力を保護する。
   useLayoutEffect(() => {
@@ -432,6 +433,9 @@ function EventForm({
       if (!mentionGuildId || (await uploads.upload(saved.id))) {
         closeGuard.current = null;
         onClose();
+      } else {
+        // 添付の失敗理由と再送は「添付・共有」タブにしか出ないので、そちらを開く。
+        setTab("files");
       }
     } catch (error) {
       setSubmitError(
@@ -506,6 +510,7 @@ function EventForm({
               {hasFilesTab && (
                 <TabsTrigger value="files" className="px-3">
                   添付・共有
+                  <TabErrorDot show={tabErrors.files} />
                 </TabsTrigger>
               )}
             </TabsList>
