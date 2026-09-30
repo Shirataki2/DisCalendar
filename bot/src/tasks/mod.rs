@@ -13,7 +13,7 @@
 mod digest;
 mod icon_updater;
 mod notify;
-mod polls;
+pub(crate) mod polls;
 mod presence;
 
 use poise::serenity_prelude as serenity;

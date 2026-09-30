@@ -91,3 +91,11 @@ export async function openEventPopover(page: Page, title: string) {
   await expect(popover).toBeVisible();
   return popover;
 }
+
+/** 予定ダイアログのタブを開く。エラー印の読み上げ文言が付いても一致するよう前方一致にする */
+export async function openEventTab(
+  dialog: Locator,
+  name: "基本" | "繰り返し・通知" | "通知" | "添付・共有",
+) {
+  await dialog.getByRole("tab", { name: new RegExp(`^${name}`) }).click();
+}

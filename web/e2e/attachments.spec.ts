@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { Pool } from "pg";
 import { ATTACHMENT_MOCK_URL } from "./attachment-storage";
-import { openEventPopover } from "./calendar";
+import { openEventPopover, openEventTab } from "./calendar";
 import { setEditorRoles } from "./discord-mock";
 import { DATABASE_URL, WEB_URL } from "./env";
 import { E2E_EDITOR_ROLES, E2E_GUILDS } from "./fixtures";
@@ -28,6 +28,7 @@ test("新規予定の部分失敗から添付だけ再試行し、画像確認�
   await page.getByRole("button", { name: "新規作成" }).click();
   const form = page.getByRole("dialog", { name: "予定を作成" });
   await form.getByLabel("タイトル").fill(` ${title} `);
+  await openEventTab(form, "添付・共有");
   await expect(
     form.getByLabel("ファイルを添付", { exact: true }),
   ).toBeEnabled();
@@ -87,6 +88,7 @@ test("新規予定の部分失敗から添付だけ再試行し、画像確認�
   await popover.getByRole("button", { name: "ダウンロード" }).last().click();
   expect((await download).suggestedFilename()).toBe("資料.pdf");
   await popover.getByRole("button", { name: "編集", exact: true }).click();
+  await openEventTab(edit, "添付・共有");
   page.once("dialog", (dialog) => dialog.accept());
   await edit.getByRole("button", { name: "添付を削除" }).first().click();
   await expect(edit.getByRole("button", { name: "ダウンロード" })).toHaveCount(
@@ -438,12 +440,14 @@ test("保存先が未設定でも添付以外の予定作成を続けられる",
   await page.goto(`/dashboard/${guild}`);
   await page.getByRole("button", { name: "新規作成" }).click();
   const form = page.getByRole("dialog", { name: "予定を作成" });
+  await openEventTab(form, "添付・共有");
   await expect(
     form.getByText("添付ファイルは現在利用できません"),
   ).toBeVisible();
   await expect(
     form.getByLabel("ファイルを添付", { exact: true }),
   ).toBeDisabled();
+  await openEventTab(form, "基本");
   await form.getByLabel("タイトル").fill("添付なしの予定");
   const created = page.waitForResponse(
     (r) =>

@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { openEventTab } from "./calendar";
 import { E2E_GUILDS } from "./fixtures";
 
 for (const width of [390, 1280]) {
-  test(`${width}px: 保存操作を固定し、折りたたみのエラーへ移動する`, async ({
+  test(`${width}px: 保存操作を固定し、別タブのエラーへ移動する`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
@@ -22,22 +23,24 @@ for (const width of [390, 1280]) {
     for (const target of [save, header, close, cancel])
       await expect(target).toBeInViewport();
     await form.getByLabel("タイトル").fill("配置の確認");
-    const summary = form.locator("summary").filter({ hasText: "事前通知" });
-    await expect(summary).toContainText("1日前、1時間前");
-    await summary.focus();
-    await page.keyboard.press("Enter");
+    await openEventTab(form, "繰り返し・通知");
+    const heading = form.getByRole("heading", { name: /^事前通知/ });
+    await expect(heading).toContainText("1日前、1時間前");
     const number = form.getByLabel("通知のタイミング (数値)").first();
     await number.fill("0");
-    await summary.click();
+    // 基本タブから保存しても、エラーのある通知タブへ切り替えてフォーカスする。
+    await openEventTab(form, "基本");
     await expect(number).toBeHidden();
     await save.click();
+    const notifyTab = form.getByRole("tab", { name: /^繰り返し・通知/ });
+    await expect(notifyTab).toHaveAttribute("aria-selected", "true");
+    await expect(notifyTab).toContainText("入力エラーあり");
     await expect(number).toBeVisible();
     await expect(number).toBeFocused();
     await expect(number).toHaveAttribute("aria-invalid", "true");
     await expect(number).toBeInViewport();
     await number.fill("2");
-    await summary.click();
-    await expect(summary).toContainText("2日前");
+    await expect(heading).toContainText("2日前");
     const before = await save.boundingBox();
     await form.getByTestId("event-form-fields").evaluate((element) => {
       element.scrollTop = element.scrollHeight;
@@ -50,6 +53,7 @@ for (const width of [390, 1280]) {
         (element) => element.scrollWidth <= element.clientWidth,
       ),
     ).toBe(true);
+    await openEventTab(form, "添付・共有");
     await expect(
       form.getByText("1件 約10.5 MB", { exact: false }),
     ).toBeVisible();
@@ -61,10 +65,7 @@ for (const width of [390, 1280]) {
       form.getByText("10,485,760 バイト", { exact: false }),
     ).toBeVisible();
     await page.screenshot({ path: `/tmp/event-form-${width}.png` });
-    await form
-      .locator("summary")
-      .filter({ hasText: "通知のメンション先" })
-      .click();
+    await openEventTab(form, "繰り返し・通知");
     const userId = form.getByLabel("メンションするユーザーID");
     await userId.fill("abc");
     await form

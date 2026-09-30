@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { ApiEvent } from "../src/lib/api/types";
-import { dayCell, dragEventTo, eventOn } from "./calendar";
+import { dayCell, dragEventTo, eventOn, openEventTab } from "./calendar";
 import { E2E_GUILDS } from "./fixtures";
 
 const guild = E2E_GUILDS.admin.id;
@@ -19,6 +19,7 @@ for (const width of [320, 1280]) {
     let form = page.getByRole("dialog", { name: "予定を作成", exact: true });
     const name = `繰り返し ${width}`;
     await form.getByLabel("タイトル").fill(name);
+    await openEventTab(form, "繰り返し・通知");
     await form.getByRole("button", { name: "繰り返しなし" }).click();
     const settings = page.getByRole("dialog", {
       name: "繰り返しの設定",
@@ -189,6 +190,7 @@ test("繰り返し解除を保存するまではDiscord連携を表示しない"
     .getByRole("button", { name: "この回以降", exact: true })
     .click();
   const form = page.getByRole("dialog", { name: "予定を編集", exact: true });
+  await openEventTab(form, "繰り返し・通知");
   await form.getByRole("button", { name: "毎週月曜日／全2回" }).click();
   const settings = page.getByRole("dialog", { name: "繰り返しの設定" });
   await settings.getByLabel("繰り返しの頻度").selectOption("none");
@@ -217,6 +219,7 @@ test("設定の取消・キーボード・開始日の不一致と未保存確�
   });
   await page.getByRole("button", { name: "新規作成", exact: true }).click();
   const form = page.getByRole("dialog", { name: "予定を作成", exact: true });
+  await openEventTab(form, "繰り返し・通知");
   await form.getByRole("button", { name: "繰り返しなし" }).focus();
   await page.keyboard.press("Enter");
   const settings = page.getByRole("dialog", { name: "繰り返しの設定" });
