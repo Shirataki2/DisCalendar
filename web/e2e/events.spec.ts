@@ -102,6 +102,10 @@ test("複製すると元の内容が入った複製ダイアログが開き、�
     exact: false,
   });
   await expect(inherited).toBeVisible();
+  const today = await calendarToday(page);
+  await expect(inherited).toContainText(
+    `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`,
+  );
   await expect(inherited).toContainText(
     await dialog.getByLabel("開始時刻").inputValue(),
   );

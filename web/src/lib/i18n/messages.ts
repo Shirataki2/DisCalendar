@@ -67,7 +67,7 @@ export const english: Readonly<Record<string, string>> = {
   "予定の作成・変更・削除を Discord のスケジュールイベントにも反映します":
     "Creating, editing and deleting this event will also update its Discord scheduled event.",
   "Bot に「イベントの作成」権限がないため利用できません。":
-    "The Bot needs Discord's “Create Events” permission.",
+    "The Bot needs Discord's “Create Events” permission. ",
   "Bot を招待し直す": "Reinvite the Bot",
   と利用できます: " to enable this feature",
   "他の人が繰り返し予定を変更しました。画面を閉じて予定を開き直し、最新の内容で確認してください。":

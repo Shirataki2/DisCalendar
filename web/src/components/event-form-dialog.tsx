@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { addDays, isBefore } from "date-fns";
+import { addDays, format, isBefore } from "date-fns";
 import {
   type ReactNode,
   useEffect,
@@ -558,12 +558,19 @@ function EventForm({
                     "元の予定の日時を引き継いでいます。保存前に確認してください。",
                   )}
                   <span className="mt-1 block font-medium">
-                    {formatDisplayDate(initialValues.startDate, language)}{" "}
+                    {language === "ja"
+                      ? format(initialValues.startDate, "yyyy/M/d")
+                      : formatDisplayDate(
+                          initialValues.startDate,
+                          language,
+                        )}{" "}
                     {initialValues.isAllDay
                       ? t("終日")
                       : initialValues.startTime}
                     {" ～ "}
-                    {formatDisplayDate(initialValues.endDate, language)}{" "}
+                    {language === "ja"
+                      ? format(initialValues.endDate, "yyyy/M/d")
+                      : formatDisplayDate(initialValues.endDate, language)}{" "}
                     {initialValues.isAllDay ? "" : initialValues.endTime}
                     {t("（日本時間）")}
                   </span>

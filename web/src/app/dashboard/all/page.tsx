@@ -90,7 +90,9 @@ function Unavailable({
 }) {
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-      <h1 className="text-xl font-bold">{title}</h1>
+      <h1 className="text-xl font-bold">
+        <Message message={title} />
+      </h1>
       <p className="text-sm text-muted-foreground">{children}</p>
       <Link
         href={ROUTES.dashboard}
