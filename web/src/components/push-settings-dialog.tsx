@@ -53,7 +53,7 @@ export function PushSettingsDialog({
   const error = action.error ?? query.error;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85dvh] overflow-y-auto">
+      <DialogContent lang="ja" className="max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>プッシュ通知</DialogTitle>
           <DialogDescription>

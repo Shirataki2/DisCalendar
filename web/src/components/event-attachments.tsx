@@ -34,7 +34,7 @@ export function EventAttachments({
 }) {
   const { t, language } = useLanguage();
   const queryClient = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [working, setWorking] = useState<string | null>(null);
   const limits = useAttachmentLimits(active ? guildId : undefined);
   const attachments = useQuery({
@@ -61,7 +61,7 @@ export function EventAttachments({
         queryKey: queryKeys.attachments.all(guildId),
       });
     } catch (e) {
-      setError(describeApiError(e, language));
+      setError(e);
     } finally {
       setWorking(null);
     }
@@ -79,7 +79,7 @@ export function EventAttachments({
       anchor.click();
       anchor.remove();
     } catch (e) {
-      setError(describeApiError(e, language));
+      setError(e);
     } finally {
       setWorking(null);
     }
@@ -149,9 +149,11 @@ export function EventAttachments({
           </li>
         ))}
       </ul>
-      {error && (
+      {!!error && (
         <p role="alert" className="text-destructive">
-          {t(error)}
+          {typeof error === "string"
+            ? t(error)
+            : describeApiError(error, language)}
         </p>
       )}
     </section>
@@ -230,7 +232,7 @@ export function AttachmentPicker({
 }) {
   const { t, language } = useLanguage();
   const limits = useAttachmentLimits(guildId);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const existing = useQuery({
     queryKey: queryKeys.attachments.event(guildId, eventId ?? 0),
     queryFn: () => api.attachments.list(guildId, eventId ?? 0),
@@ -242,14 +244,14 @@ export function AttachmentPicker({
     const selected = Array.from(files);
     const validation = selected.map(attachmentValidation).find(Boolean);
     if (validation) {
-      setError(t(validation));
+      setError(validation);
       return;
     }
     if (
       items.length + selected.length + (existing.data?.length ?? 0) >
       ATTACHMENT_MAX_FILES
     ) {
-      setError(t("添付は予定ごとに10件までです"));
+      setError("添付は予定ごとに10件までです");
       return;
     }
     onChange([
@@ -322,9 +324,11 @@ export function AttachmentPicker({
           <li key={item.key} className="break-all rounded border p-2">
             {item.file.name} · {sizeText(item.file.size)} ·{" "}
             {status[item.status]}
-            {item.error && (
+            {!!item.error && (
               <p role="alert" className="text-destructive">
-                {t(item.error)}
+                {typeof item.error === "string"
+                  ? t(item.error)
+                  : describeApiError(item.error, language)}
               </p>
             )}
             <Button
@@ -333,9 +337,7 @@ export function AttachmentPicker({
               variant="ghost"
               disabled={busy}
               onClick={() => {
-                void onRemove(item).catch((e) =>
-                  setError(describeApiError(e, language)),
-                );
+                void onRemove(item).catch((e) => setError(e));
               }}
             >
               {t("選択を解除")}
@@ -353,9 +355,11 @@ export function AttachmentPicker({
           {t("添付を再試行")}
         </Button>
       )}
-      {error && (
+      {!!error && (
         <p role="alert" className="text-destructive">
-          {t(error)}
+          {typeof error === "string"
+            ? t(error)
+            : describeApiError(error, language)}
         </p>
       )}
     </section>

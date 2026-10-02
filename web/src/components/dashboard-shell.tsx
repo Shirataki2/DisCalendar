@@ -109,7 +109,7 @@ export function DashboardShell({
           aria-label={t("サーバー一覧へ")}
           className="ml-1 sm:ml-2"
         >
-          <Logo className="text-xl" />
+          <Logo className="text-base sm:text-xl" />
         </Link>
         <Button
           type="button"

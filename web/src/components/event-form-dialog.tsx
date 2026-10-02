@@ -174,7 +174,7 @@ export function EventFormDialog({
             previewRecurrence={previewRecurrence}
             state={shown}
             guildName={guildName}
-            guidance={guidance}
+            guidance={guidance && <div lang="ja">{guidance}</div>}
             onClose={close}
             closeGuard={closeGuard}
             onSubmit={onSubmit}
@@ -211,7 +211,7 @@ function EventForm({
   closeGuard,
 }: FormProps) {
   const { t, language } = useLanguage();
-  const uploads = useAttachmentQueue(mentionGuildId, language);
+  const uploads = useAttachmentQueue(mentionGuildId);
   const [savedEvent, setSavedEvent] = useState<ApiEvent | null>(null);
   const attachmentEventId =
     savedEvent?.id ?? (state.mode === "edit" ? state.event.id : undefined);
@@ -373,7 +373,7 @@ function EventForm({
       ],
     });
   const endDateBeforeRollover = useRef<Date | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<unknown>(null);
 
   // Discord 連携 (#94): 開始が過去 (現在を含む) だと Discord はイベントを作れない。
   // api 側の validate_discord_flag と同じ条件・同じ JST の現在時刻でチェックを無効化する
@@ -446,10 +446,8 @@ function EventForm({
           error.kind === "conflict" &&
           state.mode === "edit" &&
           state.event.recurrence
-          ? t(
-              "他の人が繰り返し予定を変更しました。画面を閉じて予定を開き直し、最新の内容で確認してください。",
-            )
-          : describeApiError(error, language),
+          ? "他の人が繰り返し予定を変更しました。画面を閉じて予定を開き直し、最新の内容で確認してください。"
+          : error,
       );
     }
   });
@@ -540,7 +538,7 @@ function EventForm({
               data-event-tab="basic"
               className="space-y-5"
             >
-              {guidance}
+              {guidance && <div lang="ja">{guidance}</div>}
               {state.mode === "edit" && state.event.recurrence && (
                 <p className="rounded-md border p-3 text-sm">
                   {state.scope === "future"
@@ -952,12 +950,14 @@ function EventForm({
           </div>
         </Tabs>
 
-        {submitError && (
+        {!!submitError && (
           <div
             role="alert"
             className="shrink-0 bg-destructive/10 px-3 py-2 text-sm text-destructive"
           >
-            {submitError}
+            {typeof submitError === "string"
+              ? t(submitError)
+              : describeApiError(submitError, language)}
           </div>
         )}
 

@@ -385,4 +385,38 @@ export const english: Readonly<Record<string, string>> = {
     "This feature is currently unavailable ({detail})",
   "サーバーでエラーが発生しました ({status})":
     "A server error occurred ({status})",
+  繰り返し予定の開始日時は秒単位で指定してください:
+    "Use whole seconds for the repeating event start time",
+  繰り返し条件を指定してください: "Choose a repeat schedule",
+  開始日の曜日を含む曜日を選択してください:
+    "Select weekdays including the start date’s weekday",
+  開始日と同じ日付を指定してください:
+    "Use the same day of the month as the start date",
+  開始日と同じ第n曜日を指定してください:
+    "Use the same weekday occurrence as the start date",
+  "回数は1〜10000回で指定してください": "Enter 1 to 10,000 occurrences",
+  繰り返しの終了日は開始日以降にしてください:
+    "The repeat end date must be on or after the start date",
+  終了日が不正です: "Invalid end date",
+  繰り返し条件を解釈できません: "Could not read the repeat schedule",
+  開始範囲が不正です: "Invalid start range",
+  終了範囲が不正です: "Invalid end range",
+  "繰り返しの計算上限に達しました。期間を短くしてください":
+    "Too many occurrences to calculate. Choose a shorter period",
+  繰り返しの計算上限に達しました: "Too many occurrences to calculate",
+  終了日が範囲外です: "The end date is out of range",
+  "終日の繰り返し予定は開始・終了を0時で指定してください":
+    "All-day repeating events must start and end at midnight",
+  繰り返し予定はDiscordイベントと連携できません:
+    "Repeating events cannot be synced with Discord events",
+  Discordイベント連携を解除してから繰り返しを設定してください:
+    "Disable Discord event sync before adding a repeat schedule",
+  "繰り返し条件の変更は「この回以降」を選択してください":
+    "Select “This and future occurrences” to change the repeat schedule",
+  "過去の開催枠と重なるため、この回以降をこの日へ移動できません。別の開始日か「この回のみ」を選択してください":
+    "This move overlaps earlier occurrences. Choose another start date or “This occurrence”",
+  開催日時が範囲外です: "The occurrence start date is out of range",
+  開催終了日時が範囲外です: "The occurrence end date is out of range",
+  "移動先は中止済みの開催日です。別の開始日を指定してください":
+    "This date has a cancelled occurrence. Choose another start date",
 };

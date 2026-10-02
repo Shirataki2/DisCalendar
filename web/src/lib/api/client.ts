@@ -99,7 +99,7 @@ export function describeApiError(
       return t("対象が見つかりません (他のユーザーが削除した可能性があります)");
     case "bad_request":
       return t("入力内容が正しくありません ({detail})", {
-        detail: error.message,
+        detail: t(error.message),
       });
     case "conflict":
       return t(
@@ -115,7 +115,7 @@ export function describeApiError(
       );
     case "unavailable":
       return t("この機能は現在使えません ({detail})", {
-        detail: error.message,
+        detail: t(error.message),
       });
     case "discord_error":
       return t(

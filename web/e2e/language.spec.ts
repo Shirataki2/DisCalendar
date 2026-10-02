@@ -9,12 +9,20 @@ test.describe("初回の言語とブラウザ保存", () => {
     page,
     context,
   }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
     await page.goto("/login");
     const language = page.getByRole("combobox", { name: "Language / 言語" });
     await expect(
       page.getByRole("button", { name: "Sign in with Discord" }),
     ).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth,
+      ),
+    ).toBeLessThanOrEqual(0);
     await language.focus();
     await expect(language).toBeFocused();
     await language.press("Home");
@@ -31,6 +39,10 @@ test.describe("初回の言語とブラウザ保存", () => {
     await expect(
       other.getByRole("button", { name: "Sign in with Discord" }),
     ).toBeVisible();
+    for (const path of ["/", "/donation", "/tutorial"]) {
+      await page.goto(path);
+      await expect(page.locator("main")).toHaveAttribute("lang", "ja");
+    }
   });
 
   test("保存できない環境でも言語を変更できる", async ({ page }) => {
@@ -66,7 +78,7 @@ test.describe("未対応言語", () => {
   });
 });
 
-for (const width of [390, 1280]) {
+for (const width of [375, 390, 1280]) {
   test(`${width}px: 英語の予定作成・エラー・編集・複製・削除と横断カレンダー`, async ({
     page,
   }) => {
@@ -85,6 +97,13 @@ for (const width of [390, 1280]) {
     await expect(
       page.getByRole("tab", { name: "Month view", exact: true }),
     ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth,
+      ),
+    ).toBeLessThanOrEqual(0);
     const today = await calendarToday(page);
     await dayCell(page, today).click({ position: { x: 12, y: 45 } });
     const quickAdd = page.getByRole("dialog", { name: "Quick add event" });

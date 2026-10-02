@@ -155,7 +155,10 @@ export function PollList({ guildId }: { guildId: string }) {
     refetchInterval: 30_000,
   });
   return (
-    <main className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
+    <main
+      lang="ja"
+      className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6"
+    >
       <Link
         href={`/dashboard/${guildId}`}
         className="inline-flex min-h-11 items-center gap-1 text-sm underline-offset-4 hover:underline"
@@ -358,7 +361,10 @@ export function PollPage({
     });
   }
   return (
-    <main className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
+    <main
+      lang="ja"
+      className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6"
+    >
       <Link
         href={`/dashboard/${guildId}/polls`}
         className="inline-flex min-h-11 items-center gap-1 text-sm underline-offset-4 hover:underline"

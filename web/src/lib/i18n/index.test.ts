@@ -46,6 +46,15 @@ describe("表示言語", () => {
         "en",
       ),
     ).toBe("Invalid input (name is too long)");
+    const overlap =
+      "過去の開催枠と重なるため、この回以降をこの日へ移動できません。別の開始日か「この回のみ」を選択してください";
+    const recurringError = new ApiError(400, "bad_request", overlap);
+    expect(describeApiError(recurringError, "en")).toBe(
+      "Invalid input (This move overlaps earlier occurrences. Choose another start date or “This occurrence”)",
+    );
+    expect(describeApiError(recurringError)).toBe(
+      `入力内容が正しくありません (${overlap})`,
+    );
   });
   test("言語に合わせた日付・通知の表記でも JST と終日範囲・送信値を変えない", () => {
     const values = {

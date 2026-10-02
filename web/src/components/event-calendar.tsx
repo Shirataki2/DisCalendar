@@ -172,7 +172,7 @@ function QuickAddPopover({
 }: QuickAddProps) {
   const { t, language } = useLanguage();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const values = { ...state.values, name: state.title };
@@ -196,7 +196,7 @@ function QuickAddPopover({
       await onSubmit(eventFormToApiInput(parsed.data));
       onClose();
     } catch (submitError) {
-      setError(describeApiError(submitError, language));
+      setError(submitError);
     } finally {
       setIsSubmitting(false);
     }
@@ -219,7 +219,7 @@ function QuickAddPopover({
       >
         <PopoverTitle>{t("予定をクイック追加")}</PopoverTitle>
         <PopoverDescription>{range}</PopoverDescription>
-        {guidance}
+        {guidance && <div lang="ja">{guidance}</div>}
         <form onSubmit={submit} noValidate className="flex flex-col gap-2">
           <label htmlFor="quick-add-title" className="sr-only">
             {t("タイトル")}
@@ -240,9 +240,11 @@ function QuickAddPopover({
                 event.preventDefault();
             }}
           />
-          {error && (
+          {!!error && (
             <p role="alert" className="text-xs text-destructive">
-              {t(error)}
+              {typeof error === "string"
+                ? t(error)
+                : describeApiError(error, language)}
             </p>
           )}
           <div className="flex justify-end gap-2">
@@ -298,7 +300,7 @@ export function EventCalendar({
   const [quickAdd, setQuickAdd] = useState<QuickAddState | null>(null);
   const [dialog, setDialog] = useState<EventDialogState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiEvent | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<unknown>(null);
   const [importDefaultColor, setImportDefaultColor] = useState<string | null>(
     null,
   );
@@ -452,7 +454,7 @@ export function EventCalendar({
         {
           onError: (error) => {
             info.revert();
-            setActionError(describeApiError(error, language));
+            setActionError(error);
           },
         },
       );
@@ -606,7 +608,7 @@ export function EventCalendar({
         expected_series_version: deleteTarget.recurrence?.version,
       });
     } catch (error) {
-      setActionError(describeApiError(error, language));
+      setActionError(error);
     }
   };
 
@@ -621,6 +623,7 @@ export function EventCalendar({
   );
   return (
     <div
+      lang={language}
       className={cn(
         "flex min-h-0 min-w-0 flex-1 flex-col gap-5",
         guide && "lg:flex-row",
@@ -735,12 +738,12 @@ export function EventCalendar({
               </button>
             </span>
           )}
-          {actionError && (
+          {!!actionError && (
             <span
               role="alert"
               className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive"
             >
-              {actionError}
+              {describeApiError(actionError, language)}
               <button
                 type="button"
                 onClick={() => setActionError(null)}
@@ -964,7 +967,9 @@ export function EventCalendar({
                 )}
               </fieldset>
             )}
-            {deleteTarget && guide?.inlineContent}
+            {deleteTarget && guide?.inlineContent && (
+              <div lang="ja">{guide.inlineContent}</div>
+            )}
             <AlertDialogFooter>
               <AlertDialogCancel>{t("キャンセル")}</AlertDialogCancel>
               <AlertDialogAction variant="destructive" onClick={confirmDelete}>
@@ -1014,7 +1019,8 @@ export function EventCalendar({
       </div>
       {guide && (
         <aside
-          aria-label={t("操作ガイド")}
+          lang="ja"
+          aria-label="操作ガイド"
           className="order-first shrink-0 lg:order-last lg:w-80"
         >
           {!overlayOpen && guide.content}

@@ -41,7 +41,7 @@ export function RecurrenceSettings({
   const { t, language } = useLanguage();
   const [rule, setRule] = useState<RecurrenceRule>(value);
   const [dates, setDates] = useState<string[]>([]);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<unknown>();
   const [loading, setLoading] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -67,7 +67,7 @@ export function RecurrenceSettings({
         })
         .catch((cause) => {
           if (!controller.signal.aborted) {
-            setError(describeApiError(cause, language));
+            setError(cause);
             setDates([]);
           }
         })
@@ -79,7 +79,7 @@ export function RecurrenceSettings({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [start, rule, preview, language]);
+  }, [start, rule, preview]);
   const end: RecurrenceEnding =
     rule.frequency === "none" ? { type: "never" } : rule.end;
   const startDate = parseISO(start);
@@ -299,7 +299,7 @@ export function RecurrenceSettings({
             <p>{t("開催日を確認中…")}</p>
           ) : error ? (
             <p role="alert" className="text-destructive">
-              {error}
+              {describeApiError(error, language)}
             </p>
           ) : (
             dates.length > 0 && (

@@ -35,7 +35,7 @@ export default async function SharePage({ params }: Props) {
   const event = await getSharedEvent((await params).token);
   if (!event) notFound();
   return (
-    <main className="mx-auto w-full max-w-2xl px-5 py-12 sm:py-20">
+    <main lang="ja" className="mx-auto w-full max-w-2xl px-5 py-12 sm:py-20">
       <Link href="/" className="text-sm font-semibold text-muted-foreground">
         DisCalendar
       </Link>

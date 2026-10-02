@@ -147,7 +147,10 @@ export function GuildSettingsDialog({ guildId, open, onOpenChange }: Props) {
       disablePointerDismissal
     >
       {/* フィードの節 (#95) が増えて背が高くなったので、低い画面ではダイアログ内でスクロールさせる (予定ダイアログと同じ) */}
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        lang="ja"
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl"
+      >
         {/* Base UI の Dialog は閉じると Popup を unmount するので、開くたびに設定値から初期化される */}
         <GuildSettingsForm
           guildId={guildId}
@@ -898,7 +901,7 @@ function FeedSection({
           if (!open) setConfirmation(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent lang="ja">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmation === "revoke"

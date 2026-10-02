@@ -33,7 +33,10 @@ export default function DonationPage() {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 lg:py-12">
+      <main
+        lang="ja"
+        className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 lg:py-12"
+      >
         <article>
           <header className="mb-8 border-b border-white/10 pb-6">
             <h1 className="text-3xl font-bold sm:text-4xl">支援のお願い</h1>

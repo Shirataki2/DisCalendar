@@ -20,13 +20,13 @@ export function SiteHeader() {
   const { t } = useLanguage();
   return (
     <header className="sticky top-0 z-20 border-b border-white/10 bg-background/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4 sm:px-6">
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:gap-6 sm:px-6">
         <Link
           href="/"
           className="shrink-0"
           aria-label={t("DisCalendar ホーム")}
         >
-          <Logo className="text-xl" />
+          <Logo className="text-base sm:text-xl" />
         </Link>
         {/* 640px 前後だとロゴ + 4 項目 + 右のボタンが h-14 に収まらず折り返すので、md から出す (それ未満はフッタに同じリンクがある) */}
         <nav aria-label={t("サイト内リンク")} className="hidden md:block">

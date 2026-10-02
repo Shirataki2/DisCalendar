@@ -24,7 +24,7 @@ export function EventShareControls({ event }: { event: ApiEvent }) {
       if (action === "revoke") {
         await api.shares.revoke(event.guild_id, event.id);
         queryClient.setQueryData(queryKey, null);
-        setMessage(t("共有リンクを無効化しました"));
+        setMessage("共有リンクを無効化しました");
         return;
       }
       const link = await api.shares.issue(event.guild_id, event.id);
@@ -33,10 +33,10 @@ export function EventShareControls({ event }: { event: ApiEvent }) {
         await navigator.clipboard.writeText(
           `${window.location.origin}/share/${link.token}`,
         );
-        setMessage(t("共有リンクをコピーしました"));
+        setMessage("共有リンクをコピーしました");
       } catch {
         setMessage(
-          t("コピーできませんでした。下の URL を選択してコピーしてください"),
+          "コピーできませんでした。下の URL を選択してコピーしてください",
         );
       }
     },
@@ -85,7 +85,7 @@ export function EventShareControls({ event }: { event: ApiEvent }) {
       )}
       {message && (
         <p role="status" className="text-sm">
-          {message}
+          {t(message)}
         </p>
       )}
       {(share.error || mutation.error) && (
