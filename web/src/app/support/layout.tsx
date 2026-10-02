@@ -7,7 +7,10 @@ export default function SupportLayout({ children }: LayoutProps<"/support">) {
   return (
     <>
       <SiteHeader />
-      <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 lg:py-12">
+      <div
+        lang="ja"
+        className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 lg:py-12"
+      >
         {children}
       </div>
       <SiteFooter />

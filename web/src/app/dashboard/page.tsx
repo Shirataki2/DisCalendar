@@ -9,6 +9,7 @@ import {
   guildCardClassName,
 } from "@/components/guild-card";
 import { InviteGuildGrid } from "@/components/invite-guild-grid";
+import { Message } from "@/components/language-provider";
 import { TutorialBanner } from "@/components/tutorial-banner";
 import { ApiError } from "@/lib/api";
 import {
@@ -31,19 +32,25 @@ export default async function DashboardPage() {
   if (guilds === null) {
     return (
       <main className="flex-1 overflow-y-auto p-8">
-        <h1 className="mb-6 text-xl font-bold">サーバーを選択</h1>
+        <h1 className="mb-6 text-xl font-bold">
+          <Message message={"サーバーを選択"} />
+        </h1>
         <div className="text-muted-foreground">
           <p className="mb-2 font-semibold">
-            Discordからサーバー一覧を取得できませんでした
+            <Message
+              message={"Discordからサーバー一覧を取得できませんでした"}
+            />
           </p>
           <p className="text-sm">
-            再ログインするか、時間をおいて再度お試しください。
+            <Message
+              message={"再ログインするか、時間をおいて再度お試しください。"}
+            />
           </p>
           <Link
             href={ROUTES.tutorial}
             className="mt-4 inline-block underline underline-offset-4"
           >
-            練習用カレンダーで操作を試す
+            <Message message={"練習用カレンダーで操作を試す"} />
           </Link>
         </div>
       </main>
@@ -69,23 +76,32 @@ export default async function DashboardPage() {
 
   return (
     <main className="flex-1 overflow-y-auto p-8">
-      <h1 className="mb-6 text-xl font-bold">サーバーを選択</h1>
+      <h1 className="mb-6 text-xl font-bold">
+        <Message message={"サーバーを選択"} />
+      </h1>
       <TutorialBanner
         highlighted={joined.ok && available.length === 0}
         defaultVisible={!tutorialDismissed}
       />
       {!joined.ok && (
         <p className="mb-6 rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">
-          Bot の参加状況を取得できませんでした。API
-          サーバーが起動しているか確認してください。
+          <Message
+            message={
+              "Bot の参加状況を取得できませんでした。API サーバーが起動しているか確認してください。"
+            }
+          />
         </p>
       )}
       {available.length === 0 && joined.ok && (
         <p className="mb-6 text-sm text-muted-foreground">
-          Bot が参加しているサーバーがありません。
-          {invitable.length > 0
-            ? "下の一覧から Bot を招待できます。"
-            : "Bot の招待はサーバーの管理者に相談してください。"}
+          <Message message={"Bot が参加しているサーバーがありません。"} />
+          {invitable.length > 0 ? (
+            <Message message={"下の一覧から Bot を招待できます。"} />
+          ) : (
+            <Message
+              message={"Bot の招待はサーバーの管理者に相談してください。"}
+            />
+          )}
         </p>
       )}
       {/* 横断カレンダー (#98)。参加状況が取れているときだけ出す (取れていないと全サーバーが「参加済み」に見えている) */}
@@ -96,7 +112,7 @@ export default async function DashboardPage() {
       {invitable.length > 0 && (
         <>
           <h2 className="mt-10 mb-4 text-lg font-semibold text-muted-foreground">
-            Bot を招待できるサーバー
+            <Message message={"Bot を招待できるサーバー"} />
           </h2>
           {/* 招待後に戻ってきたら参加状況を見て自動で移動するので、ここだけクライアント側で描く */}
           <InviteGuildGrid
@@ -123,9 +139,14 @@ function AllEventsCard({ count }: { count: number }) {
       <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">
         <CalendarDaysIcon className="size-6" aria-hidden />
       </span>
-      <span className="flex-1 font-medium">すべての予定</span>
+      <span className="flex-1 font-medium">
+        <Message message={"すべての予定"} />
+      </span>
       <span className="shrink-0 text-xs text-muted-foreground">
-        {count} サーバーの予定をまとめて表示
+        <Message
+          message="{count} サーバーの予定をまとめて表示"
+          values={{ count }}
+        />
       </span>
     </Link>
   );

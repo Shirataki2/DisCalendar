@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -27,6 +28,7 @@ export function ColorPicker({
   invalid,
   className,
 }: Props) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const normalized = value.toUpperCase();
   return (
@@ -66,7 +68,7 @@ export function ColorPicker({
           ))}
         </div>
         <label className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-          その他の色
+          {t("その他の色")}
           <input
             type="color"
             value={value}

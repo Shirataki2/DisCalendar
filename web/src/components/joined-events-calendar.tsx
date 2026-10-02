@@ -13,13 +13,14 @@ import {
   useState,
 } from "react";
 import {
-  calendarBaseOptions,
   datesSetToRange,
   useCalendarBase,
   useCalendarToolbarElements,
+  useLocalizedCalendarOptions,
 } from "@/components/calendar-base";
 import { CalendarLegendChip } from "@/components/calendar-legend-chip";
 import { EventPopover, type PopoverAnchor } from "@/components/event-popover";
+import { useLanguage } from "@/components/language-provider";
 import { useCalendarShortcuts } from "@/hooks/use-calendar-shortcuts";
 import { describeApiError } from "@/lib/api";
 import { sourceOf, toCalendarEvent } from "@/lib/calendar-events";
@@ -85,7 +86,9 @@ function useOverflowCount(
  * 予定のポップオーバーからそのサーバーのカレンダーへ移動して行う
  */
 export function JoinedEventsCalendar({ guilds }: Props) {
+  const { t, language } = useLanguage();
   const calendarRef = useRef<CalendarRef>(null);
+  const calendarOptions = useLocalizedCalendarOptions();
   const toolbarElements = useCalendarToolbarElements(calendarRef);
   const { initialView, firstDay, scrollTime } = useCalendarBase();
   // キーボードショートカット (#160)。閲覧専用なので "n" (新規作成) は渡さない
@@ -165,7 +168,7 @@ export function JoinedEventsCalendar({ guilds }: Props) {
             カレンダーの高さを食い潰さないようにする */}
         <ul
           ref={legendRef}
-          aria-label="サーバーの凡例"
+          aria-label={t("サーバーの凡例")}
           className={cn(
             "flex min-w-0 flex-wrap gap-1.5 p-1",
             legendExpanded
@@ -185,8 +188,8 @@ export function JoinedEventsCalendar({ guilds }: Props) {
                   iconUrl={guild.iconUrl}
                   title={
                     shown
-                      ? "このサーバーの予定を隠す"
-                      : "このサーバーの予定を表示する"
+                      ? t("このサーバーの予定を隠す")
+                      : t("このサーバーの予定を表示する")
                   }
                   onClick={() => toggleGuild(guild.id)}
                 />
@@ -205,22 +208,25 @@ export function JoinedEventsCalendar({ guilds }: Props) {
             className="shrink-0 text-xs text-muted-foreground underline hover:text-foreground"
           >
             {legendExpanded
-              ? "凡例を折りたたむ"
-              : `他 ${overflowCount} サーバーを表示`}
+              ? t("凡例を折りたたむ")
+              : t("他 {count} サーバーを表示", { count: overflowCount })}
           </button>
         )}
         {eventsQuery.isFetching && (
-          <span className="text-xs text-muted-foreground">読み込み中…</span>
+          <span className="text-xs text-muted-foreground">
+            {t("読み込み中…")}
+          </span>
         )}
         {eventsQuery.isError && (
           <span className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive">
-            予定を取得できませんでした: {describeApiError(eventsQuery.error)}
+            {t("予定を取得できませんでした:")}{" "}
+            {describeApiError(eventsQuery.error, language)}
             <button
               type="button"
               onClick={() => eventsQuery.refetch()}
               className="underline hover:text-foreground"
             >
-              再試行
+              {t("再試行")}
             </button>
           </span>
         )}
@@ -230,7 +236,7 @@ export function JoinedEventsCalendar({ guilds }: Props) {
         {initialView && (
           <Calendar
             ref={calendarRef}
-            {...calendarBaseOptions}
+            {...calendarOptions}
             toolbarElements={toolbarElements}
             initialView={initialView}
             firstDay={firstDay}

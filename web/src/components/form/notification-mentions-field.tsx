@@ -3,9 +3,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
+import {
+  LocalizedFieldError as FieldError,
+  useLanguage,
+} from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, FieldDescription, FieldError } from "@/components/ui/field";
+import { Field, FieldDescription } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -32,6 +36,7 @@ export function NotificationMentionsField({
   userId: string;
   onUserIdChange: (value: string) => void;
 }) {
+  const { t, language } = useLanguage();
   const {
     control,
     setValue,
@@ -98,9 +103,9 @@ export function NotificationMentionsField({
       className="rounded-lg border p-3"
     >
       <h3 id="notification-mentions-heading" className="text-sm font-medium">
-        通知のメンション先
+        {t("通知のメンション先")}
         <span className="ml-2 break-words font-normal text-muted-foreground">
-          {mentions.length ? mentions.map(mentionLabel).join("、") : "なし"}
+          {mentions.length ? mentions.map(mentionLabel).join("、") : t("なし")}
           {userId && "（ユーザーIDを入力中）"}
         </span>
       </h3>
@@ -109,9 +114,9 @@ export function NotificationMentionsField({
         data-invalid={errors.notificationMentions ? true : undefined}
       >
         <FieldDescription>
-          事前通知・開始時刻の通知で呼びかける相手を、合計10件まで指定できます。
-          Bot に権限がない場合、通知は届きますが @everyone
-          やメンション不可のロールへの呼びかけは届きません。
+          {t(
+            "事前通知・開始時刻の通知で呼びかける相手を、合計10件まで指定できます。 Bot に権限がない場合、通知は届きますが @everyone やメンション不可のロールへの呼びかけは届きません。",
+          )}
         </FieldDescription>
         <label
           htmlFor="mention-everyone"
@@ -131,11 +136,14 @@ export function NotificationMentionsField({
                 : update(mentions.filter((m) => m.type !== "everyone"))
             }
           />
-          @everyone（全員）
+
+          {t("@everyone（全員）")}
         </label>
         {!canMentionEveryone && (
           <FieldDescription>
-            全員やメンション不可のロールを指定するには、あなたに「全てのロールにメンション」権限が必要です。
+            {t(
+              "全員やメンション不可のロールを指定するには、あなたに「全てのロールにメンション」権限が必要です。",
+            )}
           </FieldDescription>
         )}
         <Select
@@ -149,10 +157,10 @@ export function NotificationMentionsField({
             if (id) add({ type: "role", id });
           }}
         >
-          <SelectTrigger aria-label="メンションするロール">
+          <SelectTrigger aria-label={t("メンションするロール")}>
             <SelectValue
               placeholder={
-                roles.isPending ? "ロールを読み込み中…" : "ロールを追加"
+                roles.isPending ? t("ロールを読み込み中…") : t("ロールを追加")
               }
             />
           </SelectTrigger>
@@ -166,13 +174,13 @@ export function NotificationMentionsField({
         </Select>
         {roles.isError && (
           <FieldError>
-            ロールを取得できませんでした。
+            {t("ロールを取得できませんでした。")}
             <button
               type="button"
               className="underline"
               onClick={() => roles.refetch()}
             >
-              再試行
+              {t("再試行")}
             </button>
           </FieldError>
         )}
@@ -180,8 +188,8 @@ export function NotificationMentionsField({
           <Input
             ref={inputRef}
             aria-invalid={!!error}
-            aria-label="メンションするユーザーID"
-            placeholder="Discord のユーザーID"
+            aria-label={t("メンションするユーザーID")}
+            placeholder={t("Discord のユーザーID")}
             value={userId}
             disabled={disabled || full}
             onChange={(event) => {
@@ -197,7 +205,7 @@ export function NotificationMentionsField({
               setError(null);
               const parsed = mentionIdSchema.safeParse(userId.trim());
               if (!parsed.success) {
-                setError("正しいユーザーIDを入力してください");
+                setError(t("正しいユーザーIDを入力してください"));
                 return;
               }
               setAdding(true);
@@ -206,24 +214,25 @@ export function NotificationMentionsField({
                   parsed.data,
                 ]);
                 if (!profile?.display_name) {
-                  setError("このユーザーはサーバーに参加していません");
+                  setError(t("このユーザーはサーバーに参加していません"));
                   return;
                 }
                 add({ type: "user", id: parsed.data });
                 onUserIdChange("");
               } catch (cause) {
-                setError(describeApiError(cause));
+                setError(describeApiError(cause, language));
               } finally {
                 setAdding(false);
               }
             }}
           >
-            {adding ? "確認中…" : "ユーザーを追加"}
+            {adding ? t("確認中…") : t("ユーザーを追加")}
           </Button>
         </div>
         <FieldDescription>
-          ユーザーIDは Discord の「設定 → 詳細設定 →
-          開発者モード」を有効にし、相手のメニューから「ユーザーIDをコピー」で取得できます。
+          {t(
+            "ユーザーIDは Discord の「設定 → 詳細設定 → 開発者モード」を有効にし、相手のメニューから「ユーザーIDをコピー」で取得できます。",
+          )}
         </FieldDescription>
         {mentions.length > 0 && (
           <ul className="flex flex-col gap-1 text-sm">
@@ -244,12 +253,14 @@ export function NotificationMentionsField({
                     size="sm"
                     variant="ghost"
                     disabled={disabled}
-                    aria-label={`${label}のメンションを削除`}
+                    aria-label={t("{label}のメンションを削除", {
+                      label,
+                    })}
                     onClick={() =>
                       update(mentions.filter((_, i) => i !== index))
                     }
                   >
-                    削除
+                    {t("削除")}
                   </Button>
                 </li>
               );

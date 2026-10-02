@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { JoinedEventsCalendar } from "@/components/joined-events-calendar";
+import { Message } from "@/components/language-provider";
 import { ApiError } from "@/lib/api";
 import { getUserGuilds, guildIconUrl } from "@/lib/discord";
 import { loadJoinedGuildIds } from "@/lib/joined-guilds";
@@ -22,7 +23,9 @@ export default async function AllEventsPage() {
   if (guilds === null) {
     return (
       <Unavailable title="Discordからサーバー一覧を取得できませんでした">
-        再ログインするか、時間をおいて再度お試しください。
+        <Message
+          message={"再ログインするか、時間をおいて再度お試しください。"}
+        />
       </Unavailable>
     );
   }
@@ -35,7 +38,7 @@ export default async function AllEventsPage() {
     }
     return (
       <Unavailable title="Bot の参加状況を取得できませんでした">
-        時間をおいて再度お試しください。
+        <Message message={"時間をおいて再度お試しください。"} />
       </Unavailable>
     );
   }
@@ -44,8 +47,11 @@ export default async function AllEventsPage() {
   if (available.length === 0) {
     return (
       <Unavailable title="Bot が参加しているサーバーがありません">
-        サーバー一覧から Bot
-        を招待すると、そのサーバーの予定がここにまとめて表示されます。
+        <Message
+          message={
+            "サーバー一覧から Bot を招待すると、そのサーバーの予定がここにまとめて表示されます。"
+          }
+        />
       </Unavailable>
     );
   }
@@ -53,11 +59,15 @@ export default async function AllEventsPage() {
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-2 p-4">
       <div className="flex shrink-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg font-semibold">すべての予定</h1>
+        <h1 className="text-lg font-semibold">
+          <Message message={"すべての予定"} />
+        </h1>
         {/* スマホ幅ではカレンダーの高さを優先して説明は出さない */}
         <span className="hidden text-xs text-muted-foreground sm:inline">
-          {available.length}{" "}
-          サーバーの予定をまとめて表示しています。予定の作成・編集は各サーバーのカレンダーで行えます
+          <Message
+            message="{count} サーバーの予定をまとめて表示しています。予定の作成・編集は各サーバーのカレンダーで行えます"
+            values={{ count: available.length }}
+          />
         </span>
       </div>
       <JoinedEventsCalendar
@@ -86,7 +96,7 @@ function Unavailable({
         href={ROUTES.dashboard}
         className="rounded-full border border-foreground/20 px-5 py-2 text-sm hover:bg-foreground/10"
       >
-        サーバー一覧へ
+        <Message message={"サーバー一覧へ"} />
       </Link>
     </main>
   );

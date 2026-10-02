@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { LanguageProvider } from "@/components/language-provider";
 import { ServiceWorkerProvider } from "@/components/service-worker-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/lib/query/provider";
@@ -55,11 +56,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
-        <ThemeProvider>
-          <ServiceWorkerProvider>
-            <QueryProvider>{children}</QueryProvider>
-          </ServiceWorkerProvider>
-        </ThemeProvider>
+        <LanguageProvider>
+          <ThemeProvider>
+            <ServiceWorkerProvider>
+              <QueryProvider>{children}</QueryProvider>
+            </ServiceWorkerProvider>
+          </ThemeProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

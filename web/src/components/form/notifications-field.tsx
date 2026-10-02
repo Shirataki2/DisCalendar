@@ -2,8 +2,12 @@
 
 import { PlusIcon, XIcon } from "lucide-react";
 import { Controller, useFieldArray, useFormContext } from "react-hook-form";
+import {
+  LocalizedFieldError as FieldError,
+  useLanguage,
+} from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -39,12 +43,17 @@ interface Props {
  * `FormProvider` 経由でフォームの `notifications` フィールドを扱う
  */
 export function NotificationsField({ label, children, disabled }: Props) {
+  const { t } = useLanguage();
   const {
     control,
     register,
     formState: { errors },
   } = useFormContext<NotificationsFormValues>();
   const notifications = useFieldArray({ control, name: "notifications" });
+  const units = NOTIFICATION_UNITS.map((unit) => ({
+    ...unit,
+    label: t(unit.label),
+  }));
   const listError =
     errors.notifications?.root?.message ?? errors.notifications?.message;
 
@@ -64,7 +73,7 @@ export function NotificationsField({ label, children, disabled }: Props) {
                 inputMode="numeric"
                 min={NOTIFICATION_NUM_MIN}
                 max={NOTIFICATION_NUM_MAX}
-                aria-label="通知のタイミング (数値)"
+                aria-label={t("通知のタイミング (数値)")}
                 aria-invalid={numError ? true : undefined}
                 disabled={disabled}
                 className="w-20"
@@ -81,17 +90,17 @@ export function NotificationsField({ label, children, disabled }: Props) {
                     onValueChange={(value) => {
                       if (value) field.onChange(value);
                     }}
-                    items={NOTIFICATION_UNITS}
+                    items={units}
                     disabled={disabled}
                   >
                     <SelectTrigger
-                      className="w-28"
-                      aria-label="通知のタイミング (単位)"
+                      className="w-44"
+                      aria-label={t("通知のタイミング (単位)")}
                     >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {NOTIFICATION_UNITS.map((unit) => (
+                      {units.map((unit) => (
                         <SelectItem key={unit.value} value={unit.value}>
                           {unit.label}
                         </SelectItem>
@@ -104,7 +113,7 @@ export function NotificationsField({ label, children, disabled }: Props) {
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                aria-label="この通知を削除"
+                aria-label={t("この通知を削除")}
                 disabled={disabled}
                 onClick={() => notifications.remove(index)}
               >
@@ -125,7 +134,8 @@ export function NotificationsField({ label, children, disabled }: Props) {
             onClick={() => notifications.append({ num: 1, unit: "hours" })}
           >
             <PlusIcon />
-            通知を追加
+
+            {t("通知を追加")}
           </Button>
         </div>
       </div>

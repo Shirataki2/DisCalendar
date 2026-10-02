@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { EventCalendar } from "@/components/event-calendar";
 import { GuildSettingsDialog } from "@/components/guild-settings-dialog";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -48,6 +49,7 @@ export function GuildDashboard({
   initialDate,
   initialEventId,
 }: Props) {
+  const { t } = useLanguage();
   const guildId = guild.guild_id;
   const configQuery = useGuildConfigQuery(guildId);
   const permissionsQuery = useMyPermissionsQuery(guildId);
@@ -69,12 +71,14 @@ export function GuildDashboard({
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">
         {configQuery.data?.restricted && !canEdit && (
           <span className="rounded-md border border-indigo-400/30 bg-indigo-500/10 px-3 py-2 text-xs text-muted-foreground">
-            このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます
+            {t(
+              "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます",
+            )}
             <Link
               href={ROUTES.tutorial}
               className="ml-2 inline-block font-medium text-foreground underline underline-offset-4"
             >
-              練習用カレンダーで操作を試す
+              {t("練習用カレンダーで操作を試す")}
             </Link>
           </span>
         )}
@@ -84,8 +88,8 @@ export function GuildDashboard({
             type="button"
             variant="ghost"
             size="icon"
-            aria-label="サーバー設定"
-            title="サーバー設定"
+            aria-label={t("サーバー設定")}
+            title={t("サーバー設定")}
             onClick={() => setSettingsOpen(true)}
             className="shrink-0"
           >
@@ -125,6 +129,7 @@ function GuildSwitcher({
   currentGuildId: string;
   guilds: GuildChoice[];
 }) {
+  const { t } = useLanguage();
   const current = guilds.find((guild) => guild.id === currentGuildId);
   if (!current) return null;
 
@@ -149,7 +154,7 @@ function GuildSwitcher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label={`サーバーを切り替え: ${current.name}`}
+        aria-label={t("サーバーを切り替え: {name}", { name: current.name })}
         className="flex h-11 min-w-0 max-w-full items-center gap-3 rounded-md px-2 outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring"
       >
         {content}
@@ -163,7 +168,7 @@ function GuildSwitcher({
         className="max-h-[min(24rem,var(--available-height))] w-80 max-w-[calc(100vw-2rem)]"
       >
         <DropdownMenuGroup>
-          <DropdownMenuLabel>サーバーを切り替え</DropdownMenuLabel>
+          <DropdownMenuLabel>{t("サーバーを切り替え")}</DropdownMenuLabel>
           {guilds.map((choice) => {
             const selected = choice.id === currentGuildId;
             const itemContent = (
@@ -178,7 +183,7 @@ function GuildSwitcher({
                   </span>
                   {choice.accessLabel && (
                     <span className="block text-xs text-muted-foreground">
-                      {choice.accessLabel}
+                      {t(choice.accessLabel)}
                     </span>
                   )}
                 </span>

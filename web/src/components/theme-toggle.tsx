@@ -2,6 +2,7 @@
 
 import { MoonIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useLanguage } from "@/components/language-provider";
 import { cn } from "@/lib/utils";
 
 /**
@@ -26,13 +27,16 @@ export function ThemeToggleContent({
   iconClassName?: string;
   labelClassName?: string;
 }) {
+  const { t } = useLanguage();
   return (
     <>
       <SunIcon className={cn("hidden dark:block", iconClassName)} aria-hidden />
       <MoonIcon className={cn("dark:hidden", iconClassName)} aria-hidden />
       <span className={labelClassName}>
-        <span className="hidden dark:inline">ライトテーマに切り替え</span>
-        <span className="dark:hidden">ダークテーマに切り替え</span>
+        <span className="hidden dark:inline">
+          {t("ライトテーマに切り替え")}
+        </span>
+        <span className="dark:hidden">{t("ダークテーマに切り替え")}</span>
       </span>
     </>
   );

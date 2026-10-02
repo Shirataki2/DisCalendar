@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { addDays, format, isBefore } from "date-fns";
+import { addDays, isBefore } from "date-fns";
 import {
   type ReactNode,
   useEffect,
@@ -26,6 +26,11 @@ import { ColorPicker } from "@/components/form/color-picker";
 import { DatePicker } from "@/components/form/date-picker";
 import { NotificationMentionsField } from "@/components/form/notification-mentions-field";
 import { NotificationsField } from "@/components/form/notifications-field";
+import {
+  LocalizedFieldError as FieldError,
+  Message,
+  useLanguage,
+} from "@/components/language-provider";
 import { RecurrenceSettings } from "@/components/recurrence-settings";
 import {
   AlertDialog,
@@ -51,7 +56,6 @@ import {
   Field,
   FieldContent,
   FieldDescription,
-  FieldError,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
@@ -66,6 +70,7 @@ import type {
   ChangeScope,
   RecurrenceRule,
 } from "@/lib/api/types";
+import { describeNotification } from "@/lib/calendar-events";
 import {
   DESCRIPTION_MAX_CHARS,
   type EventFormValues,
@@ -75,9 +80,9 @@ import {
   formStartAt,
   LOCATION_MAX_CHARS,
   NAME_MAX_CHARS,
-  NOTIFICATION_UNITS,
   withCheckedDiscordEvent,
 } from "@/lib/event-form";
+import { formatDisplayDate } from "@/lib/i18n";
 import { useAttachmentQueue } from "@/lib/query/attachments";
 import { describeRecurrence } from "@/lib/recurrence";
 
@@ -205,7 +210,8 @@ function EventForm({
   mentionGuildId,
   closeGuard,
 }: FormProps) {
-  const uploads = useAttachmentQueue(mentionGuildId);
+  const { t, language } = useLanguage();
+  const uploads = useAttachmentQueue(mentionGuildId, language);
   const [savedEvent, setSavedEvent] = useState<ApiEvent | null>(null);
   const attachmentEventId =
     savedEvent?.id ?? (state.mode === "edit" ? state.event.id : undefined);
@@ -313,12 +319,9 @@ function EventForm({
   const notifications = useWatch({ control, name: "notifications" });
   const notificationSummary = notifications.length
     ? notifications
-        .map(
-          ({ num, unit }) =>
-            `${num}${NOTIFICATION_UNITS.find((item) => item.value === unit)?.label ?? unit}`,
-        )
-        .join("、")
-    : "なし";
+        .map((notification) => describeNotification(notification, language))
+        .join(language === "en" ? ", " : "、")
+    : t("なし");
   const hasFilesTab = !!mentionGuildId || (isEdit && !!allowShare);
   const notifyErrors = !!(errors.notifications || errors.notificationMentions);
   const tabErrors = {
@@ -443,8 +446,10 @@ function EventForm({
           error.kind === "conflict" &&
           state.mode === "edit" &&
           state.event.recurrence
-          ? "他の人が繰り返し予定を変更しました。画面を閉じて予定を開き直し、最新の内容で確認してください。"
-          : describeApiError(error),
+          ? t(
+              "他の人が繰り返し予定を変更しました。画面を閉じて予定を開き直し、最新の内容で確認してください。",
+            )
+          : describeApiError(error, language),
       );
     }
   });
@@ -481,13 +486,13 @@ function EventForm({
           <DialogHeader className="shrink-0 border-b p-4 pr-14">
             <DialogTitle>
               {isEdit
-                ? "予定を編集"
+                ? t("予定を編集")
                 : state.mode === "duplicate"
-                  ? "予定を複製"
-                  : "予定を作成"}
+                  ? t("予定を複製")
+                  : t("予定を作成")}
             </DialogTitle>
             <DialogDescription className="break-words">
-              保存先: {guildName}
+              {t("保存先:")} {guildName}
             </DialogDescription>
           </DialogHeader>
         )}
@@ -499,17 +504,26 @@ function EventForm({
         >
           <div className="shrink-0 border-b px-4 py-2">
             <TabsList className="w-full group-data-horizontal/tabs:h-11 sm:w-fit">
-              <TabsTrigger value="basic" className="px-3">
-                基本
+              <TabsTrigger
+                value="basic"
+                className="min-w-0 whitespace-normal px-2 text-center leading-tight sm:flex-none sm:whitespace-nowrap sm:px-3"
+              >
+                {t("基本")}
                 <TabErrorDot show={tabErrors.basic} />
               </TabsTrigger>
-              <TabsTrigger value="notify" className="px-3">
-                {previewRecurrence ? "繰り返し・通知" : "通知"}
+              <TabsTrigger
+                value="notify"
+                className="min-w-0 whitespace-normal px-2 text-center leading-tight sm:flex-none sm:whitespace-nowrap sm:px-3"
+              >
+                {previewRecurrence ? t("繰り返し・通知") : t("通知")}
                 <TabErrorDot show={tabErrors.notify} />
               </TabsTrigger>
               {hasFilesTab && (
-                <TabsTrigger value="files" className="px-3">
-                  添付・共有
+                <TabsTrigger
+                  value="files"
+                  className="min-w-0 whitespace-normal px-2 text-center leading-tight sm:flex-none sm:whitespace-nowrap sm:px-3"
+                >
+                  {t("添付・共有")}
                   <TabErrorDot show={tabErrors.files} />
                 </TabsTrigger>
               )}
@@ -530,34 +544,42 @@ function EventForm({
               {state.mode === "edit" && state.event.recurrence && (
                 <p className="rounded-md border p-3 text-sm">
                   {state.scope === "future"
-                    ? "この回以降を変更します。回数を変えなければ、消費済みの開催枠を差し引きます。個別編集済みの回は保持し、新しい条件から外れる個別編集済みの回・添付のある回は単発として残します。"
-                    : "この回のみを変更します。繰り返し条件は変更されません。"}
+                    ? t(
+                        "この回以降を変更します。回数を変えなければ、消費済みの開催枠を差し引きます。個別編集済みの回は保持し、新しい条件から外れる個別編集済みの回・添付のある回は単発として残します。",
+                      )
+                    : t(
+                        "この回のみを変更します。繰り返し条件は変更されません。",
+                      )}
                 </p>
               )}
               {state.mode === "duplicate" && (
                 <p className="rounded-md bg-muted p-3 text-sm">
-                  元の予定の日時を引き継いでいます。保存前に確認してください。
+                  {t(
+                    "元の予定の日時を引き継いでいます。保存前に確認してください。",
+                  )}
                   <span className="mt-1 block font-medium">
-                    {format(initialValues.startDate, "yyyy/M/d")}{" "}
-                    {initialValues.isAllDay ? "終日" : initialValues.startTime}
+                    {formatDisplayDate(initialValues.startDate, language)}{" "}
+                    {initialValues.isAllDay
+                      ? t("終日")
+                      : initialValues.startTime}
                     {" ～ "}
-                    {format(initialValues.endDate, "yyyy/M/d")}{" "}
+                    {formatDisplayDate(initialValues.endDate, language)}{" "}
                     {initialValues.isAllDay ? "" : initialValues.endTime}
-                    （日本時間）
+                    {t("（日本時間）")}
                   </span>
                 </p>
               )}
               <FieldGroup className="gap-4">
                 <Field data-invalid={errors.name ? true : undefined}>
                   <FieldLabel htmlFor={NAME_INPUT_ID}>
-                    タイトル
+                    {t("タイトル")}
                     <span aria-hidden className="text-destructive">
                       *
                     </span>
                   </FieldLabel>
                   <Input
                     id={NAME_INPUT_ID}
-                    placeholder="タイトルを入力"
+                    placeholder={t("タイトルを入力")}
                     aria-invalid={errors.name ? true : undefined}
                     {...register("name")}
                   />
@@ -574,7 +596,7 @@ function EventForm({
                 <div className="grid gap-4 sm:grid-cols-[1fr_8rem_auto]">
                   <Field data-invalid={errors.startDate ? true : undefined}>
                     <FieldLabel htmlFor="event-form-start-date">
-                      開始日
+                      {t("開始日")}
                     </FieldLabel>
                     <Controller
                       control={control}
@@ -593,7 +615,7 @@ function EventForm({
                   </Field>
                   <Field data-invalid={errors.startTime ? true : undefined}>
                     <FieldLabel htmlFor="event-form-start-time">
-                      開始時刻
+                      {t("開始時刻")}
                     </FieldLabel>
                     <Input
                       id="event-form-start-time"
@@ -650,12 +672,12 @@ function EventForm({
                       htmlFor="event-form-all-day"
                       className="font-normal"
                     >
-                      終日
+                      {t("終日")}
                     </FieldLabel>
                   </Field>
                   <Field data-invalid={errors.endDate ? true : undefined}>
                     <FieldLabel htmlFor="event-form-end-date">
-                      終了日
+                      {t("終了日")}
                     </FieldLabel>
                     <Controller
                       control={control}
@@ -677,7 +699,7 @@ function EventForm({
                   </Field>
                   <Field data-invalid={errors.endTime ? true : undefined}>
                     <FieldLabel htmlFor="event-form-end-time">
-                      終了時刻
+                      {t("終了時刻")}
                     </FieldLabel>
                     <Input
                       id="event-form-end-time"
@@ -689,7 +711,9 @@ function EventForm({
                     <FieldError errors={[errors.endTime]} />
                   </Field>
                   <Field data-invalid={errors.color ? true : undefined}>
-                    <FieldLabel htmlFor="event-form-color">色</FieldLabel>
+                    <FieldLabel htmlFor="event-form-color">
+                      {t("色")}
+                    </FieldLabel>
                     <Controller
                       control={control}
                       name="color"
@@ -709,7 +733,7 @@ function EventForm({
 
                 <Field data-invalid={errors.location ? true : undefined}>
                   <FieldLabel htmlFor="event-form-location">
-                    場所 / URL
+                    {t("場所 / URL")}
                   </FieldLabel>
                   <Input
                     id="event-form-location"
@@ -725,7 +749,9 @@ function EventForm({
                 </Field>
 
                 <Field data-invalid={errors.description ? true : undefined}>
-                  <FieldLabel htmlFor="event-form-description">説明</FieldLabel>
+                  <FieldLabel htmlFor="event-form-description">
+                    {t("説明")}
+                  </FieldLabel>
                   <div className="grid">
                     <Textarea
                       id="event-form-description"
@@ -740,7 +766,7 @@ function EventForm({
                     {previewDescription && (
                       <section
                         id="event-description-preview"
-                        aria-label="説明のプレビュー"
+                        aria-label={t("説明のプレビュー")}
                         // biome-ignore lint/a11y/noNoninteractiveTabindex: 長いプレビューをキーボードでスクロールできるようにする
                         tabIndex={0}
                         className="col-start-1 row-start-1 min-h-16 min-w-0 max-h-64 overflow-auto rounded-lg border px-2.5 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring"
@@ -749,7 +775,9 @@ function EventForm({
                           <EventDescription>{description}</EventDescription>
                         ) : (
                           <p className="text-muted-foreground">
-                            説明を入力すると、ここにプレビューが表示されます。
+                            {t(
+                              "説明を入力すると、ここにプレビューが表示されます。",
+                            )}
                           </p>
                         )}
                       </section>
@@ -763,7 +791,7 @@ function EventForm({
                       rel="noopener noreferrer"
                       className="min-h-11 content-center rounded text-xs text-primary underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring"
                     >
-                      **太字**・- リストなどの書式
+                      {t("**太字**・- リストなどの書式")}
                     </a>
                     <Button
                       type="button"
@@ -773,7 +801,7 @@ function EventForm({
                       aria-pressed={previewDescription}
                       onClick={() => setPreviewDescription(!previewDescription)}
                     >
-                      プレビュー
+                      {t("プレビュー")}
                     </Button>
                   </div>
                   <div className="flex items-start justify-between gap-2">
@@ -820,17 +848,21 @@ function EventForm({
                     }
                     onClick={() => setEditingRecurrence(true)}
                   >
-                    {describeRecurrence(recurrence)}
+                    {describeRecurrence(recurrence, language)}
                     <span aria-hidden="true">›</span>
                   </Button>
                   {isLinkedEdit && (
                     <p className="text-sm text-muted-foreground">
-                      Discordイベント連携を解除して保存すると、繰り返しを設定できます。
+                      {t(
+                        "Discordイベント連携を解除して保存すると、繰り返しを設定できます。",
+                      )}
                     </p>
                   )}
                   {recurrenceEnabled && (
                     <p className="text-sm text-muted-foreground">
-                      Discordイベント連携は後日対応です。添付ファイルは選択した回だけに保存します。
+                      {t(
+                        "Discordイベント連携は後日対応です。添付ファイルは選択した回だけに保存します。",
+                      )}
                     </p>
                   )}
                 </div>
@@ -845,13 +877,13 @@ function EventForm({
                     id="event-form-notifications-heading"
                     className="text-sm font-medium"
                   >
-                    事前通知
+                    {t("事前通知")}
                     <span className="ml-2 font-normal text-muted-foreground">
                       {notificationSummary}
                     </span>
                   </h3>
                   <div className="pt-3">
-                    <NotificationsField label="通知" />
+                    <NotificationsField label={t("通知")} />
                   </div>
                 </section>
                 {mentionGuildId && (
@@ -894,7 +926,9 @@ function EventForm({
                     />
                     {savedEvent && uploads.items.length > 0 && (
                       <p role="status" className="text-sm">
-                        予定は保存済みです。添付ファイルの送信を完了してください。
+                        {t(
+                          "予定は保存済みです。添付ファイルの送信を完了してください。",
+                        )}
                       </p>
                     )}
                   </>
@@ -929,7 +963,7 @@ function EventForm({
               onClick={() => onDelete(state.event)}
               className="mr-auto"
             >
-              削除
+              {t("削除")}
             </Button>
           )}
           <Button
@@ -938,28 +972,31 @@ function EventForm({
             disabled={isSubmitting || uploads.busy}
             onClick={onClose}
           >
-            キャンセル
+            {t("キャンセル")}
           </Button>
           <Button
             type="submit"
             className="min-w-20"
             disabled={isSubmitting || uploads.busy}
           >
-            {isSubmitting ? "保存中…" : isEdit ? "保存" : "作成"}
+            {isSubmitting ? t("保存中…") : isEdit ? t("保存") : t("作成")}
           </Button>
         </DialogFooter>
       </form>
       <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>未保存の変更を破棄しますか？</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("未保存の変更を破棄しますか？")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              入力した未保存の変更と未送信の添付は失われます。
-              保存済みの予定と添付は残ります。
+              {t(
+                "入力した未保存の変更と未送信の添付は失われます。 保存済みの予定と添付は残ります。",
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>編集を続ける</AlertDialogCancel>
+            <AlertDialogCancel>{t("編集を続ける")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
@@ -969,7 +1006,7 @@ function EventForm({
                 onClose();
               }}
             >
-              破棄して閉じる
+              {t("破棄して閉じる")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -980,11 +1017,12 @@ function EventForm({
 
 /** 入力エラーを含むタブの目印。色だけに頼らないよう読み上げ用の文言も付ける */
 function TabErrorDot({ show }: { show: boolean }) {
+  const { t } = useLanguage();
   if (!show) return null;
   return (
     <>
       <span aria-hidden className="size-2 rounded-full bg-destructive" />
-      <span className="sr-only">（入力エラーあり）</span>
+      <span className="sr-only">{t("（入力エラーあり）")}</span>
     </>
   );
 }
@@ -1011,6 +1049,7 @@ function DiscordEventField({
   startsInPast: boolean;
   onRefresh?: () => Promise<unknown>;
 }) {
+  const { t } = useLanguage();
   const locked =
     startsInPast || (!isLinkedEdit && (!botCreateEvents || !canCreateEvents));
   // 権限が足りないときだけ取り直せるようにする (#122)。過去開始は待っても変わらないので出さない
@@ -1031,15 +1070,15 @@ function DiscordEventField({
       />
       <FieldContent>
         <FieldLabel htmlFor="event-form-discord-event" className="font-normal">
-          Discord のイベントとしても作成する
+          {t("Discord のイベントとしても作成する")}
         </FieldLabel>
         <FieldDescription>
-          {discordEventHint({
-            isLinkedEdit,
-            botCreateEvents,
-            canCreateEvents,
-            startsInPast,
-          })}
+          <DiscordEventHint
+            isLinkedEdit={isLinkedEdit}
+            botCreateEvents={botCreateEvents}
+            canCreateEvents={canCreateEvents}
+            startsInPast={startsInPast}
+          />
         </FieldDescription>
         {onRefresh && missingPermission && !startsInPast && (
           <RefreshPermissionsButton onRefresh={onRefresh} />
@@ -1062,6 +1101,7 @@ function RefreshPermissionsButton({
 }: {
   onRefresh: () => Promise<unknown>;
 }) {
+  const { t } = useLanguage();
   const [state, setState] = useState<
     "idle" | "pending" | "unchanged" | "error"
   >("idle");
@@ -1084,16 +1124,16 @@ function RefreshPermissionsButton({
           }
         }}
       >
-        {state === "pending" ? "確認中…" : "権限を再確認"}
+        {state === "pending" ? t("確認中…") : t("権限を再確認")}
       </Button>
       {state === "unchanged" && (
         <span className="text-sm text-muted-foreground">
-          Discord 側の権限はまだ変わっていません
+          {t("Discord 側の権限はまだ変わっていません")}
         </span>
       )}
       {state === "error" && (
         <span className="text-sm text-destructive">
-          確認できませんでした。時間をおいて試してください
+          {t("確認できませんでした。時間をおいて試してください")}
         </span>
       )}
     </div>
@@ -1101,7 +1141,7 @@ function RefreshPermissionsButton({
 }
 
 /** チェックボックスの下に出す案内。無効化の理由 (過去開始 / 権限不足) を伝える */
-function discordEventHint({
+function DiscordEventHint({
   isLinkedEdit,
   botCreateEvents,
   canCreateEvents,
@@ -1112,36 +1152,50 @@ function discordEventHint({
   canCreateEvents: boolean;
   startsInPast: boolean;
 }) {
+  const { t } = useLanguage();
   if (startsInPast) {
-    return "開始日時が過去の予定は Discord のイベントにできません (連携済みの予定は保存すると連携が解除されます)";
+    return t(
+      "開始日時が過去の予定は Discord のイベントにできません (連携済みの予定は保存すると連携が解除されます)",
+    );
   }
   // 自分の権限不足は Discord 側の設定次第なので、Bot の再招待を案内しても直らない
   if (!canCreateEvents) {
     return isLinkedEdit
-      ? "あなたに Discord の「イベントの作成」権限がないため、この連携を作り直すことはできません。チェックを外すと連携を解除します"
-      : "Discord の「イベントの作成」権限を持つ人だけが利用できます。サーバーの管理者にロールの権限を確認してください";
+      ? t(
+          "あなたに Discord の「イベントの作成」権限がないため、この連携を作り直すことはできません。チェックを外すと連携を解除します",
+        )
+      : t(
+          "Discord の「イベントの作成」権限を持つ人だけが利用できます。サーバーの管理者にロールの権限を確認してください",
+        );
   }
   if (!botCreateEvents) {
     return isLinkedEdit
-      ? "Bot に「イベントの作成」権限がないため、変更は Discord に反映できません。チェックを外すと連携を解除します"
+      ? t(
+          "Bot に「イベントの作成」権限がないため、変更は Discord に反映できません。チェックを外すと連携を解除します",
+        )
       : botPermissionHint;
   }
-  return "予定の作成・変更・削除を Discord のスケジュールイベントにも反映します";
+  return t(
+    "予定の作成・変更・削除を Discord のスケジュールイベントにも反映します",
+  );
 }
 
 /** Bot に権限がないときの案内 (再招待への導線つき) */
 const botPermissionHint = (
   <>
-    Bot に「イベントの作成」権限がないため利用できません。
+    <Message
+      message={"Bot に「イベントの作成」権限がないため利用できません。"}
+    />
     <a
       href="/docs/invite"
       target="_blank"
       rel="noreferrer"
       className="underline underline-offset-2"
     >
-      Bot を招待し直す
+      <Message message={"Bot を招待し直す"} />
     </a>
-    と利用できます
+
+    <Message message={"と利用できます"} />
   </>
 );
 
