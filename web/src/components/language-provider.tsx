@@ -104,8 +104,16 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   return <LanguageContext value={value}>{children}</LanguageContext>;
 }
 
-export function useLanguage() {
-  return useContext(LanguageContext);
+export function useLanguage(override?: Language) {
+  const context = useContext(LanguageContext);
+  return override
+    ? {
+        ...context,
+        language: override,
+        t: (message: string, values?: MessageValues) =>
+          translate(override, message, values),
+      }
+    : context;
 }
 
 /** Server Component の案内も、ブラウザで選んだ言語に追従させる。 */
@@ -124,9 +132,10 @@ export function Message({
 export function LocalizedFieldError({
   children,
   errors,
+  language,
   ...props
-}: React.ComponentProps<typeof FieldError>) {
-  const { t } = useLanguage();
+}: React.ComponentProps<typeof FieldError> & { language?: Language }) {
+  const { t } = useLanguage(language);
   return (
     <FieldError
       {...props}

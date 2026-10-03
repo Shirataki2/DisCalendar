@@ -18,7 +18,7 @@ export const english: Readonly<
   "元の予定の日時を引き継いでいます。保存前に確認してください。":
     "The dates and times were copied from the original event. Check them before saving.",
   終日: "All day",
-  "（日本時間）": "(Japan time)",
+  "（日本時間）": " (Japan time)",
   タイトル: "Title",
   タイトルを入力: "Enter a title",
   開始日: "Start date",
@@ -106,7 +106,7 @@ export const english: Readonly<
   変更する予定: "Events to change",
   "変更を適用する範囲を選んでください。": "Choose which occurrences to change.",
   操作ガイド: "Guide",
-  "（この回は個別変更）": "(this occurrence was edited)",
+  "（この回は個別変更）": " (this occurrence was edited)",
   このサーバーのカレンダーを開く: "Open this server's calendar",
   編集: "Edit",
   複製: "Duplicate",
@@ -313,6 +313,21 @@ export const english: Readonly<
     },
   "JPEG・PNG・WebP・PDFを選択してください":
     "Select a JPEG, PNG, WebP or PDF file",
+  "JPEG・PNG・WebP・PDFを有効なファイル名で指定してください":
+    "Choose a JPEG, PNG, WebP or PDF with a valid filename",
+  "添付は予定ごとに10件、サーバー全体で1GiBまでです（送信待ちを含む）":
+    "Up to 10 attachments per event and 1 GiB per server, including pending uploads",
+  "添付の予約期限が切れました。ファイルを選び直してください":
+    "The upload reservation has expired. Select the file again",
+  "送信されたファイルのサイズ・種類が選択時と異なります":
+    "The uploaded file's size or type differs from the selected file",
+  "ファイルの内容がJPEG・PNG・WebP・PDFのいずれとも一致しません":
+    "The file's contents do not match JPEG, PNG, WebP or PDF",
+  添付ファイルの保存先が設定されていません:
+    "Attachment storage is not configured",
+  "ファイルの保存先に接続できません。時間をおいて再試行してください":
+    "Could not connect to attachment storage. Try again later",
+  この形式はプレビューできません: "This file type cannot be previewed",
   ファイルは1バイト以上10MiB以下にしてください:
     "Files must be between 1 byte and 10 MiB",
   ファイルを送信できませんでした: "Could not upload the file",

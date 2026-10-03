@@ -288,7 +288,7 @@ function CreationDefaultsForm({
           />
         </Field>
         {mode === "personal" && (
-          <NotificationsField label="既定の事前通知">
+          <NotificationsField label="既定の事前通知" language="ja">
             <p className="text-sm text-muted-foreground">
               すべて削除すると事前通知なしになります。サーバーの既定値より優先されます。
             </p>

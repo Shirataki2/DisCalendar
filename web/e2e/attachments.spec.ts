@@ -20,6 +20,45 @@ const eventInput = {
   notifications: [],
 };
 
+test("英語表示で添付の内容検証エラーも英語にする", async ({ page }) => {
+  await page.goto(`/dashboard/${guild}`);
+  await page
+    .getByRole("combobox", { name: "Language / 言語" })
+    .selectOption("en");
+  await page.getByRole("button", { name: "New event", exact: true }).click();
+  const form = page.getByRole("dialog", { name: "Create event" });
+  await form
+    .getByRole("textbox", { name: "Title", exact: true })
+    .fill(`添付エラー ${Date.now()}`);
+  await form.getByRole("tab", { name: /^Files & sharing/ }).click();
+  await form.getByLabel("Attach files", { exact: true }).setInputFiles({
+    name: "invalid.png",
+    mimeType: "image/png",
+    buffer: Buffer.alloc(png.length, 65),
+  });
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/local/api/events/${guild}`) &&
+      response.request().method() === "POST",
+  );
+  await form.getByRole("button", { name: "Create", exact: true }).click();
+  const event = await (await created).json();
+  try {
+    const edit = page.getByRole("dialog", { name: "Edit event" });
+    await expect(
+      edit.getByText(
+        "Invalid input (The file's contents do not match JPEG, PNG, WebP or PDF)",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      edit.getByRole("button", { name: "Retry uploads" }),
+    ).toBeEnabled();
+  } finally {
+    await page.request.delete(`/local/api/events/${guild}/${event.id}`);
+  }
+});
+
 test("新規予定の部分失敗から添付だけ再試行し、画像確認・ダウンロード・削除できる", async ({
   page,
 }) => {

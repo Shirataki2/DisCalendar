@@ -186,6 +186,50 @@ test("ページタイトルも言語切り替え・クライアント遷移・�
   await expect(page).toHaveTitle("サーバー選択 | DisCalendar");
 });
 
+test("英語選択中も未翻訳の設定では通知入力とエラーを日本語で表示する", async ({
+  page,
+}) => {
+  await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+  await page
+    .getByRole("combobox", { name: "Language / 言語" })
+    .selectOption("en");
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("menuitem", { name: "Calendar preferences" }).click();
+  const calendarSettings = page.getByRole("dialog", {
+    name: "カレンダーの表示設定",
+  });
+  await calendarSettings
+    .getByLabel("事前通知の既定値", { exact: true })
+    .click();
+  await page.getByRole("option", { name: "自分で指定" }).click();
+  await expect(
+    calendarSettings.getByRole("button", { name: "通知を追加" }),
+  ).toBeVisible();
+  await expect(
+    calendarSettings.getByLabel("通知のタイミング (単位)").first(),
+  ).toContainText("日前");
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "Server settings", exact: true })
+    .click();
+  const guildSettings = page.getByRole("dialog", { name: "サーバー設定" });
+  await expect(
+    guildSettings.getByRole("button", { name: "通知を追加" }),
+  ).toBeVisible();
+  await guildSettings.getByLabel("通知のタイミング (単位)").first().click();
+  await expect(
+    page.getByRole("option", { name: "日前", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("option", { name: "日前", exact: true }).click();
+  await guildSettings.getByLabel("通知のタイミング (数値)").first().fill("0");
+  await guildSettings
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
+  await expect(
+    guildSettings.getByText("1〜100の範囲で入力してください", { exact: true }),
+  ).toBeVisible();
+});
+
 test("英語の繰り返し終了日を空にしても検証エラーから復帰できる", async ({
   page,
 }) => {

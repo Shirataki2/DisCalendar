@@ -35,8 +35,7 @@ export function DatePicker({
   className,
   language: override,
 }: Props) {
-  const { language: selectedLanguage } = useLanguage();
-  const language = override ?? selectedLanguage;
+  const { language } = useLanguage(override);
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>

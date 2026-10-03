@@ -553,7 +553,11 @@ function NotificationSection({
           </FieldContent>
         </Field>
       </div>
-      <NotificationsField label="既定の事前通知" disabled={!canManage}>
+      <NotificationsField
+        label="既定の事前通知"
+        disabled={!canManage}
+        language="ja"
+      >
         <FieldDescription>
           新しい予定に使う初期値です。予定ごとに変更できます
         </FieldDescription>

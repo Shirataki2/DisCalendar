@@ -28,6 +28,7 @@ import {
   NOTIFICATION_UNITS,
   NOTIFICATIONS_MAX,
 } from "@/lib/event-form";
+import type { Language } from "@/lib/i18n";
 
 /** このフィールドを置くフォームが持っていなければならない値 */
 export interface NotificationsFormValues {
@@ -40,6 +41,7 @@ interface Props {
   children?: React.ReactNode;
   /** 閲覧のみ (管理権限のないメンバーがサーバー設定を開いたとき) */
   disabled?: boolean;
+  language?: Language;
 }
 
 /**
@@ -47,8 +49,13 @@ interface Props {
  * 予定ダイアログ (`notifications`) とサーバー設定の「既定の事前通知」(#181) で同じ見た目にするため、
  * `FormProvider` 経由でフォームの `notifications` フィールドを扱う
  */
-export function NotificationsField({ label, children, disabled }: Props) {
-  const { t } = useLanguage();
+export function NotificationsField({
+  label,
+  children,
+  disabled,
+  language,
+}: Props) {
+  const { t, language: resolvedLanguage } = useLanguage(language);
   const {
     control,
     register,
@@ -105,7 +112,7 @@ export function NotificationsField({ label, children, disabled }: Props) {
                     >
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent lang={resolvedLanguage}>
                       {units.map((unit) => (
                         <SelectItem key={unit.value} value={unit.value}>
                           {unit.label}
@@ -125,7 +132,11 @@ export function NotificationsField({ label, children, disabled }: Props) {
               >
                 <XIcon />
               </Button>
-              <FieldError errors={[numError]} className="basis-full" />
+              <FieldError
+                language={language}
+                errors={[numError]}
+                className="basis-full"
+              />
             </div>
           );
         })}
@@ -146,7 +157,7 @@ export function NotificationsField({ label, children, disabled }: Props) {
         </div>
       </div>
       {children}
-      <FieldError>{listError}</FieldError>
+      <FieldError language={language}>{listError}</FieldError>
     </Field>
   );
 }

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { ApiError, describeApiError } from "@/lib/api/client";
 import {
@@ -57,6 +58,33 @@ describe("表示言語", () => {
     expect(describeApiError(recurringError)).toBe(
       `入力内容が正しくありません (${overlap})`,
     );
+  });
+  test("添付 API の検証・保存先エラーの詳細をすべて英訳する", () => {
+    for (const path of [
+      "attachments.rs",
+      "models/attachments.rs",
+      "routes/attachments.rs",
+    ]) {
+      const source = readFileSync(
+        new URL(`../../../../api/src/${path}`, import.meta.url),
+        "utf8",
+      );
+      const messages = [
+        ...source.matchAll(/ApiError::(BadRequest|Unavailable)\(\s*"([^"]+)"/g),
+      ];
+      expect(messages.length).toBeGreaterThan(0);
+      for (const [, kind, message] of messages) {
+        const error = new ApiError(
+          400,
+          kind === "BadRequest" ? "bad_request" : "unavailable",
+          message,
+        );
+        expect(describeApiError(error, "en"), message).not.toMatch(
+          /[ぁ-んァ-ン一-龯]/,
+        );
+        expect(describeApiError(error, "ja")).toContain(message);
+      }
+    }
   });
   test("サーバー件数に合わせて英語の単数・複数形を選ぶ", () => {
     for (const message of [
