@@ -430,7 +430,7 @@ export function IcsImportDialog({
             onClick={() => void submit()}
           >
             {importEvents.isPending ? (
-              "取り込み中…"
+              t("取り込み中…")
             ) : (
               <>
                 <CalendarPlusIcon />

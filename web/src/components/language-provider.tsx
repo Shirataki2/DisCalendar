@@ -72,11 +72,18 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
                     : (DOC_PAGES.find(
                         (page) => pathname === `/docs/${page.slug}`,
                       )?.title ?? null);
-    const titleForms = title
-      ? [`${title} | ${SITE_NAME}`, `${translate("en", title)} | ${SITE_NAME}`]
-      : [];
-    const localizedTitle = titleForms[language === "en" ? 1 : 0];
     const syncTitle = () => {
+      // URLだけでは404を判別できない。公開予定の同名タイトルは翻訳しない。
+      const pageTitle = document.querySelector('[data-error-code="404"]')
+        ? "ページが見つかりません"
+        : title;
+      const titleForms = pageTitle
+        ? [
+            `${pageTitle} | ${SITE_NAME}`,
+            `${translate("en", pageTitle)} | ${SITE_NAME}`,
+          ]
+        : [];
+      const localizedTitle = titleForms[language === "en" ? 1 : 0];
       if (
         titleForms.includes(document.title) &&
         document.title !== localizedTitle

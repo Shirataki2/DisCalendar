@@ -32,6 +32,10 @@ for (const width of [390, 1280]) {
       await expect(
         page.getByRole("heading", { name: heading, exact: true }),
       ).toBeVisible();
+      if (path === "/tutorial")
+        await expect(
+          page.getByRole("complementary", { name: "Guide", exact: true }),
+        ).toBeVisible();
       await noOverflow(page);
     }
     for (const slug of [
@@ -123,7 +127,7 @@ test("英語でICSを取り込み、公開共有ページでも内容とJSTを�
   await page.getByRole("button", { name: "Open create menu" }).click();
   await page.getByRole("menuitem", { name: "Import an ICS file" }).click();
   const dialog = page.getByRole("dialog", { name: "Import an ICS file" });
-  const title = `英語ICS ${Date.now().toString(36)}`;
+  const title = "ページが見つかりません";
   await dialog.getByLabel("ICS file", { exact: true }).setInputFiles({
     name: "events.ics",
     mimeType: "text/calendar",
@@ -134,12 +138,27 @@ test("英語でICSを取り込み、公開共有ページでも内容とJSTを�
   await expect(dialog).toContainText("1 of 1 selected");
   await expect(dialog).toContainText("Oct 10, 2026");
   await noOverflow(page);
+  let releaseImport!: () => void;
+  const importReady = new Promise<void>((resolve) => {
+    releaseImport = resolve;
+  });
+  await page.route(`**/events/${guild}/bulk`, async (route) => {
+    await importReady;
+    await route.continue();
+  });
   const response = page.waitForResponse(
     (r) => r.url().endsWith("/bulk") && r.request().method() === "POST",
   );
   await dialog
     .getByRole("button", { name: "Import 1 event", exact: true })
     .click();
+  try {
+    await expect(
+      dialog.getByRole("button", { name: "Importing…", exact: true }),
+    ).toBeDisabled();
+  } finally {
+    releaseImport();
+  }
   const imported = await response;
   expect(imported.ok()).toBe(true);
   const [event] = await imported.json();
@@ -160,6 +179,9 @@ test("英語でICSを取り込み、公開共有ページでも内容とJSTを�
   await english(sharedPage);
   try {
     await sharedPage.goto(`/share/${token}`);
+    await expect(sharedPage).toHaveTitle(
+      "ページが見つかりません | DisCalendar",
+    );
     await expect(
       sharedPage.getByRole("heading", { name: title, exact: true }),
     ).toBeVisible();

@@ -519,3 +519,12 @@ test("英語の日程調整の日付選択と404を英語で読み上げる", as
     page.getByRole("heading", { name: "Page not found" }),
   ).toBeVisible();
 });
+
+test("404のタブタイトルは日英切り替えに追従する", async ({ page }) => {
+  await page.goto("/no-such-page");
+  const language = page.getByRole("combobox", { name: "Language / 言語" });
+  await language.selectOption("en");
+  await expect(page).toHaveTitle("Page not found | DisCalendar");
+  await language.selectOption("ja");
+  await expect(page).toHaveTitle("ページが見つかりません | DisCalendar");
+});

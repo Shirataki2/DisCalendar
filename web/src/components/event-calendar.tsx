@@ -1020,7 +1020,7 @@ export function EventCalendar({
       {guide && (
         <aside
           lang={language}
-          aria-label="操作ガイド"
+          aria-label={t("操作ガイド")}
           className="order-first shrink-0 lg:order-last lg:w-80"
         >
           {!overlayOpen && guide.content}
