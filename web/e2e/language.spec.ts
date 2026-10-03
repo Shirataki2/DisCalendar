@@ -78,6 +78,95 @@ test.describe("未対応言語", () => {
   });
 });
 
+test("メンションの検証・非参加・API エラーも別タブの言語切り替えに追従する", async ({
+  page,
+  context,
+}) => {
+  await page.route("**/local/api/guilds/*/mention-members?*", (route) =>
+    route.fulfill(
+      route.request().url().includes("888888888888888888")
+        ? { status: 403, json: { error: "forbidden", message: "test" } }
+        : {
+            json: [
+              {
+                user_id: "999999999999999999",
+                display_name: null,
+                avatar_url: null,
+              },
+            ],
+          },
+    ),
+  );
+  await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+  await page
+    .getByRole("combobox", { name: "Language / 言語" })
+    .selectOption("en");
+  await page.getByRole("button", { name: "New event", exact: true }).click();
+  await page.getByRole("tab", { name: /^Repeat & reminders/ }).click();
+  const form = page.getByRole("dialog");
+  const other = await context.newPage();
+  await other.goto("/dashboard");
+  const language = other.getByRole("combobox", { name: "Language / 言語" });
+  for (const [id, english, japanese] of [
+    ["abc", "Enter a valid user ID", "正しいユーザーIDを入力してください"],
+    [
+      "999999999999999999",
+      "This user is not a member of this server",
+      "このユーザーはサーバーに参加していません",
+    ],
+    [
+      "888888888888888888",
+      "You do not have permission to do this",
+      "この操作を行う権限がありません",
+    ],
+  ]) {
+    await form.getByLabel("User ID to mention", { exact: true }).fill(id);
+    await form.getByRole("button", { name: "Add user", exact: true }).click();
+    await expect(form.getByText(english, { exact: true })).toBeVisible();
+    await language.selectOption("ja");
+    await expect(form.getByText(japanese, { exact: true })).toBeVisible();
+    await expect(
+      form.getByLabel("メンションするユーザーID", { exact: true }),
+    ).toHaveValue(id);
+    await language.selectOption("en");
+    await expect(form.getByText(english, { exact: true })).toBeVisible();
+  }
+});
+
+test("英語の繰り返し終了日を空にしても検証エラーから復帰できる", async ({
+  page,
+}) => {
+  await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+  await page
+    .getByRole("combobox", { name: "Language / 言語" })
+    .selectOption("en");
+  await page.getByRole("button", { name: "New event", exact: true }).click();
+  await page.getByRole("tab", { name: /^Repeat & reminders/ }).click();
+  await page
+    .getByRole("button", { name: "Does not repeat", exact: true })
+    .click();
+  const settings = page.getByRole("dialog", { name: "Repeat settings" });
+  await settings.getByLabel("Repeat frequency").selectOption("daily");
+  await settings.getByRole("radio", { name: "End date", exact: true }).check();
+  const date = settings.getByLabel("Repeat end date", { exact: true });
+  const validDate = await date.inputValue();
+  await date.fill("");
+  await expect(settings).toContainText("Daily / select a valid end date");
+  await expect(settings.getByRole("alert")).toBeVisible();
+  await expect(
+    settings.getByRole("button", { name: "Apply settings" }),
+  ).toBeDisabled();
+  await date.fill(validDate);
+  await expect(
+    settings.getByRole("button", { name: "Apply settings" }),
+  ).toBeEnabled();
+  await settings.getByRole("button", { name: "Apply settings" }).click();
+  await expect(settings).toBeHidden();
+  await expect(
+    page.getByRole("dialog", { name: "Create event" }),
+  ).toBeVisible();
+});
+
 for (const width of [375, 390, 1280]) {
   test(`${width}px: 英語の予定作成・エラー・編集・複製・削除と横断カレンダー`, async ({
     page,

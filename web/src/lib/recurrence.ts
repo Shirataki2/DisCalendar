@@ -1,3 +1,4 @@
+import { parseISO } from "date-fns";
 import type { RecurrenceRule } from "@/lib/api/types";
 import { formatDisplayDate, type Language } from "@/lib/i18n";
 export const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
@@ -21,12 +22,15 @@ export function describeRecurrence(
           : rule.frequency === "monthly_date"
             ? `Monthly on day ${rule.day}`
             : `Monthly on ${rule.nth === 1 ? "1st" : rule.nth === 2 ? "2nd" : rule.nth === 3 ? "3rd" : `${rule.nth}th`} ${days[rule.weekday]}`;
+    const endDate = rule.end.type === "until" ? parseISO(rule.end.date) : null;
     const ending =
       rule.end.type === "never"
         ? "no end date"
         : rule.end.type === "count"
           ? `${rule.end.count} occurrence${rule.end.count === 1 ? "" : "s"}`
-          : `until ${formatDisplayDate(new Date(`${rule.end.date}T00:00:00`), language)}`;
+          : endDate && !Number.isNaN(endDate.getTime())
+            ? `until ${formatDisplayDate(endDate, language)}`
+            : "select a valid end date";
     return `${frequency} / ${ending}`;
   }
   if (rule.frequency === "none") return "繰り返しなし";

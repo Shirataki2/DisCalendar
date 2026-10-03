@@ -49,7 +49,7 @@ export function NotificationMentionsField({
     permissions.data?.administrator ||
     (BigInt(permissions.data?.permissions ?? "0") & BigInt(131072)) !==
       BigInt(0);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (error) inputRef.current?.focus();
@@ -205,7 +205,7 @@ export function NotificationMentionsField({
               setError(null);
               const parsed = mentionIdSchema.safeParse(userId.trim());
               if (!parsed.success) {
-                setError(t("正しいユーザーIDを入力してください"));
+                setError("正しいユーザーIDを入力してください");
                 return;
               }
               setAdding(true);
@@ -214,13 +214,13 @@ export function NotificationMentionsField({
                   parsed.data,
                 ]);
                 if (!profile?.display_name) {
-                  setError(t("このユーザーはサーバーに参加していません"));
+                  setError("このユーザーはサーバーに参加していません");
                   return;
                 }
                 add({ type: "user", id: parsed.data });
                 onUserIdChange("");
               } catch (cause) {
-                setError(describeApiError(cause, language));
+                setError(cause);
               } finally {
                 setAdding(false);
               }
@@ -267,7 +267,13 @@ export function NotificationMentionsField({
             })}
           </ul>
         )}
-        <FieldError>{error ?? errors.notificationMentions?.message}</FieldError>
+        <FieldError>
+          {error
+            ? typeof error === "string"
+              ? t(error)
+              : describeApiError(error, language)
+            : errors.notificationMentions?.message}
+        </FieldError>
       </Field>
     </section>
   );

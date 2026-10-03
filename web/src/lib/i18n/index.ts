@@ -16,10 +16,16 @@ export function translate(
   message: string,
   values: MessageValues = {},
 ): string {
-  const text =
+  const messageForms =
     language === "en" && Object.hasOwn(english, message)
       ? english[message]
       : message;
+  const text =
+    typeof messageForms === "string"
+      ? messageForms
+      : values.count === 1
+        ? messageForms.one
+        : messageForms.other;
   return text.replace(/\{(\w+)\}/g, (placeholder, key: string) =>
     Object.hasOwn(values, key) ? String(values[key]) : placeholder,
   );

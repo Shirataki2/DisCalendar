@@ -1,5 +1,7 @@
 /** 日本語の原文をキーにする。英訳のない案内は原文へフォールバックする。 */
-export const english: Readonly<Record<string, string>> = {
+export const english: Readonly<
+  Record<string, string | { one: string; other: string }>
+> = {
   なし: "None",
   予定を編集: "Edit event",
   予定を複製: "Duplicate event",
@@ -298,9 +300,16 @@ export const english: Readonly<Record<string, string>> = {
   週間前: "weeks before",
   "「{name}」を削除します。この操作は取り消せません。":
     "“{name}” will be deleted. This cannot be undone.",
-  "{count} サーバーの予定をまとめて表示": "Events from {count} servers",
+  "{count} サーバーの予定をまとめて表示": {
+    one: "Events from {count} server",
+    other: "Events from {count} servers",
+  },
   "{count} サーバーの予定をまとめて表示しています。予定の作成・編集は各サーバーのカレンダーで行えます":
-    "Showing events from {count} servers. Create and edit events in each server’s calendar.",
+    {
+      one: "Showing events from {count} server. Create and edit events in each server’s calendar.",
+      other:
+        "Showing events from {count} servers. Create and edit events in each server’s calendar.",
+    },
   "JPEG・PNG・WebP・PDFを選択してください":
     "Select a JPEG, PNG, WebP or PDF file",
   ファイルは1バイト以上10MiB以下にしてください:
@@ -368,10 +377,16 @@ export const english: Readonly<Record<string, string>> = {
   敬老の日: "Respect for the Aged Day",
   秋分の日: "Autumnal Equinox Day",
   スポーツの日: "Sports Day",
+  体育の日: "Health and Sports Day",
+  "体育の日（スポーツの日）": "Health and Sports Day (Sports Day)",
   文化の日: "Culture Day",
   勤労感謝の日: "Labor Thanksgiving Day",
   振替休日: "Substitute Holiday",
   休日: "Holiday",
+  "休日（祝日扱い）": "Public Holiday",
+  即位礼正殿の儀: "Enthronement Ceremony",
+  大喪の礼: "State Funeral of the Emperor",
+  結婚の儀: "Imperial Wedding Ceremony",
   国民の休日: "Citizens' Holiday",
   オーナー: "Owner",
   サーバー管理可: "Can manage server",
@@ -379,7 +394,10 @@ export const english: Readonly<Record<string, string>> = {
   "「{filename}」を削除しますか？": "Delete “{filename}”?",
   "{label}のメンションを削除": "Remove mention for {label}",
   "サーバーを切り替え: {name}": "Switch server: {name}",
-  "他 {count} サーバーを表示": "Show {count} more servers",
+  "他 {count} サーバーを表示": {
+    one: "Show {count} more server",
+    other: "Show {count} more servers",
+  },
   "入力内容が正しくありません ({detail})": "Invalid input ({detail})",
   "この機能は現在使えません ({detail})":
     "This feature is currently unavailable ({detail})",

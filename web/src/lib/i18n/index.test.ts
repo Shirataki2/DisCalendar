@@ -9,6 +9,7 @@ import {
   eventFormSchema,
   eventFormToApiInput,
 } from "@/lib/event-form";
+import { JAPANESE_HOLIDAYS } from "@/lib/japanese-holidays.generated";
 import { describeRecurrence } from "@/lib/recurrence";
 import { formatDisplayDate, resolveLanguage, translate } from "./index";
 
@@ -55,6 +56,50 @@ describe("表示言語", () => {
     expect(describeApiError(recurringError)).toBe(
       `入力内容が正しくありません (${overlap})`,
     );
+  });
+  test("サーバー件数に合わせて英語の単数・複数形を選ぶ", () => {
+    for (const message of [
+      "{count} サーバーの予定をまとめて表示",
+      "{count} サーバーの予定をまとめて表示しています。予定の作成・編集は各サーバーのカレンダーで行えます",
+      "他 {count} サーバーを表示",
+    ]) {
+      for (const count of [0, 1, 2]) {
+        expect(translate("en", message, { count })).toContain(
+          `${count} ${message.startsWith("他") ? "more " : ""}server${count === 1 ? "" : "s"}`,
+        );
+        expect(translate("en", message, { count })).not.toContain(
+          count === 1 ? "servers" : "{count}",
+        );
+        expect(translate("ja", message, { count })).toBe(
+          message.replace("{count}", String(count)),
+        );
+      }
+    }
+  });
+  test("同梱した祝日名は過去の名称を含めてすべて英訳する", () => {
+    for (const name of new Set(Object.values(JAPANESE_HOLIDAYS))) {
+      expect(translate("en", name), name).not.toBe(name);
+      expect(translate("ja", name)).toBe(name);
+    }
+    expect(translate("en", JAPANESE_HOLIDAYS["2019-10-14"])).toBe(
+      "Health and Sports Day (Sports Day)",
+    );
+  });
+  test("繰り返しの終了日が空・不正でも英語の説明を表示できる", () => {
+    for (const date of ["", "invalid", "2026-02-30"]) {
+      expect(
+        describeRecurrence(
+          { frequency: "daily", end: { type: "until", date } },
+          "en",
+        ),
+      ).toBe("Daily / select a valid end date");
+    }
+    expect(
+      describeRecurrence(
+        { frequency: "daily", end: { type: "until", date: "2026-10-03" } },
+        "en",
+      ),
+    ).toBe("Daily / until Oct 3, 2026");
   });
   test("言語に合わせた日付・通知の表記でも JST と終日範囲・送信値を変えない", () => {
     const values = {

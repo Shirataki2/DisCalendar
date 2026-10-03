@@ -48,7 +48,7 @@ export function EventAuthors({
           />
         )}
         <span className="min-w-0 break-words">
-          {profile.display_name ?? "退出したメンバー"}
+          {profile.display_name ?? t("退出したメンバー")}
         </span>
       </>
     );
