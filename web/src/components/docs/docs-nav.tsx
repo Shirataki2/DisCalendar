@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
+import { useLanguage } from "@/components/language-provider";
 import { DOC_PAGES, docPath } from "@/lib/docs";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,7 @@ interface Props {
 
 /** docs のページ一覧ナビ。現在のページは usePathname で判定して強調する */
 export function DocsNav({ orientation }: Props) {
+  const { t } = useLanguage();
   const pathname = usePathname();
   const vertical = orientation === "vertical";
   const activeRef = useRef<HTMLAnchorElement>(null);
@@ -24,7 +26,7 @@ export function DocsNav({ orientation }: Props) {
     }
   }, [vertical]);
   return (
-    <nav aria-label="使い方の目次">
+    <nav aria-label={t("使い方の目次")}>
       <ol
         className={cn(
           "flex gap-1 text-sm",
@@ -58,7 +60,7 @@ export function DocsNav({ orientation }: Props) {
                 >
                   {index + 1}
                 </span>
-                {page.title}
+                {t(page.title)}
               </Link>
             </li>
           );

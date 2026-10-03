@@ -86,6 +86,19 @@ export function describeApiError(
       ? t("通信が中断されました")
       : t("通信に失敗しました。ネットワークを確認してください");
   }
+  const detail = () => {
+    // ICS/JSON パーサーの診断部分は保持し、利用者向けの接頭辞だけを翻訳する。
+    for (const prefix of [
+      "ICS ファイルを解析できません: ",
+      "JSON を読み取れません: ",
+    ]) {
+      if (error.message.startsWith(prefix))
+        return t(`${prefix}{detail}`, {
+          detail: error.message.slice(prefix.length),
+        });
+    }
+    return t(error.message);
+  };
   switch (error.kind) {
     case "unauthorized":
       return t("ログインの有効期限が切れました。再度ログインしてください");
@@ -99,7 +112,7 @@ export function describeApiError(
       return t("対象が見つかりません (他のユーザーが削除した可能性があります)");
     case "bad_request":
       return t("入力内容が正しくありません ({detail})", {
-        detail: t(error.message),
+        detail: detail(),
       });
     case "conflict":
       return t(
@@ -115,7 +128,7 @@ export function describeApiError(
       );
     case "unavailable":
       return t("この機能は現在使えません ({detail})", {
-        detail: t(error.message),
+        detail: detail(),
       });
     case "discord_error":
       return t(

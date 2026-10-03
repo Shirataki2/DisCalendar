@@ -1,0 +1,27 @@
+## Collect votes on possible dates
+
+Open **Scheduling polls** beside New event on the calendar, then select **Create scheduling poll**. Enter a title (up to 32 characters), an optional description (up to 1,000 characters), and up to five options.
+
+Each option has its own row and can be timed or all day. All-day end dates are inclusive. Dates and deadlines use Japan Standard Time. **Add option** starts with the previous option's time on the following day.
+
+A deadline is optional. Voting stops after the deadline; members who can edit events can also close voting manually. Creating, editing options, closing, confirming, and deleting polls require the same permissions as editing events.
+
+## Votes and results
+
+Share the poll URL with server members. Sign-in is required. If a reminder channel is configured, announcements are posted to Discord when a poll is created or confirmed. A failed announcement does not undo the saved poll; follow the message on screen and share its URL.
+
+Any server member can choose **○ Available / △ Maybe / × Unavailable** for each option, even without event editing permissions. Voting again overwrites the previous answer. Selected answers are highlighted; options with the most available votes are marked. **Everyone's votes** shows each participant's answers. Open, closed, and confirmed polls use green, amber, and blue labels.
+
+Options can be edited before voting closes. Votes for changed or deleted dates are reset; votes for unchanged options remain.
+
+## Turn an option into an event
+
+Select **Confirm this option** to open the event editor with its title, description, and dates. Set the color, reminders, and Discord event sync, then select **Create**. The selected dates cannot be changed here; edit the option before confirming if needed.
+
+A confirmed poll cannot be confirmed again. Deleting a poll removes its options and votes, but keeps the created event. The list shows the latest 100 polls grouped by status.
+
+## Vote from Discord
+
+Use the **○ / △ / ×** buttons for each option in the bot's voting message. Votes use the same results as the website and can be changed repeatedly. Results update immediately after saving. If saving fails, only the person who clicked sees the reason. The voting message is separate from creation and confirmation announcements.
+
+Website votes and option changes usually appear in Discord within about 15 seconds. After closing or confirmation, buttons disappear and results remain. Votes after the deadline are rejected even before the message refreshes. If an old button refers to a changed or deleted option, check the latest message or website. Changing the reminder channel does not move existing voting messages; they continue updating in the original channel.

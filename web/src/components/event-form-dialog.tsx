@@ -174,7 +174,7 @@ export function EventFormDialog({
             previewRecurrence={previewRecurrence}
             state={shown}
             guildName={guildName}
-            guidance={guidance && <div lang="ja">{guidance}</div>}
+            guidance={guidance && <div>{guidance}</div>}
             onClose={close}
             closeGuard={closeGuard}
             onSubmit={onSubmit}
@@ -538,7 +538,7 @@ function EventForm({
               data-event-tab="basic"
               className="space-y-5"
             >
-              {guidance && <div lang="ja">{guidance}</div>}
+              {guidance && <div>{guidance}</div>}
               {state.mode === "edit" && state.event.recurrence && (
                 <p className="rounded-md border p-3 text-sm">
                   {state.scope === "future"

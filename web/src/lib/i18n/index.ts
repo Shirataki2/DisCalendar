@@ -27,7 +27,13 @@ export function translate(
         ? messageForms.one
         : messageForms.other;
   return text.replace(/\{(\w+)\}/g, (placeholder, key: string) =>
-    Object.hasOwn(values, key) ? String(values[key]) : placeholder,
+    Object.hasOwn(values, key)
+      ? typeof values[key] === "number" && (key === "count" || key === "total")
+        ? new Intl.NumberFormat(language === "en" ? "en-US" : "ja-JP").format(
+            values[key],
+          )
+        : String(values[key])
+      : placeholder,
   );
 }
 

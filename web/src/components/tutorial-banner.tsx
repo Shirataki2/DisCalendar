@@ -4,6 +4,7 @@ import { XIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { ROUTES } from "@/lib/site";
 
@@ -14,6 +15,7 @@ export function TutorialBanner({
   highlighted: boolean;
   defaultVisible: boolean;
 }) {
+  const { t, language } = useLanguage();
   const router = useRouter();
   const [visible, setVisible] = useState(defaultVisible);
 
@@ -34,16 +36,20 @@ export function TutorialBanner({
 
   return (
     <div
-      lang="ja"
+      lang={language}
       className={`mb-6 flex items-start rounded-lg border ${highlighted ? "border-indigo-400/40 bg-indigo-500/10" : "border-border"}`}
     >
       <Link
         href={ROUTES.tutorial}
         className="min-w-0 flex-1 rounded-lg px-4 py-3 hover:bg-muted"
       >
-        <span className="font-semibold">練習用カレンダーで操作を試す</span>
+        <span className="font-semibold">
+          {t("練習用カレンダーで操作を試す")}
+        </span>
         <span className="mt-1 block text-sm text-muted-foreground">
-          Botの導入や編集権限がなくても、予定の作成から通知まで体験できます。
+          {t(
+            "Botの導入や編集権限がなくても、予定の作成から通知まで体験できます。",
+          )}
         </span>
       </Link>
       <Button
@@ -51,7 +57,7 @@ export function TutorialBanner({
         variant="ghost"
         size="icon"
         className="m-2 size-11"
-        aria-label="練習用カレンダーの案内を閉じる"
+        aria-label={t("練習用カレンダーの案内を閉じる")}
         onClick={dismiss}
       >
         <XIcon aria-hidden />

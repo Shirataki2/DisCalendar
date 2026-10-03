@@ -1,0 +1,52 @@
+import { Callout } from "@/components/docs/callout";
+import { LinkButton } from "@/components/docs/link-button";
+import { Screenshot } from "@/components/docs/screenshot";
+import serverSelectShot from "@/assets/docs/serverselect.png";
+import { ROUTES } from "@/lib/site";
+
+Add DisCalendar's bot to your server to receive Discord reminders and manage events from Discord.
+
+## Invite the bot
+
+You need Administrator or Manage Server permission in the server.
+
+### Use the invitation link
+
+Open the button below (the same as **Add the bot** on the homepage) and choose your server in Discord.
+
+<LinkButton href={ROUTES.invite} variant="primary" external>Invite the bot</LinkButton>
+
+### Use the server list
+
+After [signing in](/docs/login), servers you manage that do not yet have the bot appear as gray cards under the invitation section. Select one to open Discord with that server selected.
+
+<Screenshot src={serverSelectShot} alt="Server list with gray cards for servers where the bot can be invited (Japanese interface)." />
+
+### Authorize in Discord
+
+1. Choose the server, if it is not already selected.
+2. Review the requested permissions and authorize.
+3. Complete the human verification if prompted.
+
+You can then close the Discord tab. Reload the server list to open the new server's calendar.
+
+## Required bot permissions
+
+| Permission | Purpose |
+| --- | --- |
+| View Channel | Post to and check the reminder channel |
+| Send Messages | Post event reminders |
+| Embed Links | Display reminders and command replies as embeds |
+| Read Message History | Command replies, including `/list` pagination |
+| Use Application Commands | Slash commands such as `/init` and `/create` |
+| Create Events | Also create events as Discord scheduled events |
+
+<Callout>
+If you added the bot before Create Events permission was requested, invite it again using the link above. This grants permission without removing the bot, settings, or events. Then select **Recheck permissions** in the event editor.
+</Callout>
+
+<Callout type="warning">
+The bot cannot send reminders without View Channel, Send Messages, and Embed Links in the destination channel. Check channel overrides for the bot and @everyone. `/init` reports any missing permissions.
+</Callout>
+
+Next, choose a reminder channel in [Initial setup](/docs/initialize).

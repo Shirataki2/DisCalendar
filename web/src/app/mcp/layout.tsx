@@ -23,9 +23,7 @@ export default async function McpLayout({
     return (
       <>
         <SiteHeader />
-        <div lang="ja" className="contents">
-          {children}
-        </div>
+        <div className="contents">{children}</div>
         <SiteFooter />
       </>
     );
@@ -45,9 +43,7 @@ export default async function McpLayout({
           />
         }
       >
-        <div lang="ja" className="min-h-0 flex-1 overflow-y-auto">
-          {children}
-        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </DashboardShell>
       <DashboardFooter />
     </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { type KeyboardEvent, useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -19,10 +20,11 @@ export function GuildDigestSettingsSection({
   canManage: boolean;
   configured: boolean | undefined;
 }) {
+  const { t, language } = useLanguage();
   const query = useGuildDigestQuery(guildId);
   const update = useUpdateGuildDigest(guildId);
   const [draft, setDraft] = useState<GuildDigestSettings | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | Error | null>(null);
   const [saved, setSaved] = useState(false);
   const values = draft ?? query.data;
   const disabled =
@@ -53,7 +55,7 @@ export function GuildDigestSettingsSection({
       setDraft(null);
       setSaved(true);
     } catch (cause) {
-      setError(describeApiError(cause));
+      setError(cause instanceof Error ? cause : new Error());
     }
   };
   const saveOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -65,29 +67,33 @@ export function GuildDigestSettingsSection({
   return (
     <section aria-labelledby="guild-digest-heading" className="grid gap-4">
       <h3 id="guild-digest-heading" className="text-sm font-medium">
-        予定のまとめを投稿する
+        {t("予定のまとめを投稿する")}
       </h3>
       <p className="text-sm text-muted-foreground">
-        通知先チャンネルへ投稿します。時刻は日本時間 (JST)
-        です。この節は「まとめ投稿を保存」で反映します。
+        {t(
+          "通知先チャンネルへ投稿します。時刻は日本時間 (JST) です。この節は「まとめ投稿を保存」で反映します。",
+        )}
       </p>
       {configured === false && (
         <p className="text-sm text-muted-foreground">
-          先に通知先を設定してください。上の「通知先チャンネル」を選んで「保存」するか、Discord
-          で /init を実行します。
+          {t(
+            "先に通知先を設定してください。上の「通知先チャンネル」を選んで「保存」するか、Discord で /init を実行します。",
+          )}
         </p>
       )}
       {query.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          まとめ投稿の設定を取得できませんでした。ダイアログを開き直してください。
+          {t(
+            "まとめ投稿の設定を取得できませんでした。ダイアログを開き直してください。",
+          )}
         </p>
       ) : !values ? (
         <p role="status" className="text-sm">
-          まとめ投稿の設定を読み込み中…
+          {t("まとめ投稿の設定を読み込み中…")}
         </p>
       ) : (
         <fieldset disabled={disabled} className="grid min-w-0 gap-4">
-          <legend className="sr-only">まとめ投稿の設定</legend>
+          <legend className="sr-only">{t("まとめ投稿の設定")}</legend>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid content-start gap-2">
               <label
@@ -102,10 +108,10 @@ export function GuildDigestSettingsSection({
                     change({ daily_enabled: checked === true })
                   }
                 />
-                毎日、今日の予定を投稿する
+                {t("毎日、今日の予定を投稿する")}
               </label>
               <label htmlFor="digest-daily-time" className="text-sm">
-                毎日の投稿時刻 (JST)
+                {t("毎日の投稿時刻 (JST)")}
               </label>
               <Input
                 id="digest-daily-time"
@@ -131,10 +137,10 @@ export function GuildDigestSettingsSection({
                     change({ weekly_enabled: checked === true })
                   }
                 />
-                毎週、今週の予定を投稿する
+                {t("毎週、今週の予定を投稿する")}
               </label>
               <label htmlFor="digest-weekly-day" className="text-sm">
-                毎週の投稿曜日
+                {t("毎週の投稿曜日")}
               </label>
               <select
                 id="digest-weekly-day"
@@ -145,12 +151,12 @@ export function GuildDigestSettingsSection({
               >
                 {DAYS.map((day, index) => (
                   <option key={day} value={index}>
-                    {day}
+                    {t(day)}
                   </option>
                 ))}
               </select>
               <label htmlFor="digest-weekly-time" className="text-sm">
-                毎週の投稿時刻 (JST)
+                {t("毎週の投稿時刻 (JST)")}
               </label>
               <Input
                 id="digest-weekly-time"
@@ -163,7 +169,7 @@ export function GuildDigestSettingsSection({
                 className="min-h-11"
               />
               <p className="text-sm text-muted-foreground">
-                投稿する曜日から7日間の予定をまとめます。
+                {t("投稿する曜日から7日間の予定をまとめます。")}
               </p>
             </div>
           </div>
@@ -179,10 +185,12 @@ export function GuildDigestSettingsSection({
                 change({ skip_empty: checked === true })
               }
             />
-            予定が無い日は投稿しない
+            {t("予定が無い日は投稿しない")}
           </label>
           <p className="text-sm text-muted-foreground">
-            毎週の投稿では、7日間に予定が無いときに省略します。外すと「予定はありません」と投稿します。
+            {t(
+              "毎週の投稿では、7日間に予定が無いときに省略します。外すと「予定はありません」と投稿します。",
+            )}
           </p>
           <Button
             type="button"
@@ -191,18 +199,22 @@ export function GuildDigestSettingsSection({
             disabled={!canSave}
             onClick={save}
           >
-            {update.isPending ? "まとめ投稿を保存中…" : "まとめ投稿を保存"}
+            {update.isPending
+              ? t("まとめ投稿を保存中…")
+              : t("まとめ投稿を保存")}
           </Button>
         </fieldset>
       )}
       {error && (
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {typeof error === "string"
+            ? t(error)
+            : describeApiError(error, language)}
         </p>
       )}
       {saved && (
         <p role="status" className="text-sm">
-          まとめ投稿の設定を保存しました
+          {t("まとめ投稿の設定を保存しました")}
         </p>
       )}
     </section>

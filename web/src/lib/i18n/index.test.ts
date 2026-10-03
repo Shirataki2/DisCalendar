@@ -186,3 +186,38 @@ describe("表示言語", () => {
     expect(input.name).toBe("日本語の予定");
   });
 });
+
+test("第2段階の件数・権限・エラーを訳して利用者の入力を保持する", () => {
+  expect(translate("en", "{count}件を取り込む", { count: 1 })).toBe(
+    "Import 1 event",
+  );
+  expect(translate("en", "{count}件を取り込む", { count: 2 })).toBe(
+    "Import 2 events",
+  );
+  expect(translate("en", "生成見込み {count}件", { count: 10000 })).toBe(
+    "Estimated occurrences: 10,000",
+  );
+  expect(
+    translate("en", "「{name}」の購読を削除しますか？", {
+      name: "日本語 {count}",
+    }),
+  ).toBe("Remove the subscription to “日本語 {count}”?");
+  const error = new ApiError(400, "bad_request", "候補は1〜5件にしてください");
+  expect(describeApiError(error, "en")).toBe(
+    "Invalid input (Provide 1–5 options.)",
+  );
+  expect(describeApiError(error, "ja")).toBe(
+    "入力内容が正しくありません (候補は1〜5件にしてください)",
+  );
+});
+
+test("ICS解析エラーの診断内容を保ったまま案内を英訳する", () => {
+  const error = new ApiError(
+    400,
+    "bad_request",
+    "ICS ファイルを解析できません: missing VEVENT",
+  );
+  expect(describeApiError(error, "en")).toContain("missing VEVENT");
+  expect(describeApiError(error, "en")).not.toMatch(/[ぁ-んァ-ン一-龯]/);
+  expect(describeApiError(error, "ja")).toContain(error.message);
+});

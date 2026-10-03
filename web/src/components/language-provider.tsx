@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { FieldError } from "@/components/ui/field";
+import { DOC_PAGES } from "@/lib/docs";
 import {
   LANGUAGE_STORAGE_KEY,
   type Language,
@@ -18,6 +19,7 @@ import {
   resolveLanguage,
   translate,
 } from "@/lib/i18n";
+import { english } from "@/lib/i18n/messages";
 import { SITE_NAME } from "@/lib/site";
 
 const LanguageContext = createContext({
@@ -59,7 +61,17 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
           ? "すべての予定"
           : /^\/dashboard\/\d+$/.test(pathname)
             ? "カレンダー"
-            : null;
+            : /^\/dashboard\/\d+\/polls$/.test(pathname)
+              ? "日程調整"
+              : /^\/dashboard\/\d+\/polls\/\d+$/.test(pathname)
+                ? "日程調整への回答"
+                : pathname === "/tutorial"
+                  ? "操作を試す"
+                  : pathname === "/donation"
+                    ? "支援"
+                    : (DOC_PAGES.find(
+                        (page) => pathname === `/docs/${page.slug}`,
+                      )?.title ?? null);
     const titleForms = title
       ? [`${title} | ${SITE_NAME}`, `${translate("en", title)} | ${SITE_NAME}`]
       : [];
@@ -75,7 +87,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         .querySelector("title")
         ?.setAttribute(
           "lang",
-          titleForms.includes(document.title) ? language : "ja",
+          titleForms.includes(document.title) || document.title === SITE_NAME
+            ? language
+            : "ja",
         );
     };
     syncTitle();
@@ -129,8 +143,12 @@ export function Message({
   message: string;
   values?: MessageValues;
 }) {
-  const { t } = useLanguage();
-  return t(message, values);
+  const { t, language } = useLanguage();
+  const fallback =
+    language === "en" &&
+    /[ぁ-んァ-ヶ一-龠]/.test(message) &&
+    !Object.hasOwn(english, message);
+  return <span lang={fallback ? "ja" : language}>{t(message, values)}</span>;
 }
 
 /** 共有の検証ルールはそのまま使い、利用者に表示するエラーだけを翻訳する。 */

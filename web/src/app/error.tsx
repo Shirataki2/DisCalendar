@@ -8,6 +8,7 @@ import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import { useEffect } from "react";
 import { ERROR_SCREEN_ACTION, ErrorScreen } from "@/components/error-screen";
+import { useLanguage } from "@/components/language-provider";
 import { ROUTES } from "@/lib/site";
 
 export default function ErrorPage({
@@ -18,13 +19,14 @@ export default function ErrorPage({
   /** 境界の中身を取得し直して描画し直す (成功すればこの画面は消える) */
   retry: () => void;
 }) {
+  const { t } = useLanguage();
   useEffect(() => {
     Sentry.captureException(error);
   }, [error]);
 
   return (
     <ErrorScreen
-      title="エラーが発生しました"
+      title={t("エラーが発生しました")}
       actions={
         <>
           <button
@@ -32,10 +34,10 @@ export default function ErrorPage({
             onClick={() => retry()}
             className={ERROR_SCREEN_ACTION.primary}
           >
-            再試行
+            {t("再試行")}
           </button>
           <Link href={ROUTES.home} className={ERROR_SCREEN_ACTION.secondary}>
-            トップページへ
+            {t("トップページへ")}
           </Link>
         </>
       }
@@ -44,13 +46,16 @@ export default function ErrorPage({
         // 問い合わせに添えてもらえるように見せておく
         error.digest ? (
           <p>
-            エラー ID: <span className="font-mono">{error.digest}</span>
+            {t("エラー ID: ")}
+            <span className="font-mono">{error.digest}</span>
           </p>
         ) : null
       }
     >
       <p>
-        ページの表示中に問題が発生しました。「再試行」を押しても直らないときは、一度ログアウトしてからもう一度アクセスしてみてください。
+        {t(
+          "ページの表示中に問題が発生しました。「再試行」を押しても直らないときは、一度ログアウトしてからもう一度アクセスしてみてください。",
+        )}
       </p>
     </ErrorScreen>
   );

@@ -13,6 +13,7 @@ import {
 import { ExternalCalendarSettings } from "@/components/external-calendar-settings";
 import { NotificationsField } from "@/components/form/notifications-field";
 import { GuildDigestSettingsSection } from "@/components/guild-digest-settings";
+import { useLanguage } from "@/components/language-provider";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -105,6 +106,7 @@ function SettingsHint({
   label: string;
   children: React.ReactNode;
 }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const triggerId = useId();
   return (
@@ -113,7 +115,7 @@ function SettingsHint({
         <TooltipTrigger
           id={triggerId}
           type="button"
-          aria-label={`${label}の補足`}
+          aria-label={t("{label}の補足", { label })}
           aria-describedby={open ? `${triggerId}-content` : undefined}
           closeOnClick={false}
           onClick={() => setOpen(true)}
@@ -139,6 +141,7 @@ function SettingsHint({
  * iCal フィード (#95) の発行・無効化はその場で反映する
  */
 export function GuildSettingsDialog({ guildId, open, onOpenChange }: Props) {
+  const { language } = useLanguage();
   return (
     <Dialog
       open={open}
@@ -148,7 +151,7 @@ export function GuildSettingsDialog({ guildId, open, onOpenChange }: Props) {
     >
       {/* フィードの節 (#95) が増えて背が高くなったので、低い画面ではダイアログ内でスクロールさせる (予定ダイアログと同じ) */}
       <DialogContent
-        lang="ja"
+        lang={language}
         className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl"
       >
         {/* Base UI の Dialog は閉じると Popup を unmount するので、開くたびに設定値から初期化される */}
@@ -178,6 +181,7 @@ function GuildSettingsForm({
   guildId: string;
   onClose: () => void;
 }) {
+  const { t, language } = useLanguage();
   const configQuery = useGuildConfigQuery(guildId);
   const permissionsQuery = useMyPermissionsQuery(guildId);
   const updateConfig = useUpdateGuildConfig(guildId);
@@ -201,7 +205,7 @@ function GuildSettingsForm({
     reset,
     formState: { isSubmitting, isDirty, dirtyFields },
   } = form;
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | Error | null>(null);
 
   // 開くたびに設定を取り直す (staleTime 内だとマウントしただけでは再取得されない)。
   // ダイアログを開く前に `/init` や別のブラウザで変わっていた分を、古い値のまま保存で送り返さないため
@@ -232,10 +236,11 @@ function GuildSettingsForm({
       const permissions = await refreshPermissions.mutateAsync();
       if (permissions.can_manage_server) {
         const result = await rolesQuery.refetch();
-        if (result.error) setError(describeApiError(result.error));
+        if (result.error)
+          setError(result.error instanceof Error ? result.error : new Error());
       }
     } catch (cause) {
-      setError(describeApiError(cause));
+      setError(cause instanceof Error ? cause : new Error());
     }
   };
 
@@ -260,7 +265,7 @@ function GuildSettingsForm({
       );
       onClose();
     } catch (cause) {
-      setError(describeApiError(cause));
+      setError(cause instanceof Error ? cause : new Error());
     }
   });
 
@@ -268,15 +273,15 @@ function GuildSettingsForm({
     <FormProvider {...form}>
       <form onSubmit={save} noValidate className="flex flex-col gap-4">
         <DialogHeader>
-          <DialogTitle>サーバー設定</DialogTitle>
+          <DialogTitle>{t("サーバー設定")}</DialogTitle>
           <DialogDescription>
-            予定の編集権限・通知・外部カレンダーへの連携を設定します
+            {t("予定の編集権限・通知・外部カレンダーへの連携を設定します")}
           </DialogDescription>
         </DialogHeader>
 
         {permissionsQuery.data && !canManage && (
           <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-            サーバーの設定の変更には管理権限が必要です
+            {t("サーバーの設定の変更には管理権限が必要です")}
           </p>
         )}
 
@@ -299,11 +304,14 @@ function GuildSettingsForm({
                 htmlFor={RESTRICTED_CHECKBOX_ID}
                 className="font-normal"
               >
-                予定の編集を管理権限または指定ロールのあるメンバーに限定する
+                {t(
+                  "予定の編集を管理権限または指定ロールのあるメンバーに限定する",
+                )}
               </FieldLabel>
-              <SettingsHint label="予定の編集権限">
-                予定の追加・編集・削除を、サーバーのオーナーまたは「管理者」「サーバー管理」「ロールの管理」「メッセージの管理」のいずれかの権限、または設定で指定したロールを持つメンバーに限定します。Discord
-                側で権限を変更したら「再読込」を押してください。変更後の権限とロール一覧を取り直します。
+              <SettingsHint label={t("予定の編集権限")}>
+                {t(
+                  "予定の追加・編集・削除を、サーバーのオーナーまたは「管理者」「サーバー管理」「ロールの管理」「メッセージの管理」のいずれかの権限、または設定で指定したロールを持つメンバーに限定します。Discord 側で権限を変更したら「再読込」を押してください。変更後の権限とロール一覧を取り直します。",
+                )}
               </SettingsHint>
             </div>
           </FieldContent>
@@ -319,16 +327,22 @@ function GuildSettingsForm({
                 disabled={!canManage || !form.watch("restricted") || saving}
               >
                 <legend className="mb-2 text-sm font-medium">
-                  編集を許可するロール ({field.value.length}/25)
+                  {t("編集を許可するロール ({count}/25)", {
+                    count: field.value.length,
+                  })}
                 </legend>
                 <p className="text-sm text-muted-foreground">
-                  管理権限がなくても、選んだロールのメンバーは予定を追加・編集・削除できます
+                  {t(
+                    "管理権限がなくても、選んだロールのメンバーは予定を追加・編集・削除できます",
+                  )}
                 </p>
                 {rolesQuery.isPending ? (
-                  <p className="text-sm">ロールを読み込み中…</p>
+                  <p className="text-sm">{t("ロールを読み込み中…")}</p>
                 ) : rolesQuery.isError ? (
                   <p role="alert" className="text-sm text-destructive">
-                    ロール一覧を取得できませんでした。「再読込」で再試行してください。変更していないロール設定はそのまま保存されます
+                    {t(
+                      "ロール一覧を取得できませんでした。「再読込」で再試行してください。変更していないロール設定はそのまま保存されます",
+                    )}
                   </p>
                 ) : (
                   <div className="grid max-h-40 gap-2 overflow-y-auto rounded-md border p-3">
@@ -341,7 +355,7 @@ function GuildSettingsForm({
                         )
                         .map((id) => ({
                           id,
-                          name: `削除されたロール (ID: ${id})`,
+                          name: t("削除されたロール (ID: {id})", { id }),
                           color: 0,
                           position: 0,
                         })),
@@ -384,7 +398,7 @@ function GuildSettingsForm({
                     {rolesQuery.data.length === 0 &&
                       field.value.length === 0 && (
                         <p className="text-sm text-muted-foreground">
-                          選択できるロールはありません
+                          {t("選択できるロールはありません")}
                         </p>
                       )}
                   </div>
@@ -426,8 +440,10 @@ function GuildSettingsForm({
 
         {syncFailed && (
           <p role="alert" className="text-sm text-destructive">
-            設定を取り直せませんでした ({describeApiError(configQuery.error)}
-            )。古い設定を上書きしないよう、保存はできません。ダイアログを開き直してください
+            {t(
+              "設定を取り直せませんでした ({error})。古い設定を上書きしないよう、保存はできません。ダイアログを開き直してください",
+              { error: describeApiError(configQuery.error, language) },
+            )}
           </p>
         )}
 
@@ -436,7 +452,9 @@ function GuildSettingsForm({
             role="alert"
             className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
           >
-            {error}
+            {typeof error === "string"
+              ? t(error)
+              : describeApiError(error, language)}
           </div>
         )}
 
@@ -452,7 +470,7 @@ function GuildSettingsForm({
               data-icon="inline-start"
               className={reloading ? "animate-spin" : undefined}
             />
-            {reloading ? "確認中…" : "再読込"}
+            {reloading ? t("確認中…") : t("再読込")}
           </Button>
           <Button
             type="button"
@@ -460,7 +478,7 @@ function GuildSettingsForm({
             disabled={saving}
             onClick={onClose}
           >
-            キャンセル
+            {t("キャンセル")}
           </Button>
           <Button
             type="submit"
@@ -468,7 +486,7 @@ function GuildSettingsForm({
               !canManage || saving || reloading || syncing || syncFailed
             }
           >
-            {saving ? "保存中…" : syncing ? "確認中…" : "保存"}
+            {saving ? t("保存中…") : syncing ? t("確認中…") : t("保存")}
           </Button>
         </DialogFooter>
       </form>
@@ -492,6 +510,7 @@ function NotificationSection({
   /** 通知先が設定済みか (管理権限が無いと ID は返らないので、これで案内を出し分ける) */
   configured: boolean;
 }) {
+  const { t, language } = useLanguage();
   const { control } = useFormContext<GuildSettingsFormValues>();
   return (
     <section
@@ -500,11 +519,12 @@ function NotificationSection({
     >
       <div className="flex items-center gap-1">
         <h3 id="guild-settings-notifications" className="text-sm font-medium">
-          Discord への通知
+          {t("Discord への通知")}
         </h3>
-        <SettingsHint label="Discord への通知">
-          Bot が通知先チャンネルに予定の開始時刻と事前通知を投稿します。Discord
-          の /init と同じ設定です。
+        <SettingsHint label={t("Discord への通知")}>
+          {t(
+            "Bot が通知先チャンネルに予定の開始時刻と事前通知を投稿します。Discord の /init と同じ設定です。",
+          )}
         </SettingsHint>
       </div>
 
@@ -543,23 +563,24 @@ function NotificationSection({
                 htmlFor={NOTIFY_AT_START_CHECKBOX_ID}
                 className="font-normal"
               >
-                開始時刻に通知する
+                {t("開始時刻に通知する")}
               </FieldLabel>
-              <SettingsHint label="開始時刻の通知">
-                外すと、予定ごとに設定した事前通知だけが届きます。終日予定の
-                0:00 の通知も届きません。
+              <SettingsHint label={t("開始時刻の通知")}>
+                {t(
+                  "外すと、予定ごとに設定した事前通知だけが届きます。終日予定の 0:00 の通知も届きません。",
+                )}
               </SettingsHint>
             </div>
           </FieldContent>
         </Field>
       </div>
       <NotificationsField
-        label="既定の事前通知"
+        label={t("既定の事前通知")}
         disabled={!canManage}
-        language="ja"
+        language={language}
       >
         <FieldDescription>
-          新しい予定に使う初期値です。予定ごとに変更できます
+          {t("新しい予定に使う初期値です。予定ごとに変更できます")}
         </FieldDescription>
       </NotificationsField>
     </section>
@@ -585,6 +606,7 @@ function ChannelField({
   configured: boolean;
   disabled: boolean;
 }) {
+  const { t, language } = useLanguage();
   const channelsQuery = useGuildChannelsQuery(guildId);
   const channels = channelsQuery.data ?? [];
   // 一覧に無い保存済みのチャンネル (`/init` で設定したスレッドなど) は ID で表示して、
@@ -603,7 +625,7 @@ function ChannelField({
       ? [
           {
             value: unknownCurrent,
-            label: `一覧にないチャンネル (ID: ${unknownCurrent})`,
+            label: t("一覧にないチャンネル (ID: {id})", { id: unknownCurrent }),
           },
         ]
       : []),
@@ -615,12 +637,13 @@ function ChannelField({
     <TooltipProvider>
       <Field data-disabled={disabled || undefined}>
         <div className="flex items-center gap-1">
-          <FieldLabel htmlFor={CHANNEL_SELECT_ID}>通知先チャンネル</FieldLabel>
-          <SettingsHint label="通知先チャンネル">
-            Bot
-            に「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限があるテキストチャンネルを選べます。Discord
-            側でチャンネルや権限を変えた直後は、反映まで 1
-            分ほどかかることがあります。
+          <FieldLabel htmlFor={CHANNEL_SELECT_ID}>
+            {t("通知先チャンネル")}
+          </FieldLabel>
+          <SettingsHint label={t("通知先チャンネル")}>
+            {t(
+              "Bot に「チャンネルを見る」「メッセージを送信」「埋め込みリンク」の権限があるテキストチャンネルを選べます。Discord 側でチャンネルや権限を変えた直後は、反映まで 1 分ほどかかることがあります。",
+            )}
           </SettingsHint>
         </div>
         <Select
@@ -633,14 +656,16 @@ function ChannelField({
             <SelectValue
               placeholder={
                 channelsQuery.isPending
-                  ? "チャンネルを読み込み中…"
+                  ? t("チャンネルを読み込み中…")
                   : configured
-                    ? "設定済み (管理権限を持つメンバーだけが確認・変更できます)"
-                    : "未設定 (通知は届きません)"
+                    ? t(
+                        "設定済み (管理権限を持つメンバーだけが確認・変更できます)",
+                      )
+                    : t("未設定 (通知は届きません)")
               }
             />
           </SelectTrigger>
-          <SelectContent lang="ja">
+          <SelectContent lang={language}>
             {groups.map((group) => (
               <SelectGroup key={group.category ?? ""}>
                 {group.category !== null && (
@@ -664,25 +689,35 @@ function ChannelField({
             ))}
             {unknownCurrent && (
               <SelectItem value={unknownCurrent}>
-                一覧にないチャンネル (ID: {unknownCurrent})
+                {t("一覧にないチャンネル (ID: {id})", { id: unknownCurrent })}
               </SelectItem>
             )}
           </SelectContent>
         </Select>
         {channelsQuery.isError ? (
           <FieldDescription className="text-destructive">
-            チャンネルの一覧を取得できませんでした (
-            {describeApiError(channelsQuery.error)}
-            )。通知先以外の設定は保存できます
+            {t(
+              "チャンネルの一覧を取得できませんでした ({error})。通知先以外の設定は保存できます",
+              { error: describeApiError(channelsQuery.error, language) },
+            )}
           </FieldDescription>
         ) : value === "" && !channelsQuery.isPending && !configured ? (
           <FieldDescription>
-            通知先が未設定のため、予定を作っても通知は届きません。チャンネルを選んで保存してください
+            {t(
+              "通知先が未設定のため、予定を作っても通知は届きません。チャンネルを選んで保存してください",
+            )}
           </FieldDescription>
         ) : selected && !selected.can_post ? (
           <FieldDescription className="text-destructive">
-            Bot に{describeMissingPermissions(selected.missing_permissions)}
-            の権限がないため、このチャンネルには通知を投稿できません。チャンネルの権限設定を見直すか、別のチャンネルを選んでください
+            {t(
+              "Bot に{permissions}の権限がないため、このチャンネルには通知を投稿できません。チャンネルの権限設定を見直すか、別のチャンネルを選んでください",
+              {
+                permissions: describeMissingPermissions(
+                  selected.missing_permissions,
+                  language,
+                ),
+              },
+            )}
           </FieldDescription>
         ) : null}
       </Field>
@@ -700,7 +735,10 @@ function CannotPostHint({
 }: {
   permissions: readonly NotificationPermission[];
 }) {
-  const reason = `Bot に${describeMissingPermissions(permissions)}の権限がありません`;
+  const { t, language } = useLanguage();
+  const reason = t("Bot に{permissions}の権限がありません", {
+    permissions: describeMissingPermissions(permissions, language),
+  });
   return (
     // 選択肢の上に出るので、アイコンから離れたらすぐ閉じ (disableHoverablePopup)、ツールチップ自体は
     // ポインタイベントを受けない。残ったままだと重なった選択肢をクリックできない
@@ -746,8 +784,9 @@ function FeedSection({
 }: {
   guildId: string;
   canManage: boolean;
-  onError: (message: string | null) => void;
+  onError: (message: string | Error | null) => void;
 }) {
+  const { t, language } = useLanguage();
   const feedQuery = useGuildFeedQuery(guildId);
   const issueFeed = useIssueGuildFeed(guildId);
   const revokeFeed = useRevokeGuildFeed(guildId);
@@ -777,7 +816,7 @@ function FeedSection({
     try {
       await action();
     } catch (cause) {
-      onError(describeApiError(cause));
+      onError(cause instanceof Error ? cause : new Error());
     }
   };
 
@@ -807,18 +846,20 @@ function FeedSection({
     >
       <div className="flex flex-col gap-1">
         <h3 id="guild-settings-feed" className="text-sm font-medium">
-          外部カレンダーで購読する
+          {t("外部カレンダーで購読する")}
         </h3>
         <p className="text-sm text-muted-foreground">
-          URL を知っている人は誰でも予定を読めます。共有する相手にご注意ください
+          {t(
+            "URL を知っている人は誰でも予定を読めます。共有する相手にご注意ください",
+          )}
         </p>
       </div>
 
       {feedQuery.isPending ? (
-        <p className="text-sm text-muted-foreground">確認中…</p>
+        <p className="text-sm text-muted-foreground">{t("確認中…")}</p>
       ) : feedQuery.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {describeApiError(feedQuery.error)}
+          {describeApiError(feedQuery.error, language)}
         </p>
       ) : feed && url ? (
         <>
@@ -826,7 +867,7 @@ function FeedSection({
             <Input
               readOnly
               value={url}
-              aria-label="フィード URL"
+              aria-label={t("フィード URL")}
               onFocus={(event) => event.currentTarget.select()}
               className="font-mono text-xs"
             />
@@ -841,7 +882,7 @@ function FeedSection({
               ) : (
                 <CopyIcon data-icon="inline-start" />
               )}
-              {copied ? "コピーしました" : "コピー"}
+              {copied ? t("コピーしました") : t("コピー")}
             </Button>
           </div>
           {canManage && (
@@ -853,7 +894,7 @@ function FeedSection({
                 disabled={busy}
                 onClick={() => setConfirmation("reissue")}
               >
-                {issueFeed.isPending ? "再発行中…" : "再発行"}
+                {issueFeed.isPending ? t("再発行中…") : t("再発行")}
               </Button>
               <Button
                 type="button"
@@ -862,7 +903,7 @@ function FeedSection({
                 disabled={busy}
                 onClick={() => setConfirmation("revoke")}
               >
-                {revokeFeed.isPending ? "無効化中…" : "無効化"}
+                {revokeFeed.isPending ? t("無効化中…") : t("無効化")}
               </Button>
             </div>
           )}
@@ -875,12 +916,14 @@ function FeedSection({
             disabled={busy}
             onClick={() => void run(() => issueFeed.mutateAsync())}
           >
-            {issueFeed.isPending ? "発行中…" : "フィード URL を発行"}
+            {issueFeed.isPending ? t("発行中…") : t("フィード URL を発行")}
           </Button>
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          まだ発行されていません。管理権限を持つメンバーがこの画面から発行できます
+          {t(
+            "まだ発行されていません。管理権限を持つメンバーがこの画面から発行できます",
+          )}
         </p>
       )}
 
@@ -891,11 +934,12 @@ function FeedSection({
           rel="noreferrer"
           className="underline underline-offset-2"
         >
-          「外部カレンダーで見る」
+          {t("「外部カレンダーで見る」")}
         </Link>
-        <SettingsHint label="外部カレンダーでの購読">
-          Google カレンダーや Apple
-          カレンダーなどに予定を表示できます。反映までの時間は各サービスの更新間隔によります。
+        <SettingsHint label={t("外部カレンダーでの購読")}>
+          {t(
+            "Google カレンダーや Apple カレンダーなどに予定を表示できます。反映までの時間は各サービスの更新間隔によります。",
+          )}
         </SettingsHint>
       </FieldDescription>
 
@@ -905,23 +949,27 @@ function FeedSection({
           if (!open) setConfirmation(null);
         }}
       >
-        <AlertDialogContent lang="ja">
+        <AlertDialogContent lang={language}>
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmation === "revoke"
-                ? "フィード URL を無効化しますか?"
-                : "フィード URL を再発行しますか?"}
+                ? t("フィード URL を無効化しますか?")
+                : t("フィード URL を再発行しますか?")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmation === "revoke"
-                ? "今の URL は使えなくなり、購読しているカレンダーには予定が届かなくなります。もう一度使うには改めて発行します"
-                : "新しい URL に置き換わり、今の URL は使えなくなります。購読している人には新しい URL を登録し直してもらってください"}
+                ? t(
+                    "今の URL は使えなくなり、購読しているカレンダーには予定が届かなくなります。もう一度使うには改めて発行します",
+                  )
+                : t(
+                    "新しい URL に置き換わり、今の URL は使えなくなります。購読している人には新しい URL を登録し直してもらってください",
+                  )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>キャンセル</AlertDialogCancel>
+            <AlertDialogCancel>{t("キャンセル")}</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={confirm}>
-              {confirmation === "revoke" ? "無効化" : "再発行"}
+              {confirmation === "revoke" ? t("無効化") : t("再発行")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -19,6 +19,7 @@ import {
   type EventDialogState,
   EventFormDialog,
 } from "@/components/event-form-dialog";
+import { useLanguage } from "@/components/language-provider";
 import { PollFormDialog } from "@/components/poll-form-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ import type {
 } from "@/lib/api/types";
 import { parseApiDateTime } from "@/lib/calendar-events";
 import { newEventFormValues } from "@/lib/event-form";
+import { formatDisplayDate, type Language } from "@/lib/i18n";
 import {
   dashboardEventsSource,
   invalidateEvents,
@@ -133,17 +135,19 @@ function effectiveStatus(poll: SchedulePoll): PollStatus {
   return poll.status === "open" && expired ? "closed" : poll.status;
 }
 function StatusBadge({ status }: { status: PollStatus }) {
+  const { t } = useLanguage();
   return (
     <Badge className={statusStyles[status].badge}>
       <span
         aria-hidden
         className={cn("size-1.5 rounded-full", statusStyles[status].dot)}
       />
-      {statusStyles[status].label}
+      {t(statusStyles[status].label)}
     </Badge>
   );
 }
 export function PollList({ guildId }: { guildId: string }) {
+  const { t, language } = useLanguage();
   const router = useRouter();
   const client = useQueryClient();
   const permissions = useMyPermissionsQuery(guildId);
@@ -156,7 +160,7 @@ export function PollList({ guildId }: { guildId: string }) {
   });
   return (
     <main
-      lang="ja"
+      lang={language}
       className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6"
     >
       <Link
@@ -164,15 +168,17 @@ export function PollList({ guildId }: { guildId: string }) {
         className="inline-flex min-h-11 items-center gap-1 text-sm underline-offset-4 hover:underline"
       >
         <ChevronLeftIcon aria-hidden className="size-4" />
-        カレンダーに戻る
+        {t("カレンダーに戻る")}
       </Link>
       <Card>
         <CardHeader>
           <CardTitle>
-            <h1 className="text-2xl font-bold">日程調整</h1>
+            <h1 className="text-2xl font-bold">{t("日程調整")}</h1>
           </CardTitle>
           <CardDescription>
-            候補日への回答を集め、そのまま予定にできます。最新100件を表示します。
+            {t(
+              "候補日への回答を集め、そのまま予定にできます。最新100件を表示します。",
+            )}
           </CardDescription>
           <CardAction>
             <Button
@@ -181,7 +187,7 @@ export function PollList({ guildId }: { guildId: string }) {
               onClick={() => setCreating(true)}
             >
               <PlusIcon />
-              日程調整を作成
+              {t("日程調整を作成")}
             </Button>
           </CardAction>
         </CardHeader>
@@ -189,7 +195,7 @@ export function PollList({ guildId }: { guildId: string }) {
       {query.isPending && (
         <Card>
           <CardContent>
-            <p role="status">読み込み中…</p>
+            <p role="status">{t("読み込み中…")}</p>
           </CardContent>
         </Card>
       )}
@@ -197,9 +203,9 @@ export function PollList({ guildId }: { guildId: string }) {
         <Card>
           <CardContent>
             <p role="alert" className="flex flex-wrap items-center gap-2">
-              {describeApiError(query.error)}
+              {describeApiError(query.error, language)}
               <Button variant="outline" onClick={() => query.refetch()}>
-                再試行
+                {t("再試行")}
               </Button>
             </p>
           </CardContent>
@@ -227,10 +233,10 @@ export function PollList({ guildId }: { guildId: string }) {
                     )}
                   />
                   <h2 id={`polls-${status}`} className="font-semibold">
-                    {statusStyles[status].label}
+                    {t(statusStyles[status].label)}
                   </h2>
                   <Badge variant="secondary" className="ml-auto">
-                    {polls.length}件
+                    {t("{count}件", { count: polls.length })}
                   </Badge>
                 </CardHeader>
                 <CardContent>
@@ -250,7 +256,10 @@ export function PollList({ guildId }: { guildId: string }) {
                             </span>
                             <span className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                               <ClockIcon aria-hidden className="size-3.5" />
-                              締切: {p.deadline ? dateTime(p.deadline) : "なし"}
+                              {t("締切: ")}
+                              {p.deadline
+                                ? dateTime(p.deadline, language)
+                                : t("なし")}
                             </span>
                           </Link>
                         </li>
@@ -258,7 +267,7 @@ export function PollList({ guildId }: { guildId: string }) {
                     </ul>
                   ) : (
                     <p className="rounded-lg border border-dashed p-3 text-center text-sm text-muted-foreground">
-                      日程調整はありません。
+                      {t("日程調整はありません。")}
                     </p>
                   )}
                 </CardContent>
@@ -294,6 +303,7 @@ export function PollPage({
   pollId: number;
   initialAnnouncement?: PollAnnouncement;
 }) {
+  const { t, language } = useLanguage();
   const router = useRouter();
   const client = useQueryClient();
   const config = useGuildConfigQuery(guildId);
@@ -362,7 +372,7 @@ export function PollPage({
   }
   return (
     <main
-      lang="ja"
+      lang={language}
       className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6"
     >
       <Link
@@ -370,12 +380,12 @@ export function PollPage({
         className="inline-flex min-h-11 items-center gap-1 text-sm underline-offset-4 hover:underline"
       >
         <ChevronLeftIcon aria-hidden className="size-4" />
-        日程調整の一覧に戻る
+        {t("日程調整の一覧に戻る")}
       </Link>
       {query.isPending && (
         <Card>
           <CardContent>
-            <p role="status">読み込み中…</p>
+            <p role="status">{t("読み込み中…")}</p>
           </CardContent>
         </Card>
       )}
@@ -383,9 +393,9 @@ export function PollPage({
         <Card>
           <CardContent>
             <p role="alert" className="flex flex-wrap items-center gap-2">
-              {describeApiError(query.error)}
+              {describeApiError(query.error, language)}
               <Button variant="outline" onClick={() => query.refetch()}>
-                再試行
+                {t("再試行")}
               </Button>
             </p>
           </CardContent>
@@ -402,12 +412,13 @@ export function PollPage({
             <CardHeader>
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <StatusBadge status={status} />
-                日本時間
+                {t("日本時間")}
               </div>
               <h1 className="break-words text-2xl font-bold">{poll.title}</h1>
               <p className="flex items-center gap-1 text-sm text-muted-foreground">
                 <ClockIcon aria-hidden className="size-4" />
-                締切: {poll.deadline ? dateTime(poll.deadline) : "なし"}
+                {t("締切: ")}
+                {poll.deadline ? dateTime(poll.deadline, language) : t("なし")}
               </p>
             </CardHeader>
             {(poll.description ||
@@ -427,12 +438,12 @@ export function PollPage({
                     )}
                   >
                     <CheckCircle2Icon aria-hidden className="size-4" />
-                    日程が確定しました。
+                    {t("日程が確定しました。")}
                     <Link
                       href={`/dashboard/${guildId}`}
                       className="font-medium underline underline-offset-4"
                     >
-                      カレンダーを見る
+                      {t("カレンダーを見る")}
                     </Link>
                   </p>
                 )}
@@ -445,7 +456,9 @@ export function PollPage({
                     )}
                   >
                     <LockIcon aria-hidden className="size-4 shrink-0" />
-                    投票は締め切られています。集計から予定を確定できます。
+                    {t(
+                      "投票は締め切られています。集計から予定を確定できます。",
+                    )}
                   </p>
                 )}
               </CardContent>
@@ -460,20 +473,20 @@ export function PollPage({
                       onClick={() => setEditing(true)}
                     >
                       <PencilIcon />
-                      候補を編集
+                      {t("候補を編集")}
                     </Button>
                     <Button
                       variant="outline"
                       disabled={action.isPending}
                       onClick={() => {
-                        if (window.confirm("投票を締め切りますか？"))
+                        if (window.confirm(t("投票を締め切りますか？")))
                           action.mutate(() =>
                             api.polls.close(guildId, pollId, poll.version),
                           );
                       }}
                     >
                       <LockIcon />
-                      投票を締め切る
+                      {t("投票を締め切る")}
                     </Button>
                   </>
                 )}
@@ -484,7 +497,9 @@ export function PollPage({
                   onClick={() => {
                     if (
                       window.confirm(
-                        "日程調整と回答を削除しますか？ 確定済みの予定は残ります。",
+                        t(
+                          "日程調整と回答を削除しますか？ 確定済みの予定は残ります。",
+                        ),
                       )
                     )
                       action.mutate(async () => {
@@ -494,7 +509,7 @@ export function PollPage({
                   }}
                 >
                   <Trash2Icon />
-                  日程調整を削除
+                  {t("日程調整を削除")}
                 </Button>
               </CardFooter>
             )}
@@ -504,7 +519,7 @@ export function PollPage({
               role="alert"
               className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
             >
-              {describeApiError(action.error)}
+              {describeApiError(action.error, language)}
             </p>
           )}
           {canEdit && (config.isError || guild.isError) && (
@@ -512,7 +527,7 @@ export function PollPage({
               role="alert"
               className="flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
             >
-              保存先・通知設定を取得できませんでした。
+              {t("保存先・通知設定を取得できませんでした。")}
               <Button
                 variant="outline"
                 onClick={() => {
@@ -520,7 +535,7 @@ export function PollPage({
                   void guild.refetch();
                 }}
               >
-                再取得
+                {t("再取得")}
               </Button>
             </p>
           )}
@@ -528,13 +543,15 @@ export function PollPage({
             <CardHeader>
               <CardTitle>
                 <h2 id="poll-options-title" className="font-semibold">
-                  候補と自分の回答
+                  {t("候補と自分の回答")}
                 </h2>
               </CardTitle>
               <CardDescription>
                 {open
-                  ? "候補ごとに ○ / △ / × を選んでください。何度でも変更できます。"
-                  : "回答の受付は終了しました。"}
+                  ? t(
+                      "候補ごとに ○ / △ / × を選んでください。何度でも変更できます。",
+                    )
+                  : t("回答の受付は終了しました。")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -559,11 +576,15 @@ export function PollPage({
                           {index + 1}
                         </span>
                         <h3 className="min-w-0 flex-1 break-words font-medium">
-                          <span className="sr-only">候補 {index + 1}: </span>
-                          {optionLabel(option)}
+                          <span className="sr-only">
+                            {t("候補 {index}", { index: index + 1 })}:{" "}
+                          </span>
+                          {optionLabel(option, language)}
                         </h3>
                         {leading && (
-                          <Badge className={answers[0].chip}>○が最多</Badge>
+                          <Badge className={answers[0].chip}>
+                            {t("○が最多")}
+                          </Badge>
                         )}
                       </div>
                       <p
@@ -578,13 +599,14 @@ export function PollPage({
                               answer.chip,
                             )}
                           >
-                            {answer.mark} {option[answer.value]}人
+                            {answer.mark}{" "}
+                            {t("{count}人", { count: option[answer.value] })}
                           </span>
                         ))}
                       </p>
                       <fieldset className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
                         <legend className="sr-only">
-                          候補 {index + 1} への回答
+                          {t("候補 {index} への回答", { index: index + 1 })}
                         </legend>
                         {answers.map((answer) => (
                           <Button
@@ -610,7 +632,7 @@ export function PollPage({
                               )
                             }
                           >
-                            {answer.label}
+                            {t(answer.label)}
                           </Button>
                         ))}
                       </fieldset>
@@ -626,7 +648,7 @@ export function PollPage({
                           onClick={() => confirm(option, poll)}
                         >
                           <CheckIcon />
-                          この候補で確定
+                          {t("この候補で確定")}
                         </Button>
                       )}
                     </li>
@@ -656,7 +678,9 @@ export function PollPage({
             onDelete={() => {}}
             guidance={
               <p className="rounded border p-3 text-sm">
-                選んだ候補で予定を作成します。色・通知・Discordイベント連携を設定できます。
+                {t(
+                  "選んだ候補で予定を作成します。色・通知・Discordイベント連携を設定できます。",
+                )}
               </p>
             }
             discordSync={{
@@ -692,6 +716,7 @@ export function PollPage({
   );
 }
 function VoteTable({ poll }: { poll: PollDetail }) {
+  const { t } = useLanguage();
   const ids = [...new Set(poll.votes.map((v) => v.user_id))].sort();
   const profiles = useQuery({
     queryKey: queryKeys.guild.members(poll.guild_id, ids),
@@ -733,31 +758,33 @@ function VoteTable({ poll }: { poll: PollDetail }) {
       <CardHeader>
         <CardTitle>
           <h2 id="poll-votes-title" className="font-semibold">
-            みんなの回答
+            {t("みんなの回答")}
           </h2>
         </CardTitle>
-        <CardDescription>{ids.length}人が回答しています。</CardDescription>
+        <CardDescription>
+          {t("{count}人が回答しています。", { count: ids.length })}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {ids.length === 0 ? (
           <p className="rounded-lg border border-dashed p-3 text-center text-sm text-muted-foreground">
-            まだ回答はありません。
+            {t("まだ回答はありません。")}
           </p>
         ) : (
           <section
             className="overflow-x-auto rounded-lg border"
             // biome-ignore lint/a11y/noNoninteractiveTabindex: 横スクロールする表をキーボードで操作する
             tabIndex={0}
-            aria-label="候補と参加者の回答表"
+            aria-label={t("候補と参加者の回答表")}
           >
             <table className="w-full text-sm">
               <caption className="sr-only">
-                ○ 参加できる、△ 未定、× 参加できない、— 未回答
+                {t("○ 参加できる、△ 未定、× 参加できない、— 未回答")}
               </caption>
               <thead className="bg-muted/50">
                 <tr>
                   <th className="p-3 text-left" scope="col">
-                    参加者
+                    {t("参加者")}
                   </th>
                   {poll.options.map((o, i) => (
                     <th
@@ -765,7 +792,7 @@ function VoteTable({ poll }: { poll: PollDetail }) {
                       scope="col"
                       className="whitespace-nowrap p-3"
                     >
-                      候補 {i + 1}
+                      {t("候補 {index}", { index: i + 1 })}
                     </th>
                   ))}
                 </tr>
@@ -782,7 +809,7 @@ function VoteTable({ poll }: { poll: PollDetail }) {
                           )}
                           <span className="max-w-40 break-words">
                             {member?.display_name ?? id}
-                            {id === poll.current_user_id && "（自分）"}
+                            {id === poll.current_user_id && t("（自分）")}
                           </span>
                         </span>
                       </th>
@@ -818,6 +845,7 @@ function Avatar({ url }: { url: string }) {
   return <img src={url} alt="" className="size-6 shrink-0 rounded-full" />;
 }
 function Announcement({ status }: { status: PollAnnouncement | undefined }) {
+  const { t } = useLanguage();
   if (!status) return null;
   return (
     <p
@@ -830,18 +858,30 @@ function Announcement({ status }: { status: PollAnnouncement | undefined }) {
       )}
     >
       {status === "sent"
-        ? "Discordの通知チャンネルに案内を投稿しました。"
+        ? t("Discordの通知チャンネルに案内を投稿しました。")
         : status === "not_configured"
-          ? "保存しました。通知チャンネルが未設定のため、Discordへの案内は投稿していません。"
-          : "保存しましたが、Discordへの案内投稿に失敗しました。このページのURLを共有してください。"}
+          ? t(
+              "保存しました。通知チャンネルが未設定のため、Discordへの案内は投稿していません。",
+            )
+          : t(
+              "保存しましたが、Discordへの案内投稿に失敗しました。このページのURLを共有してください。",
+            )}
     </p>
   );
 }
-function dateTime(value: string) {
-  return `${value.slice(0, 10)} ${value.slice(11, 16)}`;
+function dateTime(value: string, language: Language, allDay = false) {
+  if (language === "ja")
+    return allDay
+      ? value.slice(0, 10)
+      : `${value.slice(0, 10)} ${value.slice(11, 16)}`;
+  return formatDisplayDate(
+    parseApiDateTime(value),
+    language,
+    allDay ? {} : { hour: "numeric", minute: "2-digit" },
+  );
 }
-function optionLabel(option: PollOption) {
+function optionLabel(option: PollOption, language: Language) {
   return option.is_all_day
-    ? `${option.start_at.slice(0, 10)} 〜 ${option.end_at.slice(0, 10)}（終日）`
-    : `${dateTime(option.start_at)} 〜 ${dateTime(option.end_at)}`;
+    ? `${dateTime(option.start_at, language, true)} 〜 ${dateTime(option.end_at, language, true)}${language === "ja" ? "（終日）" : " (All day)"}`
+    : `${dateTime(option.start_at, language)} 〜 ${dateTime(option.end_at, language)}`;
 }

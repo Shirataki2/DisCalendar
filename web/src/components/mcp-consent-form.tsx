@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 import { McpForm } from "@/components/mcp-form";
 import { Button } from "@/components/ui/button";
 import { MCP_SCOPES } from "@/lib/mcp/config";
@@ -12,6 +13,7 @@ export function McpConsentForm({
   query: string;
   guilds: { id: string; name: string }[];
 }) {
+  const { t } = useLanguage();
   const requested = (new URLSearchParams(query).get("scope") ?? "").split(" ");
   const scopes = Object.entries(MCP_SCOPES).filter(([scope]) =>
     requested.includes(scope),
@@ -38,17 +40,22 @@ export function McpConsentForm({
     <McpForm action="/mcp/consent/submit">
       <input type="hidden" name="oauth_query" value={query} />
       <p className="text-sm text-muted-foreground">
-        要求された操作と現在利用できるサーバーをすべて選択しています。不要な項目を外してください。「選択した内容を許可」を押すまで接続は許可されません。
+        {t(
+          "要求された操作と現在利用できるサーバーをすべて選択しています。不要な項目を外してください。「選択した内容を許可」を押すまで接続は許可されません。",
+        )}
       </p>
       {groups.map((group) => (
         <fieldset
           key={group.name}
           className="min-w-0 rounded-xl border border-border p-4"
         >
-          <legend className="px-1 font-semibold">{group.title}</legend>
+          <legend className="px-1 font-semibold">{t(group.title)}</legend>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <p role="status" className="mr-auto text-sm text-muted-foreground">
-              {group.selected.length} / {group.options.length} 件選択
+              {t("{count} / {total} 件選択", {
+                count: group.selected.length,
+                total: group.options.length,
+              })}
             </p>
             <Button
               type="button"
@@ -58,7 +65,7 @@ export function McpConsentForm({
                 group.set(group.options.map((option) => option.id))
               }
             >
-              すべて選択
+              {t("すべて選択")}
             </Button>
             <Button
               type="button"
@@ -66,7 +73,7 @@ export function McpConsentForm({
               disabled={!group.selected.length}
               onClick={() => group.set([])}
             >
-              すべて解除
+              {t("すべて解除")}
             </Button>
           </div>
           <div className="space-y-1">
@@ -90,7 +97,7 @@ export function McpConsentForm({
                   }
                 />
                 <span className="min-w-0 break-words text-sm">
-                  {option.name}
+                  {group.name === "scope" ? t(option.name) : option.name}
                 </span>
               </label>
             ))}
@@ -98,24 +105,34 @@ export function McpConsentForm({
           {!group.options.length && (
             <p className="text-sm text-muted-foreground">
               {group.name === "guild_id"
-                ? "許可できるサーバーがありません。本人とBotが参加しているサーバーを確認してください。"
-                : "許可できる操作が要求されていません。クライアントから接続をやり直してください。"}
+                ? t(
+                    "許可できるサーバーがありません。本人とBotが参加しているサーバーを確認してください。",
+                  )
+                : t(
+                    "許可できる操作が要求されていません。クライアントから接続をやり直してください。",
+                  )}
             </p>
           )}
         </fieldset>
       ))}
       {(!selectedScopes.length || !selectedGuilds.length) && (
         <p role="status" className="text-sm text-muted-foreground">
-          許可する操作とサーバーをそれぞれ1件以上選んでください。拒否は選択なしでも行えます。
+          {t(
+            "許可する操作とサーバーをそれぞれ1件以上選んでください。拒否は選択なしでも行えます。",
+          )}
         </p>
       )}
       {selectedGuilds.length > 100 && (
         <p role="status">
-          サーバーは100件まで許可できます。不要なサーバーを外してください。
+          {t(
+            "サーバーは100件まで許可できます。不要なサーバーを外してください。",
+          )}
         </p>
       )}
       <p className="text-sm text-muted-foreground">
-        後から参加するサーバーは追加されません。接続管理からいつでも解除できます。
+        {t(
+          "後から参加するサーバーは追加されません。接続管理からいつでも解除できます。",
+        )}
       </p>
       <div className="flex flex-wrap gap-3">
         <Button
@@ -129,7 +146,7 @@ export function McpConsentForm({
             selectedGuilds.length > 100
           }
         >
-          選択した内容を許可
+          {t("選択した内容を許可")}
         </Button>
         <Button
           type="submit"
@@ -138,7 +155,7 @@ export function McpConsentForm({
           size="lg"
           variant="outline"
         >
-          拒否
+          {t("拒否")}
         </Button>
       </div>
     </McpForm>

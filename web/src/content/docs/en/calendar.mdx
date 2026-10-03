@@ -1,0 +1,140 @@
+import { Callout } from "@/components/docs/callout";
+import { Screenshot } from "@/components/docs/screenshot";
+import calendarShot from "@/assets/lp/calendar.png";
+import createDialogShot from "@/assets/docs/create-dialog.png";
+
+[Sign in](/docs/login) and choose a server with the bot to open its calendar. All server members share the same events and see saved changes.
+
+## Calendar controls
+
+<Screenshot src={calendarShot} alt="Calendar with New event and its separate arrow menu, month navigation, and color-coded events (Japanese interface)." />
+
+- **Previous / Next / Today**: move between periods or return to the period containing today.
+- **Calendar icon beside the period heading**: choose a date to jump to. Year and month dropdowns make distant dates easier to reach.
+- **Month / Week / 4 days / Day / List**: switch views. Timed views show a red current-time line. List view shows only days with events in the month.
+- **New event**: open the event editor directly. Its separate arrow opens options such as ICS import.
+- **Gear beside the server name**: open Server settings; see [editing permissions](/docs/edit).
+
+Use **Calendar display settings** in the account menu or sidebar to choose the initial view (including the last used view) and first day of the week (Sunday or Monday). Settings are saved in this browser.
+
+Under **Defaults for new events**, choose a color, advance reminders, and click-created duration (30 minutes to 3 hours), then **Save defaults**. Reminders initially use server settings. **Set my own** overrides them; removing every reminder disables advance reminders. Defaults apply to the button, shortcut, date clicks, and selections. Editing and duplicating preserve original values. A selected time range takes precedence. Month-view date clicks start as all-day events; the duration applies when All day is turned off.
+
+### Keyboard shortcuts
+
+On desktop, these work in server calendars and All events. Open **Keyboard shortcuts** from the account menu or press `?`.
+
+| Key | Action |
+| --- | --- |
+| `t` | Return to today |
+| `←` / `→` | Previous / next period |
+| `n` | Create an event in an editable server calendar; unavailable in All events |
+| `m` / `w` / `4` / `d` / `l` | Month / week / 4 days / day / list |
+| `?` | Show shortcuts |
+| `Esc` | Close event details or a dialog |
+
+Shortcuts are disabled while typing, composing text, or using dialogs and menus. Ctrl / Cmd / Alt combinations retain their browser behavior.
+
+## View events across servers
+
+Open **All events** from the server list or sidebar (menu on phones) to combine calendars from all your servers with the bot.
+
+- Colors identify servers in the legend; colors repeat after ten servers.
+- Select a legend entry to temporarily hide or show that server. This choice is not saved. Expand the legend when there are many servers.
+- Open an event for details and follow its server-calendar link to edit it.
+
+This view is read-only. Create, edit, and delete events in their own server calendars. Only servers you belong to are included.
+
+## Create an event
+
+Click a date or time to open quick add. A temporary event previews the selected dates and entered title until creation. Enter a title and press Enter to create. In week, 4-day, and day views, drag to select a range. On phones, tap or long-press.
+
+Select **Enter details** to preserve the title and dates and open the full editor for color, reminders, location, description, and Discord sync. **New event** or `n` also opens the editor. Close quick add with Esc, by clicking outside the calendar, or by selecting another date.
+
+The editor has three tabs: **Basic** for event details and Discord sync; **Repeat & reminders** for recurrence, reminders, and mentions; and **Files & sharing** for attachments and, while editing, public links. Saving with invalid fields selects the relevant tab and marks its label.
+
+<Screenshot src={createDialogShot} alt="Event editor with destination server, three tabs, basic event fields, description preview, and Cancel and Create buttons (Japanese interface)." size="narrow" />
+
+| Field | Details |
+| --- | --- |
+| Title | Required; up to 32 characters |
+| Start and end dates and times | New duration follows personal defaults unless a range was selected. Moving the start date after the end date moves the end date to the same day without changing times. An end before the start is rejected. |
+| Repeat | Daily, weekly, every two weeks, or monthly, with an end date or count |
+| All day | Hides time inputs and uses dates only; the end date is included |
+| Color | Personal default for new events; choose a preset or custom color |
+| Reminders | Personal defaults, or server defaults if unspecified. Set a number of minutes, hours, days, or weeks before; up to 10 reminders. |
+| Reminder mentions | Up to 10 targets total: everyone, roles, or users. Choose roles from the list and add users by Discord user ID. |
+| Location / URL | Up to 200 characters; included in reminders and external calendars |
+| Description | Up to 1,000 characters including formatting. Use [formatting](/docs/edit#description-format) and Preview. Included in reminders. |
+| Discord event sync | Also creates a Discord scheduled event; see below |
+
+Select **Create** to save.
+
+### Import an ICS file
+
+Import `.ics` files exported from Google Calendar, Apple Calendar, Outlook, and other apps using **the arrow beside New event → Import from ICS file**.
+
+1. Choose a file no larger than 1 MiB.
+2. Optionally narrow the date range and select events. Events with the same title and start time are marked Already exists and initially unselected.
+3. Choose an import color and select **Import N events**.
+
+Up to 200 events can be imported at once, with at most 10,000 estimated occurrences including repeats. Titles longer than 32 characters and descriptions longer than 1,000 are shortened and marked. Simple daily, weekly, biweekly, and monthly rules become repeating events. Unsupported rules, including individually changed or excluded occurrences, are skipped.
+
+Imported events have no advance reminders, mention targets, or Discord event sync; edit them afterward if needed. The file and ICS UID are not stored, so selecting the same event again can create a duplicate.
+
+### Mention people in reminders
+
+Selected targets are mentioned in advance and start-time reminders. No selection means no mentions. To find a user's ID, enable Discord's Developer Mode under Advanced settings and use Copy User ID.
+
+You need Mention Everyone permission to select everyone or non-mentionable roles, including when preserving those targets during editing. Otherwise remove those targets before saving. If the bot lacks permission, the reminder still posts but those mentions do not notify their targets.
+
+### Sync with Discord scheduled events
+
+Enable sync to create a scheduled event in Discord, where members can express interest and receive Discord's start notification. Later calendar edits and deletions also update Discord.
+
+Sync is unavailable when:
+
+- You lack Discord's **Create Events** permission.
+- The bot lacks **Create Events**. [Invite it again](/docs/invite) to grant permission.
+- The start time is in the past.
+
+Use **Recheck permissions** after permissions change. Otherwise reopen the page after a short wait. Anyone who can edit the calendar event can change an existing synced event or disable sync; the extra permission applies when creating a new sync.
+
+<Callout>
+Changes made directly in Discord do not update the calendar. Editing the calendar later overwrites or recreates the Discord event.
+</Callout>
+
+### Reminders
+
+The bot posts embeds at the start time and each configured advance reminder time to the channel set in Server settings or `/init`. Start-time reminders can still be sent with no advance reminders; disable them in Server settings if desired. Server defaults initially include 1 day and 1 hour before, unless personal defaults override them.
+
+<Callout type="warning">
+Configure a reminder channel first; see [Initial setup](/docs/initialize).
+</Callout>
+
+<Callout>
+In restricted mode, members without editing permissions can view events but cannot create, edit, or delete them. New event is disabled with an explanation.
+</Callout>
+
+### Receive push notifications
+
+1. Open **Push notifications** from the account menu or sidebar.
+2. Choose events from all your servers or only events you created. This choice applies to all devices. Older events without a recorded creator do not qualify for the latter.
+3. Enter a device name, select **Receive on this device**, and allow browser notifications. Up to 10 devices can be registered.
+
+Notifications include the title, start time in JST, and server name at start time and advance reminder times. Disabling server start-time reminders also disables those push reminders. A Discord reminder channel is not required. Opening a notification shows the event's date in the calendar; notifications for the same event are grouped on the device.
+
+On iPhone / iPad, use an app added to the Home Screen on iOS 16.4 or later. If notifications were blocked, allow them in browser site settings. Focus modes and power-saving settings may delay delivery.
+
+**Off** stops delivery to all devices. **Unregister** stops a particular device. Signing out unsubscribes the current browser. You stop receiving notifications after leaving a server. Devices with repeated delivery failures are disabled and shown in settings; register them again on that device. Browser updates can also change registration details; select **Receive on this device** again if delivery stops.
+
+## Create events from Discord
+
+Use `/create` to add events without opening a browser. See [Available commands](/docs/commands).
+
+### Repeating events
+
+In **Repeat & reminders**, select **Does not repeat** to configure daily, weekly, biweekly, or monthly rules (by date or first through fifth weekday). Weekly rules can include multiple weekdays. End with no limit, an end date, or a count.
+
+Review the next three occurrences and select **Apply settings**, then **Create** in the event editor. Back and Cancel return without applying recurrence changes. Closing the entire editor checks for unsaved changes.
+
+The start date must match the rule. Months lacking the chosen date or fifth weekday are skipped. Counts include the first occurrence, and canceled occurrences are not replaced. Attachments are saved only on the first occurrence. Repeating events cannot also sync to Discord scheduled events.
