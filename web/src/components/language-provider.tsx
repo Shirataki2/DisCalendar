@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import {
   createContext,
   type ReactNode,
@@ -17,6 +18,7 @@ import {
   resolveLanguage,
   translate,
 } from "@/lib/i18n";
+import { SITE_NAME } from "@/lib/site";
 
 const LanguageContext = createContext({
   language: "ja" as Language,
@@ -27,6 +29,7 @@ const LanguageContext = createContext({
 
 /** 公開ページも含めたブラウザの言語設定。SSR と hydration 直後は日本語で揃える。 */
 export function LanguageProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [language, setCurrentLanguage] = useState<Language>("ja");
   useEffect(() => {
     let saved: string | null = null;
@@ -49,7 +52,37 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     document.documentElement.lang = language;
-  }, [language]);
+    const title =
+      pathname === "/dashboard"
+        ? "サーバー選択"
+        : pathname === "/dashboard/all"
+          ? "すべての予定"
+          : /^\/dashboard\/\d+$/.test(pathname)
+            ? "カレンダー"
+            : null;
+    if (!title) return;
+    const titleForms = [
+      `${title} | ${SITE_NAME}`,
+      `${translate("en", title)} | ${SITE_NAME}`,
+    ];
+    const localizedTitle = titleForms[language === "en" ? 1 : 0];
+    const syncTitle = () => {
+      if (
+        titleForms.includes(document.title) &&
+        document.title !== localizedTitle
+      )
+        document.title = localizedTitle;
+    };
+    syncTitle();
+    // 画面遷移後に Next が metadata を挿入しても、選択言語を維持する。
+    const observer = new MutationObserver(syncTitle);
+    observer.observe(document.head, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [language, pathname]);
 
   const setLanguage = useCallback((next: Language) => {
     setCurrentLanguage(next);

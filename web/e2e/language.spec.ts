@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { calendarToday, dayCell, eventOn, openEventPopover } from "./calendar";
-import { E2E_GUILDS } from "./fixtures";
+import { E2E_EDITOR_ROLES, E2E_GUILDS } from "./fixtures";
 
 test.describe("初回の言語とブラウザ保存", () => {
   test.use({ storageState: { cookies: [], origins: [] }, locale: "en-US" });
@@ -104,6 +104,13 @@ test("メンションの検証・非参加・API エラーも別タブの言語�
   await page.getByRole("button", { name: "New event", exact: true }).click();
   await page.getByRole("tab", { name: /^Repeat & reminders/ }).click();
   const form = page.getByRole("dialog");
+  await form
+    .getByRole("checkbox", { name: "@everyone (everyone)", exact: true })
+    .check();
+  await form.getByRole("combobox", { name: "Role to mention" }).click();
+  await page
+    .getByRole("option", { name: E2E_EDITOR_ROLES[0].name, exact: true })
+    .click();
   const other = await context.newPage();
   await other.goto("/dashboard");
   const language = other.getByRole("combobox", { name: "Language / 言語" });
@@ -121,16 +128,62 @@ test("メンションの検証・非参加・API エラーも別タブの言語�
     ],
   ]) {
     await form.getByLabel("User ID to mention", { exact: true }).fill(id);
+    const heading = form.getByRole("heading", { name: /^Reminder mentions/ });
+    await expect(heading).toContainText("(entering a user ID)");
+    await expect(heading).toContainText(
+      `@everyone, @${E2E_EDITOR_ROLES[0].name}`,
+    );
     await form.getByRole("button", { name: "Add user", exact: true }).click();
     await expect(form.getByText(english, { exact: true })).toBeVisible();
     await language.selectOption("ja");
     await expect(form.getByText(japanese, { exact: true })).toBeVisible();
+    const japaneseHeading = form.getByRole("heading", {
+      name: /^通知のメンション先/,
+    });
+    await expect(japaneseHeading).toContainText("（ユーザーIDを入力中）");
+    await expect(japaneseHeading).toContainText(
+      `@everyone、@${E2E_EDITOR_ROLES[0].name}`,
+    );
     await expect(
       form.getByLabel("メンションするユーザーID", { exact: true }),
     ).toHaveValue(id);
     await language.selectOption("en");
     await expect(form.getByText(english, { exact: true })).toBeVisible();
   }
+});
+
+test("ページタイトルも言語切り替え・クライアント遷移・戻る操作に追従する", async ({
+  page,
+}) => {
+  await page.goto("/dashboard");
+  const language = page.getByRole("combobox", { name: "Language / 言語" });
+  await expect(page).toHaveTitle("サーバー選択 | DisCalendar");
+  await language.selectOption("en");
+  await expect(page).toHaveTitle("Choose a server | DisCalendar");
+  await page
+    .locator(`a[href="/dashboard/${E2E_GUILDS.admin.id}"]`)
+    .first()
+    .click();
+  await expect(
+    page.getByRole("button", { name: "New event", exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveTitle("Calendar | DisCalendar");
+  await page.locator('a[href="/dashboard/all"]').first().click();
+  await expect(
+    page.getByRole("heading", { name: "All events", exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveTitle("All events | DisCalendar");
+  await language.selectOption("ja");
+  await expect(page).toHaveTitle("すべての予定 | DisCalendar");
+  await language.selectOption("en");
+  await page.goBack();
+  await expect(page).toHaveTitle("Calendar | DisCalendar");
+  await page.reload();
+  await expect(page).toHaveTitle("Calendar | DisCalendar");
+  await language.selectOption("ja");
+  await expect(page).toHaveTitle("カレンダー | DisCalendar");
+  await page.getByRole("link", { name: "サーバー一覧へ", exact: true }).click();
+  await expect(page).toHaveTitle("サーバー選択 | DisCalendar");
 });
 
 test("英語の繰り返し終了日を空にしても検証エラーから復帰できる", async ({

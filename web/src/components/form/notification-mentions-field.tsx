@@ -105,8 +105,10 @@ export function NotificationMentionsField({
       <h3 id="notification-mentions-heading" className="text-sm font-medium">
         {t("通知のメンション先")}
         <span className="ml-2 break-words font-normal text-muted-foreground">
-          {mentions.length ? mentions.map(mentionLabel).join("、") : t("なし")}
-          {userId && "（ユーザーIDを入力中）"}
+          {mentions.length
+            ? mentions.map(mentionLabel).join(language === "en" ? ", " : "、")
+            : t("なし")}
+          {userId && t("（ユーザーIDを入力中）")}
         </span>
       </h3>
       <Field

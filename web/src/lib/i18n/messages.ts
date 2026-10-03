@@ -244,6 +244,7 @@ export const english: Readonly<
   と: " and the ",
   "に同意したものとみなします。": ".",
   サーバー選択: "Choose a server",
+  カレンダー: "Calendar",
   サーバーを選択: "Choose a server",
   Discordからサーバー一覧を取得できませんでした:
     "Could not load your servers from Discord",
