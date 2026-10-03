@@ -295,10 +295,10 @@ export const english: Readonly<
     "Use 1,000 characters or fewer for the description",
   "場所 / URL は200文字以内で入力してください":
     "Use 200 characters or fewer for the location / URL",
-  分前: "minutes before",
-  時間前: "hours before",
-  日前: "days before",
-  週間前: "weeks before",
+  分前: { one: "minute before", other: "minutes before" },
+  時間前: { one: "hour before", other: "hours before" },
+  日前: { one: "day before", other: "days before" },
+  週間前: { one: "week before", other: "weeks before" },
   "「{name}」を削除します。この操作は取り消せません。":
     "“{name}” will be deleted. This cannot be undone.",
   "{count} サーバーの予定をまとめて表示": {

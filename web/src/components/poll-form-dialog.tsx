@@ -218,6 +218,7 @@ export function PollFormDialog({
                                 {`候補${index + 1}の${label}日`}
                               </label>
                               <DatePicker
+                                language="ja"
                                 id={`poll-${index}-${key}`}
                                 className="h-9 px-2"
                                 value={parseApiDateTime(option[key])}

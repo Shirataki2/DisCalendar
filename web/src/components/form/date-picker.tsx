@@ -12,6 +12,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import type { Language } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -21,6 +22,7 @@ interface Props {
   disabled?: boolean;
   invalid?: boolean;
   className?: string;
+  language?: Language;
 }
 
 /** 日付入力 (旧 v-date-picker 相当)。ボタンを押すとカレンダーがポップオーバーで開く */
@@ -31,8 +33,10 @@ export function DatePicker({
   disabled,
   invalid,
   className,
+  language: override,
 }: Props) {
-  const { language } = useLanguage();
+  const { language: selectedLanguage } = useLanguage();
+  const language = override ?? selectedLanguage;
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -57,7 +61,7 @@ export function DatePicker({
           { locale: language === "en" ? enUS : ja },
         )}
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-0">
+      <PopoverContent lang={language} align="start" className="w-auto p-0">
         <Calendar
           mode="single"
           locale={language === "en" ? enUS : ja}

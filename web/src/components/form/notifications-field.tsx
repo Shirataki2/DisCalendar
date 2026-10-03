@@ -1,7 +1,12 @@
 "use client";
 
 import { PlusIcon, XIcon } from "lucide-react";
-import { Controller, useFieldArray, useFormContext } from "react-hook-form";
+import {
+  Controller,
+  useFieldArray,
+  useFormContext,
+  useWatch,
+} from "react-hook-form";
 import {
   LocalizedFieldError as FieldError,
   useLanguage,
@@ -50,10 +55,7 @@ export function NotificationsField({ label, children, disabled }: Props) {
     formState: { errors },
   } = useFormContext<NotificationsFormValues>();
   const notifications = useFieldArray({ control, name: "notifications" });
-  const units = NOTIFICATION_UNITS.map((unit) => ({
-    ...unit,
-    label: t(unit.label),
-  }));
+  const values = useWatch({ control, name: "notifications" });
   const listError =
     errors.notifications?.root?.message ?? errors.notifications?.message;
 
@@ -66,6 +68,10 @@ export function NotificationsField({ label, children, disabled }: Props) {
       <div className="flex flex-col gap-2">
         {notifications.fields.map((item, index) => {
           const numError = errors.notifications?.[index]?.num;
+          const units = NOTIFICATION_UNITS.map((unit) => ({
+            ...unit,
+            label: t(unit.label, { count: values[index]?.num ?? item.num }),
+          }));
           return (
             <div key={item.id} className="flex flex-wrap items-center gap-2">
               <Input

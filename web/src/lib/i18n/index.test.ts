@@ -8,6 +8,7 @@ import {
   defaultEventFormValues,
   eventFormSchema,
   eventFormToApiInput,
+  NOTIFICATION_UNITS,
 } from "@/lib/event-form";
 import { JAPANESE_HOLIDAYS } from "@/lib/japanese-holidays.generated";
 import { describeRecurrence } from "@/lib/recurrence";
@@ -84,6 +85,16 @@ describe("表示言語", () => {
     expect(translate("en", JAPANESE_HOLIDAYS["2019-10-14"])).toBe(
       "Health and Sports Day (Sports Day)",
     );
+  });
+  test("通知単位の単数・複数形を予定詳細の表記に合わせる", () => {
+    for (const { value, label } of NOTIFICATION_UNITS) {
+      for (const num of [1, 2]) {
+        expect(`${num} ${translate("en", label, { count: num })}`).toBe(
+          describeNotification({ num, unit: value }, "en"),
+        );
+        expect(translate("ja", label, { count: num })).toBe(label);
+      }
+    }
   });
   test("繰り返しの終了日が空・不正でも英語の説明を表示できる", () => {
     for (const date of ["", "invalid", "2026-02-30"]) {

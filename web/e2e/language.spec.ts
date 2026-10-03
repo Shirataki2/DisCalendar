@@ -274,6 +274,17 @@ for (const width of [375, 390, 1280]) {
       .fill("利用者の説明は翻訳しない");
     await form.getByRole("tab", { name: /^Repeat & reminders/ }).click();
     const number = form.getByLabel("Reminder timing (number)").first();
+    const unit = form
+      .getByRole("combobox", { name: "Reminder timing (unit)" })
+      .first();
+    await expect(unit).toContainText("day before");
+    await expect(
+      form.getByRole("combobox", { name: "Reminder timing (unit)" }).nth(1),
+    ).toContainText("hour before");
+    await number.fill("2");
+    await expect(unit).toContainText("days before");
+    await number.fill("1");
+    await expect(unit).toContainText("day before");
     await number.fill("0");
     await form.getByRole("button", { name: "Create", exact: true }).click();
     await expect(
@@ -341,3 +352,34 @@ for (const width of [375, 390, 1280]) {
     ).toBeVisible();
   });
 }
+
+test("英語選択中も未翻訳の日程調整の日付とルート404本文を日本語で扱う", async ({
+  page,
+}) => {
+  await page.goto(`/dashboard/${E2E_GUILDS.polls.id}/polls`);
+  await page
+    .getByRole("combobox", { name: "Language / 言語" })
+    .selectOption("en");
+  await page
+    .getByRole("button", { name: "日程調整を作成", exact: true })
+    .click();
+  const form = page.getByRole("dialog", {
+    name: "日程調整を作成",
+    exact: true,
+  });
+  await expect(form).toHaveAttribute("lang", "ja");
+  const date = form.getByRole("button", { name: "候補1の開始日", exact: true });
+  await expect(date).toHaveText(/\d{4}\/\d{2}\/\d{2} \([日月火水木金土]\)/);
+  await date.click();
+  const calendar = page
+    .getByRole("dialog")
+    .filter({ has: page.getByRole("grid") });
+  await expect(calendar).toHaveAttribute("lang", "ja");
+  await expect(calendar).toContainText(/\d{4}年/);
+  await page.goto("/no-such-page");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.locator("main")).toHaveAttribute("lang", "ja");
+  await expect(
+    page.getByRole("heading", { name: "ページが見つかりません" }),
+  ).toBeVisible();
+});

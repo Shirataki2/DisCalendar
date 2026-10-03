@@ -32,7 +32,10 @@ export function ErrorScreen({
   return (
     <div className="dark flex flex-1 flex-col bg-background text-foreground">
       <SiteHeader />
-      <main className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center sm:px-6">
+      <main
+        lang="ja"
+        className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center sm:px-6"
+      >
         {code ? (
           <p
             aria-hidden

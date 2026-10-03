@@ -94,7 +94,7 @@ export default async function DashboardPage() {
       )}
       {available.length === 0 && joined.ok && (
         <p className="mb-6 text-sm text-muted-foreground">
-          <Message message={"Bot が参加しているサーバーがありません。"} />
+          <Message message={"Bot が参加しているサーバーがありません。"} />{" "}
           {invitable.length > 0 ? (
             <Message message={"下の一覧から Bot を招待できます。"} />
           ) : (
