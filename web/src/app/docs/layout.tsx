@@ -1,4 +1,5 @@
 import { DocsNav } from "@/components/docs/docs-nav";
+import { Message } from "@/components/language-provider";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 
@@ -8,14 +9,11 @@ export default function DocsLayout({ children }: LayoutProps<"/docs">) {
   return (
     <>
       <SiteHeader />
-      <div
-        lang="ja"
-        className="mx-auto flex w-full max-w-6xl flex-1 gap-10 px-4 py-8 sm:px-6 lg:py-12"
-      >
+      <div className="mx-auto flex w-full max-w-6xl flex-1 gap-10 px-4 py-8 sm:px-6 lg:py-12">
         <aside className="hidden w-56 shrink-0 lg:block">
           <div className="sticky top-24">
             <p className="mb-3 px-3 text-xs font-semibold tracking-widest text-neutral-500 uppercase">
-              使い方
+              <Message message="使い方" />
             </p>
             <DocsNav orientation="vertical" />
           </div>

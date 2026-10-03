@@ -1,0 +1,60 @@
+import { Callout } from "@/components/docs/callout";
+
+After adding the bot, choose the channel where reminders should be posted. Events will not produce Discord reminders until this is configured. Website settings and Discord's `/init` command update the same setting.
+
+## Configure in your browser
+
+[Sign in](/docs/login), open your server calendar, and select the gear icon. Under **Discord reminders**:
+
+- **Reminder channel**: choose a text channel. Channels where the bot lacks View Channel, Send Messages, or Embed Links are unavailable, with the missing permissions explained.
+- **Notify at the start time**: turn this off to send only advance reminders. Midnight reminders for all-day events are also disabled.
+- **Default advance reminders**: initial values for new events, originally 1 day and 1 hour before. Each event can override them.
+
+Hover or focus an information icon for details; tap it on a phone. Select **Save** to apply changes. The permissions listed below are required.
+
+## Configure with /init in Discord
+
+Run `/init` in the destination channel. To select another channel, use its channel option (currently labeled `チャンネル`):
+
+```
+/init チャンネル: #reminders
+```
+
+The bot confirms the destination, or reports that it changed an existing setting. Then [create events](/docs/calendar) to receive start-time and advance reminders.
+
+Discord displays timestamps in each member's language and time zone, with relative time until the start. All-day dates remain as registered. The reminder title and calendar link open the server calendar, returning there after sign-in if needed. Events with an active public share link also include a details link that needs no sign-in.
+
+## Post event summaries
+
+In Server settings, **Post event summaries** lets the bot post lists to the reminder channel. Management permissions are required. Configure and save the reminder channel first, or use `/init`.
+
+- **Post today's events every day**: defaults to **08:00 JST**.
+- **Post this week's events every week**: includes seven days starting on the chosen weekday; defaults to **Monday, 08:00 JST**.
+- **Skip posts when there are no events**: enabled initially. Weekly posts are skipped if the whole seven-day period is empty. When unchecked, an empty-schedule message is posted.
+
+Daily and weekly posting are initially disabled. Select the time and weekday, then **Save summaries**. This section saves independently from the dialog's Save and Cancel buttons. Posting times always use JST.
+
+Overnight, all-day, and repeating events are included. Discord's display settings apply to timed events; all-day events use dates. Long lists include the first events, a remaining count, and a calendar link.
+
+After downtime, the bot posts that day's unsent summary if the posting time has passed. Weekly summaries catch up only on the selected weekday; earlier days are not replayed. Failed posts are not retried that day. Check the destination channel and permissions.
+
+## Who can configure settings?
+
+The server owner or members with any of these permissions can run `/init` and change server settings:
+
+- Administrator
+- Manage Server
+- Manage Messages
+- Manage Roles
+
+If you lack permission, only you see the error reply.
+
+## Troubleshooting
+
+<Callout type="warning" title="Missing bot permissions">
+If the bot lacks View Channel, Send Messages, or Embed Links in the chosen channel, `/init` does not save the setting and reports the missing permissions. Grant them and try again. See [Invite the bot](/docs/invite).
+</Callout>
+
+- Run `/init` again or choose another channel in Server settings to change the destination. The latest choice wins.
+- If `/init` does not appear immediately after inviting the bot, wait or restart Discord.
+- Legacy `cal` commands such as `cal init` are no longer supported. Use slash commands.

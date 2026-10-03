@@ -1,0 +1,45 @@
+import { LinkButton } from "@/components/docs/link-button";
+import { Step, Steps } from "@/components/docs/steps";
+import { ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
+
+DisCalendar gives each Discord server a shared calendar. Add and edit events in your browser, and the bot posts reminders to a Discord channel at the start time and at your chosen advance reminder times.
+
+## Try it before installing
+
+You can use the practice calendar without signing in, installing the bot, or having editing permissions. Follow the guide to create and edit an event, preview Discord reminders, and delete the event.
+
+<LinkButton href={ROUTES.tutorial} variant="primary">Try the calendar</LinkButton>
+
+End the guide at any time to explore freely. **Start over** resets the guide and events. Practice events are not saved and reset when you reopen the page. Nothing is saved to a real server or sent to Discord.
+
+## Three steps to get started
+
+<Steps>
+  <Step title="Invite the bot to your server">
+    Add DisCalendar to your Discord server to receive reminders. You need Administrator or Manage Server permission.
+
+    <LinkButton href={ROUTES.invite} variant="primary" external>Invite the bot</LinkButton>
+
+    See [Invite the bot](/docs/invite) for details.
+  </Step>
+  <Step title="Choose a reminder channel">
+    [Sign in](/docs/login) with Discord and open the server calendar. Open Server settings using the gear icon and choose a Reminder channel, then save.
+
+    Alternatively, run `/init` in the Discord channel where you want reminders.
+    Both methods require the server owner or Administrator, Manage Server, Manage Messages, or Manage Roles permission. See [Initial setup](/docs/initialize).
+  </Step>
+  <Step title="Create an event in your browser">
+    Choose your server from the server list, then click a date or select **New event**.
+    The bot sends reminders at the event's start time and each configured advance reminder time.
+    Discord displays times according to each member's language and time zone; all-day dates remain unchanged.
+    Use the calendar link in a reminder to open the server calendar. Click an event to edit or delete it.
+
+    <LinkButton href={ROUTES.dashboard}>Open server list</LinkButton>
+  </Step>
+</Steps>
+
+## Need help?
+
+Report problems or ask questions in the support server's **#不具合報告** channel.
+
+<LinkButton href={SUPPORT_SERVER_URL}>Join the support server</LinkButton>

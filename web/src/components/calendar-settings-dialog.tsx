@@ -6,6 +6,10 @@ import { Controller, FormProvider, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { ColorPicker } from "@/components/form/color-picker";
 import { NotificationsField } from "@/components/form/notifications-field";
+import {
+  LocalizedFieldError,
+  useLanguage,
+} from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel } from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -59,30 +63,36 @@ interface Props {
  * 選択はその場で localStorage に保存する。アカウントメニューとドロワーの両方から開く
  */
 export function CalendarSettingsDialog({ open, onOpenChange }: Props) {
+  const { t, language } = useLanguage();
   const { settings, updateSettings } = useCalendarSettings();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        lang="ja"
+        lang={language}
         className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
       >
         <DialogHeader>
-          <DialogTitle>カレンダーの表示設定</DialogTitle>
+          <DialogTitle>{t("カレンダーの表示設定")}</DialogTitle>
           <DialogDescription>
-            設定はこのブラウザに記憶されます。週の開始曜日はすぐに反映され、最初に表示するビューは次にカレンダーを開いたときから使われます。
+            {t(
+              "設定はこのブラウザに記憶されます。週の開始曜日はすぐに反映され、最初に表示するビューは次にカレンダーを開いたときから使われます。",
+            )}
           </DialogDescription>
         </DialogHeader>
         <Field>
           <FieldLabel htmlFor="calendar-settings-initial-view">
-            最初に表示するビュー
+            {t("最初に表示するビュー")}
           </FieldLabel>
           <Select
             value={settings.initialView}
             onValueChange={(value) => {
               if (value) updateSettings({ initialView: value });
             }}
-            items={INITIAL_VIEW_ITEMS}
+            items={INITIAL_VIEW_ITEMS.map((item) => ({
+              ...item,
+              label: t(item.label),
+            }))}
           >
             <SelectTrigger
               id="calendar-settings-initial-view"
@@ -90,10 +100,10 @@ export function CalendarSettingsDialog({ open, onOpenChange }: Props) {
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent lang="ja">
+            <SelectContent lang={language}>
               {INITIAL_VIEW_ITEMS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {item.label}
+                  {t(item.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -101,22 +111,25 @@ export function CalendarSettingsDialog({ open, onOpenChange }: Props) {
         </Field>
         <Field>
           <FieldLabel htmlFor="calendar-settings-first-day">
-            週の開始曜日
+            {t("週の開始曜日")}
           </FieldLabel>
           <Select
             value={String(settings.firstDay)}
             onValueChange={(value) => {
               if (value) updateSettings({ firstDay: value === "1" ? 1 : 0 });
             }}
-            items={FIRST_DAY_ITEMS}
+            items={FIRST_DAY_ITEMS.map((item) => ({
+              ...item,
+              label: t(item.label),
+            }))}
           >
             <SelectTrigger id="calendar-settings-first-day" className="w-full">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent lang="ja">
+            <SelectContent lang={language}>
               {FIRST_DAY_ITEMS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {item.label}
+                  {t(item.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -157,6 +170,7 @@ function CreationDefaultsForm({
   settings: CalendarSettings;
   updateSettings: (patch: Partial<CalendarSettings>) => void;
 }) {
+  const { t, language } = useLanguage();
   const form = useForm<z.infer<typeof creationFormSchema>>({
     resolver: zodResolver(creationFormSchema),
     defaultValues: {
@@ -188,18 +202,22 @@ function CreationDefaultsForm({
           setSaved(true);
         })}
       >
-        <h3 className="text-sm font-medium">新規作成の既定値</h3>
+        <h3 className="text-sm font-medium">{t("新規作成の既定値")}</h3>
         <p className="text-sm text-muted-foreground">
-          保存後、新しく予定を作るときに使われます。編集・複製では元の予定の値を使います。
+          {t(
+            "保存後、新しく予定を作るときに使われます。編集・複製では元の予定の値を使います。",
+          )}
         </p>
         <Field>
-          <FieldLabel htmlFor="calendar-settings-color">既定の色</FieldLabel>
+          <FieldLabel htmlFor="calendar-settings-color">
+            {t("既定の色")}
+          </FieldLabel>
           <Controller
             control={form.control}
             name="defaultColor"
             render={({ field }) => (
               <ColorPicker
-                language="ja"
+                language={language}
                 id="calendar-settings-color"
                 value={field.value}
                 onChange={(value) => {
@@ -208,11 +226,11 @@ function CreationDefaultsForm({
               />
             )}
           />
-          <FieldError errors={[form.formState.errors.defaultColor]} />
+          <LocalizedFieldError errors={[form.formState.errors.defaultColor]} />
         </Field>
         <Field>
           <FieldLabel htmlFor="calendar-settings-duration">
-            クリックで作るときの長さ
+            {t("クリックで作るときの長さ")}
           </FieldLabel>
           <Controller
             control={form.control}
@@ -220,7 +238,10 @@ function CreationDefaultsForm({
             render={({ field }) => (
               <Select
                 value={field.value}
-                items={DURATION_ITEMS}
+                items={DURATION_ITEMS.map((item) => ({
+                  ...item,
+                  label: t(item.label),
+                }))}
                 onValueChange={(value) => {
                   if (value !== null) {
                     field.onChange(value);
@@ -233,10 +254,10 @@ function CreationDefaultsForm({
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent lang="ja">
+                <SelectContent lang={language}>
                   {DURATION_ITEMS.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
-                      {item.label}
+                      {t(item.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -244,12 +265,14 @@ function CreationDefaultsForm({
             )}
           />
           <p className="text-sm text-muted-foreground">
-            時間帯を範囲選択したときは、その範囲を優先します。終日の日付クリックでは、終日を外したときの長さに使います。
+            {t(
+              "時間帯を範囲選択したときは、その範囲を優先します。終日の日付クリックでは、終日を外したときの長さに使います。",
+            )}
           </p>
         </Field>
         <Field>
           <FieldLabel htmlFor="calendar-settings-notification-mode">
-            事前通知の既定値
+            {t("事前通知の既定値")}
           </FieldLabel>
           <Controller
             control={form.control}
@@ -257,7 +280,10 @@ function CreationDefaultsForm({
             render={({ field }) => (
               <Select
                 value={field.value}
-                items={NOTIFICATION_MODE_ITEMS}
+                items={NOTIFICATION_MODE_ITEMS.map((item) => ({
+                  ...item,
+                  label: t(item.label),
+                }))}
                 onValueChange={(value) => {
                   if (!value) return;
                   field.onChange(value);
@@ -277,10 +303,10 @@ function CreationDefaultsForm({
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent lang="ja">
+                <SelectContent lang={language}>
                   {NOTIFICATION_MODE_ITEMS.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
-                      {item.label}
+                      {t(item.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -289,16 +315,18 @@ function CreationDefaultsForm({
           />
         </Field>
         {mode === "personal" && (
-          <NotificationsField label="既定の事前通知" language="ja">
+          <NotificationsField label={t("既定の事前通知")} language={language}>
             <p className="text-sm text-muted-foreground">
-              すべて削除すると事前通知なしになります。サーバーの既定値より優先されます。
+              {t(
+                "すべて削除すると事前通知なしになります。サーバーの既定値より優先されます。",
+              )}
             </p>
           </NotificationsField>
         )}
-        <Button type="submit">既定値を保存</Button>
+        <Button type="submit">{t("既定値を保存")}</Button>
         {saved && !form.formState.isDirty && (
           <p role="status" className="text-sm text-muted-foreground">
-            既定値を保存しました。
+            {t("既定値を保存しました。")}
           </p>
         )}
       </form>

@@ -5,6 +5,7 @@ import { BellRingIcon, CheckIcon, RotateCcwIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { EventCalendar } from "@/components/event-calendar";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import type { ApiEvent } from "@/lib/api/types";
 import {
@@ -52,11 +53,13 @@ interface Progress {
 }
 
 export function Tutorial() {
+  const { t } = useLanguage();
   const [ready, setReady] = useState(false);
   const [attempt, setAttempt] = useState(0);
   // サンプルの日付はブラウザで決め、SSR との日付差を避ける。
   useEffect(() => setReady(true), []);
-  if (!ready) return <p role="status">練習用カレンダーを準備しています…</p>;
+  if (!ready)
+    return <p role="status">{t("練習用カレンダーを準備しています…")}</p>;
   return (
     <TutorialSession
       key={attempt}
@@ -66,6 +69,7 @@ export function Tutorial() {
 }
 
 function TutorialSession({ onRestart }: { onRestart: () => void }) {
+  const { t } = useLanguage();
   const [progress, setProgress] = useState<Progress>({
     step: 0,
     unlocked: 0,
@@ -123,23 +127,23 @@ function TutorialSession({ onRestart }: { onRestart: () => void }) {
             aria-hidden
             className="flex size-10 items-center justify-center rounded-full bg-indigo-500/20 font-bold text-indigo-200"
           >
-            練
+            {t("練")}
           </span>
           <div>
-            <p className="font-semibold">練習用サーバー</p>
+            <p className="font-semibold">{t("練習用サーバー")}</p>
             <p className="text-xs text-muted-foreground">
-              予定の日時は日本時間です
+              {t("予定の日時は日本時間です")}
             </p>
           </div>
         </div>
         <Button variant="outline" onClick={onRestart}>
           <RotateCcwIcon />
-          最初からやり直す
+          {t("最初からやり直す")}
         </Button>
       </div>
       <div className="flex flex-1 flex-col [&_.calendar-shell]:h-[max(32rem,60dvh)] [&_.calendar-shell]:flex-none">
         <EventCalendar
-          guildName={"練習用サーバー"}
+          guildName={t("練習用サーバー")}
           guildId={TUTORIAL_GUILD_ID}
           canEdit
           eventsSource={source}
@@ -158,7 +162,7 @@ function TutorialSession({ onRestart }: { onRestart: () => void }) {
             inlineContent:
               progress.step === null ? (
                 <p className="text-xs text-indigo-200">
-                  練習用・Discordには送信されません
+                  {t("練習用・Discordには送信されません")}
                 </p>
               ) : (
                 <TutorialGuide {...guideProps} compact />
@@ -183,6 +187,7 @@ function TutorialGuide({
   onRestart: () => void;
   compact?: boolean;
 }) {
+  const { t } = useLanguage();
   const { step, unlocked, event } = progress;
   const heading = useRef<HTMLHeadingElement>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -197,32 +202,37 @@ function TutorialGuide({
 
   return (
     <section
-      aria-label={compact ? "操作のヒント" : "チュートリアル"}
+      aria-label={compact ? t("操作のヒント") : t("チュートリアル")}
       className={`relative rounded-xl border border-indigo-400/40 bg-indigo-950/80 p-4 text-indigo-50 ${compact ? "text-sm" : "lg:before:absolute lg:before:top-8 lg:before:-left-2 lg:before:size-4 lg:before:rotate-45 lg:before:border-b lg:before:border-l lg:before:border-indigo-400/40 lg:before:bg-indigo-950"}`}
     >
       <div role="status" aria-atomic="true">
         <p className="mb-2 text-xs font-medium text-indigo-200">
           {step === null
-            ? "自由に試せます"
-            : `ステップ ${step + 1} / ${STEPS.length}`}
+            ? t("自由に試せます")
+            : t("ステップ {step} / {total}", {
+                step: step + 1,
+                total: STEPS.length,
+              })}
         </p>
         <h2
           ref={heading}
           tabIndex={-1}
           className="font-semibold leading-relaxed outline-none"
         >
-          {current?.title ?? "自分のペースで試してみよう"}
+          {t(current?.title ?? "自分のペースで試してみよう")}
         </h2>
       </div>
       {compact ? (
         <>
           <p className="mt-2 text-sm leading-6 text-indigo-100">
-            {current?.text ??
-              "予定の作成・編集・削除を自由に試せます。作成・編集した予定の通知もここで確認できます。"}
+            {t(
+              current?.text ??
+                "予定の作成・編集・削除を自由に試せます。作成・編集した予定の通知もここで確認できます。",
+            )}
           </p>
           <p className="mt-2 text-xs text-indigo-200">
-            練習用・Discordには送信されません
-            {step === 3 && "。この画面を閉じると通知の見本を確認できます。"}
+            {t("練習用・Discordには送信されません")}
+            {step === 3 && t("。この画面を閉じると通知の見本を確認できます。")}
           </p>
         </>
       ) : (
@@ -234,9 +244,9 @@ function TutorialGuide({
             className="min-h-11 rounded-md text-sm font-medium text-indigo-100 underline underline-offset-4 lg:hidden"
             onClick={() => setDetailsOpen((open) => !open)}
           >
-            {detailsOpen ? "詳しい説明を閉じる" : "詳しい説明"}
+            {detailsOpen ? t("詳しい説明を閉じる") : t("詳しい説明")}
             {!detailsOpen && (step === 3 || step === null)
-              ? "・通知プレビュー"
+              ? t("・通知プレビュー")
               : ""}
           </button>
           <div
@@ -244,20 +254,24 @@ function TutorialGuide({
             className={detailsOpen ? "block" : "hidden lg:block"}
           >
             <p className="mt-2 text-sm leading-6 text-indigo-100">
-              {current?.text ??
-                "予定の作成・編集・削除を自由に試せます。作成・編集した予定の通知もここで確認できます。"}
+              {t(
+                current?.text ??
+                  "予定の作成・編集・削除を自由に試せます。作成・編集した予定の通知もここで確認できます。",
+              )}
             </p>
             {(step === 3 || step === null) &&
               (event ? (
                 <NotificationPreview key={event.id} event={event} />
               ) : (
                 <p className="mt-4 text-sm text-indigo-200">
-                  予定を作成すると、通知の見本を確認できます。
+                  {t("予定を作成すると、通知の見本を確認できます。")}
                 </p>
               ))}
             {(step === 5 || step === null) && <TutorialNextSteps />}
             <p className="mt-4 border-t border-indigo-300/20 pt-3 text-xs leading-5 text-indigo-200">
-              練習した予定は保存されません。ページを開き直すと最初の状態に戻ります。
+              {t(
+                "練習した予定は保存されません。ページを開き直すと最初の状態に戻ります。",
+              )}
             </p>
           </div>
         </div>
@@ -270,7 +284,7 @@ function TutorialGuide({
             variant="outline"
             onClick={() => goTo(step - 1)}
           >
-            前の説明へ
+            {t("前の説明へ")}
           </Button>
         )}
         {step !== null && step < 5 && (
@@ -280,23 +294,23 @@ function TutorialGuide({
             disabled={!canContinue}
             onClick={() => goTo(step + 1)}
           >
-            {step === 3 ? "通知を確認した" : "次へ"}
+            {step === 3 ? t("通知を確認した") : t("次へ")}
           </Button>
         )}
         {step !== null && (
           <Button type="button" size="sm" variant="ghost" onClick={endGuide}>
-            {step === 5 ? "自由に試す" : "案内を終了"}
+            {step === 5 ? t("自由に試す") : t("案内を終了")}
           </Button>
         )}
         {step === null && (
           <Button type="button" size="sm" variant="outline" onClick={onRestart}>
-            案内を最初から見る
+            {t("案内を最初から見る")}
           </Button>
         )}
       </div>
       {!compact && step !== null && !canContinue && step < 5 && (
         <p className="mt-3 text-xs leading-5 text-indigo-200">
-          操作が完了すると、自動で次のステップへ進みます。
+          {t("操作が完了すると、自動で次のステップへ進みます。")}
         </p>
       )}
     </section>
@@ -304,6 +318,7 @@ function TutorialGuide({
 }
 
 function NotificationPreview({ event }: { event: ApiEvent }) {
+  const { t, language } = useLanguage();
   const [selected, setSelected] = useState("start");
   const selectedNotification = event.notifications[Number(selected)];
   const notification = selected === "start" ? undefined : selectedNotification;
@@ -316,7 +331,7 @@ function NotificationPreview({ event }: { event: ApiEvent }) {
         className="block text-xs font-medium"
         htmlFor="tutorial-notification"
       >
-        通知プレビュー
+        {t("通知プレビュー")}
       </label>
       <select
         id="tutorial-notification"
@@ -324,16 +339,19 @@ function NotificationPreview({ event }: { event: ApiEvent }) {
         value={notification ? selected : "start"}
         onChange={(change) => setSelected(change.target.value)}
       >
-        <option value="start">開始時刻の通知</option>
+        <option value="start">{t("開始時刻の通知")}</option>
         {event.notifications.map((item, index) => (
           // 同じ設定を複数追加できる既存フォームに合わせ、選択肢は入力順にする。
           // biome-ignore lint/suspicious/noArrayIndexKey: 通知設定は入力順で識別する
           <option key={index} value={index}>
-            {describeNotification(item)}の通知
+            {t("{notification}の通知", {
+              notification: describeNotification(item, language),
+            })}
           </option>
         ))}
       </select>
       <figure
+        lang="ja"
         className="rounded-lg bg-[#313338] p-3 text-[#f2f3f5]"
         aria-label="Discord通知の見本"
       >
@@ -358,18 +376,21 @@ function NotificationPreview({ event }: { event: ApiEvent }) {
         </div>
       </figure>
       <p className="text-xs leading-5 text-indigo-200">
-        本番ではサーバー設定で通知先チャンネルを選びます。開始時刻の通知もサーバー設定で変更できます。
+        {t(
+          "本番ではサーバー設定で通知先チャンネルを選びます。開始時刻の通知もサーバー設定で変更できます。",
+        )}
       </p>
     </div>
   );
 }
 
 function TutorialNextSteps() {
+  const { t } = useLanguage();
   return (
     <div className="mt-4 space-y-3 text-sm">
       <p className="flex items-center gap-2 font-medium">
         <CheckIcon className="size-4" aria-hidden />
-        自分のサーバーで使うには
+        {t("自分のサーバーで使うには")}
       </p>
       <div className="flex flex-col gap-2">
         <a
@@ -378,26 +399,27 @@ function TutorialNextSteps() {
           target="_blank"
           rel="noreferrer"
         >
-          Botを招待する
+          {t("Botを招待する")}
         </a>
         <Link
           prefetch={false}
           className="rounded-md border border-indigo-300/30 px-3 py-2 text-center hover:bg-indigo-400/10"
           href={ROUTES.dashboard}
         >
-          サーバー一覧を開く
+          {t("サーバー一覧を開く")}
         </Link>
         <Link
           prefetch={false}
           className="py-1 underline underline-offset-4"
           href={ROUTES.docs}
         >
-          導入手順を見る
+          {t("導入手順を見る")}
         </Link>
       </div>
       <p className="text-xs leading-5 text-indigo-200">
-        通知先は Web
-        のサーバー設定から選べます。Botの招待・通知先の設定や、編集権限の付与ができない場合は、サーバーの管理者に相談してください。
+        {t(
+          "通知先は Web のサーバー設定から選べます。Botの招待・通知先の設定や、編集権限の付与ができない場合は、サーバーの管理者に相談してください。",
+        )}
       </p>
     </div>
   );

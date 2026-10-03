@@ -3,11 +3,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useId, useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, describeApiError } from "@/lib/api";
 
 export function WebhookSettings({ guildId }: { guildId: string }) {
+  const { t, language } = useLanguage();
   const id = useId();
   const client = useQueryClient();
   const key = ["guild", guildId, "webhooks"];
@@ -39,30 +41,33 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
         Webhook
       </h3>
       <p className="text-sm text-muted-foreground">
-        予定の作成・変更・削除を外部に通知します。説明を含む予定の内容が登録した
-        URL に送られます。 操作はその場で反映されます。
+        {t(
+          "予定の作成・変更・削除を外部に通知します。説明を含む予定の内容が登録した URL に送られます。 操作はその場で反映されます。",
+        )}{" "}
         <Link href="/docs/webhooks" className="underline">
-          使い方
+          {t("使い方")}
         </Link>
       </p>
-      {query.isPending && <p className="text-sm">読み込み中…</p>}
+      {query.isPending && <p className="text-sm">{t("読み込み中…")}</p>}
       {(query.isError || mutation.isError) && (
         <p role="alert" className="text-sm text-destructive">
-          {describeApiError(mutation.error ?? query.error)}
+          {describeApiError(mutation.error ?? query.error, language)}
         </p>
       )}
       {notice && (
         <p role="status" className="text-sm">
-          {notice}
+          {t(notice)}
         </p>
       )}
       {secret && (
         <div className="grid gap-2 rounded-md border p-3">
           <label htmlFor={`${id}-secret`} className="text-sm font-medium">
-            署名用シークレット（一度だけ表示）
+            {t("署名用シークレット（一度だけ表示）")}
           </label>
           <p className="text-sm">
-            安全な場所に保存してください。この画面を閉じると再表示できません。
+            {t(
+              "安全な場所に保存してください。この画面を閉じると再表示できません。",
+            )}
           </p>
           <Input
             id={`${id}-secret`}
@@ -75,7 +80,7 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
             variant="outline"
             onClick={() => setSecret(null)}
           >
-            保存したので閉じる
+            {t("保存したので閉じる")}
           </Button>
         </div>
       )}
@@ -94,7 +99,7 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
             maxLength={2048}
           />
           <label htmlFor={`${id}-kind`} className="text-sm">
-            種類
+            {t("種類")}
           </label>
           <select
             id={`${id}-kind`}
@@ -104,8 +109,8 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
             }
             className="h-9 rounded-md border bg-background px-3 text-sm"
           >
-            <option value="json">汎用（JSON）</option>
-            <option value="discord">Discord Webhook 互換</option>
+            <option value="json">{t("汎用（JSON）")}</option>
+            <option value="discord">{t("Discord Webhook 互換")}</option>
           </select>
           <Button
             type="button"
@@ -126,7 +131,9 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
               })
             }
           >
-            Webhook を登録（{query.data?.length ?? 0}/5）
+            {t("Webhook を登録（{count}/5）", {
+              count: query.data?.length ?? 0,
+            })}
           </Button>
         </div>
         {query.data?.map((hook) => (
@@ -136,11 +143,14 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
               {hook.kind === "json" ? "JSON" : "Discord"}
             </p>
             <p className="text-sm">
-              {hook.enabled ? "有効" : "無効"} · 連続失敗{" "}
-              {hook.consecutive_failures} 回
+              {hook.enabled ? t("有効") : t("無効")}
+              {" · "}
+              {t("連続失敗 {count} 回", { count: hook.consecutive_failures })}
             </p>
             {hook.disabled_reason && (
-              <p className="text-sm text-destructive">{hook.disabled_reason}</p>
+              <p className="text-sm text-destructive">
+                {t(hook.disabled_reason)}
+              </p>
             )}
             <div className="flex flex-wrap gap-2">
               <Button
@@ -153,7 +163,7 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
                   )
                 }
               >
-                {hook.enabled ? "無効にする" : "有効にする"}
+                {hook.enabled ? t("無効にする") : t("有効にする")}
               </Button>
               <Button
                 type="button"
@@ -169,7 +179,7 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
                   })
                 }
               >
-                テスト送信
+                {t("テスト送信")}
               </Button>
               {hook.kind === "json" && (
                 <Button
@@ -180,7 +190,9 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
                   onClick={() => {
                     if (
                       window.confirm(
-                        "古いシークレットは使えなくなります。再生成しますか？",
+                        t(
+                          "古いシークレットは使えなくなります。再生成しますか？",
+                        ),
                       )
                     )
                       run(async () => {
@@ -192,7 +204,7 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
                       });
                   }}
                 >
-                  シークレット再生成
+                  {t("シークレット再生成")}
                 </Button>
               )}
               <Button
@@ -200,19 +212,21 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  if (window.confirm("この Webhook と配信ログを削除しますか？"))
+                  if (
+                    window.confirm(t("この Webhook と配信ログを削除しますか？"))
+                  )
                     run(() => api.webhooks.remove(guildId, hook.id));
                 }}
               >
-                削除
+                {t("削除")}
               </Button>
             </div>
             <details>
               <summary className="cursor-pointer text-sm">
-                直近の配信ログ（最大20件）
+                {t("直近の配信ログ（最大20件）")}
               </summary>
               {hook.deliveries.length === 0 ? (
-                <p className="mt-2 text-sm">配信履歴はありません</p>
+                <p className="mt-2 text-sm">{t("配信履歴はありません")}</p>
               ) : (
                 <ul className="mt-2 grid max-h-48 gap-2 overflow-y-auto text-xs">
                   {hook.deliveries.map((delivery) => (
@@ -221,11 +235,12 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
                     >
                       <time>
                         {new Date(delivery.attempted_at).toLocaleString(
-                          "ja-JP",
+                          language === "en" ? "en-US" : "ja-JP",
+                          { timeZone: "Asia/Tokyo" },
                         )}
                       </time>{" "}
-                      · {delivery.kind} · {delivery.status ?? "応答なし"}
-                      {delivery.error && <p>{delivery.error}</p>}
+                      · {delivery.kind} · {delivery.status ?? t("応答なし")}
+                      {delivery.error && <p>{t(delivery.error)}</p>}
                     </li>
                   ))}
                 </ul>

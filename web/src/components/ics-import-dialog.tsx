@@ -3,6 +3,7 @@
 import { CalendarPlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { ColorPicker } from "@/components/form/color-picker";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -22,6 +23,8 @@ import type {
   ImportSkipped,
   RecurrenceRule,
 } from "@/lib/api/types";
+import { parseApiDateTime } from "@/lib/calendar-events";
+import { formatDisplayDate, type Language } from "@/lib/i18n";
 import { useImportEvents } from "@/lib/query/events";
 
 const FILE_MAX_BYTES = 1024 * 1024;
@@ -48,8 +51,14 @@ function recurrenceLabel(rule: RecurrenceRule | undefined) {
   }[rule.frequency];
 }
 
-function formatDateTime(value: string, allDay: boolean) {
-  return allDay ? value.slice(0, 10) : value.replace("T", " ").slice(0, 16);
+function formatDateTime(value: string, allDay: boolean, language: Language) {
+  if (language === "ja")
+    return allDay ? value.slice(0, 10) : value.replace("T", " ").slice(0, 16);
+  return formatDisplayDate(
+    parseApiDateTime(value),
+    language,
+    allDay ? {} : { hour: "numeric", minute: "2-digit" },
+  );
 }
 
 interface Props {
@@ -65,6 +74,7 @@ export function IcsImportDialog({
   onOpenChange,
   defaultColor,
 }: Props) {
+  const { t, language } = useLanguage();
   const [contents, setContents] = useState("");
   const [filename, setFilename] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -73,7 +83,7 @@ export function IcsImportDialog({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [color, setColor] = useState(defaultColor);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | Error | null>(null);
   const [importedCount, setImportedCount] = useState<number | null>(null);
   const importEvents = useImportEvents(guildId);
 
@@ -126,7 +136,7 @@ export function IcsImportDialog({
     } catch (cause) {
       setPreview(null);
       setSelected(new Set());
-      setError(describeApiError(cause));
+      setError(cause instanceof Error ? cause : new Error());
     } finally {
       setLoading(false);
     }
@@ -161,7 +171,7 @@ export function IcsImportDialog({
       setImportedCount(selectedItems.length);
       setSelected(new Set());
     } catch (cause) {
-      setError(describeApiError(cause));
+      setError(cause instanceof Error ? cause : new Error());
     }
   }
 
@@ -181,19 +191,21 @@ export function IcsImportDialog({
       }}
     >
       <DialogContent
-        lang="ja"
+        lang={language}
         className="h-[min(46rem,calc(100dvh-2rem))] max-w-3xl grid-rows-[auto_1fr_auto] gap-0 p-0 sm:max-w-3xl"
       >
         <DialogHeader className="border-b p-4 pr-12">
-          <DialogTitle>ICSファイルから取り込む</DialogTitle>
+          <DialogTitle>{t("ICSファイルから取り込む")}</DialogTitle>
           <DialogDescription>
-            外部カレンダーの予定を確認し、選んだものをこのサーバーへ追加します。
+            {t(
+              "外部カレンダーの予定を確認し、選んだものをこのサーバーへ追加します。",
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 space-y-4 overflow-y-auto p-4">
           <div className="space-y-2">
-            <Label htmlFor="ics-import-file">ICSファイル</Label>
+            <Label htmlFor="ics-import-file">{t("ICSファイル")}</Label>
             <Input
               id="ics-import-file"
               type="file"
@@ -203,7 +215,7 @@ export function IcsImportDialog({
               className="min-h-11 file:mr-3 file:font-medium"
             />
             <p className="text-xs text-muted-foreground">
-              {filename || "1 MiBまで。ファイルは保存されません。"}
+              {filename || t("1 MiBまで。ファイルは保存されません。")}
             </p>
           </div>
 
@@ -211,7 +223,7 @@ export function IcsImportDialog({
             <>
               <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
                 <div className="space-y-1.5">
-                  <Label htmlFor="ics-import-start">開始日</Label>
+                  <Label htmlFor="ics-import-start">{t("開始日")}</Label>
                   <Input
                     id="ics-import-start"
                     type="date"
@@ -222,7 +234,7 @@ export function IcsImportDialog({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="ics-import-end">終了日</Label>
+                  <Label htmlFor="ics-import-end">{t("終了日")}</Label>
                   <Input
                     id="ics-import-end"
                     type="date"
@@ -239,23 +251,26 @@ export function IcsImportDialog({
                   disabled={loading}
                   onClick={() => void loadPreview()}
                 >
-                  期間を反映
+                  {t("期間を反映")}
                 </Button>
               </div>
 
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <p className="font-medium">
-                    {preview.matched_count}件中 {selectedItems.length}件を選択
+                    {t("{total}件中 {count}件を選択", {
+                      total: preview.matched_count,
+                      count: selectedItems.length,
+                    })}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    生成見込み {selectedOccurrences.toLocaleString("ja-JP")}件
+                    {t("生成見込み {count}件", { count: selectedOccurrences })}
                   </p>
                 </div>
                 <div className="w-36 space-y-1.5">
-                  <Label htmlFor="ics-import-color">取り込み色</Label>
+                  <Label htmlFor="ics-import-color">{t("取り込み色")}</Label>
                   <ColorPicker
-                    language="ja"
+                    language={language}
                     id="ics-import-color"
                     value={color}
                     onChange={setColor}
@@ -268,7 +283,9 @@ export function IcsImportDialog({
                   role="alert"
                   className="rounded-md bg-amber-500/15 p-3 text-sm"
                 >
-                  一度に取り込めるのは200件までです。期間を狭めてください。
+                  {t(
+                    "一度に取り込めるのは200件までです。期間を狭めてください。",
+                  )}
                 </p>
               )}
               {selectedOccurrences > OCCURRENCE_MAX && (
@@ -276,16 +293,19 @@ export function IcsImportDialog({
                   role="alert"
                   className="rounded-md bg-amber-500/15 p-3 text-sm"
                 >
-                  繰り返しを含む生成見込みは10,000件までです。選択を減らしてください。
+                  {t(
+                    "繰り返しを含む生成見込みは10,000件までです。選択を減らしてください。",
+                  )}
                 </p>
               )}
               {!!preview.skipped.length && (
                 <div className="rounded-md border p-3 text-sm">
-                  <p className="font-medium">取り込めない予定</p>
+                  <p className="font-medium">{t("取り込めない予定")}</p>
                   <ul className="mt-1 list-inside list-disc text-muted-foreground">
                     {preview.skipped.map((item) => (
                       <li key={item.reason}>
-                        {SKIP_LABELS[item.reason]}: {item.count}件
+                        {t(SKIP_LABELS[item.reason])}:{" "}
+                        {t("{count}件", { count: item.count })}
                       </li>
                     ))}
                   </ul>
@@ -309,9 +329,9 @@ export function IcsImportDialog({
                       )
                     }
                   />
-                  すべて選択
+                  {t("すべて選択")}
                 </Label>
-                <ul aria-label="取り込む予定" className="divide-y">
+                <ul aria-label={t("取り込む予定")} className="divide-y">
                   {preview.items.map((item) => {
                     const recurrence = recurrenceLabel(
                       item.event.recurrence_rule,
@@ -339,18 +359,20 @@ export function IcsImportDialog({
                               {formatDateTime(
                                 item.event.start_at,
                                 item.event.is_all_day,
+                                language,
                               )}
                               {" 〜 "}
                               {formatDateTime(
                                 item.event.end_at,
                                 item.event.is_all_day,
+                                language,
                               )}
-                              {recurrence ? `・${recurrence}` : ""}
+                              {recurrence ? `・${t(recurrence)}` : ""}
                             </span>
                             <span className="mt-1 flex flex-wrap gap-1">
                               {item.duplicate && (
                                 <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs">
-                                  すでにあります
+                                  {t("すでにあります")}
                                 </span>
                               )}
                               {item.truncated_fields.map((field) => (
@@ -358,8 +380,11 @@ export function IcsImportDialog({
                                   key={field}
                                   className="rounded bg-muted px-1.5 py-0.5 text-xs"
                                 >
-                                  {field === "name" ? "タイトル" : "説明"}
-                                  を切り詰めました
+                                  {t("{field}を切り詰めました", {
+                                    field: t(
+                                      field === "name" ? "タイトル" : "説明",
+                                    ),
+                                  })}
                                 </span>
                               ))}
                             </span>
@@ -375,7 +400,7 @@ export function IcsImportDialog({
 
           {loading && (
             <p role="status" className="text-sm text-muted-foreground">
-              ファイルを確認しています…
+              {t("ファイルを確認しています…")}
             </p>
           )}
           {error && (
@@ -383,19 +408,21 @@ export function IcsImportDialog({
               role="alert"
               className="rounded-md bg-destructive/10 p-3 text-destructive"
             >
-              {error}
+              {typeof error === "string"
+                ? t(error)
+                : describeApiError(error, language)}
             </p>
           )}
           {importedCount !== null && (
             <p role="status" className="rounded-md bg-emerald-500/15 p-3">
-              {importedCount}件の予定を取り込みました。
+              {t("{count}件の予定を取り込みました。", { count: importedCount })}
             </p>
           )}
         </div>
 
         <DialogFooter className="m-0">
           <DialogClose render={<Button variant="outline" />}>
-            閉じる
+            {t("閉じる")}
           </DialogClose>
           <Button
             type="button"
@@ -403,11 +430,11 @@ export function IcsImportDialog({
             onClick={() => void submit()}
           >
             {importEvents.isPending ? (
-              "取り込み中…"
+              t("取り込み中…")
             ) : (
               <>
                 <CalendarPlusIcon />
-                {selectedItems.length}件を取り込む
+                {t("{count}件を取り込む", { count: selectedItems.length })}
               </>
             )}
           </Button>

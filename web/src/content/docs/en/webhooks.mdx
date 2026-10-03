@@ -1,0 +1,79 @@
+## Register a Webhook
+
+In Server settings, choose a URL and type under **Webhook**, then select **Register Webhook**. Viewing and managing Webhooks requires server management permissions. Up to five can be registered per server. Changes take effect immediately without the dialog's Save button.
+
+**Event content, including descriptions, and the acting Discord user ID are sent to the destination.** Use a trusted destination and check its storage and sharing policy. HTTPS is recommended. Local-network and special-purpose addresses are not allowed.
+
+Save the signing secret securely; it is shown only once. If lost, regenerate it and update the receiver. URL paths and queries are hidden in the list. To change a URL, delete and register the Webhook again.
+
+**Send test** checks the connection, at most once per minute per enabled Webhook. The latest 20 attempts show dates, types, HTTP statuses, and errors. Logs refresh every five seconds while settings are open.
+
+## Notify another Discord channel or server
+
+Create a Webhook in the destination Discord channel and copy its URL. Register it with **Discord Webhook compatible** selected. Supported URL forms include `https://discord.com/api/webhooks/...` and equivalent paths on `discordapp.com`, `canary.discord.com`, and `ptb.discord.com`.
+
+The embed contains the event name, description, dates, color, and calendar link. It does not trigger mentions. Discord mode does not attach a signature. The URL itself grants posting access, so keep it secret.
+
+## Generic JSON payload
+
+Creation, updates, and deletion from the website, the bot's `/create` and `/quick`, and the admin console (including deletion of all events) are supported. Types are `event.created`, `event.updated`, and `event.deleted`. Tests use `webhook.test` with a null event.
+
+```json
+{
+  "delivery_id": "123",
+  "type": "event.created",
+  "occurred_at": "2026-09-13T01:00:00Z",
+  "actor_id": "123456789012345678",
+  "event": {
+    "id": 42,
+    "guild_id": "782502586817314816",
+    "name": "Weekly meeting",
+    "description": "This week's discussion",
+    "notifications": [],
+    "notification_mentions": [],
+    "color": "#5865F2",
+    "is_all_day": false,
+    "start_at": "2026-09-14T10:00:00",
+    "end_at": "2026-09-14T11:00:00",
+    "created_at": "2026-09-13T10:00:00",
+    "created_by": "123456789012345678",
+    "updated_by": null,
+    "updated_at": null,
+    "discord_scheduled_event_id": null
+  }
+}
+```
+
+The event has the same shape as the event API. Deletions include its contents just before deletion. Treat Discord IDs and delivery IDs as strings. `occurred_at` is UTC; event timestamps are JST without a time-zone suffix. All-day end dates are inclusive.
+
+## Verify signatures
+
+POST requests include:
+
+- `X-DisCalendar-Delivery`: delivery ID.
+- `X-DisCalendar-Event`: event type.
+- `X-DisCalendar-Signature`: `sha256=` followed by lowercase hexadecimal HMAC-SHA256.
+
+Use the displayed secret **as a string**, without hex-decoding it. Verify the raw request bytes before parsing JSON. Changing whitespace or key order invalidates the signature.
+
+```js
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verify(rawBody, signature, secret) {
+  const expected = Buffer.from(
+    `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}`,
+  );
+  const actual = Buffer.from(signature ?? "");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+```
+
+Parse JSON only after verification, then check that delivery IDs and types match between headers and body. Deliveries can repeat: store delivery IDs and avoid repeating side effects. Reject sufficiently old `occurred_at` values according to your retention policy to prevent replay.
+
+## Retries and disabling
+
+Delivery happens asynchronously after the event is saved. Slow or failed destinations do not delay saving. Each attempt has a ten-second limit including DNS resolution. Any 2xx response succeeds; redirects are not followed. Up to three attempts are made, with waits of five and thirty seconds after failures. Unfinished deliveries resume after server restarts.
+
+Each Webhook delivers in queue order and pauses later deliveries while retrying. Order across Webhooks or concurrent operations on multiple events is not guaranteed. Ten consecutive failed attempts automatically disable the Webhook, with a reason shown in settings. A success resets the failure count.
+
+Manual or automatic disabling discards queued deliveries. Changes while disabled are not recorded. Fix the destination and select **Enable** to resume; past changes are not replayed. Sending and retries after secret regeneration use the new secret.

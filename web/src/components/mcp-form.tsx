@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useLanguage } from "@/components/language-provider";
 
 /** 通常のフォームPOSTも残しつつ、処理中と失敗を同じ画面で案内する。 */
 export function McpForm({
@@ -16,6 +17,7 @@ export function McpForm({
   action: string;
   children: ReactNode;
 }) {
+  const { t } = useLanguage();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const submitting = useRef(false);
@@ -74,7 +76,7 @@ export function McpForm({
               : "rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm"
           }
         >
-          {pending ? "処理中です。このままお待ちください。" : error}
+          {pending ? t("処理中です。このままお待ちください。") : t(error)}
         </p>
       )}
     </form>

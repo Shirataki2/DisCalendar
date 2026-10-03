@@ -1,0 +1,60 @@
+import { Callout } from "@/components/docs/callout";
+
+## Overlay external calendars in DisCalendar
+
+In Server settings, use **Overlay external calendars** to register a public ICS URL, display name, and color. Members who can manage server settings can add up to five per server. URLs may contain secrets, so only members with management permissions can view them.
+
+Subscribed events appear in their chosen colors. Toggle each calendar with its legend entry. You can view events but cannot edit them in DisCalendar. They are excluded from bot reminders, public share links, Discord events, and DisCalendar's outgoing iCal feeds.
+
+Data is fetched when displayed and reused for about 30 minutes. Fetch failures appear in the legend and settings; normal retries wait about one minute. **Fetch now** checks again immediately.
+
+Each ICS file may contain up to 200 events and be at most 1 MiB. Repeating rules match ICS import support. Unsupported events, including individually changed or excluded occurrences and nonexistent local times during a daylight-saving transition, cause a fetch error.
+
+Titles are shortened to 32 characters and descriptions to 1,000, with a notice in the legend. If repeats exceed 1,000 occurrences in the displayed period, shorten the range with week or day view.
+
+You can also subscribe to DisCalendar's server events in Google Calendar, Apple Calendar, and other apps. Register the server's **feed URL** (iCal / ICS) to receive updates. External apps cannot edit these events. Location / URL values are included; URLs can be opened from the event.
+
+## Generate a feed URL
+
+1. Open Server settings with the gear icon above the calendar.
+2. Under **Subscribe in an external calendar**, select **Generate feed URL**.
+3. Copy the displayed URL.
+
+Only members who can manage server settings can generate URLs: the owner or members with Administrator, Manage Server, Manage Roles, or Manage Messages permission. Any server member can view and copy an existing feed URL.
+
+<Callout type="warning">
+Anyone with the URL can read all server events, even without server membership and regardless of restricted editing mode. Avoid posting it publicly. Reissue it if it is shared accidentally.
+</Callout>
+
+## Add it to a calendar app
+
+Paste the URL into the app's option for adding a calendar by URL.
+
+### Google Calendar
+
+1. Open Google Calendar in a desktop browser. Beside Other calendars, select **+**, then **From URL**.
+2. Paste the feed URL and add the calendar.
+
+Subscriptions cannot be added from the mobile Google Calendar app. Add one on desktop and it will also appear on your phone.
+
+### Apple Calendar
+
+- iPhone / iPad: Settings → Apps → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar.
+- Mac: Calendar → File → New Calendar Subscription.
+
+### Outlook
+
+In Outlook on the web, choose Add calendar → Subscribe from web and paste the URL.
+
+<Callout>
+Refresh intervals are controlled by each service and may range from several hours to about a day. Check DisCalendar directly if you need to see a change immediately.
+</Callout>
+
+## Reissue or disable a URL
+
+Members with management permissions can:
+
+- **Reissue**: replace the URL. The old one stops working, so subscribers must register the new one.
+- **Disable**: stop the feed. Generate a new URL to subscribe again.
+
+Removing the bot from the server also disables its feed URL.

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { DocsPager } from "@/components/docs/docs-pager";
+import { LocalizedContent } from "@/components/docs/localized-content";
+import { Message } from "@/components/language-provider";
 import { DOC_PAGES, docPath, findDocPage } from "@/lib/docs";
 
 // 使い方ページ。本文は src/content/docs/<slug>.mdx にあり、DOC_PAGES の分だけビルド時に静的生成する
@@ -37,16 +39,24 @@ export default async function DocPage({ params }: PageProps<"/docs/[slug]">) {
   // slug は DOC_PAGES の値に限られる (dynamicParams = false) ので、動的 import の対象も content/docs 配下に閉じる
   const { default: Content } = await import(`@/content/docs/${slug}.mdx`);
 
+  const { default: EnglishContent } = await import(
+    `@/content/docs/en/${slug}.mdx`
+  );
+
   return (
     <article className="max-w-3xl">
       <header className="mb-8 border-b border-white/10 pb-6">
-        <p className="mb-2 text-sm text-neutral-400">使い方</p>
-        <h1 className="text-3xl font-bold sm:text-4xl">{page.title}</h1>
+        <p className="mb-2 text-sm text-neutral-400">
+          <Message message="使い方" />
+        </p>
+        <h1 className="text-3xl font-bold sm:text-4xl">
+          <Message message={page.title} />
+        </h1>
         <p className="mt-3 text-sm leading-7 text-neutral-400">
-          {page.description}
+          <Message message={page.description} />
         </p>
       </header>
-      <Content />
+      <LocalizedContent ja={<Content />} en={<EnglishContent />} />
       <DocsPager slug={slug} />
     </article>
   );

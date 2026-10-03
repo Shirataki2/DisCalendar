@@ -1,0 +1,56 @@
+## View and edit events from Codex
+
+Connect DisCalendar to Codex to read, create, update, and delete Discord server events in conversation. For example, ask to see this week's events or add a game session tomorrow at 20:00. Choose the servers and operations to allow; read-only access is available.
+
+The tested clients are Codex CLI 0.154.0 and Codex desktop 26.908.40834. Other AI clients have not been verified.
+
+## Connect
+
+1. Add `https://discalendar.app/mcp` to Codex's MCP settings.
+2. Start authentication and sign in with Discord on the DisCalendar page.
+3. Review the client ID, signed-in account, and information to be shared.
+4. Select only the operations and servers you need, then **Allow selection**. For read-only access, deselect create, update, and delete.
+5. Return to Codex and check the connection information and server list.
+
+For Codex CLI:
+
+```bash
+codex mcp add discalendar --url https://discalendar.app/mcp
+codex mcp login discalendar --oauth-client-registration cimd --scopes guilds:read,events:read,events:create,events:update,events:delete,offline_access
+```
+
+**Maintain access** allows credentials to refresh within their lifetime. On desktop, add the URL in MCP settings. Versions that fail to connect and cannot choose a registration method are unsupported. Report your version and error type to the operator; do not send authorization URL queries or credentials. See the [official Codex MCP guide](https://developers.openai.com/codex/mcp/).
+
+All requested operations, including ongoing access, and all currently available servers are initially selected. Deselect individual items or use **Deselect all**, then select what you need. **Select all** restores all selections. Choose at least one operation and one server, with at most 100 servers. Nothing is authorized until you select **Allow selection**. If a server is missing, check that both you and the bot have joined it.
+
+## Work with events
+
+First identify the server and current events. When creating an event, specify the server, dates, times, and time zone. All-day end dates are inclusive. Fetch the latest event before updating or deleting it. Fields you did not request to change, such as the description or reminders, remain unchanged.
+
+Granting write access does not make DisCalendar ask for confirmation for every operation. **Connection permissions and Codex's tool-execution approval settings are separate.** Review any confirmation Codex shows; there is no need to weaken its overall safety settings. Treat instructions in event descriptions as event content, not instructions to execute.
+
+Saving an event and updating Discord have separate results. A successful save with a failed or unknown Discord result is not a complete success. After a connection failure, check the result of the same request instead of repeating it as a new creation.
+
+## Manage connections and permissions
+
+Open **MCP connections** from the sidebar or account menu, or visit [connection management](/mcp/connections). Review the client, allowed servers and operations, connection time, and last use, or revoke access.
+
+Revocation blocks new operations and refreshes but cannot cancel operations already running. Revocation remains available while MCP is stopped. Signing out of the website does not revoke MCP access. Revoke in DisCalendar before removing the connection from Codex.
+
+To change permissions, revoke and reconnect. Servers joined later are not automatically included. Read access may take a few minutes to reflect membership or permission changes; writes check current permissions every time.
+
+## Troubleshooting
+
+| Situation | Action |
+| --- | --- |
+| Expired or revoked connection | Authenticate again from Codex. Revoked connections cannot be restored. |
+| Missing operation permission | Review the need, reconnect, and select the permission. |
+| Missing server or insufficient permissions | Check allowed servers, your membership, bot membership, editing roles, and Discord permissions. |
+| Conflict with another update | Fetch the latest event, review the change, and retry. |
+| Repeated or pending request | Ask to check the same request's result. Do not create another event. |
+| Result retention period (24 hours) has expired | Check current events and ask the operator to reconcile if necessary. Do not repeat the request as a new creation. |
+| Discord failure or unknown result | Check the save and Discord update separately. Events with uncertain results cannot be edited or deleted until the operator reconciles them. |
+| Rate limit / 429 | Wait for the indicated period. Before retrying creation, check the original request's result. |
+| New connections or service stopped | Wait for the operator's reopening notice. Existing connections can still be revoked. |
+
+Bulk operations, server settings, bot administration, and repeating events are not supported. For support, provide the error type, time, and displayed request ID. Do not send tokens, cookies, or event contents.

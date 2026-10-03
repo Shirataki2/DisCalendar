@@ -1,3 +1,5 @@
+"use client";
+
 import {
   BellRingIcon,
   CalendarDaysIcon,
@@ -11,6 +13,7 @@ import type { ReactNode } from "react";
 import calendarShot from "@/assets/lp/calendar.png";
 import dialogShot from "@/assets/lp/dialog.png";
 import settingsShot from "@/assets/lp/settings.png";
+import { useLanguage } from "@/components/language-provider";
 import { Logo } from "@/components/logo";
 import { SessionLink } from "@/components/session-link";
 import { SiteFooter } from "@/components/site-footer";
@@ -24,10 +27,11 @@ const buttonBase =
   "inline-flex h-12 w-full items-center justify-center gap-2 rounded-full px-7 text-sm font-semibold tracking-wide transition-colors sm:w-auto";
 
 export default function Home() {
+  const { language } = useLanguage();
   return (
     <>
       <SiteHeader />
-      <main lang="ja" className="flex-1">
+      <main lang={language} className="flex-1">
         <Hero />
         <Features />
         <Steps />
@@ -39,6 +43,7 @@ export default function Home() {
 }
 
 function Hero() {
+  const { t } = useLanguage();
   return (
     <section className="relative overflow-hidden">
       <div
@@ -47,14 +52,15 @@ function Hero() {
       />
       <div className="mx-auto flex max-w-6xl flex-col items-center px-4 pt-16 pb-12 text-center sm:px-6 sm:pt-24">
         <p className="mb-4 text-sm font-medium tracking-widest text-indigo-300">
-          Discord 用予定管理 Bot
+          {t("Discord 用予定管理 Bot")}
         </p>
         <h1>
           <Logo className="text-5xl sm:text-7xl" />
         </h1>
         <p className="mt-8 max-w-2xl text-base leading-8 text-neutral-300 sm:text-lg">
-          DisCalendarはDiscord用のカレンダーアプリです。予定の作成から通知まで面倒なコマンド操作はほとんど必要ありません。
-          使い慣れたブラウザから、どこでも予定の追加や編集をすることができます。
+          {t(
+            "DisCalendarはDiscord用のカレンダーアプリです。予定の作成から通知まで面倒なコマンド操作はほとんど必要ありません。 使い慣れたブラウザから、どこでも予定の追加や編集をすることができます。",
+          )}
         </p>
         <div className="mt-10 flex w-full flex-col items-center gap-3 sm:w-auto">
           <a
@@ -63,17 +69,17 @@ function Hero() {
             rel="noopener noreferrer"
             className={`${buttonBase} bg-indigo-500 text-white hover:bg-indigo-400 sm:px-12`}
           >
-            BOT を導入する
+            {t("BOT を導入する")}
             <ExternalLinkIcon className="size-4" aria-hidden />
           </a>
           <Link
             href={ROUTES.tutorial}
             className={`${buttonBase} border border-indigo-300/40 text-indigo-100 hover:bg-indigo-500/10`}
           >
-            ログインせずに操作を試す
+            {t("ログインせずに操作を試す")}
           </Link>
           <p className="my-1 flex w-full items-center gap-4 text-xs tracking-widest text-neutral-500 uppercase before:h-px before:flex-1 before:bg-white/15 after:h-px after:flex-1 after:bg-white/15">
-            OR 既に導入済みの方は
+            {t("OR 既に導入済みの方は")}
           </p>
           <div className="flex w-full flex-col gap-3 sm:flex-row sm:justify-center">
             <SessionLink
@@ -85,13 +91,13 @@ function Hero() {
               rel="noopener noreferrer"
               className={`${buttonBase} border border-white/20 text-neutral-100 hover:bg-white/10`}
             >
-              サポートサーバーへ参加
+              {t("サポートサーバーへ参加")}
             </a>
             <Link
               href={ROUTES.docs}
               className={`${buttonBase} border border-white/20 text-neutral-100 hover:bg-white/10`}
             >
-              使い方を見る
+              {t("使い方を見る")}
             </Link>
           </div>
         </div>
@@ -100,7 +106,9 @@ function Hero() {
         <figure className="overflow-hidden rounded-xl border border-white/10 bg-surface shadow-2xl shadow-black/50">
           <Image
             src={calendarShot}
-            alt="DisCalendar のカレンダー画面。月表示に色分けされた予定が並んでいる"
+            alt={t(
+              "DisCalendar のカレンダー画面。月表示に色分けされた予定が並んでいる",
+            )}
             priority
             sizes="(min-width: 1152px) 1152px, 100vw"
             className="h-auto w-full"
@@ -168,6 +176,7 @@ function FeatureIcon({ children }: { children: ReactNode }) {
 }
 
 function Features() {
+  const { t } = useLanguage();
   return (
     <section
       aria-labelledby="features-heading"
@@ -178,11 +187,12 @@ function Features() {
           id="features-heading"
           className="text-center text-2xl font-bold sm:text-3xl"
         >
-          できること
+          {t("できること")}
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-center text-sm leading-7 text-neutral-400">
-          サーバーの予定をひとつのカレンダーにまとめて、通知まで Bot
-          に任せられます。
+          {t(
+            "サーバーの予定をひとつのカレンダーにまとめて、通知まで Bot に任せられます。",
+          )}
         </p>
         <div className="mt-12 flex flex-col gap-16">
           {SHOWCASES.map((item, index) => (
@@ -195,16 +205,16 @@ function Features() {
               >
                 <FeatureIcon>{item.icon}</FeatureIcon>
                 <h3 className="text-xl font-semibold sm:text-2xl">
-                  {item.title}
+                  {t(item.title)}
                 </h3>
                 <p className="text-sm leading-7 text-neutral-300 sm:text-base sm:leading-8">
-                  {item.body}
+                  {t(item.body)}
                 </p>
               </div>
               <figure className="overflow-hidden rounded-xl border border-white/10 shadow-xl shadow-black/40">
                 <Image
                   src={item.image.src}
-                  alt={item.image.alt}
+                  alt={t(item.image.alt)}
                   sizes="(min-width: 1152px) 552px, (min-width: 768px) 50vw, 100vw"
                   className="h-auto w-full"
                 />
@@ -218,9 +228,9 @@ function Features() {
                 className="flex flex-col gap-3 rounded-xl border border-white/10 bg-background p-6"
               >
                 <FeatureIcon>{feature.icon}</FeatureIcon>
-                <h3 className="text-lg font-semibold">{feature.title}</h3>
+                <h3 className="text-lg font-semibold">{t(feature.title)}</h3>
                 <p className="text-sm leading-7 text-neutral-300">
-                  {feature.body}
+                  {t(feature.body)}
                 </p>
               </li>
             ))}
@@ -247,6 +257,7 @@ const STEPS = [
 ] as const;
 
 function Steps() {
+  const { t } = useLanguage();
   return (
     <section
       aria-labelledby="steps-heading"
@@ -257,7 +268,7 @@ function Steps() {
           id="steps-heading"
           className="text-center text-2xl font-bold sm:text-3xl"
         >
-          はじめかた
+          {t("はじめかた")}
         </h2>
         <ol className="mt-12 grid gap-8 sm:grid-cols-3">
           {STEPS.map((step, index) => (
@@ -266,23 +277,23 @@ function Steps() {
                 {index + 1}
               </span>
               <div>
-                <h3 className="font-semibold">{step.title}</h3>
+                <h3 className="font-semibold">{t(step.title)}</h3>
                 <p className="mt-2 text-sm leading-7 text-neutral-300">
-                  {step.body}
+                  {t(step.body)}
                 </p>
               </div>
             </li>
           ))}
         </ol>
         <p className="mt-10 text-center text-sm text-neutral-400">
-          くわしい手順は
+          {t("くわしい手順は")}{" "}
           <Link
             href={ROUTES.docs}
             className="mx-1 underline underline-offset-4 hover:text-white"
           >
-            使い方
+            {t("使い方")}
           </Link>
-          を参照してください。
+          {t("を参照してください。")}
         </p>
       </div>
     </section>
@@ -290,14 +301,17 @@ function Steps() {
 }
 
 function BottomCta() {
+  const { t } = useLanguage();
   return (
     <section className="border-t border-white/10 bg-[radial-gradient(ellipse_at_bottom,rgba(88,101,242,0.24),transparent_70%)]">
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-4 py-16 text-center sm:px-6 sm:py-24">
         <h2 className="text-2xl font-bold sm:text-3xl">
-          まずは Bot をサーバーに追加してみてください
+          {t("まずは Bot をサーバーに追加してみてください")}
         </h2>
         <p className="max-w-xl text-sm leading-7 text-neutral-300">
-          無料で使えます。困ったときはサポートサーバーで質問してください。
+          {t(
+            "無料で使えます。困ったときはサポートサーバーで質問してください。",
+          )}
         </p>
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
           <a
@@ -306,7 +320,7 @@ function BottomCta() {
             rel="noopener noreferrer"
             className={`${buttonBase} bg-indigo-500 text-white hover:bg-indigo-400 sm:px-12`}
           >
-            BOT を導入する
+            {t("BOT を導入する")}
             <ExternalLinkIcon className="size-4" aria-hidden />
           </a>
           <SessionLink

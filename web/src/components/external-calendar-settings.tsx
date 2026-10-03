@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { ColorPicker } from "@/components/form/color-picker";
+import { useLanguage } from "@/components/language-provider";
+import { LocalizedDate } from "@/components/localized-date";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { describeApiError } from "@/lib/api";
@@ -20,6 +22,7 @@ export function ExternalCalendarSettings({
   guildId: string;
   canManage: boolean;
 }) {
+  const { t, language } = useLanguage();
   const calendars = useExternalCalendars(guildId);
   const displayErrors = useExternalDisplayErrors(guildId);
   const actions = useExternalCalendarActions(guildId);
@@ -29,7 +32,7 @@ export function ExternalCalendarSettings({
     name: "",
     color: DEFAULT_COLOR,
   });
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | Error | null>(null);
   const [busy, setBusy] = useState(false);
 
   const beginEdit = (calendar: ExternalCalendar) => {
@@ -51,7 +54,7 @@ export function ExternalCalendarSettings({
       else await actions.update.mutateAsync({ id: editing, input });
       reset();
     } catch (cause) {
-      setError(describeApiError(cause));
+      setError(cause instanceof Error ? cause : new Error());
     } finally {
       setBusy(false);
     }
@@ -62,7 +65,7 @@ export function ExternalCalendarSettings({
     try {
       await action();
     } catch (cause) {
-      setError(describeApiError(cause));
+      setError(cause instanceof Error ? cause : new Error());
     } finally {
       setBusy(false);
     }
@@ -72,21 +75,22 @@ export function ExternalCalendarSettings({
     <section aria-labelledby="external-calendar-heading" className="grid gap-3">
       <div>
         <h3 id="external-calendar-heading" className="text-sm font-medium">
-          外部カレンダーを重ねて表示する
+          {t("外部カレンダーを重ねて表示する")}
         </h3>
         <p className="text-sm text-muted-foreground">
-          登録した ICS
-          の予定を読み取り専用で表示します。通知や共有には含まれません
+          {t(
+            "登録した ICS の予定を読み取り専用で表示します。通知や共有には含まれません",
+          )}
         </p>
       </div>
       {calendars.isPending ? (
-        <p className="text-sm text-muted-foreground">確認中…</p>
+        <p className="text-sm text-muted-foreground">{t("確認中…")}</p>
       ) : calendars.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {describeApiError(calendars.error)}
+          {describeApiError(calendars.error, language)}
         </p>
       ) : (
-        <ul className="grid gap-2" aria-label="登録済みの外部カレンダー">
+        <ul className="grid gap-2" aria-label={t("登録済みの外部カレンダー")}>
           {calendars.data.map((calendar) => (
             <li key={calendar.id} className="rounded-md border p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
@@ -107,7 +111,7 @@ export function ExternalCalendarSettings({
                       disabled={busy}
                       onClick={() => beginEdit(calendar)}
                     >
-                      編集
+                      {t("編集")}
                     </Button>
                     <Button
                       type="button"
@@ -120,7 +124,7 @@ export function ExternalCalendarSettings({
                         )
                       }
                     >
-                      今すぐ取得
+                      {t("今すぐ取得")}
                     </Button>
                     <Button
                       type="button"
@@ -130,7 +134,9 @@ export function ExternalCalendarSettings({
                       onClick={() => {
                         if (
                           window.confirm(
-                            `「${calendar.name}」の購読を削除しますか？`,
+                            t("「{name}」の購読を削除しますか？", {
+                              name: calendar.name,
+                            }),
                           )
                         )
                           void run(() =>
@@ -138,7 +144,7 @@ export function ExternalCalendarSettings({
                           );
                       }}
                     >
-                      削除
+                      {t("削除")}
                     </Button>
                   </>
                 )}
@@ -149,21 +155,24 @@ export function ExternalCalendarSettings({
                 </p>
               )}
               <p className="mt-1 text-xs text-muted-foreground">
-                最終取得:{" "}
-                {calendar.last_fetched_at
-                  ? calendar.last_fetched_at.replace("T", " ")
-                  : "まだ取得していません"}
+                {t("最終取得:")}{" "}
+                {calendar.last_fetched_at ? (
+                  <LocalizedDate value={`${calendar.last_fetched_at}+09:00`} />
+                ) : (
+                  t("まだ取得していません")
+                )}
               </p>
               {displayErrors.data?.[calendar.id] &&
                 displayErrors.data[calendar.id] !== calendar.last_error && (
                   <p role="status" className="mt-1 text-xs text-destructive">
-                    表示中の期間を展開できません:{" "}
-                    {displayErrors.data[calendar.id]}
+                    {t("表示中の期間を展開できません:")}{" "}
+                    {t(displayErrors.data[calendar.id])}
                   </p>
                 )}
               {calendar.last_error && (
                 <p role="status" className="mt-1 text-xs text-destructive">
-                  取得できません: {calendar.last_error}
+                  {t("取得できません: ")}
+                  {t(calendar.last_error)}
                 </p>
               )}
             </li>
@@ -173,13 +182,15 @@ export function ExternalCalendarSettings({
       {(canManage && (calendars.data?.length ?? 0) < 5) || editing !== null ? (
         <div className="grid gap-2 rounded-md border p-3">
           <p className="text-sm font-medium">
-            {editing === null ? "外部カレンダーを追加" : "外部カレンダーを編集"}
+            {editing === null
+              ? t("外部カレンダーを追加")
+              : t("外部カレンダーを編集")}
           </p>
           <label
             htmlFor="external-calendar-name"
             className="grid gap-1 text-sm"
           >
-            表示名
+            {t("表示名")}
             <Input
               id="external-calendar-name"
               value={input.name}
@@ -218,9 +229,9 @@ export function ExternalCalendarSettings({
             />
           </label>
           <div className="grid gap-1 text-sm">
-            <span>表示色</span>
+            <span>{t("表示色")}</span>
             <ColorPicker
-              language="ja"
+              language={language}
               value={input.color}
               onChange={(color) => setInput({ ...input, color })}
             />
@@ -233,7 +244,7 @@ export function ExternalCalendarSettings({
                 disabled={busy}
                 onClick={reset}
               >
-                キャンセル
+                {t("キャンセル")}
               </Button>
             )}
             <Button
@@ -241,19 +252,21 @@ export function ExternalCalendarSettings({
               disabled={busy || !input.name.trim() || !input.url.trim()}
               onClick={() => void submit()}
             >
-              {busy ? "保存中…" : editing === null ? "追加" : "保存"}
+              {busy ? t("保存中…") : editing === null ? t("追加") : t("保存")}
             </Button>
           </div>
         </div>
       ) : null}
       {error && (
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {typeof error === "string"
+            ? t(error)
+            : describeApiError(error, language)}
         </p>
       )}
       {calendars.data?.length === 5 && editing === null && canManage && (
         <p className="text-xs text-muted-foreground">
-          外部カレンダーは 5 件まで登録できます
+          {t("外部カレンダーは 5 件まで登録できます")}
         </p>
       )}
     </section>

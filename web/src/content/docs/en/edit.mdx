@@ -1,0 +1,97 @@
+import { Callout } from "@/components/docs/callout";
+import { Screenshot } from "@/components/docs/screenshot";
+import editDialogShot from "@/assets/lp/dialog.png";
+import popoverShot from "@/assets/docs/popover.png";
+import settingsShot from "@/assets/lp/settings.png";
+
+Click an event (tap on a phone) to view, edit, or delete it.
+
+## View event details
+
+Details show the title, dates, reminders, location, description, and creator. URL locations open as links. Edited events also show the last editor and update time. Former members and events without historical creator records are labeled accordingly. These details also appear in All events, but creator and editor information is excluded from public shared pages and external calendars.
+
+<Screenshot src={popoverShot} alt="Event details with title, dates, location, reminders, creator, description, and Edit and Delete buttons (Japanese interface)." size="narrow" />
+
+## Edit an event
+
+Select **Edit**, change the fields, and **Save**.
+
+<Screenshot src={editDialogShot} alt="Event editor with destination server, three tabs, location, description preview, and Delete, Cancel, and Save buttons (Japanese interface)." size="narrow" />
+
+You can also drag an event to another date or time, or drag its lower edge in week, 4-day, and day views to change its duration. If saving fails, the event returns to its original position and an error appears above the calendar.
+
+<h2 id="description-format">Format descriptions</h2>
+
+Use Discord-style formatting and **Preview** to check it before saving. Select Preview again to return to editing.
+
+| Format | Syntax |
+| --- | --- |
+| Bold / italic | `**bold**`, `*italic*`, or `_italic_` |
+| Underline / strikethrough | `__underline__`, `~~strikethrough~~` |
+| Headings | Start a line with `# `, `## `, or `### ` |
+| Bullets / numbered list | Start a line with `- ` or `1. ` |
+| Quote | Start a line with `> ` |
+| Inline code | Surround text with one backtick |
+| Code block | Put three backticks on the lines before and after |
+| Link | `[label](https://example.com)` |
+| Spoiler | `\|\|hidden text\|\|` |
+
+Spoilers stay collapsed until opened, but do not protect secrets. Do not include information you should not share. Line breaks are preserved. The limit is **1,000 characters**, including formatting symbols.
+
+Formatting works in event details, All events, and public shared pages. HTML and Markdown images are unsupported. HTTP and HTTPS links open in new tabs. Discord mentions and custom emoji are not resolved into names or images.
+
+Discord reminders, `/list`, iCal feeds, and ICS exports receive the original description including formatting symbols. External calendar apps may show those symbols literally.
+
+## Share an event
+
+Open **Edit → Files & sharing → Copy share link** to generate and copy a public URL for that event. Share it in another server, a DM, or elsewhere. Viewing requires no sign-in. Discord and X previews show the title, dates, and server name.
+
+- Only members who can edit the event can issue or disable links.
+- Copying again keeps the URL. Unsaved changes are not published; saved changes appear on the shared page.
+- Disabling the link or deleting the event makes the page unavailable. Reissuing after disabling creates a different URL.
+- Social services may retain cached preview images after changes or revocation.
+
+<Callout type="warning">
+Anyone with the link can see the title, dates, location, description, and server name. Check the contents before sharing.
+</Callout>
+
+## Delete an event
+
+Select Delete in the details or editor, then confirm. Deletion cannot be undone.
+
+## Restrict editing in Server settings
+
+Initially, every server member can create, edit, and delete events. Open the gear icon above the calendar, enable restricted editing, and save. Only members with management permissions or selected roles can then edit; everyone can still view.
+
+<Screenshot src={settingsShot} alt="Server settings for editing restrictions and roles, reminders, daily and weekly summaries, feed URL, external calendars, and Webhooks (Japanese interface)." />
+
+- Management permissions: Administrator, Manage Server, Manage Roles, or Manage Messages. The server owner always qualifies.
+- Select up to 25 editing roles. Holding any selected role is enough; extra management permissions are unnecessary.
+- Selected roles are retained when restrictions are turned off. Deleted roles can be removed from the list.
+- The same restriction applies to Discord's `/create`.
+- Managing server settings, reminder destinations, and feeds still requires management permissions. Editing roles alone do not grant it.
+- See [View in external calendars](/docs/subscribe) for subscriptions.
+
+<Callout>
+Discord role or permission changes can take a short time to appear. Select **Reload** in Server settings to check current permissions.
+</Callout>
+
+<Callout type="warning">
+Without editing permissions in a restricted server, New event is disabled and Edit and Delete are hidden.
+</Callout>
+
+## Attach images and PDFs
+
+In **Files & sharing**, select files and save the event. Files chosen before creation upload after the event is saved. JPEG, PNG, WebP, and PDF are supported: 10 MiB per file, 10 files per event, and 1 GiB per server.
+
+Event details show attachments, image previews, and downloads. Adding or deleting attachments requires event editing permissions. If upload fails, the saved event and successful uploads remain. Retry the failed files; after closing the editor, select unuploaded files again.
+
+Attachments are excluded from public links and Discord reminders and are not copied when duplicating an event. An unavailable notice means attachment storage is not configured for the service.
+
+## Edit or delete repeating events
+
+Editing, deleting, dragging, or resizing lets you choose **This occurrence** or **This and future occurrences**. The latter uses original occurrence dates and leaves earlier occurrences unchanged.
+
+Individually edited or canceled occurrences remain if their original dates still match the new rule. Edited occurrences and occurrences with attachments that no longer match remain as standalone events with the same IDs. However, **deleting this and future occurrences also deletes their individual changes and attachments**, even if an occurrence was moved into the past.
+
+Attachments and share links belong to individual occurrences. Duplicating creates a standalone event from the selected occurrence. If another person changes the series concurrently, saving stops; reopen it and review the latest contents.

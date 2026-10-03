@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ERROR_SCREEN_ACTION, ErrorScreen } from "@/components/error-screen";
+import { Message } from "@/components/language-provider";
 import { ROUTES } from "@/lib/site";
 
 // 存在しない URL と、ページが notFound() を投げたとき (使い方・規約に無いページ、ダッシュボードの不正なサーバー ID、
@@ -20,20 +21,19 @@ export default function NotFound() {
       actions={
         <>
           <Link href={ROUTES.home} className={ERROR_SCREEN_ACTION.primary}>
-            トップページへ
+            <Message message="トップページへ" />
           </Link>
           <Link
             href={ROUTES.dashboard}
             className={ERROR_SCREEN_ACTION.secondary}
           >
-            サーバー一覧へ
+            <Message message="サーバー一覧へ" />
           </Link>
         </>
       }
     >
       <p>
-        お探しのページは存在しないか、移動または削除された可能性があります。URL
-        に間違いがないかお確かめください。
+        <Message message="お探しのページは存在しないか、移動または削除された可能性があります。URL に間違いがないかお確かめください。" />
       </p>
     </ErrorScreen>
   );

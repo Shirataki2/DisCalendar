@@ -4,6 +4,7 @@ import { addDays, format } from "date-fns";
 import { PlusIcon, XIcon } from "lucide-react";
 import { type CSSProperties, Fragment, useState } from "react";
 import { DatePicker } from "@/components/form/date-picker";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,6 +35,7 @@ export function PollFormDialog({
   onClose: () => void;
   onSave: (input: PollInput) => Promise<void>;
 }) {
+  const { t, language } = useLanguage();
   const [version] = useState(poll?.version);
   const [title, setTitle] = useState(poll?.title ?? "");
   const [description, setDescription] = useState(poll?.description ?? "");
@@ -42,10 +44,10 @@ export function PollFormDialog({
     poll?.options ?? [newOption()],
   );
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | Error>("");
   const [dirty, setDirty] = useState(false);
   const close = () => {
-    if (!busy && (!dirty || window.confirm("入力中の変更を破棄しますか？")))
+    if (!busy && (!dirty || window.confirm(t("入力中の変更を破棄しますか？"))))
       onClose();
   };
   function change(index: number, update: Partial<PollOptionInput>) {
@@ -61,16 +63,18 @@ export function PollFormDialog({
       disablePointerDismissal
     >
       <DialogContent
-        lang="ja"
+        lang={language}
         className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl [&>[data-slot=dialog-close]]:size-11"
       >
         <DialogHeader className="shrink-0 border-b p-4 pr-14">
           <DialogTitle>
-            {poll ? "日程調整を編集" : "日程調整を作成"}
+            {poll ? t("日程調整を編集") : t("日程調整を作成")}
           </DialogTitle>
           <DialogDescription>
-            候補を最大{MAX_OPTIONS}件追加できます。日時は日本時間です。
-            {poll && "日時を変更・削除した候補の回答はリセットされます。"}
+            {t("候補を最大{count}件追加できます。日時は日本時間です。", {
+              count: MAX_OPTIONS,
+            })}
+            {poll && t("日時を変更・削除した候補の回答はリセットされます。")}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -116,7 +120,7 @@ export function PollFormDialog({
                 expected_version: version,
               });
             } catch (err) {
-              setError(describeApiError(err));
+              setError(err instanceof Error ? err : new Error());
             } finally {
               setBusy(false);
             }
@@ -126,7 +130,7 @@ export function PollFormDialog({
             <fieldset disabled={busy} className="min-w-0 space-y-4">
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_14rem]">
                 <label className="block space-y-1 text-sm" htmlFor="poll-title">
-                  <span className="font-medium">タイトル</span>
+                  <span className="font-medium">{t("タイトル")}</span>
                   <Input
                     id="poll-title"
                     value={title}
@@ -138,7 +142,9 @@ export function PollFormDialog({
                   className="block space-y-1 text-sm"
                   htmlFor="poll-deadline"
                 >
-                  <span className="font-medium">締切（任意・日本時間）</span>
+                  <span className="font-medium">
+                    {t("締切（任意・日本時間）")}
+                  </span>
                   <Input
                     id="poll-deadline"
                     type="datetime-local"
@@ -151,7 +157,7 @@ export function PollFormDialog({
                 className="block space-y-1 text-sm"
                 htmlFor="poll-description"
               >
-                <span className="font-medium">説明（任意）</span>
+                <span className="font-medium">{t("説明（任意）")}</span>
                 <Textarea
                   id="poll-description"
                   rows={2}
@@ -166,7 +172,7 @@ export function PollFormDialog({
               >
                 <div className="flex items-center justify-between gap-2">
                   <h3 id="poll-options-heading" className="text-sm font-medium">
-                    候補
+                    {t("候補")}
                   </h3>
                   <span className="text-xs text-muted-foreground">
                     {options.length} / {MAX_OPTIONS}
@@ -179,19 +185,19 @@ export function PollFormDialog({
                   style={optionGridStyle}
                 >
                   <span />
-                  <span>開始日</span>
-                  <span>時刻</span>
+                  <span>{t("開始日")}</span>
+                  <span>{t("時刻")}</span>
                   <span />
-                  <span>終了日</span>
-                  <span>時刻</span>
-                  <span>終日</span>
+                  <span>{t("終了日")}</span>
+                  <span>{t("時刻")}</span>
+                  <span>{t("終日")}</span>
                   <span />
                 </div>
                 <ol className="space-y-2">
                   {options.map((option, index) => (
                     <li
                       key={option.id ?? `new-${index}`}
-                      aria-label={`候補 ${index + 1}`}
+                      aria-label={t("候補 {index}", { index: index + 1 })}
                       className="grid grid-cols-[1.5rem_minmax(0,1fr)_7.5rem] items-center gap-2 rounded-md border px-2 py-1.5 sm:grid-cols-(--poll-option-cols)"
                       style={optionGridStyle}
                     >
@@ -215,10 +221,15 @@ export function PollFormDialog({
                                 className="sr-only"
                                 htmlFor={`poll-${index}-${key}`}
                               >
-                                {`候補${index + 1}の${label}日`}
+                                {t(
+                                  label === "開始"
+                                    ? "候補{index}の開始日"
+                                    : "候補{index}の終了日",
+                                  { index: index + 1 },
+                                )}
                               </label>
                               <DatePicker
-                                language="ja"
+                                language={language}
                                 id={`poll-${index}-${key}`}
                                 className="h-9 px-2"
                                 value={parseApiDateTime(option[key])}
@@ -231,11 +242,16 @@ export function PollFormDialog({
                             </div>
                             {option.is_all_day ? (
                               <span className="text-center text-xs text-muted-foreground">
-                                終日
+                                {t("終日")}
                               </span>
                             ) : (
                               <Input
-                                aria-label={`候補${index + 1}の${label}時刻`}
+                                aria-label={t(
+                                  label === "開始"
+                                    ? "候補{index}の開始時刻"
+                                    : "候補{index}の終了時刻",
+                                  { index: index + 1 },
+                                )}
                                 type="time"
                                 required
                                 className="h-9"
@@ -255,7 +271,9 @@ export function PollFormDialog({
                           type="checkbox"
                           className="size-4"
                           checked={option.is_all_day}
-                          aria-label={`候補${index + 1}を終日にする`}
+                          aria-label={t("候補{index}を終日にする", {
+                            index: index + 1,
+                          })}
                           onChange={(e) =>
                             change(index, {
                               is_all_day: e.target.checked,
@@ -264,7 +282,7 @@ export function PollFormDialog({
                             })
                           }
                         />
-                        <span className="sm:hidden">終日</span>
+                        <span className="sm:hidden">{t("終日")}</span>
                       </label>
                       <Button
                         type="button"
@@ -272,7 +290,9 @@ export function PollFormDialog({
                         size="icon-lg"
                         className="justify-self-end"
                         disabled={options.length === 1}
-                        aria-label={`候補${index + 1}を削除`}
+                        aria-label={t("候補{index}を削除", {
+                          index: index + 1,
+                        })}
                         onClick={() => {
                           setDirty(true);
                           setOptions(options.filter((_, i) => i !== index));
@@ -294,7 +314,7 @@ export function PollFormDialog({
                   }}
                 >
                   <PlusIcon />
-                  候補を追加
+                  {t("候補を追加")}
                 </Button>
               </section>
             </fieldset>
@@ -304,7 +324,9 @@ export function PollFormDialog({
               role="alert"
               className="shrink-0 bg-destructive/10 px-4 py-2 text-sm text-destructive"
             >
-              {error}
+              {typeof error === "string"
+                ? t(error)
+                : describeApiError(error, language)}
             </p>
           )}
           <DialogFooter className="m-0 shrink-0 flex-row justify-end [&>button]:min-h-11">
@@ -314,10 +336,14 @@ export function PollFormDialog({
               disabled={busy}
               onClick={close}
             >
-              キャンセル
+              {t("キャンセル")}
             </Button>
             <Button type="submit" disabled={busy}>
-              {busy ? "保存中…" : poll ? "変更を保存" : "日程調整を作成"}
+              {busy
+                ? t("保存中…")
+                : poll
+                  ? t("変更を保存")
+                  : t("日程調整を作成")}
             </Button>
           </DialogFooter>
         </form>

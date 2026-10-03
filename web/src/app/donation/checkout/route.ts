@@ -7,10 +7,13 @@ export function GET(): Response {
   const url = process.env.STRIPE_DONATION_PAYMENT_LINK_URL;
   if (!url) {
     // ローカル開発など、支援の受付を用意していない環境
-    return new Response("支援の受付は準備中です", {
-      status: 503,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+    return new Response(
+      "支援の受付は準備中です / Donations are not available yet.",
+      {
+        status: 503,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      },
+    );
   }
   redirect(url);
 }

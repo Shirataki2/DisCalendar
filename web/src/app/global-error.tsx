@@ -4,7 +4,13 @@
 // root layout を置き換えるので html/body を自前で描く必要があり、globals.css も効かない前提で
 // インラインスタイルだけにしてある。エラーは Sentry へ送る (#17。DSN 未設定なら何もしない)
 import * as Sentry from "@sentry/nextjs";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import {
+  LANGUAGE_STORAGE_KEY,
+  type Language,
+  resolveLanguage,
+  translate,
+} from "@/lib/i18n";
 
 export default function GlobalError({
   error,
@@ -13,12 +19,23 @@ export default function GlobalError({
   error: Error & { digest?: string };
   retry: () => void;
 }) {
+  const [language, setLanguage] = useState<Language>("ja");
+  const t = (message: string) => translate(language, message);
+  useEffect(() => {
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    } catch {
+      /* 保存不可でもブラウザ言語を使う。 */
+    }
+    setLanguage(resolveLanguage(saved ?? navigator.language));
+  }, []);
   useEffect(() => {
     Sentry.captureException(error);
   }, [error]);
 
   return (
-    <html lang="ja">
+    <html lang={language}>
       <body
         style={{
           margin: 0,
@@ -30,9 +47,9 @@ export default function GlobalError({
         }}
       >
         <div style={{ textAlign: "center", padding: "2rem" }}>
-          <h1 style={{ fontSize: "1.25rem" }}>エラーが発生しました</h1>
+          <h1 style={{ fontSize: "1.25rem" }}>{t("エラーが発生しました")}</h1>
           <p style={{ color: "#666" }}>
-            ページの表示に失敗しました。時間をおいて再度お試しください。
+            {t("ページの表示に失敗しました。時間をおいて再度お試しください。")}
           </p>
           <button
             type="button"
@@ -47,7 +64,7 @@ export default function GlobalError({
               cursor: "pointer",
             }}
           >
-            再読み込み
+            {t("再読み込み")}
           </button>
         </div>
       </body>

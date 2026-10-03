@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 
 export default function McpLoginPage() {
+  const { t } = useLanguage();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   async function login() {
@@ -25,15 +27,17 @@ export default function McpLoginPage() {
   }
   return (
     <main className="mx-auto w-full max-w-xl flex-1 space-y-6 px-4 py-12 sm:px-8">
-      <h1 className="text-2xl font-bold">MCP 接続のためのログイン</h1>
+      <h1 className="text-2xl font-bold">{t("MCP 接続のためのログイン")}</h1>
       <p className="text-sm leading-relaxed text-muted-foreground">
-        Discordでログインした後、接続先のクライアントと許可するサーバー・操作を確認します。
+        {t(
+          "Discordでログインした後、接続先のクライアントと許可するサーバー・操作を確認します。",
+        )}
       </p>
       <Button type="button" disabled={pending} onClick={login} size="lg">
-        {pending ? "ログイン画面へ移動中…" : "Discordでログイン"}
+        {pending ? t("ログイン画面へ移動中…") : t("Discordでログイン")}
       </Button>
-      {pending && <p role="status">ログイン画面へ移動しています。</p>}
-      {error && <p role="alert">{error}</p>}
+      {pending && <p role="status">{t("ログイン画面へ移動しています。")}</p>}
+      {error && <p role="alert">{t(error)}</p>}
     </main>
   );
 }

@@ -219,7 +219,7 @@ function QuickAddPopover({
       >
         <PopoverTitle>{t("予定をクイック追加")}</PopoverTitle>
         <PopoverDescription>{range}</PopoverDescription>
-        {guidance && <div lang="ja">{guidance}</div>}
+        {guidance && <div>{guidance}</div>}
         <form onSubmit={submit} noValidate className="flex flex-col gap-2">
           <label htmlFor="quick-add-title" className="sr-only">
             {t("タイトル")}
@@ -968,7 +968,7 @@ export function EventCalendar({
               </fieldset>
             )}
             {deleteTarget && guide?.inlineContent && (
-              <div lang="ja">{guide.inlineContent}</div>
+              <div>{guide.inlineContent}</div>
             )}
             <AlertDialogFooter>
               <AlertDialogCancel>{t("キャンセル")}</AlertDialogCancel>
@@ -1019,8 +1019,8 @@ export function EventCalendar({
       </div>
       {guide && (
         <aside
-          lang="ja"
-          aria-label="操作ガイド"
+          lang={language}
+          aria-label={t("操作ガイド")}
           className="order-first shrink-0 lg:order-last lg:w-80"
         >
           {!overlayOpen && guide.content}

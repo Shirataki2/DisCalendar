@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Message } from "@/components/language-provider";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { SUPPORT_SERVER_URL } from "@/lib/site";
@@ -30,12 +31,12 @@ export function ErrorScreen({
   footnote?: ReactNode;
 }) {
   return (
-    <div className="dark flex flex-1 flex-col bg-background text-foreground">
+    <div
+      data-error-code={code}
+      className="dark flex flex-1 flex-col bg-background text-foreground"
+    >
       <SiteHeader />
-      <main
-        lang="ja"
-        className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center sm:px-6"
-      >
+      <main className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center sm:px-6">
         {code ? (
           <p
             aria-hidden
@@ -44,7 +45,9 @@ export function ErrorScreen({
             {code}
           </p>
         ) : null}
-        <h1 className="text-2xl font-bold sm:text-3xl">{title}</h1>
+        <h1 className="text-2xl font-bold sm:text-3xl">
+          <Message message={title} />
+        </h1>
         <div className="max-w-md text-sm leading-7 text-neutral-300">
           {children}
         </div>
@@ -54,16 +57,16 @@ export function ErrorScreen({
         <div className="space-y-1 text-xs leading-6 text-neutral-400">
           {footnote}
           <p>
-            お困りのときは
+            <Message message="お困りのときは" />{" "}
             <a
               href={SUPPORT_SERVER_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="mx-1 underline underline-offset-4 transition-colors hover:text-white"
             >
-              サポートサーバー
+              <Message message="サポートサーバー" />
             </a>
-            へご連絡ください
+            <Message message="へご連絡ください" />
           </p>
         </div>
       </main>

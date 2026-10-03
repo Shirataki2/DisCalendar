@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EventDescription } from "@/components/event-description";
+import { Message } from "@/components/language-provider";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { LocalizedEventRange } from "@/components/localized-date";
 import { getSharedEvent } from "@/lib/api/public-share";
 import { describeEventRange } from "@/lib/calendar-events";
 import { locationUrl } from "@/lib/event-location";
@@ -35,10 +38,11 @@ export default async function SharePage({ params }: Props) {
   const event = await getSharedEvent((await params).token);
   if (!event) notFound();
   return (
-    <main lang="ja" className="mx-auto w-full max-w-2xl px-5 py-12 sm:py-20">
+    <main className="mx-auto w-full max-w-2xl px-5 py-12 sm:py-20">
       <Link href="/" className="text-sm font-semibold text-muted-foreground">
         DisCalendar
       </Link>
+      <LanguageSwitcher />
       <article className="mt-8 space-y-6 rounded-2xl border bg-card p-6 sm:p-10">
         <div className="flex items-center gap-3">
           {event.guild_avatar_url ? (
@@ -65,14 +69,19 @@ export default async function SharePage({ params }: Props) {
         </div>
         <h1 className="text-3xl font-bold break-words">{event.name}</h1>
         <p>
-          {describeEventRange(event)}{" "}
-          <span className="text-muted-foreground">
-            {event.is_all_day ? "終日" : "(日本時間)"}
-          </span>
+          <LocalizedEventRange
+            event={{
+              start_at: event.start_at,
+              end_at: event.end_at,
+              is_all_day: event.is_all_day,
+            }}
+          />
         </p>
         {event.location && (
           <p className="break-words">
-            <span className="font-medium">場所：</span>{" "}
+            <span className="font-medium">
+              <Message message="場所：" />
+            </span>{" "}
             {locationUrl(event.location) ? (
               <a
                 href={event.location}
@@ -95,10 +104,10 @@ export default async function SharePage({ params }: Props) {
             href={`/dashboard/${event.guild_id}`}
             className="text-primary underline underline-offset-4"
           >
-            サーバーのカレンダーを開く
+            <Message message="サーバーのカレンダーを開く" />
           </Link>
           <p className="mt-2 text-xs text-muted-foreground">
-            カレンダーの閲覧にはログインとサーバーへの参加が必要です。
+            <Message message="カレンダーの閲覧にはログインとサーバーへの参加が必要です。" />
           </p>
         </div>
       </article>

@@ -41,11 +41,12 @@ test.describe("初回の言語とブラウザ保存", () => {
     ).toBeVisible();
     for (const path of ["/", "/donation", "/tutorial"]) {
       await page.goto(path);
-      await expect(page.locator("main")).toHaveAttribute("lang", "ja");
-      await expect(page.locator("head title")).toHaveAttribute("lang", "ja");
+      await expect(page.locator("html")).toHaveAttribute("lang", "en");
+      await expect(page.locator("main")).not.toHaveAttribute("lang", "ja");
+      await expect(page.locator("head title")).toHaveAttribute("lang", "en");
     }
     await page.goto("/docs/gettingstarted");
-    await expect(page.locator("head title")).toHaveAttribute("lang", "ja");
+    await expect(page.locator("head title")).toHaveAttribute("lang", "en");
   });
 
   test("保存できない環境でも言語を変更できる", async ({ page }) => {
@@ -239,7 +240,7 @@ test("保存済み英語と日英切り替えで両カレンダーのホバー�
   }
 });
 
-test("英語選択中も未翻訳の設定では通知入力とエラーを日本語で表示する", async ({
+test("英語の設定で選択肢・通知入力・エラーと読み上げ言語を揃える", async ({
   page,
 }) => {
   await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
@@ -249,69 +250,69 @@ test("英語選択中も未翻訳の設定では通知入力とエラーを日�
   await page.getByRole("button", { name: "Account menu" }).click();
   await page.getByRole("menuitem", { name: "Calendar preferences" }).click();
   const calendarSettings = page.getByRole("dialog", {
-    name: "カレンダーの表示設定",
+    name: "Calendar preferences",
   });
   const selectionMenu = page.locator('[data-slot="select-content"]:visible');
   for (const label of [
-    "最初に表示するビュー",
-    "週の開始曜日",
-    "クリックで作るときの長さ",
-    "事前通知の既定値",
+    "Initial view",
+    "First day of the week",
+    "Duration when creating by clicking",
+    "Default advance reminders",
   ]) {
     await calendarSettings.getByLabel(label, { exact: true }).click();
-    await expect(selectionMenu).toHaveAttribute("lang", "ja");
+    await expect(selectionMenu).toHaveAttribute("lang", "en");
     await page.getByRole("option", { selected: true }).click();
     await expect(selectionMenu).toHaveCount(0);
   }
-  await calendarSettings.getByLabel("既定の色", { exact: true }).click();
-  const color = page.getByLabel("その他の色", { exact: true });
+  await calendarSettings.getByLabel("Default color", { exact: true }).click();
+  const color = page.getByLabel("Custom color", { exact: true });
   await expect(color).toBeVisible();
   await expect(
     page.locator('[data-slot="popover-content"]').filter({ has: color }),
-  ).toHaveAttribute("lang", "ja");
+  ).toHaveAttribute("lang", "en");
   await page.keyboard.press("Escape");
   await calendarSettings
-    .getByLabel("事前通知の既定値", { exact: true })
+    .getByLabel("Default advance reminders", { exact: true })
     .click();
-  await page.getByRole("option", { name: "自分で指定" }).click();
+  await page.getByRole("option", { name: "Set my own" }).click();
   await expect(
-    calendarSettings.getByRole("button", { name: "通知を追加" }),
+    calendarSettings.getByRole("button", { name: "Add reminder" }),
   ).toBeVisible();
   await expect(
-    calendarSettings.getByLabel("通知のタイミング (単位)").first(),
-  ).toContainText("日前");
+    calendarSettings.getByLabel("Reminder timing (unit)").first(),
+  ).toContainText("day before");
   await page.keyboard.press("Escape");
   await page
     .getByRole("button", { name: "Server settings", exact: true })
     .click();
-  const guildSettings = page.getByRole("dialog", { name: "サーバー設定" });
-  await guildSettings.getByLabel("通知先チャンネル", { exact: true }).click();
-  await expect(selectionMenu).toHaveAttribute("lang", "ja");
+  const guildSettings = page.getByRole("dialog", { name: "Server settings" });
+  await guildSettings.getByLabel("Reminder channel", { exact: true }).click();
+  await expect(selectionMenu).toHaveAttribute("lang", "en");
   await page
     .locator('[role="option"]:not([aria-disabled="true"])')
     .first()
     .click();
   await expect(selectionMenu).toHaveCount(0);
   await guildSettings
-    .getByRole("region", { name: "外部カレンダーを重ねて表示する" })
+    .getByRole("region", { name: "Overlay external calendars" })
     .getByRole("button", { name: /^#/ })
     .click();
   await expect(color).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(
-    guildSettings.getByRole("button", { name: "通知を追加" }),
+    guildSettings.getByRole("button", { name: "Add reminder" }),
   ).toBeVisible();
-  await guildSettings.getByLabel("通知のタイミング (単位)").first().click();
+  await guildSettings.getByLabel("Reminder timing (unit)").first().click();
   await expect(
-    page.getByRole("option", { name: "日前", exact: true }),
+    page.getByRole("option", { name: "day before", exact: true }),
   ).toBeVisible();
-  await page.getByRole("option", { name: "日前", exact: true }).click();
-  await guildSettings.getByLabel("通知のタイミング (数値)").first().fill("0");
+  await page.getByRole("option", { name: "day before", exact: true }).click();
+  await guildSettings.getByLabel("Reminder timing (number)").first().fill("0");
   await guildSettings
-    .getByRole("button", { name: "保存", exact: true })
+    .getByRole("button", { name: "Save", exact: true })
     .click();
   await expect(
-    guildSettings.getByText("1〜100の範囲で入力してください", { exact: true }),
+    guildSettings.getByText("Enter a number from 1 to 100", { exact: true }),
   ).toBeVisible();
 });
 
@@ -487,33 +488,43 @@ for (const width of [375, 390, 1280]) {
   });
 }
 
-test("英語選択中も未翻訳の日程調整の日付とルート404本文を日本語で扱う", async ({
-  page,
-}) => {
+test("英語の日程調整の日付選択と404を英語で読み上げる", async ({ page }) => {
   await page.goto(`/dashboard/${E2E_GUILDS.polls.id}/polls`);
   await page
     .getByRole("combobox", { name: "Language / 言語" })
     .selectOption("en");
   await page
-    .getByRole("button", { name: "日程調整を作成", exact: true })
+    .getByRole("button", { name: "Create scheduling poll", exact: true })
     .click();
   const form = page.getByRole("dialog", {
-    name: "日程調整を作成",
+    name: "Create scheduling poll",
     exact: true,
   });
-  await expect(form).toHaveAttribute("lang", "ja");
-  const date = form.getByRole("button", { name: "候補1の開始日", exact: true });
-  await expect(date).toHaveText(/\d{4}\/\d{2}\/\d{2} \([日月火水木金土]\)/);
+  await expect(form).toHaveAttribute("lang", "en");
+  const date = form.getByRole("button", {
+    name: "Option 1 start date",
+    exact: true,
+  });
+  await expect(date).toHaveText(/[A-Z][a-z]{2}/);
   await date.click();
   const calendar = page
     .getByRole("dialog")
     .filter({ has: page.getByRole("grid") });
-  await expect(calendar).toHaveAttribute("lang", "ja");
-  await expect(calendar).toContainText(/\d{4}年/);
+  await expect(calendar).toHaveAttribute("lang", "en");
+  await expect(calendar).toContainText(/20\d{2}/);
   await page.goto("/no-such-page");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.locator("main")).toHaveAttribute("lang", "ja");
+  await expect(page.locator("main")).not.toHaveAttribute("lang", "ja");
   await expect(
-    page.getByRole("heading", { name: "ページが見つかりません" }),
+    page.getByRole("heading", { name: "Page not found" }),
   ).toBeVisible();
+});
+
+test("404のタブタイトルは日英切り替えに追従する", async ({ page }) => {
+  await page.goto("/no-such-page");
+  const language = page.getByRole("combobox", { name: "Language / 言語" });
+  await language.selectOption("en");
+  await expect(page).toHaveTitle("Page not found | DisCalendar");
+  await language.selectOption("ja");
+  await expect(page).toHaveTitle("ページが見つかりません | DisCalendar");
 });

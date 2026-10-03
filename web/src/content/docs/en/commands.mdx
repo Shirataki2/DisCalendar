@@ -1,0 +1,56 @@
+import { Callout } from "@/components/docs/callout";
+import { CommandCard } from "@/components/docs/command-card";
+
+Type `/` in Discord to see the bot's slash commands and argument help. A message context action, currently named **予定にする**, is also available by right-clicking a message or long-pressing on a phone. Bot command labels and replies currently remain in Japanese; changing the website language does not change them.
+
+<Callout>
+Legacy `cal` commands such as `cal help` are no longer supported. Use slash commands.
+</Callout>
+
+<CommandCard name="/help">
+Shows a usage guide and bot invitation link in an embed. Only you can see the reply.
+</CommandCard>
+
+<CommandCard name="/init" args="[チャンネル]" permission="Management permissions required">
+Sets the reminder channel. Omit the channel option to use the current channel; run again to change it. If the bot lacks View Channel, Send Messages, or Embed Links, the setting is not saved and missing permissions are reported. See [Initial setup](/docs/initialize).
+</CommandCard>
+
+<CommandCard name="/create" args="名称 開始… 終了… [説明] [場所 / URL] [終日] [色] [通知…]" permission="Management permission or an editing role in restricted mode">
+Creates an event directly in Discord; it also appears in the website calendar.
+
+- Required: title (up to 32 characters), start and end dates and times, with separate year, month, day, hour, and minute fields.
+- Optional: description (1,000 characters), location / URL (200), all-day mode (ignores hours and minutes), color (red, blue, green, yellow, purple, cyan, orange, pink, gray, or black; blue by default), and up to four advance reminders from the choices between 5 minutes and 7 days before.
+
+Invalid dates and an end before the start are rejected. In restricted mode you need management permissions or a selected editing role.
+</CommandCard>
+
+## Create an event from a message
+
+1. Right-click or long-press the message, then choose Apps → **予定にする**.
+2. Review or enter the title, date, start time, and duration in the form.
+3. Check the displayed start and end times, then confirm within two minutes.
+
+Japanese phrases such as `土曜 21時から2時間集まろう` provide candidate dates, times, and durations. Times use JST. Today and tomorrow refer to the command's execution date; weekdays use the next matching day, including today. Always review dates when using an old message.
+
+- Dates: `今日`, `明日`, Japanese weekdays such as `土曜` / `土曜日`, or `YYYY-MM-DD`.
+- Times: `21時`, `21時30分`, `21時半`, or `21:00`; full-width digits and colons also work.
+- Durations: `2時間`, `30分`, or `1時間30分`. In the form, enter an integer from 1 to 10,080 minutes.
+- Title: the first nonempty line, up to 32 characters.
+
+Unrecognized or ambiguous fields remain blank. Manual dates accept `YYYY-MM-DD`, `今日`, or `明日`; times use `HH:mm`. Submit the form within five minutes. Canceling or timing out saves nothing.
+
+Confirmations, results, and errors are visible only to you. The result title links to the calendar. The description includes a link to the original message, without copying its body; only people with Discord channel access can open it. The event is blue with no advance reminders, while start-time reminders follow server settings. Restricted-mode permissions are checked when saving, as with `/create`.
+
+## Other commands
+
+<CommandCard name="/list" args="[範囲]">
+Lists future events by default. The range choices are `未来` (future), `過去` (past), and `全て` (all). Four events appear per page. Use the previous and next buttons to navigate and Done to close. Events created on the website are included.
+</CommandCard>
+
+<CommandCard name="/invite">
+Shows an invitation link for adding the bot to another server.
+</CommandCard>
+
+## Management permissions
+
+This means being the server owner or having Administrator, Manage Server, Manage Messages, or Manage Roles permission. Server settings and `/init` require these permissions. Event editing and `/create` also allow members with selected editing roles in restricted mode.
