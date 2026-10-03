@@ -73,6 +73,7 @@ test("メンバー情報は認証と所属確認を通し、ID の形式・上�
 
 test("一覧では解決せず、退出済みと取得失敗を区別して表示する", async ({
   page,
+  context,
 }) => {
   let lookups = 0;
   await page.route("**/local/api/guilds/*/members?*", async (route) => {
@@ -87,6 +88,14 @@ test("一覧では解決せず、退出済みと取得失敗を区別して表�
   await createEvent(page, title);
   expect(lookups).toBe(0);
   const popover = await openEventPopover(page, title);
+  await expect(popover).toContainText("退出したメンバー");
+  const other = await context.newPage();
+  await other.goto("/dashboard");
+  const language = other.getByRole("combobox", { name: "Language / 言語" });
+  await language.selectOption("en");
+  await expect(popover).toContainText("Member left the server");
+  await expect(popover).not.toContainText("退出したメンバー");
+  await language.selectOption("ja");
   await expect(popover).toContainText("退出したメンバー");
   // 開発時は Strict Mode の再マウントで中断・再取得されることがある。
   expect(lookups).toBeGreaterThan(0);

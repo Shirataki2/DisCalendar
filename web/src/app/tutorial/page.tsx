@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 export default function TutorialPage() {
   return (
     <>
-      <header className="border-b border-white/10">
+      <header lang="ja" className="border-b border-white/10">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-8">
           <Link
             prefetch={false}
@@ -31,7 +31,10 @@ export default function TutorialPage() {
           </Link>
         </div>
       </header>
-      <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 py-6 sm:px-8">
+      <main
+        lang="ja"
+        className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 py-6 sm:px-8"
+      >
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3 border-b border-white/10 pb-5">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">

@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useLanguage } from "@/components/language-provider";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { Logo } from "@/components/logo";
 import { SessionLink } from "@/components/session-link";
 import { ROUTES } from "@/lib/site";
@@ -13,14 +17,19 @@ const NAV_LINKS = [
 
 /** 公開ページ (LP / docs / 規約) 共通のヘッダ */
 export function SiteHeader() {
+  const { t } = useLanguage();
   return (
     <header className="sticky top-0 z-20 border-b border-white/10 bg-background/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4 sm:px-6">
-        <Link href="/" className="shrink-0" aria-label="DisCalendar ホーム">
-          <Logo className="text-xl" />
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:gap-6 sm:px-6">
+        <Link
+          href="/"
+          className="shrink-0"
+          aria-label={t("DisCalendar ホーム")}
+        >
+          <Logo className="text-base sm:text-xl" />
         </Link>
         {/* 640px 前後だとロゴ + 4 項目 + 右のボタンが h-14 に収まらず折り返すので、md から出す (それ未満はフッタに同じリンクがある) */}
-        <nav aria-label="サイト内リンク" className="hidden md:block">
+        <nav aria-label={t("サイト内リンク")} className="hidden md:block">
           <ul className="flex items-center gap-5 text-sm text-neutral-300">
             {NAV_LINKS.map((link) => (
               <li key={link.href}>
@@ -28,13 +37,14 @@ export function SiteHeader() {
                   href={link.href}
                   className="transition-colors hover:text-white"
                 >
-                  {link.label}
+                  {t(link.label)}
                 </Link>
               </li>
             ))}
           </ul>
         </nav>
-        <div className="ml-auto">
+        <div className="ml-auto flex min-w-0 items-center gap-2">
+          <LanguageSwitcher />
           <SessionLink className="rounded-full border border-white/20 px-4 py-1.5 text-sm transition-colors hover:bg-white/10" />
         </div>
       </div>

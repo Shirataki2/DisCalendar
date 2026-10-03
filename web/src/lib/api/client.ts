@@ -1,3 +1,4 @@
+import { type Language, type MessageValues, translate } from "@/lib/i18n";
 import type { ApiErrorBody, ApiErrorKind } from "./types";
 
 /** ブラウザから見た API のプレフィックス。next.config.ts の rewrites で Rust API へプロキシされる */
@@ -73,35 +74,56 @@ async function toApiError(res: Response): Promise<ApiError> {
   );
 }
 
-/** ユーザーに見せる日本語のエラーメッセージ */
-export function describeApiError(error: unknown): string {
+/** ユーザーに見せるエラーメッセージ。既定は日本語 */
+export function describeApiError(
+  error: unknown,
+  language: Language = "ja",
+): string {
+  const t = (message: string, values?: MessageValues) =>
+    translate(language, message, values);
   if (!(error instanceof ApiError)) {
     return error instanceof Error && error.name === "AbortError"
-      ? "通信が中断されました"
-      : "通信に失敗しました。ネットワークを確認してください";
+      ? t("通信が中断されました")
+      : t("通信に失敗しました。ネットワークを確認してください");
   }
   switch (error.kind) {
     case "unauthorized":
-      return "ログインの有効期限が切れました。再度ログインしてください";
+      return t("ログインの有効期限が切れました。再度ログインしてください");
     case "forbidden":
-      return "この操作を行う権限がありません";
+      return t("この操作を行う権限がありません");
     case "bot_permission":
-      return "Bot に「イベントの作成」権限がないため Discord に反映できませんでした。Bot を招待し直すと利用できます (使い方の「サーバーに導入する」)";
+      return t(
+        "Bot に「イベントの作成」権限がないため Discord に反映できませんでした。Bot を招待し直すと利用できます (使い方の「サーバーに導入する」)",
+      );
     case "not_found":
-      return "対象が見つかりません (他のユーザーが削除した可能性があります)";
+      return t("対象が見つかりません (他のユーザーが削除した可能性があります)");
     case "bad_request":
-      return `入力内容が正しくありません (${error.message})`;
+      return t("入力内容が正しくありません ({detail})", {
+        detail: t(error.message),
+      });
     case "conflict":
-      return "他の更新と同時に行われたため保存できませんでした。もう一度お試しください";
+      return t(
+        "他の更新と同時に行われたため保存できませんでした。もう一度お試しください",
+      );
     case "rate_limited":
-      return "Discord API の制限中です。しばらく待ってから再度お試しください";
+      return t(
+        "Discord API の制限中です。しばらく待ってから再度お試しください",
+      );
     case "too_many_requests":
-      return "メンバーの確認が多すぎます。1分ほど待ってから再試行してください";
+      return t(
+        "メンバーの確認が多すぎます。1分ほど待ってから再試行してください",
+      );
     case "unavailable":
-      return `この機能は現在使えません (${error.message})`;
+      return t("この機能は現在使えません ({detail})", {
+        detail: t(error.message),
+      });
     case "discord_error":
-      return "Discord との通信に失敗しました。時間をおいて再度お試しください";
+      return t(
+        "Discord との通信に失敗しました。時間をおいて再度お試しください",
+      );
     default:
-      return `サーバーでエラーが発生しました (${error.status})`;
+      return t("サーバーでエラーが発生しました ({status})", {
+        status: error.status,
+      });
   }
 }

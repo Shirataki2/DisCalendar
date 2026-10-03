@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, Fragment, useContext } from "react";
+import { useLanguage } from "@/components/language-provider";
 import {
   Dialog,
   DialogContent,
@@ -31,13 +32,16 @@ interface Props {
 
 /** カレンダーのキーボードショートカット一覧 (#160)。内容は lib/calendar-shortcuts.ts の表から作る */
 export function KeyboardShortcutsDialog({ open, onOpenChange }: Props) {
+  const { t } = useLanguage();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>キーボードショートカット</DialogTitle>
+          <DialogTitle>{t("キーボードショートカット")}</DialogTitle>
           <DialogDescription>
-            カレンダー画面で使えるキー操作です。文字を入力している間やダイアログを開いている間は使えません。
+            {t(
+              "カレンダー画面で使えるキー操作です。文字を入力している間やダイアログを開いている間は使えません。",
+            )}
           </DialogDescription>
         </DialogHeader>
         <dl className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2">
@@ -53,7 +57,7 @@ export function KeyboardShortcutsDialog({ open, onOpenChange }: Props) {
                   </kbd>
                 ))}
               </dt>
-              <dd>{description}</dd>
+              <dd>{t(description)}</dd>
             </Fragment>
           ))}
         </dl>

@@ -23,6 +23,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useId } from "react";
+import { useLanguage } from "@/components/language-provider";
 import { ThemeToggleContent, useThemeToggle } from "@/components/theme-toggle";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { GITHUB_URL, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
@@ -185,6 +186,7 @@ export function DashboardNav({
   onOpenKeyboardShortcuts,
   className,
 }: Props) {
+  const { t } = useLanguage();
   const pathname = usePathname();
   const headingId = useId();
   const signOut = useSignOut();
@@ -192,7 +194,7 @@ export function DashboardNav({
 
   return (
     <nav
-      aria-label="サイト内メニュー"
+      aria-label={t("サイト内メニュー")}
       className={cn("flex flex-col gap-4 p-2", className)}
     >
       {SECTIONS.filter((section) => admin || section !== "管理").map(
@@ -202,7 +204,7 @@ export function DashboardNav({
               id={`${headingId}-${section}`}
               className="px-3 pb-1 pt-2 text-xs font-medium text-muted-foreground"
             >
-              {section}
+              {t(section)}
             </h2>
             <ul className="flex flex-col gap-0.5">
               {ITEMS.filter(
@@ -219,7 +221,7 @@ export function DashboardNav({
                       onClick={onNavigate}
                     >
                       <item.icon className="size-5 shrink-0" aria-hidden />
-                      <span className="flex-1">{item.label}</span>
+                      <span className="flex-1">{t(item.label)}</span>
                       <ExternalLinkIcon
                         className="size-3.5 text-muted-foreground"
                         aria-hidden
@@ -235,7 +237,7 @@ export function DashboardNav({
                       onClick={onNavigate}
                     >
                       <item.icon className="size-5 shrink-0" aria-hidden />
-                      <span className="flex-1">{item.label}</span>
+                      <span className="flex-1">{t(item.label)}</span>
                     </Link>
                   )}
                 </li>
@@ -257,7 +259,7 @@ export function DashboardNav({
                         aria-hidden
                       />
                       <span className="flex-1 text-left">
-                        カレンダーの表示設定
+                        {t("カレンダーの表示設定")}
                       </span>
                     </button>
                   </li>
@@ -271,7 +273,7 @@ export function DashboardNav({
                       }}
                     >
                       <BellIcon className="size-5 shrink-0" aria-hidden />
-                      <span>プッシュ通知</span>
+                      <span>{t("プッシュ通知")}</span>
                     </button>
                   </li>
                   <li>
@@ -301,7 +303,7 @@ export function DashboardNav({
                   >
                     <KeyboardIcon className="size-5 shrink-0" aria-hidden />
                     <span className="flex-1 text-left">
-                      キーボードショートカット
+                      {t("キーボードショートカット")}
                     </span>
                   </button>
                 </li>
@@ -321,7 +323,7 @@ export function DashboardNav({
             }}
           >
             <LogOutIcon className="size-5 shrink-0" aria-hidden />
-            <span className="flex-1 text-left">ログアウト</span>
+            <span className="flex-1 text-left">{t("ログアウト")}</span>
           </button>
         </li>
       </ul>

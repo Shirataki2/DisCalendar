@@ -15,6 +15,7 @@ import type { ReactNode } from "react";
 import { EventAttachments } from "@/components/event-attachments";
 import { EventAuthors } from "@/components/event-authors";
 import { EventDescription } from "@/components/event-description";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import { useLastValue } from "@/hooks/use-last-value";
@@ -70,6 +71,7 @@ export function EventPopover({
   onDelete,
   onClose,
 }: Props) {
+  const { t, language } = useLanguage();
   // 閉じるアニメーションの間も直前の内容を出しておく
   const shown = useLastValue(event);
   const shownAnchor = useLastValue(anchor);
@@ -79,7 +81,9 @@ export function EventPopover({
   const headerColor = shownColor ?? shown.color;
 
   const notifications = shown.notifications.length
-    ? shown.notifications.map(describeNotification).join("・")
+    ? shown.notifications
+        .map((notification) => describeNotification(notification, language))
+        .join(t("・"))
     : "-";
 
   return (
@@ -109,13 +113,13 @@ export function EventPopover({
         <div className="flex flex-col gap-1.5 px-4 py-3">
           {shown.recurrence && (
             <p className="text-sm">
-              {describeRecurrence(shown.recurrence.rule)}
-              {shown.recurrence.is_exception ? "（この回は個別変更）" : ""}
+              {describeRecurrence(shown.recurrence.rule, language)}
+              {shown.recurrence.is_exception ? t("（この回は個別変更）") : ""}
             </p>
           )}
           <div className="flex items-center gap-2">
             <AlarmClockIcon className="size-4 shrink-0 text-muted-foreground" />
-            <span>{describeEventRange(shown)}</span>
+            <span>{describeEventRange(shown, language)}</span>
           </div>
           {shown.location && (
             <div className="flex items-start gap-2">
@@ -181,7 +185,7 @@ export function EventPopover({
               href={shownGuild.href}
               className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-foreground/10"
             >
-              このサーバーのカレンダーを開く
+              {t("このサーバーのカレンダーを開く")}
               <ArrowRightIcon className="size-4" aria-hidden />
             </Link>
           </div>
@@ -196,7 +200,8 @@ export function EventPopover({
                 onClick={() => onEdit(shown)}
               >
                 <PencilIcon />
-                編集
+
+                {t("編集")}
               </Button>
               <Button
                 type="button"
@@ -205,7 +210,8 @@ export function EventPopover({
                 onClick={() => onDuplicate(shown)}
               >
                 <CopyIcon />
-                複製
+
+                {t("複製")}
               </Button>
             </div>
             <Button
@@ -216,7 +222,8 @@ export function EventPopover({
               onClick={() => onDelete(shown)}
             >
               <Trash2Icon />
-              削除
+
+              {t("削除")}
             </Button>
           </div>
         )}

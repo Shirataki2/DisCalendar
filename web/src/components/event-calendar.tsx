@@ -27,10 +27,10 @@ import {
   useState,
 } from "react";
 import {
-  calendarBaseOptions,
   datesSetToRange,
   useCalendarBase,
   useCalendarToolbarElements,
+  useLocalizedCalendarOptions,
 } from "@/components/calendar-base";
 import { CalendarLegendChip } from "@/components/calendar-legend-chip";
 import {
@@ -39,6 +39,7 @@ import {
 } from "@/components/event-form-dialog";
 import { EventPopover, type PopoverAnchor } from "@/components/event-popover";
 import { IcsImportDialog } from "@/components/ics-import-dialog";
+import { useLanguage } from "@/components/language-provider";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -169,13 +170,15 @@ function QuickAddPopover({
   onTitleChange,
   onSubmit,
 }: QuickAddProps) {
+  const { t, language } = useLanguage();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const values = { ...state.values, name: state.title };
   const range = describeEventRange(
     eventFormToApiInput({ ...state.values, name: "-" }),
+    language,
   );
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -193,7 +196,7 @@ function QuickAddPopover({
       await onSubmit(eventFormToApiInput(parsed.data));
       onClose();
     } catch (submitError) {
-      setError(describeApiError(submitError));
+      setError(submitError);
     } finally {
       setIsSubmitting(false);
     }
@@ -214,18 +217,18 @@ function QuickAddPopover({
         initialFocus={inputRef}
         className="w-80 max-w-[calc(100vw-1rem)]"
       >
-        <PopoverTitle>予定をクイック追加</PopoverTitle>
+        <PopoverTitle>{t("予定をクイック追加")}</PopoverTitle>
         <PopoverDescription>{range}</PopoverDescription>
-        {guidance}
+        {guidance && <div lang="ja">{guidance}</div>}
         <form onSubmit={submit} noValidate className="flex flex-col gap-2">
           <label htmlFor="quick-add-title" className="sr-only">
-            タイトル
+            {t("タイトル")}
           </label>
           <Input
             ref={inputRef}
             id="quick-add-title"
             value={state.title}
-            placeholder="タイトルを入力して Enter"
+            placeholder={t("タイトルを入力して Enter")}
             disabled={isSubmitting}
             aria-invalid={error ? true : undefined}
             onChange={(event) => {
@@ -237,9 +240,11 @@ function QuickAddPopover({
                 event.preventDefault();
             }}
           />
-          {error && (
+          {!!error && (
             <p role="alert" className="text-xs text-destructive">
-              {error}
+              {typeof error === "string"
+                ? t(error)
+                : describeApiError(error, language)}
             </p>
           )}
           <div className="flex justify-end gap-2">
@@ -250,10 +255,10 @@ function QuickAddPopover({
               disabled={isSubmitting}
               onClick={() => onDetails(values)}
             >
-              詳細を入力
+              {t("詳細を入力")}
             </Button>
             <Button type="submit" size="sm" disabled={isSubmitting}>
-              {isSubmitting ? "作成中…" : "作成"}
+              {isSubmitting ? t("作成中…") : t("作成")}
             </Button>
           </div>
         </form>
@@ -274,10 +279,12 @@ export function EventCalendar({
   guide,
   discordSync,
 }: Props) {
+  const { t, language } = useLanguage();
   const { settings: savedSettings } = useCalendarSettings();
   const settings = settingsOverride ?? savedSettings;
   const currentSettings = () => settingsOverride ?? readCalendarSettings();
   const calendarRef = useRef<CalendarRef>(null);
+  const calendarOptions = useLocalizedCalendarOptions();
   const toolbarElements = useCalendarToolbarElements(calendarRef);
   const eventToOpen = useRef(initialEventId);
   const quickAddId = useRef(0);
@@ -293,7 +300,7 @@ export function EventCalendar({
   const [quickAdd, setQuickAdd] = useState<QuickAddState | null>(null);
   const [dialog, setDialog] = useState<EventDialogState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiEvent | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<unknown>(null);
   const [importDefaultColor, setImportDefaultColor] = useState<string | null>(
     null,
   );
@@ -447,7 +454,7 @@ export function EventCalendar({
         {
           onError: (error) => {
             info.revert();
-            setActionError(describeApiError(error));
+            setActionError(error);
           },
         },
       );
@@ -601,7 +608,7 @@ export function EventCalendar({
         expected_series_version: deleteTarget.recurrence?.version,
       });
     } catch (error) {
-      setActionError(describeApiError(error));
+      setActionError(error);
     }
   };
 
@@ -616,6 +623,7 @@ export function EventCalendar({
   );
   return (
     <div
+      lang={language}
       className={cn(
         "flex min-h-0 min-w-0 flex-1 flex-col gap-5",
         guide && "lg:flex-row",
@@ -638,13 +646,16 @@ export function EventCalendar({
                 disabled={!canEdit}
                 title={
                   canEdit
-                    ? "新規作成 (n)"
-                    : "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます"
+                    ? t("新規作成 (n)")
+                    : t(
+                        "このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます",
+                      )
                 }
                 className="h-11 rounded-l-full rounded-r-none bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600 focus-visible:z-10"
               >
                 <PlusIcon />
-                新規作成
+
+                {t("新規作成")}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger
@@ -653,8 +664,8 @@ export function EventCalendar({
                     <Button
                       type="button"
                       size="icon-lg"
-                      aria-label="作成メニューを開く"
-                      title="作成メニューを開く"
+                      aria-label={t("作成メニューを開く")}
+                      title={t("作成メニューを開く")}
                       className="size-11 rounded-l-none rounded-r-full border-l-white/40 bg-amber-700 text-white hover:bg-amber-600 focus-visible:z-10"
                     />
                   }
@@ -667,7 +678,8 @@ export function EventCalendar({
                     onClick={openCreateDefault}
                   >
                     <PlusIcon />
-                    予定を作成
+
+                    {t("予定を作成")}
                     <DropdownMenuShortcut>n</DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -677,7 +689,8 @@ export function EventCalendar({
                     }
                   >
                     <FileUpIcon />
-                    ICSファイルから取り込む
+
+                    {t("ICSファイルから取り込む")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -688,11 +701,12 @@ export function EventCalendar({
               size="lg"
               onClick={openCreateDefault}
               disabled={!canEdit}
-              title={canEdit ? "新規作成 (n)" : "予定を編集できません"}
+              title={canEdit ? t("新規作成 (n)") : t("予定を編集できません")}
               className="rounded-full bg-amber-700 px-5 font-semibold text-white hover:bg-amber-600"
             >
               <PlusIcon />
-              新規作成
+
+              {t("新規作成")}
             </Button>
           )}
           {eventsSource === dashboardEventsSource && (
@@ -702,43 +716,47 @@ export function EventCalendar({
               render={<Link href={`/dashboard/${guildId}/polls`} />}
             >
               <CalendarCheckIcon />
-              日程調整
+
+              {t("日程調整")}
             </Button>
           )}
           {eventsQuery.isFetching && (
-            <span className="text-xs text-muted-foreground">読み込み中…</span>
+            <span className="text-xs text-muted-foreground">
+              {t("読み込み中…")}
+            </span>
           )}
           {eventsQuery.isError && (
             <span className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive">
-              予定を取得できませんでした: {describeApiError(eventsQuery.error)}
+              {t("予定を取得できませんでした:")}{" "}
+              {describeApiError(eventsQuery.error, language)}
               <button
                 type="button"
                 onClick={() => eventsQuery.refetch()}
                 className="underline hover:text-foreground"
               >
-                再試行
+                {t("再試行")}
               </button>
             </span>
           )}
-          {actionError && (
+          {!!actionError && (
             <span
               role="alert"
               className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-1.5 text-sm text-destructive"
             >
-              {actionError}
+              {describeApiError(actionError, language)}
               <button
                 type="button"
                 onClick={() => setActionError(null)}
                 className="underline hover:text-foreground"
               >
-                閉じる
+                {t("閉じる")}
               </button>
             </span>
           )}
         </div>
         {externalEnabled && (externalQuery.data?.length ?? 0) > 0 && (
           <ul
-            aria-label="外部カレンダーの凡例"
+            aria-label={t("外部カレンダーの凡例")}
             className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto"
           >
             {externalQuery.data?.map(({ calendar, warning }) => {
@@ -754,9 +772,9 @@ export function EventCalendar({
                     shown={shown}
                     error={
                       calendar.last_error
-                        ? "取得できません"
+                        ? t("取得できません")
                         : warning
-                          ? "一部省略"
+                          ? t("一部省略")
                           : null
                     }
                     onClick={() => {
@@ -776,13 +794,13 @@ export function EventCalendar({
         )}
         {externalEnabled && externalQuery.isError && (
           <p role="alert" className="text-sm text-destructive">
-            外部カレンダーを取得できませんでした。
+            {t("外部カレンダーを取得できませんでした。")}{" "}
             <button
               type="button"
               className="underline"
               onClick={() => void externalQuery.refetch()}
             >
-              再試行
+              {t("再試行")}
             </button>
           </p>
         )}
@@ -798,7 +816,7 @@ export function EventCalendar({
           {initialView && (
             <Calendar
               ref={calendarRef}
-              {...calendarBaseOptions}
+              {...calendarOptions}
               toolbarElements={toolbarElements}
               initialView={initialView}
               initialDate={initialDate}
@@ -856,9 +874,11 @@ export function EventCalendar({
             >
               <PopoverTitle>{selectedExternal.name}</PopoverTitle>
               <PopoverDescription>
-                {selectedExternalCalendar?.name} · 外部カレンダーの予定
+                {selectedExternalCalendar?.name} {t("· 外部カレンダーの予定")}
               </PopoverDescription>
-              <p className="text-sm">{describeEventRange(selectedExternal)}</p>
+              <p className="text-sm">
+                {describeEventRange(selectedExternal, language)}
+              </p>
               {selectedExternal.description && (
                 <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-muted-foreground">
                   {selectedExternal.description}
@@ -914,14 +934,16 @@ export function EventCalendar({
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>予定を削除しますか？</AlertDialogTitle>
+              <AlertDialogTitle>{t("予定を削除しますか？")}</AlertDialogTitle>
               <AlertDialogDescription>
-                「{deleteShown?.name}」を削除します。この操作は取り消せません。
+                {t("「{name}」を削除します。この操作は取り消せません。", {
+                  name: deleteShown?.name ?? "",
+                })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             {deleteTarget?.recurrence && (
               <fieldset className="space-y-2">
-                <legend>削除する予定</legend>
+                <legend>{t("削除する予定")}</legend>
                 {(["this", "future"] as const).map((scope) => (
                   <label
                     key={scope}
@@ -933,21 +955,25 @@ export function EventCalendar({
                       checked={deleteScope === scope}
                       onChange={() => setDeleteScope(scope)}
                     />
-                    {scope === "this" ? "この回のみ" : "この回以降"}
+                    {scope === "this" ? t("この回のみ") : t("この回以降")}
                   </label>
                 ))}
                 {deleteScope === "future" && (
                   <p className="text-sm text-destructive">
-                    元の開催日がこの回以降の予定を、個別編集済みの回と添付ファイルも含めて削除します。
+                    {t(
+                      "元の開催日がこの回以降の予定を、個別編集済みの回と添付ファイルも含めて削除します。",
+                    )}
                   </p>
                 )}
               </fieldset>
             )}
-            {deleteTarget && guide?.inlineContent}
+            {deleteTarget && guide?.inlineContent && (
+              <div lang="ja">{guide.inlineContent}</div>
+            )}
             <AlertDialogFooter>
-              <AlertDialogCancel>キャンセル</AlertDialogCancel>
+              <AlertDialogCancel>{t("キャンセル")}</AlertDialogCancel>
               <AlertDialogAction variant="destructive" onClick={confirmDelete}>
-                削除
+                {t("削除")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -963,9 +989,9 @@ export function EventCalendar({
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>変更する予定</AlertDialogTitle>
+              <AlertDialogTitle>{t("変更する予定")}</AlertDialogTitle>
               <AlertDialogDescription>
-                変更を適用する範囲を選んでください。
+                {t("変更を適用する範囲を選んでください。")}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="grid gap-3">
@@ -981,18 +1007,19 @@ export function EventCalendar({
                     action?.choose(scope);
                   }}
                 >
-                  {scope === "this" ? "この回のみ" : "この回以降"}
+                  {scope === "this" ? t("この回のみ") : t("この回以降")}
                 </Button>
               ))}
             </div>
             <AlertDialogFooter>
-              <AlertDialogCancel>キャンセル</AlertDialogCancel>
+              <AlertDialogCancel>{t("キャンセル")}</AlertDialogCancel>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
       </div>
       {guide && (
         <aside
+          lang="ja"
           aria-label="操作ガイド"
           className="order-first shrink-0 lg:order-last lg:w-80"
         >

@@ -15,8 +15,9 @@ import jaLocale from "@fullcalendar/react/locales/ja";
 import classicThemePlugin from "@fullcalendar/react/themes/classic";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
 import { addHours, format, startOfHour } from "date-fns";
-import { type RefObject, useEffect, useMemo, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDateJump } from "@/components/calendar-date-jump";
+import { useLanguage } from "@/components/language-provider";
 import {
   readCalendarSettings,
   readLastCalendarView,
@@ -127,27 +128,23 @@ const dayHeaderClass = (info: DayHeaderInfo) =>
 const listDayHeaderClass = (info: { date: Date; dow: number }) =>
   dayColorClass(info);
 
-/** 月ビューの日付セルの上部。祝日は日付の数字に続けて祝日名を出す */
-const dayCellTopContent = (info: DayCellInfo) => {
-  const name = holidayNameOf(info.date);
-  if (!name) return true; // true = 既定の表示 (日付の数字だけ)。undefined だと空になる
-  return (
-    <>
-      {info.text}
-      <span className="cal-holiday-name">{name}</span>
-    </>
-  );
-};
-
 /**
  * ヘッダツールバーのボタンにキーボードショートカット (#160) を併記した title を付ける。
  * FullCalendar の `hint` は aria-label になり、ボタンのアクセシブルネーム (E2E が使う「月」など) を
- * 変えてしまうので、マウント時に title 属性を足すだけにする
+ * 変えてしまうので、title 属性を別に付けて言語変更時も同期する
  */
-const buttonTitle = (title: string, key: string) => ({
+type ButtonTitles = Map<HTMLElement, { message: string; key: string }>;
+const buttonTitle = (
+  message: string,
+  key: string,
+  mountedButtons?: ButtonTitles,
+  t: (message: string) => string = (message) => message,
+) => ({
   didMount: ({ el }: { el: HTMLElement }) => {
-    el.title = `${title} (${key})`;
+    el.title = `${t(message)} (${key})`;
+    mountedButtons?.set(el, { message, key });
   },
+  willUnmount: ({ el }: { el: HTMLElement }) => mountedButtons?.delete(el),
 });
 
 /**
@@ -169,7 +166,6 @@ export const calendarBaseOptions = {
   dayCellFormat,
   dayCellTopClass,
   dayCellTopInnerClass,
-  dayCellTopContent,
   dayHeaderClass,
   listDayHeaderClass,
   headerToolbar: {
@@ -216,6 +212,74 @@ export const calendarBaseOptions = {
   longPressDelay: 400,
   height: "100%",
 } satisfies CalendarOptions;
+
+/** 日本語の既存表示と、英語のライブラリ標準表示を同じ操作で利用する。 */
+export function useLocalizedCalendarOptions(): CalendarOptions {
+  const { language, t } = useLanguage();
+  const mountedButtons = useRef<ButtonTitles>(new Map());
+  useEffect(() => {
+    for (const [el, { message, key }] of mountedButtons.current) {
+      el.title = `${t(message)} (${key})`;
+    }
+  }, [t]);
+  return useMemo(
+    () => ({
+      ...calendarBaseOptions,
+      locale: language === "en" ? "en" : jaLocale,
+      dayCellTopContent: (info: DayCellInfo) => {
+        const name = holidayNameOf(info.date);
+        return name ? (
+          <>
+            {info.text}
+            <span className="cal-holiday-name">{t(name)}</span>
+          </>
+        ) : (
+          true
+        );
+      },
+      views: {
+        ...calendarBaseOptions.views,
+        timeGrid: {
+          dayHeaderFormat,
+          dayHeaderContent:
+            language === "en"
+              ? (info: DayHeaderInfo) =>
+                  `${info.weekdayText} ${info.dayNumberText}`
+              : dayHeaderContent,
+        },
+        timeGridWeek: {
+          titleFormat:
+            language === "en"
+              ? { year: "numeric", month: "short", day: "numeric" }
+              : weekTitleFormat,
+        },
+      },
+      buttons: {
+        today: {
+          text: t("今日"),
+          ...buttonTitle("今日", "t", mountedButtons.current, t),
+        },
+        prev: buttonTitle("前の期間", "←", mountedButtons.current, t),
+        next: buttonTitle("次の期間", "→", mountedButtons.current, t),
+        ...Object.fromEntries(
+          CALENDAR_VIEWS.map((view) => [
+            view,
+            {
+              text: t(CALENDAR_VIEW_LABELS[view]),
+              ...buttonTitle(
+                CALENDAR_VIEW_LABELS[view],
+                CALENDAR_VIEW_SHORTCUT_KEYS[view],
+                mountedButtons.current,
+                t,
+              ),
+            },
+          ]),
+        ),
+      },
+    }),
+    [language, t],
+  );
+}
 
 /**
  * ヘッダツールバーに置く独自の要素 (headerToolbar の dateJump)。

@@ -2,6 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { api, describeApiError } from "@/lib/api";
 import type { EventAttachment } from "@/lib/api/types";
@@ -31,8 +32,9 @@ export function EventAttachments({
   editable?: boolean;
   active?: boolean;
 }) {
+  const { t, language } = useLanguage();
   const queryClient = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [working, setWorking] = useState<string | null>(null);
   const limits = useAttachmentLimits(active ? guildId : undefined);
   const attachments = useQuery({
@@ -41,7 +43,12 @@ export function EventAttachments({
     enabled: active,
   });
   async function remove(file: EventAttachment) {
-    if (!window.confirm(`「${file.filename}」を削除しますか？`)) return;
+    if (
+      !window.confirm(
+        t("「{filename}」を削除しますか？", { filename: file.filename }),
+      )
+    )
+      return;
     setError(null);
     setWorking(file.id);
     try {
@@ -54,7 +61,7 @@ export function EventAttachments({
         queryKey: queryKeys.attachments.all(guildId),
       });
     } catch (e) {
-      setError(describeApiError(e));
+      setError(e);
     } finally {
       setWorking(null);
     }
@@ -72,34 +79,34 @@ export function EventAttachments({
       anchor.click();
       anchor.remove();
     } catch (e) {
-      setError(describeApiError(e));
+      setError(e);
     } finally {
       setWorking(null);
     }
   }
   return (
-    <section aria-label="添付ファイル" className="space-y-2 text-sm">
-      <p className="font-medium">添付ファイル</p>
+    <section aria-label={t("添付ファイル")} className="space-y-2 text-sm">
+      <p className="font-medium">{t("添付ファイル")}</p>
       {limits.data && !limits.data.enabled && (
-        <p>添付ファイルは現在利用できません</p>
+        <p>{t("添付ファイルは現在利用できません")}</p>
       )}
       {attachments.isPending && (
-        <p className="text-muted-foreground">読み込み中…</p>
+        <p className="text-muted-foreground">{t("読み込み中…")}</p>
       )}
       {attachments.error && (
         <p role="alert">
-          {describeApiError(attachments.error)}{" "}
+          {describeApiError(attachments.error, language)}{" "}
           <Button
             type="button"
             variant="link"
             onClick={() => attachments.refetch()}
           >
-            再読み込み
+            {t("再読み込み")}
           </Button>
         </p>
       )}
       {attachments.data?.length === 0 && (
-        <p className="text-muted-foreground">添付ファイルはありません</p>
+        <p className="text-muted-foreground">{t("添付ファイルはありません")}</p>
       )}
       <ul className="max-h-72 space-y-3 overflow-y-auto">
         {attachments.data?.map((file) => (
@@ -125,7 +132,7 @@ export function EventAttachments({
                 disabled={working !== null || !limits.data?.enabled}
                 onClick={() => download(file)}
               >
-                ダウンロード
+                {t("ダウンロード")}
               </Button>
               {editable && (
                 <Button
@@ -135,16 +142,18 @@ export function EventAttachments({
                   disabled={working !== null}
                   onClick={() => remove(file)}
                 >
-                  添付を削除
+                  {t("添付を削除")}
                 </Button>
               )}
             </div>
           </li>
         ))}
       </ul>
-      {error && (
+      {!!error && (
         <p role="alert" className="text-destructive">
-          {error}
+          {typeof error === "string"
+            ? t(error)
+            : describeApiError(error, language)}
         </p>
       )}
     </section>
@@ -160,6 +169,7 @@ function AttachmentPreview({
   eventId: number;
   file: EventAttachment;
 }) {
+  const { t } = useLanguage();
   const [failed, setFailed] = useState(false);
   const url = useQuery({
     queryKey: ["attachment-preview", guildId, eventId, file.id],
@@ -196,7 +206,7 @@ function AttachmentPreview({
             void url.refetch();
           }}
         >
-          画像を再読み込み
+          {t("画像を再読み込み")}
         </Button>
       )}
     </>
@@ -220,8 +230,9 @@ export function AttachmentPicker({
   onRetry: () => void;
   onRemove: (item: PendingAttachment) => Promise<void>;
 }) {
+  const { t, language } = useLanguage();
   const limits = useAttachmentLimits(guildId);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const existing = useQuery({
     queryKey: queryKeys.attachments.event(guildId, eventId ?? 0),
     queryFn: () => api.attachments.list(guildId, eventId ?? 0),
@@ -255,15 +266,15 @@ export function AttachmentPicker({
     ]);
   }
   const status = {
-    waiting: "保存後に送信",
-    uploading: "送信中…",
-    confirming: "確認中…",
-    failed: "送信失敗",
+    waiting: t("保存後に送信"),
+    uploading: t("送信中…"),
+    confirming: t("確認中…"),
+    failed: t("送信失敗"),
   };
   return (
-    <section className="space-y-2 text-sm" aria-label="添付の追加">
+    <section className="space-y-2 text-sm" aria-label={t("添付の追加")}>
       <label htmlFor="event-attachments" className="block font-medium">
-        ファイルを添付
+        {t("ファイルを添付")}
       </label>
       <input
         id="event-attachments"
@@ -278,32 +289,33 @@ export function AttachmentPicker({
         }}
       />
       <p className="text-xs text-muted-foreground">
-        JPEG・PNG・WebP・PDF / 1件 約10.5 MB、予定ごと10件まで
+        {t("JPEG・PNG・WebP・PDF / 1件 約10.5 MB、予定ごと10件まで")}
       </p>
       {limits.data && !limits.data.enabled && (
-        <p>添付ファイルは現在利用できません</p>
+        <p>{t("添付ファイルは現在利用できません")}</p>
       )}
       {limits.error && (
         <p role="alert">
-          {describeApiError(limits.error)}{" "}
+          {describeApiError(limits.error, language)}{" "}
           <Button type="button" variant="link" onClick={() => limits.refetch()}>
-            再読み込み
+            {t("再読み込み")}
           </Button>
         </p>
       )}
       <details className="text-xs text-muted-foreground">
         <summary className="min-h-11 cursor-pointer content-center rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
-          容量制限とサーバー使用量
+          {t("容量制限とサーバー使用量")}
         </summary>
         <p>
-          1件 {ATTACHMENT_MAX_BYTES.toLocaleString("ja-JP")} バイト（10
-          MiB）、サーバー全体 1,073,741,824 バイト（1
-          GiB）まで。空のファイルは添付できません。
+          {t(
+            "1件 {size} バイト（10 MiB）、サーバー全体 1,073,741,824 バイト（1 GiB）まで。空のファイルは添付できません。",
+            { size: ATTACHMENT_MAX_BYTES.toLocaleString(language) },
+          )}
         </p>
         {limits.data?.enabled && (
           <p className="mt-1">
-            サーバー使用量（送信待ちを含む）: {sizeText(limits.data.used_bytes)}{" "}
-            / 約1.07 GB
+            {t("サーバー使用量（送信待ちを含む）:")}{" "}
+            {sizeText(limits.data.used_bytes)} {t("/ 約1.07 GB")}
           </p>
         )}
       </details>
@@ -312,9 +324,11 @@ export function AttachmentPicker({
           <li key={item.key} className="break-all rounded border p-2">
             {item.file.name} · {sizeText(item.file.size)} ·{" "}
             {status[item.status]}
-            {item.error && (
+            {!!item.error && (
               <p role="alert" className="text-destructive">
-                {item.error}
+                {typeof item.error === "string"
+                  ? t(item.error)
+                  : describeApiError(item.error, language)}
               </p>
             )}
             <Button
@@ -323,10 +337,10 @@ export function AttachmentPicker({
               variant="ghost"
               disabled={busy}
               onClick={() => {
-                void onRemove(item).catch((e) => setError(describeApiError(e)));
+                void onRemove(item).catch((e) => setError(e));
               }}
             >
-              選択を解除
+              {t("選択を解除")}
             </Button>
           </li>
         ))}
@@ -338,12 +352,14 @@ export function AttachmentPicker({
           disabled={busy}
           onClick={onRetry}
         >
-          添付を再試行
+          {t("添付を再試行")}
         </Button>
       )}
-      {error && (
+      {!!error && (
         <p role="alert" className="text-destructive">
-          {error}
+          {typeof error === "string"
+            ? t(error)
+            : describeApiError(error, language)}
         </p>
       )}
     </section>

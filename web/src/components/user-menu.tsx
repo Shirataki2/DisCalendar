@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { CalendarSettingsDialog } from "@/components/calendar-settings-dialog";
 import { useOpenKeyboardShortcuts } from "@/components/keyboard-shortcuts-dialog";
+import { useLanguage } from "@/components/language-provider";
 import { PushSettingsDialog } from "@/components/push-settings-dialog";
 import { ThemeToggleContent, useThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,7 @@ interface Props {
  * アバターを押すとドロップダウンで「サーバー一覧」「すべての予定」「カレンダーの表示設定」「テーマ切替」「ログアウト」を出す
  */
 export function UserMenu({ name, image }: Props) {
+  const { t } = useLanguage();
   const signOut = useSignOut();
   const toggleTheme = useThemeToggle();
   // ダイアログはメニューが閉じても残るよう、メニューの外に置いて開閉だけここで持つ
@@ -56,7 +58,7 @@ export function UserMenu({ name, image }: Props) {
               type="button"
               variant="ghost"
               size="lg"
-              aria-label="アカウントメニュー"
+              aria-label={t("アカウントメニュー")}
               className="rounded-full pr-2 pl-1.5"
             />
           }
@@ -86,19 +88,23 @@ export function UserMenu({ name, image }: Props) {
           <DropdownMenuSeparator className="sm:hidden" />
           <DropdownMenuItem render={<Link href={ROUTES.dashboard} />}>
             <LayoutGridIcon aria-hidden />
-            サーバー一覧
+
+            {t("サーバー一覧")}
           </DropdownMenuItem>
           <DropdownMenuItem render={<Link href={ROUTES.dashboardAll} />}>
             <CalendarDaysIcon aria-hidden />
-            すべての予定
+
+            {t("すべての予定")}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setCalendarSettingsOpen(true)}>
             <CalendarCogIcon aria-hidden />
-            カレンダーの表示設定
+
+            {t("カレンダーの表示設定")}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setPushSettingsOpen(true)}>
             <BellIcon aria-hidden />
-            プッシュ通知
+
+            {t("プッシュ通知")}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={toggleTheme}>
             <ThemeToggleContent />
@@ -106,18 +112,21 @@ export function UserMenu({ name, image }: Props) {
           <DropdownMenuSeparator />
           <DropdownMenuItem render={<Link href="/mcp/connections" />}>
             <PlugIcon aria-hidden />
-            MCP 接続管理
+
+            {t("MCP 接続管理")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {openKeyboardShortcuts && (
             <DropdownMenuItem onClick={openKeyboardShortcuts}>
               <KeyboardIcon aria-hidden />
-              キーボードショートカット
+
+              {t("キーボードショートカット")}
             </DropdownMenuItem>
           )}
           <DropdownMenuItem onClick={() => void signOut()}>
             <LogOutIcon aria-hidden />
-            ログアウト
+
+            {t("ログアウト")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -341,6 +341,7 @@ test("時間枠のクリックは1時間、ドラッグは選んだ範囲を使�
   const slot = page.locator('[data-time="10:00:00"]').last();
   const targetSlot = page.locator('[data-time="11:30:00"]').last();
   await targetSlot.scrollIntoViewIfNeeded();
+  await slot.scrollIntoViewIfNeeded();
   const box = await slot.boundingBox();
   if (!box) throw new Error("時間枠が表示されていません");
   const x = box.x + box.width / 2;

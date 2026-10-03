@@ -4,7 +4,8 @@ import type { CalendarRef } from "@fullcalendar/react";
 import { CalendarSearchIcon } from "lucide-react";
 import { type RefObject, useState } from "react";
 // date-fns の ja に、年月のプルダウンなどの読み上げ用ラベル (「年を選択」など) を足したもの
-import { ja } from "react-day-picker/locale";
+import { enUS, ja } from "react-day-picker/locale";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -28,6 +29,7 @@ interface Props {
  * 開くたびに FullCalendar の表示中の日付を読み直すので、ほかの操作で移動した後も表示位置から始まる
  */
 export function CalendarDateJump({ calendarRef }: Props) {
+  const { t, language } = useLanguage();
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<Date>(() => new Date());
 
@@ -56,8 +58,8 @@ export function CalendarDateJump({ calendarRef }: Props) {
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="日付を指定して移動"
-            title="日付を指定して移動"
+            aria-label={t("日付を指定して移動")}
+            title={t("日付を指定して移動")}
           />
         }
       >
@@ -67,7 +69,7 @@ export function CalendarDateJump({ calendarRef }: Props) {
         <Calendar
           mode="single"
           required
-          locale={ja}
+          locale={language === "en" ? enUS : ja}
           captionLayout="dropdown"
           startMonth={startMonth}
           endMonth={endMonth}

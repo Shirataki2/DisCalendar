@@ -102,6 +102,10 @@ test("複製すると元の内容が入った複製ダイアログが開き、�
     exact: false,
   });
   await expect(inherited).toBeVisible();
+  const today = await calendarToday(page);
+  await expect(inherited).toContainText(
+    `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`,
+  );
   await expect(inherited).toContainText(
     await dialog.getByLabel("開始時刻").inputValue(),
   );
@@ -205,6 +209,16 @@ test("保存に失敗したドラッグは元の位置に戻り、エラーが�
   await expect(eventOn(dayCell(page, from), editedTitle)).toBeVisible();
   await expect(eventOn(dayCell(page, today), editedTitle)).toHaveCount(0);
   await page.unroute(eventsApi);
+
+  const language = page.getByRole("combobox", { name: "Language / 言語" });
+  await language.selectOption("en");
+  await expect(
+    page.getByRole("alert").filter({ hasText: "error occurred" }),
+  ).toContainText("A server error occurred (500)");
+  await language.selectOption("ja");
+  await expect(
+    page.getByRole("alert").filter({ hasText: "サーバーでエラー" }),
+  ).toContainText("サーバーでエラーが発生しました (500)");
 
   // エラー表示は閉じられる。再読込しても元の日付のまま
   await page.getByRole("button", { name: "閉じる" }).click();

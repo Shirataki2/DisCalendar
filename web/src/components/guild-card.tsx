@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Message } from "@/components/language-provider";
 
 // サーバー選択画面 (/dashboard) のカード。Bot 参加済みの一覧は Server Component から、
 // Bot を招待できるサーバーの一覧はクライアント側 (invite-guild-grid.tsx) から使うので、
@@ -45,7 +46,9 @@ export function GuildCardBody({
       </span>
       {/* 「確認中…」は「招待 ↗」より長いので、縮めずにサーバー名側を折り返させる */}
       {badge && (
-        <span className="shrink-0 text-xs text-muted-foreground">{badge}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {typeof badge === "string" ? <Message message={badge} /> : badge}
+        </span>
       )}
     </>
   );

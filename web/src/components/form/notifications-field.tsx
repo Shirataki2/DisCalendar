@@ -1,9 +1,18 @@
 "use client";
 
 import { PlusIcon, XIcon } from "lucide-react";
-import { Controller, useFieldArray, useFormContext } from "react-hook-form";
+import {
+  Controller,
+  useFieldArray,
+  useFormContext,
+  useWatch,
+} from "react-hook-form";
+import {
+  LocalizedFieldError as FieldError,
+  useLanguage,
+} from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -19,6 +28,7 @@ import {
   NOTIFICATION_UNITS,
   NOTIFICATIONS_MAX,
 } from "@/lib/event-form";
+import type { Language } from "@/lib/i18n";
 
 /** このフィールドを置くフォームが持っていなければならない値 */
 export interface NotificationsFormValues {
@@ -31,6 +41,7 @@ interface Props {
   children?: React.ReactNode;
   /** 閲覧のみ (管理権限のないメンバーがサーバー設定を開いたとき) */
   disabled?: boolean;
+  language?: Language;
 }
 
 /**
@@ -38,13 +49,20 @@ interface Props {
  * 予定ダイアログ (`notifications`) とサーバー設定の「既定の事前通知」(#181) で同じ見た目にするため、
  * `FormProvider` 経由でフォームの `notifications` フィールドを扱う
  */
-export function NotificationsField({ label, children, disabled }: Props) {
+export function NotificationsField({
+  label,
+  children,
+  disabled,
+  language,
+}: Props) {
+  const { t, language: resolvedLanguage } = useLanguage(language);
   const {
     control,
     register,
     formState: { errors },
   } = useFormContext<NotificationsFormValues>();
   const notifications = useFieldArray({ control, name: "notifications" });
+  const values = useWatch({ control, name: "notifications" });
   const listError =
     errors.notifications?.root?.message ?? errors.notifications?.message;
 
@@ -57,6 +75,10 @@ export function NotificationsField({ label, children, disabled }: Props) {
       <div className="flex flex-col gap-2">
         {notifications.fields.map((item, index) => {
           const numError = errors.notifications?.[index]?.num;
+          const units = NOTIFICATION_UNITS.map((unit) => ({
+            ...unit,
+            label: t(unit.label, { count: values[index]?.num ?? item.num }),
+          }));
           return (
             <div key={item.id} className="flex flex-wrap items-center gap-2">
               <Input
@@ -64,7 +86,7 @@ export function NotificationsField({ label, children, disabled }: Props) {
                 inputMode="numeric"
                 min={NOTIFICATION_NUM_MIN}
                 max={NOTIFICATION_NUM_MAX}
-                aria-label="通知のタイミング (数値)"
+                aria-label={t("通知のタイミング (数値)")}
                 aria-invalid={numError ? true : undefined}
                 disabled={disabled}
                 className="w-20"
@@ -81,17 +103,17 @@ export function NotificationsField({ label, children, disabled }: Props) {
                     onValueChange={(value) => {
                       if (value) field.onChange(value);
                     }}
-                    items={NOTIFICATION_UNITS}
+                    items={units}
                     disabled={disabled}
                   >
                     <SelectTrigger
-                      className="w-28"
-                      aria-label="通知のタイミング (単位)"
+                      className="w-44"
+                      aria-label={t("通知のタイミング (単位)")}
                     >
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      {NOTIFICATION_UNITS.map((unit) => (
+                    <SelectContent lang={resolvedLanguage}>
+                      {units.map((unit) => (
                         <SelectItem key={unit.value} value={unit.value}>
                           {unit.label}
                         </SelectItem>
@@ -104,13 +126,17 @@ export function NotificationsField({ label, children, disabled }: Props) {
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                aria-label="この通知を削除"
+                aria-label={t("この通知を削除")}
                 disabled={disabled}
                 onClick={() => notifications.remove(index)}
               >
                 <XIcon />
               </Button>
-              <FieldError errors={[numError]} className="basis-full" />
+              <FieldError
+                language={language}
+                errors={[numError]}
+                className="basis-full"
+              />
             </div>
           );
         })}
@@ -125,12 +151,13 @@ export function NotificationsField({ label, children, disabled }: Props) {
             onClick={() => notifications.append({ num: 1, unit: "hours" })}
           >
             <PlusIcon />
-            通知を追加
+
+            {t("通知を追加")}
           </Button>
         </div>
       </div>
       {children}
-      <FieldError>{listError}</FieldError>
+      <FieldError language={language}>{listError}</FieldError>
     </Field>
   );
 }

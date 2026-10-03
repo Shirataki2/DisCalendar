@@ -29,7 +29,7 @@ export interface PendingAttachment {
   key: string;
   file: File;
   status: "waiting" | "uploading" | "confirming" | "failed";
-  error?: string;
+  error?: unknown;
   reservation?: AttachmentReservation;
   eventId?: number;
 }

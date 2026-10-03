@@ -1,12 +1,15 @@
 "use client";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, describeApiError } from "@/lib/api";
 import type { ApiEvent, ShareLink } from "@/lib/api/types";
 
 export function EventShareControls({ event }: { event: ApiEvent }) {
+  const { t, language } = useLanguage();
   const queryClient = useQueryClient();
   const queryKey = ["event-share", event.guild_id, event.id];
   const [message, setMessage] = useState("");
@@ -44,11 +47,13 @@ export function EventShareControls({ event }: { event: ApiEvent }) {
       : "";
   return (
     <section
-      aria-label="予定の共有"
+      aria-label={t("予定の共有")}
       className="space-y-2 rounded-lg border p-3"
     >
       <p className="text-sm text-muted-foreground">
-        リンクを知っている人は、ログインせずに保存済みの予定とサーバー名を閲覧できます。
+        {t(
+          "リンクを知っている人は、ログインせずに保存済みの予定とサーバー名を閲覧できます。",
+        )}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -57,7 +62,7 @@ export function EventShareControls({ event }: { event: ApiEvent }) {
           disabled={share.isPending || share.isError || mutation.isPending}
           onClick={() => mutation.mutate("copy")}
         >
-          共有リンクをコピー
+          {t("共有リンクをコピー")}
         </Button>
         {share.data && (
           <Button
@@ -66,13 +71,13 @@ export function EventShareControls({ event }: { event: ApiEvent }) {
             disabled={mutation.isPending}
             onClick={() => mutation.mutate("revoke")}
           >
-            共有リンクを無効化
+            {t("共有リンクを無効化")}
           </Button>
         )}
       </div>
       {url && (
         <Input
-          aria-label="共有リンク URL"
+          aria-label={t("共有リンク URL")}
           readOnly
           value={url}
           onFocus={(e) => e.target.select()}
@@ -80,12 +85,12 @@ export function EventShareControls({ event }: { event: ApiEvent }) {
       )}
       {message && (
         <p role="status" className="text-sm">
-          {message}
+          {t(message)}
         </p>
       )}
       {(share.error || mutation.error) && (
         <p role="alert" className="text-sm text-destructive">
-          {describeApiError(share.error ?? mutation.error)}
+          {describeApiError(share.error ?? mutation.error, language)}
         </p>
       )}
     </section>

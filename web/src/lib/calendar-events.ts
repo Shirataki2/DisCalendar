@@ -10,6 +10,7 @@ import {
 } from "date-fns";
 import type { ApiEvent, ApiEventInput } from "@/lib/api/types";
 import { readableTextColor } from "@/lib/color";
+import { formatDisplayDate, type Language } from "@/lib/i18n";
 
 // API と FullCalendar の間の予定の変換。
 // API の日時はタイムゾーンなしの JST 文字列で、ブラウザのローカル時刻をそのまま JST とみなす
@@ -173,10 +174,14 @@ export function toApiEventInput(
 }
 
 /** 通知設定の表示用文字列 ("30分前" など) */
-export function describeNotification({
-  num,
-  unit,
-}: ApiEvent["notifications"][number]): string {
+export function describeNotification(
+  { num, unit }: ApiEvent["notifications"][number],
+  language: Language = "ja",
+): string {
+  if (language === "en") {
+    const label = unit.slice(0, -1);
+    return `${num.toLocaleString("en-US")} ${label}${num === 1 ? "" : "s"} before`;
+  }
   const label = {
     minutes: "分前",
     hours: "時間前",
@@ -189,10 +194,19 @@ export function describeNotification({
 /** 予定の期間の表示用文字列。旧実装 (SimpleEdit.vue) と同じ形式 */
 export function describeEventRange(
   event: Pick<ApiEvent, "start_at" | "end_at" | "is_all_day">,
+  language: Language = "ja",
 ): string {
   const start = parseApiDateTime(event.start_at);
   const end = parseApiDateTime(event.end_at);
   const sameDay = format(start, "yyyy-MM-dd") === format(end, "yyyy-MM-dd");
+  if (language === "en") {
+    const options: Intl.DateTimeFormatOptions = event.is_all_day
+      ? {}
+      : { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+    const first = formatDisplayDate(start, language, options);
+    if (event.is_all_day && sameDay) return first;
+    return `${first} – ${formatDisplayDate(end, language, options)}`;
+  }
   if (event.is_all_day) {
     return sameDay
       ? format(start, "yyyy/MM/dd")

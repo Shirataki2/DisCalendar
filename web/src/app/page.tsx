@@ -27,7 +27,7 @@ export default function Home() {
   return (
     <>
       <SiteHeader />
-      <main className="flex-1">
+      <main lang="ja" className="flex-1">
         <Hero />
         <Features />
         <Steps />

@@ -60,7 +60,7 @@ export function AdminUserSessionsButton({
         </span>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent lang="ja" className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{user.name} のセッション</DialogTitle>
             <DialogDescription>
@@ -168,7 +168,7 @@ function SessionList({
         )}
       </div>
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
-        <AlertDialogContent>
+        <AlertDialogContent lang="ja">
           <AlertDialogHeader>
             <AlertDialogTitle>強制ログアウトしますか？</AlertDialogTitle>
             <AlertDialogDescription>

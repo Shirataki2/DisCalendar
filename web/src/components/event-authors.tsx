@@ -1,5 +1,7 @@
 "use client";
 
+import { useLanguage } from "@/components/language-provider";
+
 import type { ApiEvent } from "@/lib/api/types";
 import { useMemberProfilesQuery } from "@/lib/query/guild";
 
@@ -13,6 +15,7 @@ export function EventAuthors({
   active: boolean;
   resolveMembers: boolean;
 }) {
+  const { t } = useLanguage();
   const ids = [event.created_by, event.updated_by].filter(
     (id): id is string => id !== null,
   );
@@ -22,13 +25,15 @@ export function EventAuthors({
     active && resolveMembers,
   );
   function person(id: string | null) {
-    if (!id) return <span>記録なし</span>;
+    if (!id) return <span>{t("記録なし")}</span>;
     if (!resolveMembers) return <span className="break-all">{id}</span>;
     const profile = profiles.data?.find((member) => member.user_id === id);
     if (!profile) {
       return (
         <span>
-          {profiles.isError ? "メンバー情報を取得できません" : "読み込み中…"}
+          {profiles.isError
+            ? t("メンバー情報を取得できません")
+            : t("読み込み中…")}
         </span>
       );
     }
@@ -43,7 +48,7 @@ export function EventAuthors({
           />
         )}
         <span className="min-w-0 break-words">
-          {profile.display_name ?? "退出したメンバー"}
+          {profile.display_name ?? t("退出したメンバー")}
         </span>
       </>
     );
@@ -51,12 +56,12 @@ export function EventAuthors({
   return (
     <div className="flex flex-col gap-1 text-sm text-muted-foreground">
       <div className="flex items-center gap-1.5">
-        <span className="shrink-0">作成:</span>
+        <span className="shrink-0">{t("作成:")}</span>
         {person(event.created_by)}
       </div>
       {event.updated_by && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="shrink-0">最終更新:</span>
+          <span className="shrink-0">{t("最終更新:")}</span>
           {person(event.updated_by)}
           {event.updated_at && (
             <time dateTime={`${event.updated_at}+09:00`}>

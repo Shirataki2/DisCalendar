@@ -1,0 +1,462 @@
+/** 日本語の原文をキーにする。英訳のない案内は原文へフォールバックする。 */
+export const english: Readonly<
+  Record<string, string | { one: string; other: string }>
+> = {
+  なし: "None",
+  予定を編集: "Edit event",
+  予定を複製: "Duplicate event",
+  予定を作成: "Create event",
+  "保存先:": "Save to:",
+  基本: "Basic",
+  "繰り返し・通知": "Repeat & reminders",
+  通知: "Reminders",
+  "添付・共有": "Files & sharing",
+  "この回以降を変更します。回数を変えなければ、消費済みの開催枠を差し引きます。個別編集済みの回は保持し、新しい条件から外れる個別編集済みの回・添付のある回は単発として残します。":
+    "Changes apply to this and future occurrences. If the count stays the same, used occurrences are deducted. Individually edited occurrences are kept. Edited occurrences and those with attachments outside the new schedule remain as standalone events.",
+  "この回のみを変更します。繰り返し条件は変更されません。":
+    "Only this occurrence will change. The repeat schedule stays the same.",
+  "元の予定の日時を引き継いでいます。保存前に確認してください。":
+    "The dates and times were copied from the original event. Check them before saving.",
+  終日: "All day",
+  "（日本時間）": " (Japan time)",
+  タイトル: "Title",
+  タイトルを入力: "Enter a title",
+  開始日: "Start date",
+  開始時刻: "Start time",
+  終了日: "End date",
+  終了時刻: "End time",
+  色: "Color",
+  "場所 / URL": "Location / URL",
+  説明: "Description",
+  説明のプレビュー: "Description preview",
+  "説明を入力すると、ここにプレビューが表示されます。":
+    "Enter a description to see a preview here.",
+  "**太字**・- リストなどの書式": "Formatting such as **bold** and - lists",
+  プレビュー: "Preview",
+  "Discordイベント連携を解除して保存すると、繰り返しを設定できます。":
+    "Disable Discord event sync and save to enable repeating events.",
+  "Discordイベント連携は後日対応です。添付ファイルは選択した回だけに保存します。":
+    "Discord event sync for repeating events is coming later. Attachments are saved only to the selected occurrence.",
+  事前通知: "Advance reminders",
+  "予定は保存済みです。添付ファイルの送信を完了してください。":
+    "The event is saved. Finish uploading the attachments.",
+  削除: "Delete",
+  キャンセル: "Cancel",
+  "保存中…": "Saving…",
+  保存: "Save",
+  作成: "Create",
+  "未保存の変更を破棄しますか？": "Discard unsaved changes?",
+  "入力した未保存の変更と未送信の添付は失われます。 保存済みの予定と添付は残ります。":
+    "Unsaved changes and pending uploads will be lost. Saved events and attachments will remain.",
+  編集を続ける: "Keep editing",
+  破棄して閉じる: "Discard and close",
+  "（入力エラーあり）": "(has input errors)",
+  "Discord のイベントとしても作成する": "Also create a Discord event",
+  "確認中…": "Checking…",
+  権限を再確認: "Recheck permissions",
+  "Discord 側の権限はまだ変わっていません":
+    "Discord permissions have not changed yet",
+  "確認できませんでした。時間をおいて試してください":
+    "Could not check permissions. Try again later",
+  "開始日時が過去の予定は Discord のイベントにできません (連携済みの予定は保存すると連携が解除されます)":
+    "Events starting in the past cannot be synced to Discord. Saving an already synced event will disable its sync.",
+  "あなたに Discord の「イベントの作成」権限がないため、この連携を作り直すことはできません。チェックを外すと連携を解除します":
+    "You need Discord's “Create Events” permission to recreate this sync. Uncheck this option to disable it.",
+  "Discord の「イベントの作成」権限を持つ人だけが利用できます。サーバーの管理者にロールの権限を確認してください":
+    "Discord's “Create Events” permission is required. Ask a server administrator to check your role permissions.",
+  "Bot に「イベントの作成」権限がないため、変更は Discord に反映できません。チェックを外すと連携を解除します":
+    "The Bot lacks Discord's “Create Events” permission, so changes cannot be synced. Uncheck this option to disable sync.",
+  "予定の作成・変更・削除を Discord のスケジュールイベントにも反映します":
+    "Creating, editing and deleting this event will also update its Discord scheduled event.",
+  "Bot に「イベントの作成」権限がないため利用できません。":
+    "The Bot needs Discord's “Create Events” permission. ",
+  "Bot を招待し直す": "Reinvite the Bot",
+  と利用できます: " to enable this feature",
+  "他の人が繰り返し予定を変更しました。画面を閉じて予定を開き直し、最新の内容で確認してください。":
+    "Someone changed the repeating event. Close this form and reopen the event to review its latest details.",
+  入力内容を確認してください: "Check your input",
+  予定をクイック追加: "Quick add event",
+  "タイトルを入力して Enter": "Enter a title and press Enter",
+  詳細を入力: "Add details",
+  "作成中…": "Creating…",
+  "新規作成 (n)": "New event (n)",
+  このサーバーでは管理権限または指定ロールを持つメンバーが予定を編集できます:
+    "Only members with management permissions or an assigned role can edit events in this server",
+  新規作成: "New event",
+  作成メニューを開く: "Open create menu",
+  ICSファイルから取り込む: "Import an ICS file",
+  予定を編集できません: "You cannot edit events",
+  日程調整: "Scheduling polls",
+  "読み込み中…": "Loading…",
+  "予定を取得できませんでした:": "Could not load events:",
+  再試行: "Retry",
+  閉じる: "Close",
+  外部カレンダーの凡例: "External calendar legend",
+  取得できません: "Cannot load",
+  一部省略: "Some events omitted",
+  "外部カレンダーを取得できませんでした。":
+    "Could not load external calendars.",
+  "· 外部カレンダーの予定": "· External calendar event",
+  "予定を削除しますか？": "Delete this event?",
+  削除する予定: "Events to delete",
+  この回のみ: "This occurrence",
+  この回以降: "This and future occurrences",
+  "元の開催日がこの回以降の予定を、個別編集済みの回と添付ファイルも含めて削除します。":
+    "All occurrences originally scheduled from this date onward will be deleted, including edited occurrences and their attachments.",
+  変更する予定: "Events to change",
+  "変更を適用する範囲を選んでください。": "Choose which occurrences to change.",
+  操作ガイド: "Guide",
+  "（この回は個別変更）": " (this occurrence was edited)",
+  このサーバーのカレンダーを開く: "Open this server's calendar",
+  編集: "Edit",
+  複製: "Duplicate",
+  添付ファイル: "Attachments",
+  添付ファイルは現在利用できません: "Attachments are currently unavailable",
+  再読み込み: "Reload",
+  添付ファイルはありません: "No attachments",
+  ダウンロード: "Download",
+  添付を削除: "Delete attachment",
+  画像を再読み込み: "Reload image",
+  添付は予定ごとに10件までです: "Up to 10 attachments per event",
+  保存後に送信: "Upload after saving",
+  "送信中…": "Uploading…",
+  送信失敗: "Upload failed",
+  添付の追加: "Add attachments",
+  ファイルを添付: "Attach files",
+  "JPEG・PNG・WebP・PDF / 1件 約10.5 MB、予定ごと10件まで":
+    "JPEG, PNG, WebP or PDF / About 10.5 MB each, up to 10 files per event",
+  容量制限とサーバー使用量: "Limits and server storage",
+  "サーバー使用量（送信待ちを含む）:":
+    "Server storage (including pending uploads):",
+  "/ 約1.07 GB": "/ about 1.07 GB",
+  選択を解除: "Remove selection",
+  添付を再試行: "Retry uploads",
+  記録なし: "Not recorded",
+  メンバー情報を取得できません: "Could not load member details",
+  退出したメンバー: "Member left the server",
+  "作成:": "Created by:",
+  "最終更新:": "Last updated by:",
+  共有リンクを無効化しました: "Sharing link disabled",
+  共有リンクをコピーしました: "Sharing link copied",
+  "コピーできませんでした。下の URL を選択してコピーしてください":
+    "Could not copy the link. Select and copy the URL below",
+  予定の共有: "Share event",
+  "リンクを知っている人は、ログインせずに保存済みの予定とサーバー名を閲覧できます。":
+    "Anyone with the link can view the saved event and server name without signing in.",
+  共有リンクをコピー: "Copy sharing link",
+  共有リンクを無効化: "Disable sharing link",
+  "共有リンク URL": "Sharing link URL",
+  "← 予定に戻る": "← Back to event",
+  繰り返しの設定: "Repeat settings",
+  "条件と開催日を確認して、予定のフォームに適用します。":
+    "Review the schedule and dates, then apply them to the event.",
+  繰り返しの頻度: "Repeat frequency",
+  繰り返しなし: "Does not repeat",
+  毎日: "Daily",
+  毎週: "Weekly",
+  隔週: "Every 2 weeks",
+  "毎月（日付）": "Monthly (by date)",
+  "毎月（第n曜日）": "Monthly (by weekday)",
+  "曜日（複数選択）": "Weekdays (select multiple)",
+  毎月の日付: "Day of the month",
+  週の順番: "Week of the month",
+  曜日: "Weekday",
+  "該当日がない月はスキップします。開始日と同じ日付・第n曜日を指定してください。":
+    "Months without a matching date are skipped. Use the same date or weekday occurrence as the start date.",
+  終了条件: "Ends",
+  終了なし: "Never",
+  繰り返しの終了日: "Repeat end date",
+  回数: "Count",
+  繰り返し回数: "Number of occurrences",
+  "開催日を確認中…": "Checking dates…",
+  "次の開催日（日本時間）": "Upcoming dates (Japan time)",
+  設定を適用: "Apply settings",
+  その他の色: "Custom color",
+  "通知のタイミング (数値)": "Reminder timing (number)",
+  "通知のタイミング (単位)": "Reminder timing (unit)",
+  この通知を削除: "Delete this reminder",
+  通知を追加: "Add reminder",
+  通知のメンション先: "Reminder mentions",
+  "（ユーザーIDを入力中）": "(entering a user ID)",
+  "事前通知・開始時刻の通知で呼びかける相手を、合計10件まで指定できます。 Bot に権限がない場合、通知は届きますが @everyone やメンション不可のロールへの呼びかけは届きません。":
+    "Select up to 10 mention targets for advance and start reminders. Without the Bot's permission, the reminder is sent but @everyone and non-mentionable roles will not be notified.",
+  "@everyone（全員）": "@everyone (everyone)",
+  "全員やメンション不可のロールを指定するには、あなたに「全てのロールにメンション」権限が必要です。":
+    "You need “Mention Everyone” permission to select everyone or non-mentionable roles.",
+  メンションするロール: "Role to mention",
+  "ロールを読み込み中…": "Loading roles…",
+  ロールを追加: "Add role",
+  "ロールを取得できませんでした。": "Could not load roles.",
+  メンションするユーザーID: "User ID to mention",
+  "Discord のユーザーID": "Discord user ID",
+  正しいユーザーIDを入力してください: "Enter a valid user ID",
+  このユーザーはサーバーに参加していません:
+    "This user is not a member of this server",
+  ユーザーを追加: "Add user",
+  "ユーザーIDは Discord の「設定 → 詳細設定 → 開発者モード」を有効にし、相手のメニューから「ユーザーIDをコピー」で取得できます。":
+    "Enable Settings → Advanced → Developer Mode in Discord, then use “Copy User ID” in the person's menu.",
+  日付を指定して移動: "Jump to date",
+  練習用カレンダーで操作を試す: "Try the practice calendar",
+  サーバー設定: "Server settings",
+  サーバーを切り替え: "Switch server",
+  サーバーの凡例: "Server legend",
+  このサーバーの予定を隠す: "Hide this server's events",
+  このサーバーの予定を表示する: "Show this server's events",
+  凡例を折りたたむ: "Collapse legend",
+  アカウントメニュー: "Account menu",
+  サーバー一覧: "Servers",
+  すべての予定: "All events",
+  カレンダーの表示設定: "Calendar preferences",
+  プッシュ通知: "Push notifications",
+  "MCP 接続管理": "MCP connections",
+  キーボードショートカット: "Keyboard shortcuts",
+  ログアウト: "Sign out",
+  メイン: "Main",
+  設定: "Settings",
+  外部連携: "Integrations",
+  サポート: "Support",
+  サービス情報: "About",
+  管理: "Administration",
+  操作を試す: "Try it out",
+  ホーム: "Home",
+  使い方: "Help",
+  サポートサーバー: "Support server",
+  更新履歴: "Changelog",
+  支援: "Donate",
+  利用規約: "Terms of service",
+  プライバシーポリシー: "Privacy policy",
+  管理コンソール: "Admin console",
+  サイト内メニュー: "Site menu",
+  メニュー: "Menu",
+  サーバー一覧へ: "Go to servers",
+  "キーボードショートカット (?)": "Keyboard shortcuts (?)",
+  ログイン: "Sign in",
+  "DisCalendar ホーム": "DisCalendar home",
+  サイト内リンク: "Site links",
+  特定商取引法に基づく表記: "Legal disclosure",
+  フッタのリンク: "Footer links",
+  ライトテーマに切り替え: "Switch to light theme",
+  ダークテーマに切り替え: "Switch to dark theme",
+  "Discordアカウントでログインして、サーバーのカレンダーを管理できます。":
+    "Sign in with Discord to manage your servers' calendars.",
+  Discordでログイン: "Sign in with Discord",
+  "ログインすると、": "By signing in, you agree to the ",
+  と: " and the ",
+  "に同意したものとみなします。": ".",
+  サーバー選択: "Choose a server",
+  カレンダー: "Calendar",
+  サーバーを選択: "Choose a server",
+  Discordからサーバー一覧を取得できませんでした:
+    "Could not load your servers from Discord",
+  "再ログインするか、時間をおいて再度お試しください。":
+    "Sign in again or try again later.",
+  "Bot の参加状況を取得できませんでした。API サーバーが起動しているか確認してください。":
+    "Could not check which servers have the Bot. Please try again later.",
+  "Bot が参加しているサーバーがありません。":
+    "None of your servers have the Bot.",
+  "下の一覧から Bot を招待できます。": "Invite the Bot from the list below.",
+  "Bot の招待はサーバーの管理者に相談してください。":
+    "Ask a server administrator to invite the Bot.",
+  "Bot を招待できるサーバー": "Servers you can invite the Bot to",
+  "Bot の参加状況を取得できませんでした":
+    "Could not check which servers have the Bot",
+  "時間をおいて再度お試しください。": "Please try again later.",
+  "Bot が参加しているサーバーがありません": "None of your servers have the Bot",
+  "サーバー一覧から Bot を招待すると、そのサーバーの予定がここにまとめて表示されます。":
+    "Invite the Bot from the servers page to see all their events here.",
+  サーバーデータの取得に失敗しました: "Could not load the server",
+  "Discord との通信に失敗しました。時間をおいて再度お試しください。":
+    "Could not connect to Discord. Please try again later.",
+  以下の事項をご確認ください: "Check the following",
+  "･ BOTがサーバーに導入されているか": "· The Bot has been added to the server",
+  "･ あなた自身がBOTを導入したサーバーに参加しているか":
+    "· You are a member of the server with the Bot",
+  サーバー選択に戻る: "Back to servers",
+  タイトルを入力してください: "Enter a title",
+  数値を入力してください: "Enter a number",
+  整数で入力してください: "Enter a whole number",
+  "色は #RRGGBB 形式で指定してください": "Use the #RRGGBB color format",
+  開始日を選択してください: "Select a start date",
+  終了日を選択してください: "Select an end date",
+  メンション先は10件以内で指定してください: "Select up to 10 mention targets",
+  メンション先が重複しています: "Mention targets must be unique",
+  メンション先のIDが不正です: "A mention target ID is invalid",
+  "Bot がサーバーに参加していません": "The Bot is not a member of this server",
+  メンション先のユーザーがサーバーに参加していません:
+    "A mentioned user is not a member of this server",
+  このサーバーで選択できないロールです:
+    "This role cannot be selected in this server",
+  "URL は http または https で入力してください": "Use an http or https URL",
+  開始時刻を入力してください: "Enter a start time",
+  終了時刻を入力してください: "Enter an end time",
+  終了日時を開始日時より前にすることはできません:
+    "The end cannot be before the start",
+  "Discord のイベントにするには終了を開始より後にしてください":
+    "A Discord event must end after it starts",
+  "1〜100の範囲で入力してください": "Enter a number from 1 to 100",
+  通知は10件まで設定できます: "Set up to 10 reminders",
+  タイトルは32文字以内で入力してください:
+    "Use 32 characters or fewer for the title",
+  説明は1000文字以内で入力してください:
+    "Use 1,000 characters or fewer for the description",
+  "場所 / URL は200文字以内で入力してください":
+    "Use 200 characters or fewer for the location / URL",
+  分前: { one: "minute before", other: "minutes before" },
+  時間前: { one: "hour before", other: "hours before" },
+  日前: { one: "day before", other: "days before" },
+  週間前: { one: "week before", other: "weeks before" },
+  "「{name}」を削除します。この操作は取り消せません。":
+    "“{name}” will be deleted. This cannot be undone.",
+  "{count} サーバーの予定をまとめて表示": {
+    one: "Events from {count} server",
+    other: "Events from {count} servers",
+  },
+  "{count} サーバーの予定をまとめて表示しています。予定の作成・編集は各サーバーのカレンダーで行えます":
+    {
+      one: "Showing events from {count} server. Create and edit events in each server’s calendar.",
+      other:
+        "Showing events from {count} servers. Create and edit events in each server’s calendar.",
+    },
+  "JPEG・PNG・WebP・PDFを選択してください":
+    "Select a JPEG, PNG, WebP or PDF file",
+  "JPEG・PNG・WebP・PDFを有効なファイル名で指定してください":
+    "Choose a JPEG, PNG, WebP or PDF with a valid filename",
+  "添付は予定ごとに10件、サーバー全体で1GiBまでです（送信待ちを含む）":
+    "Up to 10 attachments per event and 1 GiB per server, including pending uploads",
+  "添付の予約期限が切れました。ファイルを選び直してください":
+    "The upload reservation has expired. Select the file again",
+  "送信されたファイルのサイズ・種類が選択時と異なります":
+    "The uploaded file's size or type differs from the selected file",
+  "ファイルの内容がJPEG・PNG・WebP・PDFのいずれとも一致しません":
+    "The file's contents do not match JPEG, PNG, WebP or PDF",
+  添付ファイルの保存先が設定されていません:
+    "Attachment storage is not configured",
+  "ファイルの保存先に接続できません。時間をおいて再試行してください":
+    "Could not connect to attachment storage. Try again later",
+  この形式はプレビューできません: "This file type cannot be previewed",
+  ファイルは1バイト以上10MiB以下にしてください:
+    "Files must be between 1 byte and 10 MiB",
+  ファイルを送信できませんでした: "Could not upload the file",
+  "1件 {size} バイト（10 MiB）、サーバー全体 1,073,741,824 バイト（1 GiB）まで。空のファイルは添付できません。":
+    "Up to {size} bytes (10 MiB) per file and 1,073,741,824 bytes (1 GiB) per server. Empty files cannot be attached.",
+  管理権限あり: "Management permissions",
+  予定を編集可能: "Can edit events",
+  閲覧のみ: "View only",
+  今日: "Today",
+  前の期間: "Previous period",
+  次の期間: "Next period",
+  月: "Month",
+  週: "Week",
+  "4日": "4 days",
+  日: "Day",
+  リスト: "List",
+  "・": ", ",
+  通信が中断されました: "The request was cancelled",
+  "通信に失敗しました。ネットワークを確認してください":
+    "Could not connect. Check your network connection",
+  "ログインの有効期限が切れました。再度ログインしてください":
+    "Your session has expired. Sign in again",
+  この操作を行う権限がありません: "You do not have permission to do this",
+  "Bot に「イベントの作成」権限がないため Discord に反映できませんでした。Bot を招待し直すと利用できます (使い方の「サーバーに導入する」)":
+    "The Bot needs Discord's “Create Events” permission to sync events. Reinvite it using the server setup guide.",
+  "対象が見つかりません (他のユーザーが削除した可能性があります)":
+    "Not found. Someone may have deleted it",
+  "他の更新と同時に行われたため保存できませんでした。もう一度お試しください":
+    "A concurrent update prevented saving. Try again",
+  "Discord API の制限中です。しばらく待ってから再度お試しください":
+    "Discord is limiting requests. Please try again later",
+  "メンバーの確認が多すぎます。1分ほど待ってから再試行してください":
+    "Too many member checks. Wait about a minute and try again",
+  "Discord との通信に失敗しました。時間をおいて再度お試しください":
+    "Could not connect to Discord. Please try again later",
+  管理者: "Administrator",
+  一般メンバー: "Member",
+  "招待 ↗": "Invite ↗",
+  今日に戻る: "Go to today",
+  "前 / 次の期間へ移動": "Go to the previous / next period",
+  "予定を新規作成 (予定を編集できるサーバーのカレンダーのみ)":
+    "Create a new event (only in servers where you can edit events)",
+  月表示に切り替え: "Switch to month view",
+  週表示に切り替え: "Switch to week view",
+  "4日表示に切り替え": "Switch to 4-day view",
+  日表示に切り替え: "Switch to day view",
+  リスト表示に切り替え: "Switch to list view",
+  この一覧を表示: "Show this list",
+  開いている予定の詳細やダイアログを閉じる: "Close event details or a dialog",
+  "カレンダー画面で使えるキー操作です。文字を入力している間やダイアログを開いている間は使えません。":
+    "Keyboard shortcuts for the calendar. Shortcuts are disabled while typing or while a dialog is open.",
+  元日: "New Year's Day",
+  成人の日: "Coming of Age Day",
+  建国記念の日: "National Foundation Day",
+  天皇誕生日: "Emperor's Birthday",
+  春分の日: "Vernal Equinox Day",
+  昭和の日: "Showa Day",
+  憲法記念日: "Constitution Memorial Day",
+  みどりの日: "Greenery Day",
+  こどもの日: "Children's Day",
+  海の日: "Marine Day",
+  山の日: "Mountain Day",
+  敬老の日: "Respect for the Aged Day",
+  秋分の日: "Autumnal Equinox Day",
+  スポーツの日: "Sports Day",
+  体育の日: "Health and Sports Day",
+  "体育の日（スポーツの日）": "Health and Sports Day (Sports Day)",
+  文化の日: "Culture Day",
+  勤労感謝の日: "Labor Thanksgiving Day",
+  振替休日: "Substitute Holiday",
+  休日: "Holiday",
+  "休日（祝日扱い）": "Public Holiday",
+  即位礼正殿の儀: "Enthronement Ceremony",
+  大喪の礼: "State Funeral of the Emperor",
+  結婚の儀: "Imperial Wedding Ceremony",
+  国民の休日: "Citizens' Holiday",
+  オーナー: "Owner",
+  サーバー管理可: "Can manage server",
+  メンバー: "Member",
+  "「{filename}」を削除しますか？": "Delete “{filename}”?",
+  "{label}のメンションを削除": "Remove mention for {label}",
+  "サーバーを切り替え: {name}": "Switch server: {name}",
+  "他 {count} サーバーを表示": {
+    one: "Show {count} more server",
+    other: "Show {count} more servers",
+  },
+  "入力内容が正しくありません ({detail})": "Invalid input ({detail})",
+  "この機能は現在使えません ({detail})":
+    "This feature is currently unavailable ({detail})",
+  "サーバーでエラーが発生しました ({status})":
+    "A server error occurred ({status})",
+  繰り返し予定の開始日時は秒単位で指定してください:
+    "Use whole seconds for the repeating event start time",
+  繰り返し条件を指定してください: "Choose a repeat schedule",
+  開始日の曜日を含む曜日を選択してください:
+    "Select weekdays including the start date’s weekday",
+  開始日と同じ日付を指定してください:
+    "Use the same day of the month as the start date",
+  開始日と同じ第n曜日を指定してください:
+    "Use the same weekday occurrence as the start date",
+  "回数は1〜10000回で指定してください": "Enter 1 to 10,000 occurrences",
+  繰り返しの終了日は開始日以降にしてください:
+    "The repeat end date must be on or after the start date",
+  終了日が不正です: "Invalid end date",
+  繰り返し条件を解釈できません: "Could not read the repeat schedule",
+  開始範囲が不正です: "Invalid start range",
+  終了範囲が不正です: "Invalid end range",
+  "繰り返しの計算上限に達しました。期間を短くしてください":
+    "Too many occurrences to calculate. Choose a shorter period",
+  繰り返しの計算上限に達しました: "Too many occurrences to calculate",
+  終了日が範囲外です: "The end date is out of range",
+  "終日の繰り返し予定は開始・終了を0時で指定してください":
+    "All-day repeating events must start and end at midnight",
+  繰り返し予定はDiscordイベントと連携できません:
+    "Repeating events cannot be synced with Discord events",
+  Discordイベント連携を解除してから繰り返しを設定してください:
+    "Disable Discord event sync before adding a repeat schedule",
+  "繰り返し条件の変更は「この回以降」を選択してください":
+    "Select “This and future occurrences” to change the repeat schedule",
+  "過去の開催枠と重なるため、この回以降をこの日へ移動できません。別の開始日か「この回のみ」を選択してください":
+    "This move overlaps earlier occurrences. Choose another start date or “This occurrence”",
+  開催日時が範囲外です: "The occurrence start date is out of range",
+  開催終了日時が範囲外です: "The occurrence end date is out of range",
+  "移動先は中止済みの開催日です。別の開始日を指定してください":
+    "This date has a cancelled occurrence. Choose another start date",
+};

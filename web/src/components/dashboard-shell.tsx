@@ -9,6 +9,8 @@ import {
   KeyboardShortcutsDialog,
   OpenKeyboardShortcutsContext,
 } from "@/components/keyboard-shortcuts-dialog";
+import { useLanguage } from "@/components/language-provider";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { Logo } from "@/components/logo";
 import { PushSettingsDialog } from "@/components/push-settings-dialog";
 import { Button } from "@/components/ui/button";
@@ -47,6 +49,7 @@ export function DashboardShell({
   user,
   children,
 }: Props) {
+  const { t } = useLanguage();
   const [sidebarOpen, setSidebarOpen] = useState(defaultSidebarOpen);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // カレンダーの表示設定 (#96)。ダイアログはここに置く (ドロワー (Sheet) の中に置くと、
@@ -83,7 +86,7 @@ export function DashboardShell({
           type="button"
           variant="ghost"
           size="icon-lg"
-          aria-label="メニュー"
+          aria-label={t("メニュー")}
           aria-expanded={sidebarOpen}
           aria-controls="dashboard-sidebar"
           onClick={toggleSidebar}
@@ -95,7 +98,7 @@ export function DashboardShell({
           type="button"
           variant="ghost"
           size="icon-lg"
-          aria-label="メニュー"
+          aria-label={t("メニュー")}
           onClick={() => setDrawerOpen(true)}
           className="lg:hidden"
         >
@@ -103,22 +106,23 @@ export function DashboardShell({
         </Button>
         <Link
           href={ROUTES.dashboard}
-          aria-label="サーバー一覧へ"
+          aria-label={t("サーバー一覧へ")}
           className="ml-1 sm:ml-2"
         >
-          <Logo className="text-xl" />
+          <Logo className="text-base sm:text-xl" />
         </Link>
         <Button
           type="button"
           variant="ghost"
           size="icon-lg"
-          aria-label="キーボードショートカット"
-          title="キーボードショートカット (?)"
+          aria-label={t("キーボードショートカット")}
+          title={t("キーボードショートカット (?)")}
           onClick={openShortcuts}
           className="ml-auto"
         >
           <CircleHelpIcon className="size-5" />
         </Button>
+        <LanguageSwitcher />
         <div>{user}</div>
       </header>
       <div className="flex min-h-0 flex-1">
@@ -144,7 +148,7 @@ export function DashboardShell({
               <Logo className="text-xl" />
             </SheetTitle>
             <SheetDescription className="sr-only">
-              サイト内メニュー
+              {t("サイト内メニュー")}
             </SheetDescription>
           </SheetHeader>
           <DashboardNav

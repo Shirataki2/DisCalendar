@@ -60,7 +60,10 @@ export function PollFormDialog({
       }}
       disablePointerDismissal
     >
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl [&>[data-slot=dialog-close]]:size-11">
+      <DialogContent
+        lang="ja"
+        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl [&>[data-slot=dialog-close]]:size-11"
+      >
         <DialogHeader className="shrink-0 border-b p-4 pr-14">
           <DialogTitle>
             {poll ? "日程調整を編集" : "日程調整を作成"}
@@ -215,6 +218,7 @@ export function PollFormDialog({
                                 {`候補${index + 1}の${label}日`}
                               </label>
                               <DatePicker
+                                language="ja"
                                 id={`poll-${index}-${key}`}
                                 className="h-9 px-2"
                                 value={parseApiDateTime(option[key])}

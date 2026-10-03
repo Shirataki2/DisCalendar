@@ -34,6 +34,7 @@ export function TutorialBanner({
 
   return (
     <div
+      lang="ja"
       className={`mb-6 flex items-start rounded-lg border ${highlighted ? "border-indigo-400/40 bg-indigo-500/10" : "border-border"}`}
     >
       <Link

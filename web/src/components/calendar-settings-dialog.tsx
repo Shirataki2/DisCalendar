@@ -63,7 +63,10 @@ export function CalendarSettingsDialog({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+      <DialogContent
+        lang="ja"
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+      >
         <DialogHeader>
           <DialogTitle>カレンダーの表示設定</DialogTitle>
           <DialogDescription>
@@ -87,7 +90,7 @@ export function CalendarSettingsDialog({ open, onOpenChange }: Props) {
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent lang="ja">
               {INITIAL_VIEW_ITEMS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   {item.label}
@@ -110,7 +113,7 @@ export function CalendarSettingsDialog({ open, onOpenChange }: Props) {
             <SelectTrigger id="calendar-settings-first-day" className="w-full">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent lang="ja">
               {FIRST_DAY_ITEMS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   {item.label}
@@ -196,6 +199,7 @@ function CreationDefaultsForm({
             name="defaultColor"
             render={({ field }) => (
               <ColorPicker
+                language="ja"
                 id="calendar-settings-color"
                 value={field.value}
                 onChange={(value) => {
@@ -229,7 +233,7 @@ function CreationDefaultsForm({
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent lang="ja">
                   {DURATION_ITEMS.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
                       {item.label}
@@ -273,7 +277,7 @@ function CreationDefaultsForm({
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent lang="ja">
                   {NOTIFICATION_MODE_ITEMS.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
                       {item.label}
@@ -285,7 +289,7 @@ function CreationDefaultsForm({
           />
         </Field>
         {mode === "personal" && (
-          <NotificationsField label="既定の事前通知">
+          <NotificationsField label="既定の事前通知" language="ja">
             <p className="text-sm text-muted-foreground">
               すべて削除すると事前通知なしになります。サーバーの既定値より優先されます。
             </p>

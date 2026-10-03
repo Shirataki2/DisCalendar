@@ -180,7 +180,10 @@ export function IcsImportDialog({
         if (!next) reset();
       }}
     >
-      <DialogContent className="h-[min(46rem,calc(100dvh-2rem))] max-w-3xl grid-rows-[auto_1fr_auto] gap-0 p-0 sm:max-w-3xl">
+      <DialogContent
+        lang="ja"
+        className="h-[min(46rem,calc(100dvh-2rem))] max-w-3xl grid-rows-[auto_1fr_auto] gap-0 p-0 sm:max-w-3xl"
+      >
         <DialogHeader className="border-b p-4 pr-12">
           <DialogTitle>ICSファイルから取り込む</DialogTitle>
           <DialogDescription>
@@ -252,6 +255,7 @@ export function IcsImportDialog({
                 <div className="w-36 space-y-1.5">
                   <Label htmlFor="ics-import-color">取り込み色</Label>
                   <ColorPicker
+                    language="ja"
                     id="ics-import-color"
                     value={color}
                     onChange={setColor}

@@ -147,7 +147,10 @@ export function GuildSettingsDialog({ guildId, open, onOpenChange }: Props) {
       disablePointerDismissal
     >
       {/* フィードの節 (#95) が増えて背が高くなったので、低い画面ではダイアログ内でスクロールさせる (予定ダイアログと同じ) */}
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        lang="ja"
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl"
+      >
         {/* Base UI の Dialog は閉じると Popup を unmount するので、開くたびに設定値から初期化される */}
         <GuildSettingsForm
           guildId={guildId}
@@ -550,7 +553,11 @@ function NotificationSection({
           </FieldContent>
         </Field>
       </div>
-      <NotificationsField label="既定の事前通知" disabled={!canManage}>
+      <NotificationsField
+        label="既定の事前通知"
+        disabled={!canManage}
+        language="ja"
+      >
         <FieldDescription>
           新しい予定に使う初期値です。予定ごとに変更できます
         </FieldDescription>
@@ -633,7 +640,7 @@ function ChannelField({
               }
             />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent lang="ja">
             {groups.map((group) => (
               <SelectGroup key={group.category ?? ""}>
                 {group.category !== null && (
@@ -898,7 +905,7 @@ function FeedSection({
           if (!open) setConfirmation(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent lang="ja">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmation === "revoke"

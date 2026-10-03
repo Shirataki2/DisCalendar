@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, describeApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { type PendingAttachment, uploadAttachment } from "@/lib/attachments";
 import { queryKeys } from "./keys";
 
@@ -82,7 +82,7 @@ export function useAttachmentQueue(guildId?: string) {
           succeeded = false;
           update(item.key, {
             status: "failed",
-            error: describeApiError(error),
+            error,
           });
         }
       }
