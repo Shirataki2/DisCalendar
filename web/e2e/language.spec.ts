@@ -42,7 +42,10 @@ test.describe("初回の言語とブラウザ保存", () => {
     for (const path of ["/", "/donation", "/tutorial"]) {
       await page.goto(path);
       await expect(page.locator("main")).toHaveAttribute("lang", "ja");
+      await expect(page.locator("head title")).toHaveAttribute("lang", "ja");
     }
+    await page.goto("/docs/gettingstarted");
+    await expect(page.locator("head title")).toHaveAttribute("lang", "ja");
   });
 
   test("保存できない環境でも言語を変更できる", async ({ page }) => {
@@ -160,6 +163,7 @@ test("ページタイトルも言語切り替え・クライアント遷移・�
   await expect(page).toHaveTitle("サーバー選択 | DisCalendar");
   await language.selectOption("en");
   await expect(page).toHaveTitle("Choose a server | DisCalendar");
+  await expect(page.locator("head title")).toHaveAttribute("lang", "en");
   await page
     .locator(`a[href="/dashboard/${E2E_GUILDS.admin.id}"]`)
     .first()
@@ -182,6 +186,7 @@ test("ページタイトルも言語切り替え・クライアント遷移・�
   await expect(page).toHaveTitle("Calendar | DisCalendar");
   await language.selectOption("ja");
   await expect(page).toHaveTitle("カレンダー | DisCalendar");
+  await expect(page.locator("head title")).toHaveAttribute("lang", "ja");
   await page.getByRole("link", { name: "サーバー一覧へ", exact: true }).click();
   await expect(page).toHaveTitle("サーバー選択 | DisCalendar");
 });
@@ -198,6 +203,13 @@ test("英語選択中も未翻訳の設定では通知入力とエラーを日�
   const calendarSettings = page.getByRole("dialog", {
     name: "カレンダーの表示設定",
   });
+  await calendarSettings.getByLabel("既定の色", { exact: true }).click();
+  const color = page.getByLabel("その他の色", { exact: true });
+  await expect(color).toBeVisible();
+  await expect(
+    page.locator('[data-slot="popover-content"]').filter({ has: color }),
+  ).toHaveAttribute("lang", "ja");
+  await page.keyboard.press("Escape");
   await calendarSettings
     .getByLabel("事前通知の既定値", { exact: true })
     .click();
@@ -213,6 +225,12 @@ test("英語選択中も未翻訳の設定では通知入力とエラーを日�
     .getByRole("button", { name: "Server settings", exact: true })
     .click();
   const guildSettings = page.getByRole("dialog", { name: "サーバー設定" });
+  await guildSettings
+    .getByRole("region", { name: "外部カレンダーを重ねて表示する" })
+    .getByRole("button", { name: /^#/ })
+    .click();
+  await expect(color).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(
     guildSettings.getByRole("button", { name: "通知を追加" }),
   ).toBeVisible();
@@ -313,6 +331,11 @@ for (const width of [375, 390, 1280]) {
       form.getByRole("textbox", { name: "Title", exact: true }),
     ).toBeFocused();
     await form.getByRole("textbox", { name: "Title", exact: true }).fill(title);
+    await form.getByLabel("Color", { exact: true }).click();
+    await expect(
+      page.getByLabel("Custom color", { exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
     await form
       .getByRole("textbox", { name: "Description", exact: true })
       .fill("利用者の説明は翻訳しない");

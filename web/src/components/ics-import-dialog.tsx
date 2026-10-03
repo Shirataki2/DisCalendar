@@ -255,6 +255,7 @@ export function IcsImportDialog({
                 <div className="w-36 space-y-1.5">
                   <Label htmlFor="ics-import-color">取り込み色</Label>
                   <ColorPicker
+                    language="ja"
                     id="ics-import-color"
                     value={color}
                     onChange={setColor}

@@ -59,11 +59,12 @@ describe("表示言語", () => {
       `入力内容が正しくありません (${overlap})`,
     );
   });
-  test("添付 API の検証・保存先エラーの詳細をすべて英訳する", () => {
+  test("添付・メンション API の検証・保存先エラーの詳細をすべて英訳する", () => {
     for (const path of [
       "attachments.rs",
       "models/attachments.rs",
       "routes/attachments.rs",
+      "models/notification_mentions.rs",
     ]) {
       const source = readFileSync(
         new URL(`../../../../api/src/${path}`, import.meta.url),

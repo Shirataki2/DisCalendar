@@ -176,7 +176,7 @@ export function NotificationMentionsField({
         </Select>
         {roles.isError && (
           <FieldError>
-            {t("ロールを取得できませんでした。")}
+            {t("ロールを取得できませんでした。")}{" "}
             <button
               type="button"
               className="underline"

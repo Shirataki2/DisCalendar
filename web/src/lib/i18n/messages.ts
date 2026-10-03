@@ -280,6 +280,12 @@ export const english: Readonly<
   終了日を選択してください: "Select an end date",
   メンション先は10件以内で指定してください: "Select up to 10 mention targets",
   メンション先が重複しています: "Mention targets must be unique",
+  メンション先のIDが不正です: "A mention target ID is invalid",
+  "Bot がサーバーに参加していません": "The Bot is not a member of this server",
+  メンション先のユーザーがサーバーに参加していません:
+    "A mentioned user is not a member of this server",
+  このサーバーで選択できないロールです:
+    "This role cannot be selected in this server",
   "URL は http または https で入力してください": "Use an http or https URL",
   開始時刻を入力してください: "Enter a start time",
   終了時刻を入力してください: "Enter an end time",

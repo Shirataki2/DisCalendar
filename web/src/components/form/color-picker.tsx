@@ -9,6 +9,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { COLOR_SWATCHES } from "@/lib/event-form";
+import type { Language } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
   onChange: (color: string) => void;
   invalid?: boolean;
   className?: string;
+  language?: Language;
 }
 
 /** 色の選択 (旧 v-color-picker 相当)。swatches から選ぶか、ネイティブのカラーピッカーで自由に指定する */
@@ -27,8 +29,9 @@ export function ColorPicker({
   onChange,
   invalid,
   className,
+  language: override,
 }: Props) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage(override);
   const [open, setOpen] = useState(false);
   const normalized = value.toUpperCase();
   return (
@@ -50,7 +53,7 @@ export function ColorPicker({
         />
         <span className="font-mono text-xs">{normalized}</span>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto gap-3">
+      <PopoverContent lang={language} align="start" className="w-auto gap-3">
         <div className="grid grid-cols-4 gap-2">
           {COLOR_SWATCHES.map((color) => (
             <button

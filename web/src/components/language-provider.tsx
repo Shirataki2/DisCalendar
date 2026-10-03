@@ -60,11 +60,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
           : /^\/dashboard\/\d+$/.test(pathname)
             ? "カレンダー"
             : null;
-    if (!title) return;
-    const titleForms = [
-      `${title} | ${SITE_NAME}`,
-      `${translate("en", title)} | ${SITE_NAME}`,
-    ];
+    const titleForms = title
+      ? [`${title} | ${SITE_NAME}`, `${translate("en", title)} | ${SITE_NAME}`]
+      : [];
     const localizedTitle = titleForms[language === "en" ? 1 : 0];
     const syncTitle = () => {
       if (
@@ -72,6 +70,13 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         document.title !== localizedTitle
       )
         document.title = localizedTitle;
+      // 本文の lang は head に及ばないため、未翻訳のタイトルにも日本語を明示する。
+      document
+        .querySelector("title")
+        ?.setAttribute(
+          "lang",
+          titleForms.includes(document.title) ? language : "ja",
+        );
     };
     syncTitle();
     // 画面遷移後に Next が metadata を挿入しても、選択言語を維持する。

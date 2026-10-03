@@ -794,7 +794,7 @@ export function EventCalendar({
         )}
         {externalEnabled && externalQuery.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {t("外部カレンダーを取得できませんでした。")}
+            {t("外部カレンダーを取得できませんでした。")}{" "}
             <button
               type="button"
               className="underline"

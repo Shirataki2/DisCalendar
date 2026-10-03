@@ -220,6 +220,7 @@ export function ExternalCalendarSettings({
           <div className="grid gap-1 text-sm">
             <span>表示色</span>
             <ColorPicker
+              language="ja"
               value={input.color}
               onChange={(color) => setInput({ ...input, color })}
             />

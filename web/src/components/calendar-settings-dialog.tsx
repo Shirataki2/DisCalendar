@@ -199,6 +199,7 @@ function CreationDefaultsForm({
             name="defaultColor"
             render={({ field }) => (
               <ColorPicker
+                language="ja"
                 id="calendar-settings-color"
                 value={field.value}
                 onChange={(value) => {
