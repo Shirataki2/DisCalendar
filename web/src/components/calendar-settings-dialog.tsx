@@ -90,7 +90,7 @@ export function CalendarSettingsDialog({ open, onOpenChange }: Props) {
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent lang="ja">
               {INITIAL_VIEW_ITEMS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   {item.label}
@@ -113,7 +113,7 @@ export function CalendarSettingsDialog({ open, onOpenChange }: Props) {
             <SelectTrigger id="calendar-settings-first-day" className="w-full">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent lang="ja">
               {FIRST_DAY_ITEMS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   {item.label}
@@ -233,7 +233,7 @@ function CreationDefaultsForm({
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent lang="ja">
                   {DURATION_ITEMS.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
                       {item.label}
@@ -277,7 +277,7 @@ function CreationDefaultsForm({
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent lang="ja">
                   {NOTIFICATION_MODE_ITEMS.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
                       {item.label}

@@ -640,7 +640,7 @@ function ChannelField({
               }
             />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent lang="ja">
             {groups.map((group) => (
               <SelectGroup key={group.category ?? ""}>
                 {group.category !== null && (

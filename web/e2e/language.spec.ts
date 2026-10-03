@@ -191,6 +191,54 @@ test("ページタイトルも言語切り替え・クライアント遷移・�
   await expect(page).toHaveTitle("サーバー選択 | DisCalendar");
 });
 
+test("保存済み英語と日英切り替えで両カレンダーのホバー表示も更新する", async ({
+  page,
+}) => {
+  await page.goto("/dashboard");
+  const language = page.getByRole("combobox", { name: "Language / 言語" });
+  await language.selectOption("en");
+  const buttons = [
+    ["t", "今日", "Today"],
+    ["←", "前の期間", "Previous period"],
+    ["→", "次の期間", "Next period"],
+    ["m", "月", "Month"],
+    ["w", "週", "Week"],
+    ["4", "4日", "4 days"],
+    ["d", "日", "Day"],
+    ["l", "リスト", "List"],
+  ];
+  for (const path of [`/dashboard/${E2E_GUILDS.admin.id}`, "/dashboard/all"]) {
+    await page.goto(path);
+    for (const [key, , english] of buttons) {
+      await expect(
+        page.locator(`.calendar-shell button[title$=" (${key})"]`),
+      ).toHaveAttribute("title", `${english} (${key})`);
+    }
+    const week = page.locator('.calendar-shell button[title$=" (w)"]');
+    await week.click();
+    await page.locator('.calendar-shell button[title$=" (←)"]').click();
+    const firstDate = page.locator(".calendar-shell [data-date]").first();
+    await expect(firstDate).toHaveAttribute("data-date", /\d{4}-\d{2}-\d{2}/);
+    const date = (await firstDate.getAttribute("data-date")) ?? "";
+    await language.selectOption("ja");
+    for (const [key, japanese] of buttons) {
+      await expect(
+        page.locator(`.calendar-shell button[title$=" (${key})"]`),
+      ).toHaveAttribute("title", `${japanese} (${key})`);
+    }
+    await expect(week).toHaveAttribute("aria-selected", "true");
+    await expect(firstDate).toHaveAttribute("data-date", date);
+    await language.selectOption("en");
+    for (const [key, , english] of buttons) {
+      await expect(
+        page.locator(`.calendar-shell button[title$=" (${key})"]`),
+      ).toHaveAttribute("title", `${english} (${key})`);
+    }
+    await expect(week).toHaveAttribute("aria-selected", "true");
+    await expect(firstDate).toHaveAttribute("data-date", date);
+  }
+});
+
 test("英語選択中も未翻訳の設定では通知入力とエラーを日本語で表示する", async ({
   page,
 }) => {
@@ -203,6 +251,18 @@ test("英語選択中も未翻訳の設定では通知入力とエラーを日�
   const calendarSettings = page.getByRole("dialog", {
     name: "カレンダーの表示設定",
   });
+  const selectionMenu = page.locator('[data-slot="select-content"]:visible');
+  for (const label of [
+    "最初に表示するビュー",
+    "週の開始曜日",
+    "クリックで作るときの長さ",
+    "事前通知の既定値",
+  ]) {
+    await calendarSettings.getByLabel(label, { exact: true }).click();
+    await expect(selectionMenu).toHaveAttribute("lang", "ja");
+    await page.getByRole("option", { selected: true }).click();
+    await expect(selectionMenu).toHaveCount(0);
+  }
   await calendarSettings.getByLabel("既定の色", { exact: true }).click();
   const color = page.getByLabel("その他の色", { exact: true });
   await expect(color).toBeVisible();
@@ -225,6 +285,13 @@ test("英語選択中も未翻訳の設定では通知入力とエラーを日�
     .getByRole("button", { name: "Server settings", exact: true })
     .click();
   const guildSettings = page.getByRole("dialog", { name: "サーバー設定" });
+  await guildSettings.getByLabel("通知先チャンネル", { exact: true }).click();
+  await expect(selectionMenu).toHaveAttribute("lang", "ja");
+  await page
+    .locator('[role="option"]:not([aria-disabled="true"])')
+    .first()
+    .click();
+  await expect(selectionMenu).toHaveCount(0);
   await guildSettings
     .getByRole("region", { name: "外部カレンダーを重ねて表示する" })
     .getByRole("button", { name: /^#/ })
