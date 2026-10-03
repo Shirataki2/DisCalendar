@@ -83,6 +83,7 @@ test("空のタイトルを検証し、Esc と外部クリックで取り消せ�
   const startSlot = page.locator('[data-time="10:00:00"]').last();
   const outsideSlot = page.locator('[data-time="11:00:00"]').last();
   await outsideSlot.scrollIntoViewIfNeeded();
+  await startSlot.scrollIntoViewIfNeeded();
   const start = await startSlot.boundingBox();
   const end = await page.locator('[data-time="10:30:00"]').last().boundingBox();
   const outside = await outsideSlot.boundingBox();
