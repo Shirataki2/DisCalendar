@@ -146,6 +146,7 @@ export function PushSettingsDialog({
                     onClick={() => {
                       const registration = subscribeDevice(
                         (name ?? t("この端末")).trim(),
+                        language,
                       );
                       action.mutate(() => registration);
                     }}

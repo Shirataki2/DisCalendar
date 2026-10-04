@@ -16,7 +16,10 @@ use crate::{
 )]
 pub async fn settings(ctx: Context<'_>) -> Result<(), BotError> {
     let Some(guild_id) = ctx.guild_id() else {
-        return Err(BotError::user("このコマンドはサーバー内でのみ実行できます"));
+        return Err(crate::user_error!(
+            "このコマンドはサーバー内でのみ実行できます",
+            "This command can only be used in a server."
+        ));
     };
     ctx.defer_ephemeral().await?;
     let id = guild_id.to_string();
@@ -40,7 +43,8 @@ pub async fn settings(ctx: Context<'_>) -> Result<(), BotError> {
     }
     ctx.send(
         poise::CreateReply::default()
-            .content(render(
+            .content(render_localized(
+                crate::i18n::user_locale(ctx),
                 destination.as_ref().ok().and_then(|v| v.as_ref()),
                 config.as_ref().ok(),
                 diagnosis,
@@ -128,7 +132,8 @@ async fn diagnose(ctx: Context<'_>, channel_id: ChannelId) -> Diagnosis {
     }
 }
 
-fn render(
+fn render_localized(
+    locale: crate::i18n::Locale,
     destination: Option<&event_settings::EventSettings>,
     config: Option<&guild_config::GuildConfig>,
     diagnosis: Diagnosis,
@@ -136,50 +141,79 @@ fn render(
     let channel = match destination {
         Some(saved) => match saved.channel_id.parse::<u64>() {
             Ok(id) if id != 0 => format!("<#{id}>（ID: {id}）"),
-            _ => "保存されたチャンネル ID が不正です".into(),
+            _ => crate::messages::message(locale, "保存されたチャンネル ID が不正です").into(),
         },
-        None if diagnosis == Diagnosis::Unset => "未設定".into(),
-        None => "取得失敗（未設定かどうかも確認できません）".into(),
+        None if diagnosis == Diagnosis::Unset => crate::messages::message(locale, "未設定").into(),
+        None => {
+            crate::messages::message(locale, "取得失敗（未設定かどうかも確認できません）").into()
+        }
     };
     let settings = match config {
-        Some(config) => format!(
-            "開始時刻の通知: {}\n既定の事前通知: {}",
-            if config.notify_at_start { "有効" } else { "無効" },
+        Some(config) => crate::tr!(locale, "開始時刻の通知: {}\n既定の事前通知: {}", "Start notifications: {}\nDefault reminders: {}",
+            if config.notify_at_start { crate::messages::message(locale, "有効") } else { crate::messages::message(locale, "無効") },
             if config.default_notifications.is_empty() {
-                "なし".into()
+                crate::messages::message(locale, "なし").into()
             } else {
-                config.default_notifications.iter().map(ToString::to_string).collect::<Vec<_>>().join("、")
+                config.default_notifications.iter().map(|n| n.localized(locale)).collect::<Vec<_>>().join(locale.text("、", ", "))
             }
         ),
-        None => "開始時刻の通知: 取得失敗\n既定の事前通知: 取得失敗\n時間をおいて `/settings` を再実行してください。".into(),
+        None => crate::messages::message(locale, "開始時刻の通知: 取得失敗\n既定の事前通知: 取得失敗\n時間をおいて `/settings` を再実行してください。").into(),
     };
     let status = match diagnosis {
-        Diagnosis::Unset => "通知先が未設定です。`/init` または Web のサーバー設定で通知先を設定してください。".into(),
-        Diagnosis::Invalid => "保存された通知先をこのサーバーのチャンネルとして確認できません。`/init` または Web のサーバー設定で再設定してください。".into(),
-        Diagnosis::Deleted => "Discord が「不明なチャンネル」を返しました。通知先は削除された可能性があります。`/init` または Web のサーバー設定で通知先を再設定してください。".into(),
-        Diagnosis::Inaccessible => "Bot から通知先を参照できません。チャンネルの存在と Bot のロール・チャンネルの権限設定を確認し、必要なら `/init` で通知先を再設定してください。投稿権限は確認できていません。".into(),
-        Diagnosis::Failed => "取得失敗のため投稿権限を確認できません。時間をおいて `/settings` を再実行してください。".into(),
+        Diagnosis::Unset => crate::messages::message(locale, "通知先が未設定です。`/init` または Web のサーバー設定で通知先を設定してください。").into(),
+        Diagnosis::Invalid => crate::messages::message(locale, "保存された通知先をこのサーバーのチャンネルとして確認できません。`/init` または Web のサーバー設定で再設定してください。").into(),
+        Diagnosis::Deleted => crate::messages::message(locale, "Discord が「不明なチャンネル」を返しました。通知先は削除された可能性があります。`/init` または Web のサーバー設定で通知先を再設定してください。").into(),
+        Diagnosis::Inaccessible => crate::messages::message(locale, "Bot から通知先を参照できません。チャンネルの存在と Bot のロール・チャンネルの権限設定を確認し、必要なら `/init` で通知先を再設定してください。投稿権限は確認できていません。").into(),
+        Diagnosis::Failed => crate::messages::message(locale, "取得失敗のため投稿権限を確認できません。時間をおいて `/settings` を再実行してください。").into(),
         Diagnosis::Checked(bot) => {
             let required = checks::notification_permissions(bot.is_thread);
             let missing = required - bot.permissions;
             let details = [Permissions::VIEW_CHANNEL, if bot.is_thread { Permissions::SEND_MESSAGES_IN_THREADS } else { Permissions::SEND_MESSAGES }, Permissions::EMBED_LINKS]
-                .into_iter().map(|permission| format!("{}: {}", checks::describe_permissions(permission), if bot.permissions.contains(permission) { "あり" } else { "なし" })).collect::<Vec<_>>().join("\n");
+                .into_iter().map(|permission| format!("{}: {}", checks::describe_permissions_localized(permission, locale), if bot.permissions.contains(permission) { crate::messages::message(locale, "あり") } else { crate::messages::message(locale, "なし") })).collect::<Vec<_>>().join("\n");
             let result = if missing.is_empty() {
-                "投稿に必要な権限は揃っています。".into()
+                crate::messages::message(locale, "投稿に必要な権限は揃っています。").into()
             } else {
-                format!("不足する権限: {}。Bot のロールまたはチャンネルの権限設定を変更してください。", checks::describe_permissions(missing))
+                crate::tr!(locale, "不足する権限: {}。Bot のロールまたはチャンネルの権限設定を変更してください。", "Missing permissions: {}. Update the bot role or channel permissions.", checks::describe_permissions_localized(missing, locale))
             };
             format!("{details}\n{result}")
         }
     };
-    format!(
-        "通知設定の確認\n通知先: {channel}\n{settings}\n\n{status}\n\n既定の事前通知は Web で予定を新規作成するときの初期値です。既存の予定や Bot の `/create`・`/quick` には自動適用されません。\nこの診断は設定・権限を変更せず、テスト投稿もしません。権限の確認結果は通知配信全体の正常性を保証しません。予定ごとの通知設定や Bot の稼働状況、スレッドの参加・アーカイブ状態なども確認してください。"
+    crate::tr!(
+        locale,
+        "通知設定の確認\n通知先: {channel}\n{settings}\n\n{status}\n\n既定の事前通知は Web で予定を新規作成するときの初期値です。既存の予定や Bot の `/create`・`/quick` には自動適用されません。\nこの診断は設定・権限を変更せず、テスト投稿もしません。権限の確認結果は通知配信全体の正常性を保証しません。予定ごとの通知設定や Bot の稼働状況、スレッドの参加・アーカイブ状態なども確認してください。",
+        "Notification settings\nChannel: {channel}\n{settings}\n\n{status}\n\nDefault reminders are initial values for new events created on the website. They do not apply automatically to existing events or `/create` and `/quick`.\nThis check does not change settings or permissions or send a test message. Permissions do not guarantee successful notification delivery. Also check event reminders, whether the bot is running, and thread membership and archive status."
     )
 }
 
 #[cfg(test)]
+fn render(
+    destination: Option<&event_settings::EventSettings>,
+    config: Option<&guild_config::GuildConfig>,
+    diagnosis: Diagnosis,
+) -> String {
+    render_localized(crate::i18n::Locale::Ja, destination, config, diagnosis)
+}
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn english_diagnosis_preserves_private_permission_guidance() {
+        let text = render_localized(
+            crate::i18n::Locale::En,
+            Some(&saved()),
+            Some(&Default::default()),
+            Diagnosis::Checked(checks::ChannelPermissions {
+                permissions: Permissions::VIEW_CHANNEL,
+                is_thread: false,
+            }),
+        );
+        assert!(text.contains("Notification settings"));
+        assert!(text.contains("Send Messages"));
+        assert!(text.contains("1 day before"));
+        assert!(text.contains("do not guarantee"));
+        assert!(!text.contains("通知"));
+    }
 
     fn saved() -> event_settings::EventSettings {
         event_settings::EventSettings {

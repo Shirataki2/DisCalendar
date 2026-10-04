@@ -29,7 +29,13 @@ pub struct SubscriptionInput {
     pub p256dh: String,
     pub auth: String,
     pub device_name: String,
+    #[serde(default = "default_locale")]
+    pub locale: String,
 }
+fn default_locale() -> String {
+    "ja".into()
+}
+
 #[derive(Serialize, sqlx::FromRow, ToSchema)]
 pub struct Subscription {
     pub id: i32,
@@ -135,8 +141,8 @@ pub async fn subscribe(
             return Err(ApiError::BadRequest("端末は10台まで登録できます".into()));
         }
     }
-    let saved = sqlx::query("INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device_name) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth, device_name = EXCLUDED.device_name, failure_count = 0, disabled = false WHERE push_subscriptions.user_id = EXCLUDED.user_id")
-        .bind(user).bind(&input.endpoint).bind(&input.p256dh).bind(&input.auth).bind(input.device_name.trim()).execute(&mut *tx).await?;
+    let saved = sqlx::query("INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device_name, locale) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth, device_name = EXCLUDED.device_name, locale = EXCLUDED.locale, failure_count = 0, disabled = false WHERE push_subscriptions.user_id = EXCLUDED.user_id")
+        .bind(user).bind(&input.endpoint).bind(&input.p256dh).bind(&input.auth).bind(input.device_name.trim()).bind(crate::i18n::Locale::resolve(&input.locale).as_str()).execute(&mut *tx).await?;
     if saved.rows_affected() == 0 {
         return Err(ApiError::Conflict(
             "この端末の購読を解除してから登録し直してください".into(),
@@ -157,6 +163,22 @@ pub async fn remove_endpoint(pool: &PgPool, user: &str, endpoint: &str) -> sqlx:
     sqlx::query("DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2")
         .bind(user)
         .bind(endpoint)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// 他の利用者の端末を変更できないよう、本人と現在端末の endpoint を両方照合する。
+pub async fn set_locale(
+    pool: &PgPool,
+    user: &str,
+    endpoint: &str,
+    locale: &str,
+) -> sqlx::Result<()> {
+    sqlx::query("UPDATE push_subscriptions SET locale=$3 WHERE user_id=$1 AND endpoint=$2")
+        .bind(user)
+        .bind(endpoint)
+        .bind(crate::i18n::Locale::resolve(locale).as_str())
         .execute(pool)
         .await?;
     Ok(())

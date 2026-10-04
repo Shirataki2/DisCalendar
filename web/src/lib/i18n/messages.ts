@@ -1,7 +1,17 @@
 /** 日本語の原文をキーにする。英訳のない案内は原文へフォールバックする。 */
 export const english: Readonly<
-  Record<string, string | { one: string; other: string }>
+  Record<
+    string,
+    | string
+    | {
+        one: string;
+        other: string;
+      }
+  >
 > = {
+  "サーバーの通知・投稿の言語": "Server notification and post language",
+  "チャンネル通知・まとめ・日程調整の投稿に使います。個人への返信とプッシュ通知の言語は変わりません。":
+    "Used for channel notifications, digests, and scheduling polls. Personal replies and push notifications use your own language.",
   なし: "None",
   予定を編集: "Edit event",
   予定を複製: "Duplicate event",

@@ -289,6 +289,7 @@ test.describe("管理権限のないギルド (restricted)", () => {
     );
     expect(await config.json()).toMatchObject({
       notification_channel_id: null,
+      locale: "ja",
       notification_channel_configured: false,
     });
     // チャンネル一覧は本人に見えるものだけ (Bot には見える staff-only を一般メンバーには返さない)

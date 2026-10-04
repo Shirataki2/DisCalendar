@@ -9,7 +9,7 @@
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use poise::serenity_prelude::{self as serenity, CreateEmbed, Timestamp};
 
-use super::format_datetime;
+use crate::datetime::format_datetime_localized;
 use crate::{
     checks,
     data::Context,
@@ -111,8 +111,12 @@ pub async fn create(
 
 /// `/create`・`/quick`・「予定にする」の共通保存経路。確認待ちの後も最新の設定で認可する。
 async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotError> {
+    let locale = crate::i18n::user_locale(ctx);
     let Some(guild_id) = ctx.guild_id() else {
-        return Err(BotError::user("このコマンドはサーバー内でのみ実行できます"));
+        return Err(crate::user_error!(
+            "このコマンドはサーバー内でのみ実行できます",
+            "This command can only be used in a server."
+        ));
     };
     let guild_id = guild_id.to_string();
     let pool = &ctx.data().pool;
@@ -120,10 +124,11 @@ async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotErro
     // restricted モードのサーバーでは管理権限または編集ロールを持つユーザーが予定を作れる (api の `ensure_can_edit` と同じ)
     let config = guild_config::get(pool, &guild_id).await?;
     if !checks::author_can_edit_events(ctx, &config).await? {
-        return Err(BotError::user(format!(
+        return Err(crate::user_error!(
             "このサーバーでは予定の作成が制限されています。{}",
+            "Creating events is restricted in this server. {}",
             checks::EDIT_PERMISSIONS_REQUIRED
-        )));
+        ));
     }
 
     let event = events::create(
@@ -161,13 +166,13 @@ async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotErro
         .timestamp(Timestamp::now())
         .fields([
             (
-                "開始",
-                format_datetime(event.start_at, event.is_all_day),
+                crate::messages::message(locale, "開始"),
+                format_datetime_localized(event.start_at, event.is_all_day, locale),
                 true,
             ),
             (
-                "終了",
-                format_datetime(event.end_at, event.is_all_day),
+                crate::messages::message(locale, "終了"),
+                format_datetime_localized(event.end_at, event.is_all_day, locale),
                 true,
             ),
         ]);
@@ -175,15 +180,15 @@ async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotErro
         embed = embed.description(description);
     }
     if let Some(location) = &event.location {
-        embed = embed.field("場所", location, false);
+        embed = embed.field(crate::messages::message(locale, "場所"), location, false);
     }
     if !validated.notifications.is_empty() {
         embed = embed.field(
-            "通知",
+            crate::messages::message(locale, "通知"),
             validated
                 .notifications
                 .iter()
-                .map(ToString::to_string)
+                .map(|n| n.localized(locale))
                 .collect::<Vec<_>>()
                 .join(", "),
             true,
@@ -191,7 +196,7 @@ async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotErro
     }
     ctx.send(
         poise::CreateReply::default()
-            .content("予定を作成しました")
+            .content(crate::messages::message(locale, "予定を作成しました"))
             .embed(embed),
     )
     .await?;
@@ -214,19 +219,19 @@ pub async fn quick(
 }
 
 async fn confirm_and_save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotError> {
+    let locale = crate::i18n::user_locale(ctx);
     let confirm_id = format!("{}:quick:confirm", ctx.id());
     let cancel_id = format!("{}:quick:cancel", ctx.id());
     let reply = ctx.send(poise::CreateReply::default()
         .ephemeral(true)
-        .embed(CreateEmbed::new().title(&validated.name).description(format!(
-            "開始: {} JST\n終了: {} JST\n所要時間: {} 分\n事前通知: なし（開始時の通知はサーバー設定に従います）\nこの内容で保存しますか？（2 分以内）",
-            validated.start.format("%Y-%m-%d %H:%M"),
-            validated.end.format("%Y-%m-%d %H:%M"),
-            (validated.end - validated.start).num_minutes(),
+        .embed(CreateEmbed::new().title(&validated.name).description(crate::tr!(locale, "開始: {} JST\n終了: {} JST\n所要時間: {} 分\n事前通知: なし（開始時の通知はサーバー設定に従います）\nこの内容で保存しますか？（2 分以内）", "Start: {} JST\nEnd: {} JST\nDuration: {} minutes\nReminders: none (start notifications follow server settings)\nSave this event? (within 2 minutes)",
+            locale.datetime(validated.start).trim_end_matches(" JST"),
+            locale.datetime(validated.end).trim_end_matches(" JST"),
+            locale.count((validated.end - validated.start).num_minutes()),
         )))
         .components(vec![serenity::CreateActionRow::Buttons(vec![
-            serenity::CreateButton::new(&confirm_id).label("作成する").style(serenity::ButtonStyle::Success),
-            serenity::CreateButton::new(&cancel_id).label("キャンセル").style(serenity::ButtonStyle::Secondary),
+            serenity::CreateButton::new(&confirm_id).label(crate::messages::message(locale, "作成する")).style(serenity::ButtonStyle::Success),
+            serenity::CreateButton::new(&cancel_id).label(crate::messages::message(locale, "キャンセル")).style(serenity::ButtonStyle::Secondary),
         ])])).await?;
     let press = serenity::ComponentInteractionCollector::new(ctx.serenity_context())
         .author_id(ctx.author().id)
@@ -251,9 +256,12 @@ async fn confirm_and_save(ctx: Context<'_>, validated: ValidatedEvent) -> Result
             ctx,
             poise::CreateReply::default()
                 .content(if confirmed {
-                    "保存しています…"
+                    crate::messages::message(locale, "保存しています…")
                 } else {
-                    "作成を取り消しました。もう一度コマンドを実行して入力できます"
+                    crate::messages::message(
+                        locale,
+                        "作成を取り消しました。もう一度コマンドを実行して入力できます",
+                    )
                 })
                 .components(vec![]),
         )
@@ -265,9 +273,12 @@ async fn confirm_and_save(ctx: Context<'_>, validated: ValidatedEvent) -> Result
                 ctx,
                 poise::CreateReply::default()
                     .content(if result.is_ok() {
-                        "作成処理が完了しました"
+                        crate::messages::message(locale, "作成処理が完了しました")
                     } else {
-                        "作成処理を完了できませんでした。エラーの案内を確認してください"
+                        crate::messages::message(
+                            locale,
+                            "作成処理を完了できませんでした。エラーの案内を確認してください",
+                        )
                     })
                     .components(vec![]),
             )
@@ -285,13 +296,14 @@ fn quick_input(
     now: NaiveDateTime,
 ) -> Result<ValidatedEvent, BotError> {
     let date_error = || {
-        BotError::user(
+        crate::user_error!(
             "日付は「今日」「明日」または YYYY-MM-DD（1970〜2099 年の実在する日付）で入力してください",
+            "Enter today, tomorrow, or a valid date in YYYY-MM-DD format (1970 to 2099)."
         )
     };
     let date = match date {
-        "今日" => now.date(),
-        "明日" => now.date().succ_opt().ok_or_else(date_error)?,
+        "今日" | "today" => now.date(),
+        "明日" | "tomorrow" => now.date().succ_opt().ok_or_else(date_error)?,
         value => NaiveDate::parse_from_str(value, "%Y-%m-%d")
             .ok()
             .filter(|date| date.format("%Y-%m-%d").to_string() == value)
@@ -304,12 +316,16 @@ fn quick_input(
         .ok()
         .filter(|parsed| parsed.format("%H:%M").to_string() == time)
         .ok_or_else(|| {
-            BotError::user("時刻は 00:00〜23:59 の HH:mm で入力してください（例: 21:00）")
+            crate::user_error!(
+                "時刻は 00:00〜23:59 の HH:mm で入力してください（例: 21:00）",
+                "Enter a time from 00:00 to 23:59 in HH:mm format (e.g. 21:00)."
+            )
         })?;
     let minutes = duration.unwrap_or(60);
     if !(1..=10080).contains(&minutes) {
-        return Err(BotError::user(
+        return Err(crate::user_error!(
             "所要時間は 1〜10080 分（7 日）の整数で指定してください。省略すると 60 分です",
+            "Duration must be a whole number from 1 to 10080 minutes (7 days). Default: 60 minutes."
         ));
     }
     let start = date.and_time(time);
@@ -367,12 +383,16 @@ impl EventInput {
     fn validate(self) -> Result<ValidatedEvent, BotError> {
         let name = self.name.trim().to_owned();
         if name.is_empty() {
-            return Err(BotError::user("予定の名称を入力してください"));
+            return Err(crate::user_error!(
+                "予定の名称を入力してください",
+                "Enter an event title."
+            ));
         }
         if name.chars().count() > NAME_MAX_CHARS {
-            return Err(BotError::user(format!(
-                "予定の名称は {NAME_MAX_CHARS} 文字以内で入力してください"
-            )));
+            return Err(crate::user_error!(
+                "予定の名称は {NAME_MAX_CHARS} 文字以内で入力してください",
+                "The event title must be at most {NAME_MAX_CHARS} characters."
+            ));
         }
         let description = self
             .description
@@ -382,9 +402,10 @@ impl EventInput {
             .as_ref()
             .is_some_and(|d| d.chars().count() > DESCRIPTION_MAX_CHARS)
         {
-            return Err(BotError::user(format!(
-                "予定の説明は {DESCRIPTION_MAX_CHARS} 文字以内で入力してください"
-            )));
+            return Err(crate::user_error!(
+                "予定の説明は {DESCRIPTION_MAX_CHARS} 文字以内で入力してください",
+                "The event description must be at most {DESCRIPTION_MAX_CHARS} characters."
+            ));
         }
         let location = self
             .location
@@ -392,9 +413,10 @@ impl EventInput {
             .filter(|value| !value.is_empty());
         if let Some(value) = &location {
             if value.chars().count() > LOCATION_MAX_CHARS {
-                return Err(BotError::user(format!(
-                    "場所 / URL は {LOCATION_MAX_CHARS} 文字以内で入力してください"
-                )));
+                return Err(crate::user_error!(
+                    "場所 / URL は {LOCATION_MAX_CHARS} 文字以内で入力してください",
+                    "The location or URL must be at most {LOCATION_MAX_CHARS} characters."
+                ));
             }
             if let Some((scheme, rest)) = value.split_once(':')
                 && !rest.chars().next().is_some_and(char::is_whitespace)
@@ -406,11 +428,16 @@ impl EventInput {
                     .next()
                     .is_some_and(|c| c.is_ascii_alphabetic())
             {
-                let parsed = url::Url::parse(value)
-                    .map_err(|_| BotError::user("場所の URL が正しくありません"))?;
+                let parsed = url::Url::parse(value).map_err(|_| {
+                    crate::user_error!(
+                        "場所の URL が正しくありません",
+                        "The location URL is invalid."
+                    )
+                })?;
                 if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
-                    return Err(BotError::user(
+                    return Err(crate::user_error!(
                         "場所の URL は http または https で入力してください",
+                        "The location URL must use http or https."
                     ));
                 }
             }
@@ -419,7 +446,10 @@ impl EventInput {
         let end = self.end.resolve(self.is_all_day)?;
         // 同時刻は許可 (api と同じ)
         if end < start {
-            return Err(BotError::user("終了日時が開始日時より前になっています"));
+            return Err(crate::user_error!(
+                "終了日時が開始日時より前になっています",
+                "The end date/time is before the start."
+            ));
         }
         // 同じ通知を 2 回指定しても 1 回にまとめる
         let mut notifications: Vec<Notification> = Vec::new();
@@ -476,19 +506,24 @@ impl DateTimeInput {
             .then(|| NaiveDate::from_ymd_opt(self.year, self.month, self.day))
             .flatten()
             .ok_or_else(|| {
-                BotError::user(format!(
+                crate::user_error!(
                     "日付が正しくありません: {}/{}/{}",
-                    self.year, self.month, self.day
-                ))
+                    "Invalid date: {}/{}/{}",
+                    self.year,
+                    self.month,
+                    self.day
+                )
             })?;
         let time = if all_day {
             NaiveTime::MIN
         } else {
             NaiveTime::from_hms_opt(self.hour, self.minute, 0).ok_or_else(|| {
-                BotError::user(format!(
+                crate::user_error!(
                     "時刻が正しくありません: {}:{:02}",
-                    self.hour, self.minute
-                ))
+                    "Invalid time: {}:{:02}",
+                    self.hour,
+                    self.minute
+                )
             })?
         };
         Ok(date.and_time(time))
@@ -600,6 +635,22 @@ impl NotifyBefore {
 #[cfg(test)]
 mod tests {
     use poise::ChoiceParameter as _;
+    #[test]
+    fn quick_input_accepts_english_and_localizes_validation_errors() {
+        let now = "2026-12-31T23:59:00".parse().unwrap();
+        let event = quick_input("タイトル".into(), "tomorrow", "23:30", Some(120), now).unwrap();
+        assert_eq!(event.name, "タイトル");
+        assert_eq!(event.end, "2027-01-02T01:30:00".parse().unwrap());
+        let BotError::User(error) =
+            quick_input("".into(), "today", "21:00", None, now).unwrap_err()
+        else {
+            panic!("入力エラー");
+        };
+        assert_eq!(
+            error.localized(crate::i18n::Locale::En),
+            "Enter an event title."
+        );
+    }
 
     use super::*;
 
@@ -672,7 +723,7 @@ mod tests {
     fn assert_user_error(result: Result<ValidatedEvent, BotError>, contains: &str) {
         match result {
             Err(BotError::User(message)) => {
-                assert!(message.contains(contains), "{message}")
+                assert!(message.ja.contains(contains), "{message}")
             }
             other => panic!("expected user error, got {other:?}"),
         }

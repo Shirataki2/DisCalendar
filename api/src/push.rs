@@ -198,6 +198,7 @@ struct Delivery {
     subscription_id: i32,
     attempts: i32,
     endpoint: String,
+    locale: String,
     p256dh: String,
     auth: String,
     guild_id: String,
@@ -240,7 +241,7 @@ async fn deliver_one(
     .await?;
     let row: Option<Delivery> = sqlx::query_as(
         r#"
-        SELECT d.outbox_id, d.subscription_id, d.attempts, s.endpoint, s.p256dh, s.auth,
+        SELECT d.outbox_id, d.subscription_id, d.attempts, s.endpoint, s.locale, s.p256dh, s.auth,
             e.guild_id, g.name AS guild_name, e.name, e.id AS event_id,
             e.start_at, o.start_at AS queued_start, o.fire_at, e.is_all_day, e.notifications,
             COALESCE(c.notify_at_start, true) AS notify_at_start, a."accountId" AS discord_id
@@ -358,6 +359,25 @@ enum Outcome {
     Skip,
 }
 
+fn payload(row: &Delivery) -> serde_json::Value {
+    let locale = crate::i18n::Locale::resolve(&row.locale);
+    let time = if row.is_all_day {
+        format!(
+            "{} {}",
+            locale.date(row.start_at),
+            locale.text("終日", "All day")
+        )
+    } else {
+        locale.datetime(row.start_at)
+    };
+    serde_json::json!({
+        "title": row.name, "body": format!("{}\n{}", row.guild_name, time),
+        "url": format!("/dashboard/{}?date={}", row.guild_id, row.start_at.date()),
+        // 同じ予定の再試行・近接通知は端末上で1枚にまとめる。
+        "tag": format!("event-{}", row.event_id)
+    })
+}
+
 async fn send(client: &reqwest::Client, config: &PushConfig, row: &Delivery) -> Outcome {
     let info = SubscriptionInfo::new(&row.endpoint, &row.p256dh, &row.auth);
     let message = (|| {
@@ -366,18 +386,7 @@ async fn send(client: &reqwest::Client, config: &PushConfig, row: &Delivery) -> 
         let mut builder = WebPushMessageBuilder::new(&info);
         builder.set_vapid_signature(signature.build()?);
         builder.set_ttl(3600);
-        let time = if row.is_all_day {
-            format!("{} 終日", row.start_at.format("%m/%d"))
-        } else {
-            format!("{} (JST)", row.start_at.format("%m/%d %H:%M"))
-        };
-        let payload = serde_json::json!({
-            "title": row.name, "body": format!("{}\n{}", row.guild_name, time),
-            "url": format!("/dashboard/{}?date={}", row.guild_id, row.start_at.date()),
-            // 同じ予定の再試行・近接通知は端末上で1枚にまとめる。
-            "tag": format!("event-{}", row.event_id)
-        })
-        .to_string();
+        let payload = payload(row).to_string();
         builder.set_payload(ContentEncoding::Aes128Gcm, payload.as_bytes());
         builder.build()
     })();
@@ -423,6 +432,23 @@ mod tests {
             public,
         )
     }
+    #[test]
+    fn push_payload_uses_device_language_and_preserves_event_content() {
+        let mut row = delivery("https://fcm.googleapis.com/test".into(), "test".into());
+        row.start_at = "2026-12-31T23:59:00".parse().unwrap();
+        row.is_all_day = true;
+        row.locale = "en".into();
+        let english = payload(&row);
+        assert_eq!(english["title"], "予定");
+        assert_eq!(english["body"], "サーバー\nDec 31, 2026 All day");
+        assert_eq!(english["url"], "/dashboard/111?date=2026-12-31");
+        assert_eq!(english["tag"], "event-1");
+        row.locale = "fr".into();
+        assert_eq!(payload(&row)["body"], "サーバー\n2026/12/31 終日");
+        row.locale = "en-GB".into();
+        row.is_all_day = false;
+        assert_eq!(payload(&row)["body"], "サーバー\nDec 31, 2026 23:59 JST");
+    }
     fn delivery(endpoint: String, public: String) -> Delivery {
         let start = now_jst();
         Delivery {
@@ -430,6 +456,7 @@ mod tests {
             subscription_id: 1,
             attempts: 0,
             endpoint,
+            locale: "ja".into(),
             p256dh: public,
             auth: URL_SAFE_NO_PAD.encode([1; 16]),
             guild_id: "111".into(),
@@ -569,6 +596,7 @@ mod tests {
             &pool,
             "u1",
             &crate::models::push::SubscriptionInput {
+                locale: "ja".into(),
                 endpoint: "https://fcm.googleapis.com/fcm/send/test".into(),
                 p256dh: public,
                 auth: URL_SAFE_NO_PAD.encode([1; 16]),

@@ -1,4 +1,5 @@
 import { ApiError, api } from "@/lib/api";
+import type { Language } from "@/lib/i18n";
 
 export const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
 export const PUSH_QUERY_KEY = ["push-settings"] as const;
@@ -17,7 +18,10 @@ export function decodePublicKey(key: string): Uint8Array<ArrayBuffer> {
   );
 }
 
-export async function subscribeDevice(deviceName: string) {
+export async function subscribeDevice(
+  deviceName: string,
+  locale: Language = "ja",
+) {
   // 許可ダイアログはクリックの処理から直接呼ぶ (Service Worker の待機より前)。
   const permission = await Notification.requestPermission();
   if (permission !== "granted")
@@ -54,6 +58,7 @@ export async function subscribeDevice(deviceName: string) {
       p256dh: keys.p256dh,
       auth: keys.auth,
       device_name: deviceName,
+      locale,
     });
   } catch (error) {
     if (existing && error instanceof ApiError && error.status === 409) {
@@ -85,4 +90,12 @@ export async function unsubscribeCurrentDevice() {
     if (!(error instanceof ApiError && error.status === 401)) throw error;
   }
   await subscription.unsubscribe();
+}
+
+/** 言語の変更だけで新規購読や通知許可を求めない。本人の現在端末だけを更新する。 */
+export async function syncCurrentDeviceLanguage(locale: Language) {
+  if (!("serviceWorker" in navigator)) return;
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager?.getSubscription();
+  if (subscription) await api.push.setLocale(subscription.endpoint, locale);
 }

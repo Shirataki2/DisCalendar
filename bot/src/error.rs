@@ -20,7 +20,7 @@ pub enum BotError {
     Recurrence(#[from] anyhow::Error),
     /// 入力や権限などユーザー側の問題。メッセージをそのまま本人にだけ (ephemeral) 返し、ログには出さない
     #[error("{0}")]
-    User(String),
+    User(UserMessage),
 }
 
 impl From<serenity::Error> for BotError {
@@ -31,16 +31,22 @@ impl From<serenity::Error> for BotError {
 
 impl BotError {
     pub fn user(message: impl Into<String>) -> Self {
-        Self::User(message.into())
+        Self::User(UserMessage {
+            ja: message.into(),
+            en: None,
+        })
     }
 }
 
 /// 予期しないエラーのときにユーザーへ返すメッセージ (詳細はログにだけ出す)
 const UNEXPECTED_ERROR: &str = "予期せぬエラーが発生しました。時間をおいて再度お試しください";
 
-/// poise からのエラー通知。tracing に出し、ユーザーへは日本語で短く返す。
-/// ここで扱わない種類は poise の既定処理 (英語の ephemeral な返信) に任せる
+/// poise からのエラー通知。詳細を記録し、利用者の言語で短い案内を返す。
 pub async fn on_error(error: poise::FrameworkError<'_, Data, BotError>) {
+    let locale = error
+        .ctx()
+        .map(crate::i18n::user_locale)
+        .unwrap_or_default();
     use poise::FrameworkError;
     match error {
         FrameworkError::Setup { error, .. } => {
@@ -53,10 +59,10 @@ pub async fn on_error(error: poise::FrameworkError<'_, Data, BotError>) {
             error: BotError::User(message),
             ctx,
             ..
-        } => reply_ephemeral(ctx, message).await,
+        } => reply_ephemeral(ctx, message.localized(locale)).await,
         FrameworkError::Command { error, ctx, .. } => {
             tracing::error!(%error, command = ctx.command().name, "error in command");
-            reply_ephemeral(ctx, UNEXPECTED_ERROR).await;
+            reply_ephemeral(ctx, locale.text(UNEXPECTED_ERROR, "An unexpected error occurred. Please try again later.")).await;
         }
         FrameworkError::CommandPanic { ctx, payload, .. } => {
             tracing::error!(
@@ -65,7 +71,7 @@ pub async fn on_error(error: poise::FrameworkError<'_, Data, BotError>) {
                 command = ctx.command().name,
                 "command panicked"
             );
-            reply_ephemeral(ctx, UNEXPECTED_ERROR).await;
+            reply_ephemeral(ctx, locale.text(UNEXPECTED_ERROR, "An unexpected error occurred. Please try again later.")).await;
         }
         // check 関数が false を返したとき (error: None) は check 側で理由を返信済み
         FrameworkError::CommandCheckFailed {
@@ -74,28 +80,46 @@ pub async fn on_error(error: poise::FrameworkError<'_, Data, BotError>) {
             ..
         } => {
             tracing::error!(%error, command = ctx.command().name, "error in command check");
-            reply_ephemeral(ctx, UNEXPECTED_ERROR).await;
+            reply_ephemeral(ctx, locale.text(UNEXPECTED_ERROR, "An unexpected error occurred. Please try again later.")).await;
         }
         FrameworkError::CommandCheckFailed { error: None, .. } => {}
         FrameworkError::GuildOnly { ctx, .. } => {
-            reply_ephemeral(ctx, "このコマンドはサーバー内でのみ実行できます").await;
+            reply_ephemeral(ctx, locale.text("このコマンドはサーバー内でのみ実行できます", "This command can only be used in a server.")).await;
         }
         FrameworkError::NotAnOwner { ctx, .. } => {
-            reply_ephemeral(ctx, "このコマンドは Bot のオーナーのみ実行できます").await;
+            reply_ephemeral(ctx, locale.text("このコマンドは Bot のオーナーのみ実行できます", "Only the bot owner can use this command.")).await;
         }
         FrameworkError::ArgumentParse {
-            ctx, input, error, ..
+            ctx, input, ..
         } => {
             let message = match input {
-                Some(input) => format!("引数 `{input}` を解釈できませんでした: {error}"),
-                None => format!("引数を解釈できませんでした: {error}"),
+                Some(input) => crate::tr!(locale, "引数 `{input}` を解釈できませんでした。入力形式を確認してください", "Could not parse `{input}`. Please check the input format."),
+                None => locale.text("引数を解釈できませんでした。入力形式を確認してください", "Could not parse the arguments. Please check the input format.").into(),
             };
             reply_ephemeral(ctx, message).await;
         }
-        other => {
-            if let Err(e) = poise::builtins::on_error(other).await {
-                tracing::error!(error = %e, "failed to handle framework error");
+        FrameworkError::CooldownHit { ctx, remaining_cooldown, .. } => {
+            let seconds = remaining_cooldown.as_secs() + 1;
+            reply_ephemeral(ctx, crate::tr!(locale, "あと {seconds} 秒待ってから実行してください", "Please wait {seconds} seconds before trying again.")).await;
+        }
+        FrameworkError::MissingBotPermissions { ctx, .. } => reply_ephemeral(ctx, locale.text("Bot の権限が不足しています。管理者に確認してください", "The bot is missing required permissions. Please ask a server administrator.")).await,
+        FrameworkError::MissingUserPermissions { ctx, .. } => reply_ephemeral(ctx, locale.text("このコマンドを実行する権限がありません", "You do not have permission to use this command.")).await,
+        FrameworkError::DmOnly { ctx, .. } => reply_ephemeral(ctx, locale.text("このコマンドは DM でのみ実行できます", "This command can only be used in direct messages.")).await,
+        FrameworkError::NsfwOnly { ctx, .. } => reply_ephemeral(ctx, locale.text("このコマンドは年齢制限付きチャンネルでのみ実行できます", "This command requires an age-restricted channel.")).await,
+        FrameworkError::SubcommandRequired { ctx, .. } => reply_ephemeral(ctx, locale.text("サブコマンドを選択してください", "Please select a subcommand.")).await,
+        FrameworkError::CommandStructureMismatch { ctx, .. } => reply_ephemeral(Context::Application(ctx), locale.text("コマンドの定義が更新されています。再登録後にお試しください", "The command definition has changed. Please try again after the commands have been registered again.")).await,
+        FrameworkError::UnknownInteraction { ctx, interaction, .. } => {
+            let locale = crate::i18n::Locale::resolve(&interaction.locale);
+            let reply = serenity::CreateInteractionResponse::Message(serenity::CreateInteractionResponseMessage::new().ephemeral(true).content(locale.text("コマンドの定義が更新されています。再登録後にお試しください", "The command definition has changed. Please try again after the commands have been registered again.")).allowed_mentions(serenity::CreateAllowedMentions::new()));
+            if let Err(error) = interaction.create_response(&ctx.http, reply).await {
+                tracing::warn!(%error, "failed to reply to unknown interaction");
             }
+        }
+        other => {
+            if let Some(ctx) = other.ctx() {
+                reply_ephemeral(ctx, locale.text(UNEXPECTED_ERROR, "An unexpected error occurred. Please try again later.")).await;
+            }
+            tracing::warn!("unhandled framework error");
         }
     }
 }
@@ -109,4 +133,33 @@ async fn reply_ephemeral(ctx: Context<'_>, content: impl Into<String>) {
     if let Err(e) = ctx.send(reply).await {
         tracing::warn!(error = %e, command = ctx.command().name, "failed to send error reply");
     }
+}
+
+/// 入力検証時は両言語を保持し、返信時に Discord の利用者言語を選ぶ。
+#[derive(Debug)]
+pub struct UserMessage {
+    pub ja: String,
+    pub en: Option<String>,
+}
+impl std::fmt::Display for UserMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ja)
+    }
+}
+impl UserMessage {
+    pub fn localized(self, locale: crate::i18n::Locale) -> String {
+        if locale == crate::i18n::Locale::En {
+            self.en.filter(|text| !text.is_empty()).unwrap_or(self.ja)
+        } else {
+            self.ja
+        }
+    }
+}
+#[macro_export]
+macro_rules! user_error {
+    ($ja:literal, $en:literal $(, $args:expr)* $(,)?) => {
+        $crate::error::BotError::User($crate::error::UserMessage {
+            ja: format!($ja $(, $args)*), en: Some(format!($en $(, $args)*)),
+        })
+    };
 }

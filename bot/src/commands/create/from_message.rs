@@ -38,7 +38,11 @@ pub async fn from_message(
 ) -> Result<(), BotError> {
     // 実行時の JST を使う。古い投稿の「明日」も実行日の翌日として表示し、必ず確認する。
     let now = now_jst();
-    let defaults = MessageEvent::from_content(&message.content, now);
+    let locale = crate::i18n::user_locale(Context::Application(ctx));
+    let defaults = LocalizedModal {
+        input: MessageEvent::from_content(&message.content, now),
+        locale,
+    };
     // 元の interaction の有効期間 (15 分) 内に、入力と確認 (2 分) を終える。
     let Some(input) =
         poise::execute_modal(ctx, Some(defaults), Some(Timeout::from_secs(300))).await?
@@ -47,7 +51,7 @@ pub async fn from_message(
     };
     // resolved の Message には guild_id がない場合があるため、コマンドのサーバー ID を使う。
     let jump_url = message.id.link(message.channel_id, ctx.guild_id());
-    let validated = input.validate(&jump_url, now)?;
+    let validated = input.input.validate_localized(&jump_url, now, locale)?;
     confirm_and_save(Context::Application(ctx), validated).await
 }
 
@@ -56,8 +60,9 @@ impl MessageEvent {
         static CANDIDATES: LazyLock<Regex> = LazyLock::new(|| {
             // 所要時間を時刻より先に判定し、「2時間」を「2時」として拾わない。
             Regex::new(concat!(
-                r"(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2}|今日|明日|[月火水木金土日]曜日?)",
+                r"(?i)(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2}|今日|明日|[月火水木金土日]曜日?|\b(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)",
                 r"|(?P<duration>-?[0-9]+(?:\.[0-9]+)?時間(?:[0-9]+分|半)?|-?[0-9]+(?:\.[0-9]+)?分)",
+                r"|(?P<english_duration>-?[0-9]+(?:\.[0-9]+)?\s*(?:hours?|minutes?)\b)",
                 r"|(?P<time>[0-9]+:[0-9]+|[0-9]+時(?:[0-9]+分|半)?)",
             ))
             .expect("日時候補の正規表現")
@@ -75,14 +80,41 @@ impl MessageEvent {
         let mut durations = Vec::new();
         for capture in CANDIDATES.captures_iter(&normalized) {
             if let Some(value) = capture.name("date") {
-                let date = match value.as_str() {
-                    "今日" => Some(now.date()),
-                    "明日" => now.date().succ_opt(),
+                let date = match value.as_str().to_ascii_lowercase().as_str() {
+                    "今日" | "today" => Some(now.date()),
+                    "明日" | "tomorrow" => now.date().succ_opt(),
                     day if day.contains('曜') => {
                         let weekday = "月火水木金土日"
                             .chars()
                             .position(|c| day.starts_with(c))
                             .unwrap();
+                        let days =
+                            (weekday as i64 - now.weekday().num_days_from_monday() as i64 + 7) % 7;
+                        now.date().checked_add_signed(Duration::days(days))
+                    }
+                    day if [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday",
+                    ]
+                    .contains(&day) =>
+                    {
+                        let weekday = [
+                            "monday",
+                            "tuesday",
+                            "wednesday",
+                            "thursday",
+                            "friday",
+                            "saturday",
+                            "sunday",
+                        ]
+                        .iter()
+                        .position(|value| *value == day)
+                        .unwrap();
                         let days =
                             (weekday as i64 - now.weekday().num_days_from_monday() as i64 + 7) % 7;
                         now.date().checked_add_signed(Duration::days(days))
@@ -103,6 +135,15 @@ impl MessageEvent {
                     NaiveTime::from_hms_opt(hour.parse().ok()?, minute, 0)
                 });
                 times.push(time);
+            }
+            if let Some(value) = capture.name("english_duration") {
+                let value = value.as_str().to_ascii_lowercase();
+                let (number, unit) =
+                    value.split_at(value.find(|ch: char| ch.is_ascii_alphabetic()).unwrap());
+                let minutes = number.trim().parse::<i64>().ok().and_then(|number| {
+                    number.checked_mul(if unit.starts_with("hour") { 60 } else { 1 })
+                });
+                durations.push(minutes.filter(|minutes| (1..=10080).contains(minutes)));
             }
             if let Some(value) = capture.name("duration") {
                 let minutes = if let Some((hours, minutes)) = value.as_str().split_once("時間") {
@@ -145,9 +186,22 @@ impl MessageEvent {
         }
     }
 
+    #[cfg(test)]
     fn validate(self, jump_url: &str, now: NaiveDateTime) -> Result<ValidatedEvent, BotError> {
+        self.validate_localized(jump_url, now, crate::i18n::Locale::Ja)
+    }
+
+    fn validate_localized(
+        self,
+        jump_url: &str,
+        now: NaiveDateTime,
+        locale: crate::i18n::Locale,
+    ) -> Result<ValidatedEvent, BotError> {
         let minutes = self.duration.trim().parse().map_err(|_| {
-            BotError::user("所要時間は 1〜10080 分（7 日）の整数で入力してください")
+            crate::user_error!(
+                "所要時間は 1〜10080 分（7 日）の整数で入力してください",
+                "Duration must be a whole number from 1 to 10080 minutes (7 days)."
+            )
         })?;
         let mut event = quick_input(
             self.name,
@@ -157,14 +211,75 @@ impl MessageEvent {
             now,
         )?;
         // 本文は転載せず、リンクのみを保存するので説明の 1000 文字制限にも収まる。
-        event.description = Some(format!("元メッセージ: {jump_url}"));
+        event.description = Some(crate::tr!(
+            locale,
+            "元メッセージ: {jump_url}",
+            "Source message: {jump_url}"
+        ));
         Ok(event)
+    }
+}
+
+/// Modal のラベルをコマンド実行者の言語に合わせる。
+struct LocalizedModal {
+    input: MessageEvent,
+    locale: crate::i18n::Locale,
+}
+impl poise::Modal for LocalizedModal {
+    fn create(defaults: Option<Self>, custom_id: String) -> serenity::CreateInteractionResponse {
+        let Self { input, locale } = defaults.expect("modal defaults");
+        let fields = [
+            ("name", "タイトル", input.name, ""),
+            (
+                "date",
+                "日付（YYYY-MM-DD・今日・明日）",
+                input.date,
+                "例: 2026-10-03",
+            ),
+            ("time", "開始時刻（HH:mm）", input.time, "例: 21:00"),
+            (
+                "duration",
+                "所要時間（分・1〜10080）",
+                input.duration,
+                "例: 120",
+            ),
+        ];
+        let rows = fields
+            .into_iter()
+            .map(|(id, label, value, placeholder)| {
+                let mut field = serenity::CreateInputText::new(
+                    serenity::InputTextStyle::Short,
+                    crate::messages::message(locale, label),
+                    id,
+                )
+                .value(value)
+                .placeholder(crate::messages::message(locale, placeholder));
+                if id == "name" {
+                    field = field.max_length(32);
+                }
+                serenity::CreateActionRow::InputText(field)
+            })
+            .collect();
+        serenity::CreateInteractionResponse::Modal(
+            serenity::CreateModal::new(
+                custom_id,
+                crate::messages::message(locale, "予定にする（日本時間 / JST）"),
+            )
+            .components(rows),
+        )
+    }
+    fn parse(data: serenity::ModalInteractionData) -> Result<Self, &'static str> {
+        Ok(Self {
+            input: MessageEvent::parse(data)?,
+            locale: crate::i18n::Locale::Ja,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use poise::Modal;
 
     #[test]
     fn reads_jst_relative_dates_weekdays_and_time_formats() {
@@ -188,6 +303,34 @@ mod tests {
                 "{content}"
             );
         }
+    }
+
+    #[test]
+    fn reads_english_relative_dates_weekdays_and_durations() {
+        let now = "2026-12-31T23:59:00".parse().unwrap();
+        for (text, date, duration) in [
+            ("tomorrow 21:00 2 hours", "2027-01-01", "120"),
+            ("Saturday 09:05 30 minutes", "2027-01-02", "30"),
+            ("TODAY 21:00 1 hour", "2026-12-31", "60"),
+        ] {
+            let input = MessageEvent::from_content(text, now);
+            assert_eq!(input.date, date);
+            assert_eq!(input.duration, duration);
+            assert!(!input.time.is_empty());
+        }
+        let response = LocalizedModal::create(
+            Some(LocalizedModal {
+                input: MessageEvent::from_content("", now),
+                locale: crate::i18n::Locale::En,
+            }),
+            "test".into(),
+        );
+        let json = serde_json::to_value(response).unwrap();
+        assert_eq!(json["data"]["title"], "Create event (Japan time / JST)");
+        assert_eq!(
+            json["data"]["components"][0]["components"][0]["label"],
+            "Title"
+        );
     }
 
     #[test]

@@ -147,3 +147,6 @@ pub mod recurring_events;
 pub mod poll_votes;
 
 pub mod polls;
+
+pub mod i18n;
+pub mod messages;

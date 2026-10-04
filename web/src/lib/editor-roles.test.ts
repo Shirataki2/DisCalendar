@@ -15,6 +15,7 @@ test("編集ロールは変更時だけ送り、空配列で解除する", () =>
     notify_at_start: true,
     default_notifications: [],
     notification_channel_id: null,
+    locale: "ja",
     notification_channel_configured: false,
   });
   expect(values.editorRoleIds).toEqual(["123"]);

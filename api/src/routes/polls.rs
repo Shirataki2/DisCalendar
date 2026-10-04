@@ -209,23 +209,120 @@ pub async fn confirm(
     }))
 }
 async fn announce(state: &AppState, poll: &PollDetail, confirmed: bool) -> String {
-    let result:Result<&str,ApiError>=async {
-        let config=guilds::get_config(&state.pool,&poll.poll.guild_id).await?;
-        let Some(channel)=config.notification_channel_id else {return Ok("not_configured")};
-        let label=if confirmed {"日程が確定しました"} else {"日程調整への回答をお願いします"};
-        let deadline=poll.poll.deadline.map(|d| d.format("%m/%d %H:%M JST").to_string()).unwrap_or_else(||"なし".into());
-        let url=format!("{}/dashboard/{}/polls/{}",state.site_base_url,poll.poll.guild_id,poll.poll.id);
-        state.discord.post_poll_announcement(&channel,&serde_json::json!({
-            "allowed_mentions":{"parse":[]},
-            "embeds":[{"title":format!("{}: {}",label,poll.poll.title),"url":url,"description":format!("候補 {} 件・締切 {}",poll.options.len(),deadline),"color":5793266}]
-        })).await?;
+    let result: Result<&str, ApiError> = async {
+        let config = guilds::get_config(&state.pool, &poll.poll.guild_id).await?;
+        let Some(channel) = config.notification_channel_id else {
+            return Ok("not_configured");
+        };
+        let locale = crate::i18n::Locale::resolve(&config.locale);
+        let label = if confirmed {
+            locale.text("日程が確定しました", "Schedule confirmed")
+        } else {
+            locale.text(
+                "日程調整への回答をお願いします",
+                "Please respond to the scheduling poll",
+            )
+        };
+        let deadline = poll
+            .poll
+            .deadline
+            .map(|d| locale.datetime(d))
+            .unwrap_or_else(|| locale.text("なし", "None").into());
+        let url = format!(
+            "{}/dashboard/{}/polls/{}",
+            state.site_base_url, poll.poll.guild_id, poll.poll.id
+        );
+        state
+            .discord
+            .post_poll_announcement(
+                &channel,
+                &announcement(locale, poll, label, &deadline, &url),
+            )
+            .await?;
         Ok("sent")
-    }.await;
+    }
+    .await;
     match result {
         Ok(status) => status.into(),
         Err(err) => {
             tracing::warn!(poll_id=poll.poll.id,error=%err,"poll announcement failed");
             "failed".into()
         }
+    }
+}
+
+fn announcement(
+    locale: crate::i18n::Locale,
+    poll: &PollDetail,
+    label: &str,
+    deadline: &str,
+    url: &str,
+) -> serde_json::Value {
+    let description = if locale == crate::i18n::Locale::En {
+        format!(
+            "{} {} · Deadline: {deadline}",
+            locale.count(poll.options.len()),
+            if poll.options.len() == 1 {
+                "option"
+            } else {
+                "options"
+            }
+        )
+    } else {
+        format!("候補 {} 件・締切 {deadline}", poll.options.len())
+    };
+    serde_json::json!({ "allowed_mentions": { "parse": [] }, "embeds": [{ "title": format!("{label}: {}", poll.poll.title), "url": url, "description": description, "color": 5793266 }] })
+}
+
+#[cfg(test)]
+mod locale_tests {
+    use super::*;
+    use crate::i18n::Locale;
+    #[sqlx::test(migrations = "./migrations")]
+    async fn announcement_preserves_title_and_localizes_count_and_deadline(pool: sqlx::PgPool) {
+        let start = "2099-12-31T21:00:00".parse().unwrap();
+        let end = "2099-12-31T22:00:00".parse().unwrap();
+        let input = PollInput {
+            title: "日本語の予定".into(),
+            description: None,
+            deadline: Some(start),
+            expected_version: None,
+            options: vec![polls::OptionInput {
+                id: None,
+                start_at: start,
+                end_at: end,
+                is_all_day: false,
+            }],
+        };
+        let poll = polls::save(&pool, "111", "333", None, &input)
+            .await
+            .unwrap();
+        let english = announcement(
+            Locale::En,
+            &poll,
+            "Please respond to the scheduling poll",
+            &Locale::En.datetime(start),
+            "https://example.com/poll",
+        );
+        assert_eq!(
+            english["embeds"][0]["title"],
+            "Please respond to the scheduling poll: 日本語の予定"
+        );
+        assert_eq!(
+            english["embeds"][0]["description"],
+            "1 option · Deadline: Dec 31, 2099 21:00 JST"
+        );
+        assert_eq!(english["allowed_mentions"]["parse"], serde_json::json!([]));
+        let japanese = announcement(
+            Locale::resolve("fr"),
+            &poll,
+            "日程調整への回答をお願いします",
+            &Locale::Ja.datetime(start),
+            "https://example.com/poll",
+        );
+        assert_eq!(
+            japanese["embeds"][0]["description"],
+            "候補 1 件・締切 2099/12/31 21:00 JST"
+        );
     }
 }

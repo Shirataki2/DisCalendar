@@ -309,6 +309,9 @@ pub async fn get_config(
 /// サーバー設定の更新内容。`restricted` 以外は省略すると変更しない
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct GuildConfigInput {
+    /// サーバー投稿の言語。省略時は維持。
+    #[serde(default)]
+    pub locale: Option<String>,
     pub restricted: bool,
     /// 編集を許可するロール (最大 25 件)。省略は維持、空配列は全解除
     #[serde(default)]
@@ -329,6 +332,13 @@ pub struct GuildConfigInput {
 impl GuildConfigInput {
     /// 形式の検証 (Discord への問い合わせが要る投稿可否は [`put_config`] で見る)
     pub fn validate(&self) -> Result<(), ApiError> {
+        if self
+            .locale
+            .as_deref()
+            .is_some_and(|locale| !matches!(locale, "ja" | "en"))
+        {
+            return Err(ApiError::BadRequest("locale must be ja or en".into()));
+        }
         if let Some(ids) = &self.editor_role_ids {
             let mut seen = std::collections::HashSet::new();
             if ids.len() > 25 || ids.iter().any(|id| !is_snowflake(id) || !seen.insert(id)) {
@@ -444,6 +454,13 @@ pub async fn put_config(
             "notification channel set from the web"
         );
     }
+    if let Some(locale) = &body.locale {
+        sqlx::query("UPDATE guilds SET locale=$2 WHERE guild_id=$1")
+            .bind(guild_id)
+            .bind(locale)
+            .execute(&mut *tx)
+            .await?;
+    }
     let config = guilds::get_config(&mut *tx, guild_id).await?;
     tx.commit().await?;
     Ok(web::Json(config))
@@ -501,6 +518,7 @@ mod tests {
 
     fn input() -> GuildConfigInput {
         GuildConfigInput {
+            locale: None,
             restricted: false,
             editor_role_ids: None,
             notify_at_start: Some(true),

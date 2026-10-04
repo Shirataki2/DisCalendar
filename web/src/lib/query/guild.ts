@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type {
+  Guild,
   GuildConfig,
   GuildConfigInput,
   GuildDigestSettings,
@@ -76,11 +77,23 @@ export function useUpdateGuildConfig(guildId: string) {
     // 進行中の取得 (ダイアログを開いたときの取り直しなど) を止める。放っておくと、保存前の値を読んだ
     // 応答があとから届いて、下の setQueryData を古い値で上書きしうる (useRefreshMyPermissions と同じ)
     onMutate: () =>
-      queryClient.cancelQueries({ queryKey: queryKeys.guild.config(guildId) }),
+      Promise.all([
+        queryClient.cancelQueries({
+          queryKey: queryKeys.guild.config(guildId),
+        }),
+        queryClient.cancelQueries({
+          queryKey: queryKeys.guild.detail(guildId),
+          exact: true,
+        }),
+      ]),
     onSuccess: (config) => {
       queryClient.setQueryData<GuildConfig>(
         queryKeys.guild.config(guildId),
         config,
+      );
+      queryClient.setQueryData<Guild>(
+        queryKeys.guild.detail(guildId),
+        (guild) => (guild ? { ...guild, locale: config.locale } : guild),
       );
       syncAdminGuildConfig(queryClient, guildId, config);
       return queryClient.invalidateQueries({

@@ -8,9 +8,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { FieldError } from "@/components/ui/field";
+import { authClient } from "@/lib/auth-client";
 import { DOC_PAGES } from "@/lib/docs";
 import {
   LANGUAGE_STORAGE_KEY,
@@ -20,6 +22,7 @@ import {
   translate,
 } from "@/lib/i18n";
 import { english } from "@/lib/i18n/messages";
+import { syncCurrentDeviceLanguage } from "@/lib/push";
 import { SITE_NAME } from "@/lib/site";
 
 const LanguageContext = createContext({
@@ -32,6 +35,9 @@ const LanguageContext = createContext({
 /** 公開ページも含めたブラウザの言語設定。SSR と hydration 直後は日本語で揃える。 */
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const { data: session } = authClient.useSession();
+  const [loaded, setLoaded] = useState(false);
+  const syncQueue = useRef(Promise.resolve());
   const [language, setCurrentLanguage] = useState<Language>("ja");
   useEffect(() => {
     let saved: string | null = null;
@@ -41,6 +47,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       // 保存が許可されないブラウザでも、このタブの言語切り替えは利用できる。
     }
     setCurrentLanguage(resolveLanguage(saved ?? navigator.language));
+    setLoaded(true);
     const onStorage = (event: StorageEvent) => {
       if (event.storageArea !== localStorage) return;
       if (event.key === LANGUAGE_STORAGE_KEY || event.key === null) {
@@ -109,6 +116,38 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     });
     return () => observer.disconnect();
   }, [language, pathname]);
+
+  useEffect(() => {
+    if (!loaded || !session?.user.id) return;
+    let canceled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let delay = 1000;
+    const sync = () => {
+      // 連続した切り替えでも、最後に選んだ言語が最後に保存されるよう直列化する。
+      syncQueue.current = syncQueue.current
+        .catch(() => {})
+        .then(async () => {
+          if (canceled) return;
+          try {
+            await syncCurrentDeviceLanguage(language);
+            delay = 1000;
+          } catch {
+            if (!canceled) {
+              clearTimeout(retry);
+              retry = setTimeout(sync, delay);
+              delay = Math.min(delay * 2, 60000);
+            }
+          }
+        });
+    };
+    sync();
+    window.addEventListener("online", sync);
+    return () => {
+      canceled = true;
+      clearTimeout(retry);
+      window.removeEventListener("online", sync);
+    };
+  }, [language, loaded, session?.user.id]);
 
   const setLanguage = useCallback((next: Language) => {
     setCurrentLanguage(next);

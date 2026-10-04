@@ -40,3 +40,32 @@ pub fn format_date_range(all_day: bool, start: NaiveDateTime, end: NaiveDateTime
         timestamp(start, 'R')
     )
 }
+
+/// JST の終日日付を保ったまま表記だけを切り替える。
+pub fn format_datetime_localized(
+    datetime: NaiveDateTime,
+    all_day: bool,
+    locale: crate::i18n::Locale,
+) -> String {
+    if all_day {
+        locale.date(datetime)
+    } else {
+        format_datetime(datetime, false)
+    }
+}
+pub fn format_date_range_localized(
+    all_day: bool,
+    start: NaiveDateTime,
+    end: NaiveDateTime,
+    locale: crate::i18n::Locale,
+) -> String {
+    if !all_day {
+        return format_date_range(false, start, end);
+    }
+    let start_date = locale.date(start);
+    if start.date() == end.date() {
+        start_date
+    } else {
+        format!("{start_date} - {}", locale.date(end))
+    }
+}

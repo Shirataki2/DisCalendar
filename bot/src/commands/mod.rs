@@ -22,7 +22,7 @@ use crate::{
 
 /// フレームワークに登録する全コマンド
 pub fn all() -> Vec<poise::Command<Data, BotError>> {
-    vec![
+    let mut commands = vec![
         help::help(),
         create::create(),
         create::quick(),
@@ -32,7 +32,43 @@ pub fn all() -> Vec<poise::Command<Data, BotError>> {
         settings::settings(),
         invite::invite(),
         register::register(),
-    ]
+    ];
+    for command in &mut commands {
+        if let Some(description) = &command.description {
+            for language in ["en-US", "en-GB"] {
+                command.description_localizations.insert(
+                    language.into(),
+                    crate::messages::message(crate::i18n::Locale::En, description).into(),
+                );
+            }
+        }
+        for parameter in &mut command.parameters {
+            if let Some(description) = &parameter.description {
+                for language in ["en-US", "en-GB"] {
+                    parameter.description_localizations.insert(
+                        language.into(),
+                        crate::messages::message(crate::i18n::Locale::En, description).into(),
+                    );
+                }
+            }
+            for choice in &mut parameter.choices {
+                for language in ["en-US", "en-GB"] {
+                    choice.localizations.insert(
+                        language.into(),
+                        crate::messages::message(crate::i18n::Locale::En, &choice.name).into(),
+                    );
+                }
+            }
+        }
+        if command.context_menu_name.is_some() {
+            for language in ["en-US", "en-GB"] {
+                command
+                    .name_localizations
+                    .insert(language.into(), "Create event".into());
+            }
+        }
+    }
+    commands
 }
 
 /// `pre_command`: 実行されたコマンドをログに出す (旧 `event.rs::pre_command`)。引数の値は出さない
@@ -50,6 +86,41 @@ pub async fn log_invocation(ctx: Context<'_>) {
 mod tests {
     use super::*;
     use chrono::NaiveDateTime;
+
+    #[test]
+    fn command_definitions_include_complete_english_metadata() {
+        let commands = all();
+        let definitions = register::definitions(&commands);
+        let json = serde_json::to_value(definitions).unwrap();
+        assert_eq!(json.as_array().unwrap().len(), 8);
+        for command in &commands {
+            if command.slash_action.is_none() {
+                continue;
+            }
+            let en = &command.description_localizations["en-US"];
+            assert!(en.is_ascii(), "{}: {en}", command.name);
+            assert!(en.chars().count() <= 100);
+            for parameter in &command.parameters {
+                assert!(parameter.description_localizations["en-US"].is_ascii());
+                assert!(parameter.description_localizations["en-US"].len() <= 100);
+                for choice in &parameter.choices {
+                    assert!(choice.localizations["en-US"].is_ascii());
+                }
+            }
+        }
+        let menu = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|command| command["name"] == "予定にする")
+            .unwrap();
+        assert_eq!(menu["name_localizations"]["en-US"], "Create event");
+        assert_eq!(menu["name_localizations"]["en-GB"], "Create event");
+        assert_eq!(
+            crate::messages::message(crate::i18n::Locale::En, "未定義翻訳"),
+            "未定義翻訳"
+        );
+    }
 
     /// Discord がスラッシュコマンドの登録時に要求する制約。破っていると `register` が 400 で失敗する
     #[test]

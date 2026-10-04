@@ -41,6 +41,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
         )
         .service(push::list)
         .service(push::subscribe)
+        .service(push::locale)
         .service(push::settings)
         .service(push::remove)
         .service(push::remove_current)

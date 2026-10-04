@@ -35,6 +35,7 @@ pub async fn handle(
     interaction
         .create_response(&ctx.http, CreateInteractionResponse::Acknowledge)
         .await?;
+    let locale = crate::i18n::Locale::resolve(&interaction.locale);
     let result = record(data, interaction).await;
     let text = match &result {
         Ok(VoteOutcome::Saved) => {
@@ -46,14 +47,22 @@ pub async fn handle(
             }
             return Ok(());
         }
-        Ok(VoteOutcome::Closed) => "投票は締め切られています。Webで結果を確認してください。",
-        Ok(VoteOutcome::NotFound) => {
-            "日程調整または候補が変更・削除されています。最新の投稿かWebをご確認ください。"
-        }
-        Ok(VoteOutcome::InvalidAnswer) => {
-            "この投票ボタンは使えません。最新の投稿をご確認ください。"
-        }
-        Err(_) => "回答を保存できませんでした。少し待って再度お試しください。",
+        Ok(VoteOutcome::Closed) => locale.text(
+            "投票は締め切られています。Webで結果を確認してください。",
+            "Voting has closed. View the results on the website.",
+        ),
+        Ok(VoteOutcome::NotFound) => locale.text(
+            "日程調整または候補が変更・削除されています。最新の投稿かWebをご確認ください。",
+            "The poll or option was changed or deleted. Check the latest post or the website.",
+        ),
+        Ok(VoteOutcome::InvalidAnswer) => locale.text(
+            "この投票ボタンは使えません。最新の投稿をご確認ください。",
+            "This voting button is invalid. Check the latest post.",
+        ),
+        Err(_) => locale.text(
+            "回答を保存できませんでした。少し待って再度お試しください。",
+            "Could not save your response. Please try again later.",
+        ),
     };
     // 保存できなかったときだけ、本人にだけ見える形で知らせる。
     interaction

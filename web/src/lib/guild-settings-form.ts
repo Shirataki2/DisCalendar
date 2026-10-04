@@ -1,11 +1,13 @@
 import { z } from "zod";
 import type { GuildConfig, GuildConfigInput } from "@/lib/api/types";
 import { NOTIFICATIONS_MAX, notificationSchema } from "@/lib/event-form";
+import { resolveLanguage } from "@/lib/i18n";
 
 // サーバー設定ダイアログ (guild-settings-dialog.tsx) のフォームと API との相互変換 (#181)。
 // 通知の上限値は予定ダイアログ (event-form.ts) と同じ
 
 export const guildSettingsSchema = z.object({
+  locale: z.enum(["ja", "en"]),
   restricted: z.boolean(),
   editorRoleIds: z
     .array(z.string())
@@ -26,6 +28,7 @@ export function configToFormValues(
   config: GuildConfig,
 ): GuildSettingsFormValues {
   return {
+    locale: resolveLanguage(config.locale),
     restricted: config.restricted,
     editorRoleIds: [...config.editor_role_ids],
     notifyAtStart: config.notify_at_start,
@@ -43,6 +46,7 @@ export function formValuesToConfigInput(
   editorRolesChanged = false,
 ): GuildConfigInput {
   return {
+    locale: values.locale,
     restricted: values.restricted,
     ...(editorRolesChanged ? { editor_role_ids: values.editorRoleIds } : {}),
     notify_at_start: values.notifyAtStart,
