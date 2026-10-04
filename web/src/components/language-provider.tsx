@@ -35,9 +35,7 @@ const LanguageContext = createContext({
 /** 公開ページも含めたブラウザの言語設定。SSR と hydration 直後は日本語で揃える。 */
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { data: session } = authClient.useSession();
   const [loaded, setLoaded] = useState(false);
-  const syncQueue = useRef(Promise.resolve());
   const [language, setCurrentLanguage] = useState<Language>("ja");
   useEffect(() => {
     let saved: string | null = null;
@@ -117,6 +115,43 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     return () => observer.disconnect();
   }, [language, pathname]);
 
+  const setLanguage = useCallback((next: Language) => {
+    setCurrentLanguage(next);
+    try {
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
+    } catch {
+      // 書き込めなくても現在のタブでは反映する。
+    }
+  }, []);
+  const t = useCallback(
+    (message: string, values?: MessageValues) =>
+      translate(language, message, values),
+    [language],
+  );
+  const value = useMemo(
+    () => ({ language, setLanguage, t }),
+    [language, setLanguage, t],
+  );
+  return (
+    <LanguageContext value={value}>
+      {pathname !== "/tutorial" && (
+        <PushLanguageSync language={language} loaded={loaded} />
+      )}
+      {children}
+    </LanguageContext>
+  );
+}
+
+/** 公開チュートリアルは認証・実データにアクセスせず、言語だけを切り替える。 */
+function PushLanguageSync({
+  language,
+  loaded,
+}: {
+  language: Language;
+  loaded: boolean;
+}) {
+  const { data: session } = authClient.useSession();
+  const syncQueue = useRef(Promise.resolve());
   useEffect(() => {
     if (!loaded || !session?.user.id) return;
     let canceled = false;
@@ -149,24 +184,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     };
   }, [language, loaded, session?.user.id]);
 
-  const setLanguage = useCallback((next: Language) => {
-    setCurrentLanguage(next);
-    try {
-      localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
-    } catch {
-      // 書き込めなくても現在のタブでは反映する。
-    }
-  }, []);
-  const t = useCallback(
-    (message: string, values?: MessageValues) =>
-      translate(language, message, values),
-    [language],
-  );
-  const value = useMemo(
-    () => ({ language, setLanguage, t }),
-    [language, setLanguage, t],
-  );
-  return <LanguageContext value={value}>{children}</LanguageContext>;
+  return null;
 }
 
 export function useLanguage(override?: Language) {
