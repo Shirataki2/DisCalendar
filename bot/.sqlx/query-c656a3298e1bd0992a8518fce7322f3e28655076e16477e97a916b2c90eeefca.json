@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO guilds (guild_id, name, avatar_url, joined_at, locale)\n        VALUES ($1, $2, $3, $4, COALESCE((SELECT locale FROM guild_config WHERE guild_id=$1), 'ja'))\n        ON CONFLICT (guild_id) DO UPDATE SET\n            name = EXCLUDED.name,\n            avatar_url = EXCLUDED.avatar_url,\n            joined_at = CASE WHEN $5 THEN EXCLUDED.joined_at ELSE guilds.joined_at END\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Timestamp",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c656a3298e1bd0992a8518fce7322f3e28655076e16477e97a916b2c90eeefca"
+}

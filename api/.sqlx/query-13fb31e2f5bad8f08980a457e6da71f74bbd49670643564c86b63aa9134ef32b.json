@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            COALESCE(guild.locale, 'ja') AS \"locale!\",\n            COALESCE(gc.editor_role_ids, '{}'::text[]) AS \"editor_role_ids!\",\n            COALESCE(gc.restricted, FALSE) AS \"restricted!\",\n            COALESCE(gc.notify_at_start, TRUE) AS \"notify_at_start!\",\n            COALESCE(gc.default_notifications, $2::jsonb) AS \"default_notifications!\",\n            es.channel_id AS \"notification_channel_id?\"\n        FROM (SELECT $1::text AS guild_id) g\n        LEFT JOIN guilds guild ON guild.guild_id = g.guild_id\n        LEFT JOIN guild_config gc ON gc.guild_id = g.guild_id\n        LEFT JOIN LATERAL (\n            SELECT channel_id FROM event_settings WHERE guild_id = g.guild_id ORDER BY id LIMIT 1\n        ) es ON TRUE\n        ",
+  "query": "\n        SELECT\n            COALESCE(gc.locale, guild.locale, 'ja') AS \"locale!\",\n            COALESCE(gc.editor_role_ids, '{}'::text[]) AS \"editor_role_ids!\",\n            COALESCE(gc.restricted, FALSE) AS \"restricted!\",\n            COALESCE(gc.notify_at_start, TRUE) AS \"notify_at_start!\",\n            COALESCE(gc.default_notifications, $2::jsonb) AS \"default_notifications!\",\n            es.channel_id AS \"notification_channel_id?\"\n        FROM (SELECT $1::text AS guild_id) g\n        LEFT JOIN guilds guild ON guild.guild_id = g.guild_id\n        LEFT JOIN guild_config gc ON gc.guild_id = g.guild_id\n        LEFT JOIN LATERAL (\n            SELECT channel_id FROM event_settings WHERE guild_id = g.guild_id ORDER BY id LIMIT 1\n        ) es ON TRUE\n        ",
   "describe": {
     "columns": [
       {
@@ -60,5 +60,5 @@
       true
     ]
   },
-  "hash": "b3ae75f163789161520514acee6fd66ed81be6df5a5c6b7ff552b4fa7e83404b"
+  "hash": "13fb31e2f5bad8f08980a457e6da71f74bbd49670643564c86b63aa9134ef32b"
 }

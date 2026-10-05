@@ -273,4 +273,6 @@ APIによる作成・確定時のリンク付き案内は残します。投票�
 
 デプロイ時は追加マイグレーションを適用し、オーナーの `@DisCalendar register` でコマンドを再登録してください。
 日英のコマンドメタデータ（メッセージコマンド「予定にする」/「Create event」を含む）を反映します。
-戻す場合は api / bot を停止・バックアップして `api/rollback/20261004000000_notification_locales.sql` を実行し、旧版のコマンドを再登録します。
+サーバーの投稿言語は `guild_config` に保存し、Bot を退出・再招待しても復元します。
+戻す場合は api / bot を停止・バックアップして `api/rollback/20261005000000_persist_guild_locale.sql`、
+`api/rollback/20261004000000_notification_locales.sql` の順に実行し、旧版のコマンドを再登録します。

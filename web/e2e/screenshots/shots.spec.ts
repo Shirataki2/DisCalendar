@@ -138,7 +138,18 @@ test.describe("ダイアログ", () => {
   });
 
   test("lp/settings.png (サーバー設定)", async ({ page }) => {
-    await page.setViewportSize({ width: 1400, height: 2100 });
+    await page.setViewportSize({ width: 1400, height: 3000 });
+    // まとめ投稿を有効にするには、通知先が先に保存されている必要がある。
+    const configured = await page.request.put(
+      `/local/api/guilds/${guildId}/config`,
+      {
+        data: {
+          restricted: false,
+          notification_channel_id: E2E_CHANNELS.notices.id,
+        },
+      },
+    );
+    expect(configured.status(), await configured.text()).toBe(200);
     const digest = await page.request.put(
       `/local/api/guilds/${guildId}/digest`,
       {
@@ -152,7 +163,7 @@ test.describe("ダイアログ", () => {
         },
       },
     );
-    expect(digest.status()).toBe(200);
+    expect(digest.status(), await digest.text()).toBe(200);
     // iCal フィード (#95) は発行済みの状態 (URL とコピーボタンが出ている) を見せる。
     // 撮影用 DB は毎回初期化されるので、ここで発行しても次の撮影には残らない
     const issued = await page.request.post(`/local/api/guilds/${guildId}/feed`);

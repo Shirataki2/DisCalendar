@@ -50,7 +50,7 @@ pub const DEFAULT_NOTIFICATIONS: [Notification; 2] = [
     },
 ];
 
-/// ギルドごとの設定。`restricted` / `notify_at_start` / `default_notifications` は `guild_config` テーブル、
+/// ギルドごとの設定。`locale` / `restricted` / `notify_at_start` / `default_notifications` は `guild_config` テーブル、
 /// `notification_channel_id` は `/init` と共有の `event_settings` テーブル (#181)
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GuildConfig {
@@ -104,7 +104,7 @@ pub async fn get_config<'e>(
     let row = sqlx::query!(
         r#"
         SELECT
-            COALESCE(guild.locale, 'ja') AS "locale!",
+            COALESCE(gc.locale, guild.locale, 'ja') AS "locale!",
             COALESCE(gc.editor_role_ids, '{}'::text[]) AS "editor_role_ids!",
             COALESCE(gc.restricted, FALSE) AS "restricted!",
             COALESCE(gc.notify_at_start, TRUE) AS "notify_at_start!",

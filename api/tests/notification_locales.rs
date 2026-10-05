@@ -120,6 +120,12 @@ async fn server_locale_requires_membership_and_management_permissions(pool: PgPo
             }
         );
         if expected == StatusCode::OK {
+            let saved: String =
+                sqlx::query_scalar("SELECT locale FROM guild_config WHERE guild_id='111'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(saved, "en", "投稿言語は退出後も残る設定に保存する");
             let json: serde_json::Value = test::read_body_json(response).await;
             assert_eq!(json["locale"], "en");
             let response = test::call_service(
@@ -165,6 +171,12 @@ async fn server_locale_requires_membership_and_management_permissions(pool: PgPo
         .unwrap();
     assert_eq!(title, "日本語の予定", "利用者の入力は翻訳しない");
     sqlx::raw_sql(include_str!(
+        "../rollback/20261005000000_persist_guild_locale.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
         "../rollback/20261004000000_notification_locales.sql"
     ))
     .execute(&pool)
@@ -176,5 +188,21 @@ async fn server_locale_requires_membership_and_management_permissions(pool: PgPo
         .unwrap();
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='push_subscriptions' AND column_name='locale')").fetch_one(&pool).await.unwrap();
     assert!(!exists, "戻し方は追加カラムとトリガーだけを取り除く");
+    // 前のイメージと同じマイグレーション集合で起動時検証を通せることを確認する。
+    let mut old = sqlx::migrate!("./migrations");
+    old.migrations = std::borrow::Cow::Owned(
+        old.iter()
+            .filter(|m| m.version < 20261004000000)
+            .cloned()
+            .collect(),
+    );
+    old.run(&pool)
+        .await
+        .expect("旧 API のマイグレーション検証が成功する");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("同じ版を再適用できる");
+    assert_eq!(guilds::get_config(&pool, "111").await.unwrap().locale, "ja");
     handle.stop(true).await;
 }

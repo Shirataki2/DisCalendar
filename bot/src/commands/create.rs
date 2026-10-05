@@ -124,11 +124,7 @@ async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotErro
     // restricted モードのサーバーでは管理権限または編集ロールを持つユーザーが予定を作れる (api の `ensure_can_edit` と同じ)
     let config = guild_config::get(pool, &guild_id).await?;
     if !checks::author_can_edit_events(ctx, &config).await? {
-        return Err(crate::user_error!(
-            "このサーバーでは予定の作成が制限されています。{}",
-            "Creating events is restricted in this server. {}",
-            checks::EDIT_PERMISSIONS_REQUIRED
-        ));
+        return Err(restricted_creation_error());
     }
 
     let event = events::create(
@@ -201,6 +197,19 @@ async fn save(ctx: Context<'_>, validated: ValidatedEvent) -> Result<(), BotErro
     )
     .await?;
     Ok(())
+}
+
+fn restricted_creation_error() -> BotError {
+    BotError::User(crate::error::UserMessage {
+        ja: format!(
+            "このサーバーでは予定の作成が制限されています。{}",
+            checks::EDIT_PERMISSIONS_REQUIRED
+        ),
+        en: Some(format!(
+            "Creating events is restricted in this server. {}",
+            crate::messages::message(crate::i18n::Locale::En, checks::EDIT_PERMISSIONS_REQUIRED)
+        )),
+    })
 }
 
 /// 少ない入力で予定を作成します（保存前に日時を確認）
@@ -635,6 +644,21 @@ impl NotifyBefore {
 #[cfg(test)]
 mod tests {
     use poise::ChoiceParameter as _;
+    #[test]
+    fn restricted_creation_guidance_is_fully_localized() {
+        let BotError::User(message) = restricted_creation_error() else {
+            panic!("user error expected")
+        };
+        assert!(message.ja.contains(checks::EDIT_PERMISSIONS_REQUIRED));
+        let english = message.localized(crate::i18n::Locale::En);
+        assert!(english.contains("Creating events is restricted"));
+        assert!(english.contains(crate::messages::message(
+            crate::i18n::Locale::En,
+            checks::EDIT_PERMISSIONS_REQUIRED
+        )));
+        assert!(!english.contains(checks::EDIT_PERMISSIONS_REQUIRED));
+    }
+
     #[test]
     fn quick_input_accepts_english_and_localizes_validation_errors() {
         let now = "2026-12-31T23:59:00".parse().unwrap();

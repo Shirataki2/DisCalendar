@@ -755,8 +755,8 @@ export const english: Readonly<
     "Control who can edit (restricted mode)",
   "サーバー設定で restricted モードを有効にすると、「管理者」「サーバー管理」「ロールの管理」「メッセージの管理」のいずれかの権限、または編集を許可されたロールを持つメンバーが予定を追加・編集・削除できます。閲覧はメンバー全員ができます。":
     "Enable restricted mode so only members with Administrator, Manage Server, Manage Roles, or Manage Messages permissions, or an approved role, can create, edit, and delete events. All members can view events.",
-  "サーバー設定ダイアログ。編集制限と編集ロール、Discord への通知、今日・今週のまとめ投稿、配信用のフィード URL、重ね表示する外部カレンダーの登録、Webhook の設定がある":
-    "Server settings for editing permissions, roles, Discord reminders, daily and weekly summaries, feed URLs, external calendar overlays, and Webhooks (Japanese interface).",
+  "サーバー設定ダイアログ。通知・投稿の言語、編集制限と編集ロール、Discord への通知、今日・今週のまとめ投稿、配信用のフィード URL、重ね表示する外部カレンダーの登録、Webhook の設定がある":
+    "Server settings for notification and post language, editing permissions, roles, Discord reminders, daily and weekly summaries, feed URLs, external calendar overlays, and Webhooks (Japanese interface).",
   "Discord へ自動で通知": "Automatic Discord reminders",
   "予定ごとに「30 分前」「1 日前」のような事前通知を最大 10 件まで設定できます。時刻になると Bot がサーバー設定で選んだチャンネルに埋め込みメッセージを投稿するので、リマインドの手間がありません。":
     "Set up to 10 advance reminders per event, such as 30 minutes or 1 day before. The bot posts an embed in your selected channel at the scheduled time.",

@@ -455,6 +455,12 @@ pub async fn put_config(
         );
     }
     if let Some(locale) = &body.locale {
+        // guilds は退出時に消えるため、利用者の設定は guild_config にも保持する。
+        sqlx::query("UPDATE guild_config SET locale=$2 WHERE guild_id=$1")
+            .bind(guild_id)
+            .bind(locale)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("UPDATE guilds SET locale=$2 WHERE guild_id=$1")
             .bind(guild_id)
             .bind(locale)
