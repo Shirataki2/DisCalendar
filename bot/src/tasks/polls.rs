@@ -17,6 +17,7 @@ struct Poll {
     deadline: Option<NaiveDateTime>,
     status: String,
     discord_revision: i64,
+    locale: String,
 }
 #[derive(FromRow)]
 struct OptionRow {
@@ -99,7 +100,7 @@ pub(crate) async fn sync_one(
         .bind(id)
         .execute(&mut *tx)
         .await?;
-    let poll:Option<Poll>=sqlx::query_as("SELECT p.* FROM schedule_polls p JOIN guilds g ON g.guild_id=p.guild_id WHERE p.id=$1 FOR SHARE OF p")
+    let poll:Option<Poll>=sqlx::query_as("SELECT p.*, g.locale FROM schedule_polls p JOIN guilds g ON g.guild_id=p.guild_id WHERE p.id=$1 FOR SHARE OF p")
         .bind(id).fetch_optional(&mut *tx).await?;
     let Some(poll) = poll else {
         return Ok(());
@@ -210,25 +211,33 @@ fn message(
     base: &str,
     closed: bool,
 ) -> (CreateEmbed, Vec<CreateActionRow>) {
+    let locale = crate::i18n::Locale::resolve(&poll.locale);
     let status = if poll.status == "confirmed" {
-        "確定済み"
+        locale.text("確定済み", "Confirmed")
     } else if closed {
-        "締切済み"
+        locale.text("締切済み", "Closed")
     } else {
-        "回答受付中"
+        locale.text("回答受付中", "Accepting responses")
     };
     let deadline = poll
         .deadline
-        .map(|d| d.format("%Y/%m/%d %H:%M JST").to_string())
-        .unwrap_or_else(|| "なし".into());
+        .map(|d| locale.datetime(d))
+        .unwrap_or_else(|| locale.text("なし", "None").into());
     let mut embed = CreateEmbed::new()
-        .title(format!("日程調整: {}", poll.title))
+        .title(crate::tr!(
+            locale,
+            "日程調整: {}",
+            "Scheduling poll: {}",
+            poll.title
+        ))
         .url(format!(
             "{base}/dashboard/{}/polls/{}",
             poll.guild_id, poll.id
         ))
-        .description(format!(
+        .description(crate::tr!(
+            locale,
             "{status}・締切: {deadline}\n{}",
+            "{status} · Deadline: {deadline}\n{}",
             poll.description.as_deref().unwrap_or("")
         ))
         .colour(0x5865f2);
@@ -236,22 +245,27 @@ fn message(
     for (index, option) in options.iter().enumerate() {
         let time = if option.is_all_day {
             format!(
-                "{} 〜 {}（終日）",
-                option.start_at.format("%Y/%m/%d"),
-                option.end_at.format("%Y/%m/%d")
+                "{} - {} ({})",
+                locale.date(option.start_at),
+                locale.date(option.end_at),
+                locale.text("終日", "All day")
             )
         } else {
             format!(
-                "{} 〜 {} JST",
-                option.start_at.format("%Y/%m/%d %H:%M"),
-                option.end_at.format("%Y/%m/%d %H:%M")
+                "{} - {} JST",
+                locale.datetime(option.start_at).trim_end_matches(" JST"),
+                locale.datetime(option.end_at).trim_end_matches(" JST")
             )
         };
         embed = embed.field(
-            format!("候補 {}: {time}", index + 1),
-            format!(
+            crate::tr!(locale, "候補 {}: {time}", "Option {}: {time}", index + 1),
+            crate::tr!(
+                locale,
                 "○ {}人 / △ {}人 / × {}人",
-                option.yes, option.maybe, option.no
+                "○ {} / △ {} / × {}",
+                locale.count(option.yes),
+                locale.count(option.maybe),
+                locale.count(option.no)
             ),
             false,
         );
@@ -268,7 +282,12 @@ fn message(
             .into_iter()
             .map(|(answer, label, style)| {
                 CreateButton::new(custom_id(poll.id, option.id, answer))
-                    .label(format!("候補{} {label}", index + 1))
+                    .label(crate::tr!(
+                        locale,
+                        "候補{} {label}",
+                        "Option {} {label}",
+                        index + 1
+                    ))
                     .style(style)
             })
             .collect(),
@@ -281,7 +300,7 @@ mod tests {
     use super::*;
     #[test]
     fn five_candidates_fit_and_closed_polls_have_no_buttons() {
-        let poll = Poll {
+        let mut poll = Poll {
             id: 1,
             guild_id: "123".into(),
             title: "調整".into(),
@@ -289,6 +308,7 @@ mod tests {
             deadline: None,
             status: "open".into(),
             discord_revision: 1,
+            locale: "ja".into(),
         };
         let options = (1..=5)
             .map(|id| OptionRow {
@@ -312,6 +332,25 @@ mod tests {
                 );
             }
         }
+        poll.locale = "en".into();
+        let (english, english_rows) = message(&poll, &options, "https://example.com", false);
+        let english = serde_json::to_value(english).unwrap();
+        let english_rows = serde_json::to_value(english_rows).unwrap();
+        assert_eq!(english["title"], "Scheduling poll: 調整");
+        assert!(
+            english["description"]
+                .as_str()
+                .unwrap()
+                .contains("Accepting responses")
+        );
+        assert_eq!(english_rows[0]["components"][0]["label"], "Option 1 ○");
+        assert!(
+            english["fields"][0]["name"]
+                .as_str()
+                .unwrap()
+                .contains("Jan 01, 2099")
+        );
+        poll.locale = "unsupported".into();
         let (embed, rows) = message(&poll, &options, "https://example.com", true);
         assert!(rows.is_empty());
         assert!(

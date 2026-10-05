@@ -148,6 +148,7 @@ export interface GuildRole {
 }
 
 export interface GuildConfig {
+  locale: string;
   guild_id: string;
   /** true なら予定の作成・更新・削除に管理権限または編集ロールが必要 */
   restricted: boolean;
@@ -170,6 +171,7 @@ export interface GuildConfig {
  * `restricted` 以外は省略すると変更しない。通知先は Bot が投稿できるチャンネルでないと 400 になる
  */
 export interface GuildConfigInput {
+  locale?: "ja" | "en";
   restricted: boolean;
   editor_role_ids?: string[];
   notify_at_start?: boolean;
@@ -750,6 +752,7 @@ export interface PushSettings {
   subscriptions: PushDevice[];
 }
 export interface PushSubscriptionInput {
+  locale?: "ja" | "en";
   endpoint: string;
   p256dh: string;
   auth: string;

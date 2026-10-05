@@ -13,6 +13,7 @@ const config: GuildConfig = {
   notify_at_start: false,
   default_notifications: [{ num: 30, unit: "minutes" }],
   notification_channel_id: "400000000000000001",
+  locale: "ja",
   notification_channel_configured: true,
 };
 
@@ -20,6 +21,7 @@ describe("configToFormValues / formValuesToConfigInput", () => {
   it("API の設定とフォームの値を往復できる", () => {
     const values = configToFormValues(config);
     expect(values).toEqual({
+      locale: "ja",
       restricted: true,
       editorRoleIds: [],
       notifyAtStart: false,
@@ -27,6 +29,7 @@ describe("configToFormValues / formValuesToConfigInput", () => {
       notificationChannelId: "400000000000000001",
     });
     expect(formValuesToConfigInput(values)).toEqual({
+      locale: "ja",
       restricted: true,
       notify_at_start: false,
       default_notifications: [{ num: 30, unit: "minutes" }],
@@ -38,6 +41,7 @@ describe("configToFormValues / formValuesToConfigInput", () => {
     const values = configToFormValues({
       ...config,
       notification_channel_id: null,
+      locale: "ja",
       notification_channel_configured: false,
     });
     expect(values.notificationChannelId).toBe("");

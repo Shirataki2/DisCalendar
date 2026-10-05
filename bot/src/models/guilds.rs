@@ -21,7 +21,8 @@ pub async fn find_by_guild_id(pool: &PgPool, guild_id: &str) -> sqlx::Result<Opt
     .await
 }
 
-/// 参加時・更新時に名前とアイコンを反映する。`locale` は新規行だけ既定値 (`ja`) を入れ、既存行の値は上書きしない。
+/// 参加時・更新時に名前とアイコンを反映する。新規行の言語は保存設定から復元し、未設定なら `ja`。
+/// 既存行の言語は名前・アイコンの更新で上書きしない。
 ///
 /// `joined_at` には現在時刻を入れる。既存行は `refresh_joined_at` のとき (= 新規参加のイベントで、
 /// 退出直後の再参加により行が残っていた場合) だけ上書きし、名前・アイコンの更新では触らない。
@@ -36,7 +37,8 @@ pub async fn upsert(
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"
-        INSERT INTO guilds (guild_id, name, avatar_url, joined_at) VALUES ($1, $2, $3, $4)
+        INSERT INTO guilds (guild_id, name, avatar_url, joined_at, locale)
+        VALUES ($1, $2, $3, $4, COALESCE((SELECT locale FROM guild_config WHERE guild_id=$1), 'ja'))
         ON CONFLICT (guild_id) DO UPDATE SET
             name = EXCLUDED.name,
             avatar_url = EXCLUDED.avatar_url,

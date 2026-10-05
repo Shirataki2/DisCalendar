@@ -49,6 +49,23 @@ impl NotificationUnit {
 }
 
 impl Notification {
+    pub fn localized(self, locale: crate::i18n::Locale) -> String {
+        if locale == crate::i18n::Locale::Ja {
+            return self.to_string();
+        }
+        let unit = match self.unit {
+            NotificationUnit::Minutes => "minute",
+            NotificationUnit::Hours => "hour",
+            NotificationUnit::Days => "day",
+            NotificationUnit::Weeks => "week",
+        };
+        format!(
+            "{} {unit}{} before",
+            locale.count(self.num),
+            if self.num == 1 { "" } else { "s" }
+        )
+    }
+
     pub const fn new(num: u32, unit: NotificationUnit) -> Self {
         Self { num, unit }
     }

@@ -1,7 +1,7 @@
 use chrono::{Datelike, Duration, NaiveDateTime};
 use poise::serenity_prelude::CreateEmbed;
 
-use super::format_datetime;
+use crate::datetime::format_datetime_localized;
 use crate::{
     data::Context,
     error::BotError,
@@ -21,9 +21,13 @@ pub async fn list(
     ctx: Context<'_>,
     #[description = "表示する予定の範囲 (省略時は未来)"] range: Option<EventRange>,
 ) -> Result<(), BotError> {
+    let locale = crate::i18n::user_locale(ctx);
     let range = range.unwrap_or_default();
     let Some(guild_id) = ctx.guild_id() else {
-        return Err(BotError::user("このコマンドはサーバー内でのみ実行できます"));
+        return Err(crate::user_error!(
+            "このコマンドはサーバー内でのみ実行できます",
+            "This command can only be used in a server."
+        ));
     };
     let guild_id = guild_id.to_string();
     let pool = &ctx.data().pool;
@@ -50,41 +54,51 @@ pub async fn list(
         EventRange::All => events::list_all(pool, &guild_id).await?,
     };
     if events.is_empty() {
-        ctx.say(range.empty_message()).await?;
+        ctx.say(crate::messages::message(locale, range.empty_message()))
+            .await?;
         return Ok(());
     }
 
     let template = CreateEmbed::new()
-        .title("予定一覧")
-        .description("繰り返し予定は過去366日〜未来730日を表示します")
+        .title(crate::messages::message(locale, "予定一覧"))
+        .description(crate::messages::message(
+            locale,
+            "繰り返し予定は過去366日〜未来730日を表示します",
+        ))
         .colour(0x0000ff);
     let mut paginator = Paginator::new(PER_PAGE, template);
     for event in &events {
-        paginator.add(&event.name, describe(event), false);
+        paginator.add(&event.name, describe_localized(event, locale), false);
     }
     paginator.start(ctx).await
 }
 
 /// 一覧の 1 件分の本文
-pub(crate) fn describe(event: &Event) -> String {
+pub(crate) fn describe_localized(event: &Event, locale: crate::i18n::Locale) -> String {
     let notifications = event.notifications();
     let notifications = if notifications.is_empty() {
-        "なし".to_owned()
+        crate::messages::message(locale, "なし").to_owned()
     } else {
         notifications
             .iter()
-            .map(ToString::to_string)
+            .map(|n| n.localized(locale))
             .collect::<Vec<_>>()
             .join(", ")
     };
-    format!(
+    crate::tr!(
+        locale,
         "`開始時刻`: {}\n`終了時刻`: {}{}\n`　通知　`: {}",
-        format_datetime(event.start_at, event.is_all_day),
-        format_datetime(event.end_at, event.is_all_day),
+        "`Start`: {}\n`End`: {}{}\n`Reminders`: {}",
+        format_datetime_localized(event.start_at, event.is_all_day, locale),
+        format_datetime_localized(event.end_at, event.is_all_day, locale),
         event
             .location
             .as_deref()
-            .map(|location| format!("\n`　場所　`: {location}"))
+            .map(|location| crate::tr!(
+                locale,
+                "\n`　場所　`: {location}",
+                "\n`Location`: {location}"
+            ))
             .unwrap_or_default(),
         notifications
     )
@@ -131,6 +145,10 @@ impl EventRange {
     }
 }
 
+#[cfg(test)]
+fn describe(event: &Event) -> String {
+    describe_localized(event, crate::i18n::Locale::Ja)
+}
 #[cfg(test)]
 mod tests {
     use serde_json::json;

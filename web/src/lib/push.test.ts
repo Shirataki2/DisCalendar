@@ -1,10 +1,16 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { ApiError, api } from "@/lib/api";
-import { subscribeDevice, unsubscribeCurrentDevice } from "./push";
+import {
+  subscribeDevice,
+  syncCurrentDeviceLanguage,
+  unsubscribeCurrentDevice,
+} from "./push";
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
-  api: { push: { removeCurrent: vi.fn(), subscribe: vi.fn() } },
+  api: {
+    push: { removeCurrent: vi.fn(), subscribe: vi.fn(), setLocale: vi.fn() },
+  },
 }));
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -165,3 +171,65 @@ it.each([new Error("offline"), new ApiError(503, "unavailable", "retry")])(
     );
   },
 );
+
+it("現在の端末だけの言語を更新し、新規購読や通知許可を求めない", async () => {
+  const requestPermission = vi.fn();
+  vi.stubGlobal("Notification", { requestPermission });
+  const subscribe = vi.fn();
+  vi.stubGlobal("navigator", {
+    serviceWorker: {
+      getRegistration: async () => ({
+        pushManager: {
+          getSubscription: async () => ({
+            endpoint: "https://fcm.googleapis.com/current",
+          }),
+          subscribe,
+        },
+      }),
+    },
+  });
+  await syncCurrentDeviceLanguage("en");
+  expect(api.push.setLocale).toHaveBeenCalledWith(
+    "https://fcm.googleapis.com/current",
+    "en",
+  );
+  expect(requestPermission).not.toHaveBeenCalled();
+  expect(subscribe).not.toHaveBeenCalled();
+});
+it("購読のない端末では言語の更新を送らない", async () => {
+  vi.stubGlobal("navigator", {
+    serviceWorker: {
+      getRegistration: async () => ({
+        pushManager: { getSubscription: async () => null },
+      }),
+    },
+  });
+  await syncCurrentDeviceLanguage("en");
+  expect(api.push.setLocale).not.toHaveBeenCalled();
+});
+it("新規登録に Web の選択言語を保存する", async () => {
+  vi.stubGlobal("Notification", { requestPermission: async () => "granted" });
+  const subscription = {
+    options: {},
+    toJSON: () => ({
+      endpoint: "https://fcm.googleapis.com/current",
+      keys: { p256dh: "public", auth: "auth" },
+    }),
+  };
+  vi.stubGlobal("navigator", {
+    serviceWorker: {
+      getRegistration: async () => ({
+        active: {},
+        pushManager: { getSubscription: async () => subscription },
+      }),
+    },
+  });
+  await subscribeDevice("My device", "en");
+  expect(api.push.subscribe).toHaveBeenCalledWith({
+    endpoint: "https://fcm.googleapis.com/current",
+    p256dh: "public",
+    auth: "auth",
+    device_name: "My device",
+    locale: "en",
+  });
+});

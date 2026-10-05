@@ -198,6 +198,7 @@ struct Delivery {
     subscription_id: i32,
     attempts: i32,
     endpoint: String,
+    locale: String,
     p256dh: String,
     auth: String,
     guild_id: String,
@@ -240,7 +241,7 @@ async fn deliver_one(
     .await?;
     let row: Option<Delivery> = sqlx::query_as(
         r#"
-        SELECT d.outbox_id, d.subscription_id, d.attempts, s.endpoint, s.p256dh, s.auth,
+        SELECT d.outbox_id, d.subscription_id, d.attempts, s.endpoint, s.locale, s.p256dh, s.auth,
             e.guild_id, g.name AS guild_name, e.name, e.id AS event_id,
             e.start_at, o.start_at AS queued_start, o.fire_at, e.is_all_day, e.notifications,
             COALESCE(c.notify_at_start, true) AS notify_at_start, a."accountId" AS discord_id
@@ -260,7 +261,7 @@ async fn deliver_one(
     .bind(now_jst())
     .fetch_optional(&mut *tx)
     .await?;
-    let Some(row) = row else {
+    let Some(mut row) = row else {
         tx.commit().await?;
         return Ok(false);
     };
@@ -293,24 +294,10 @@ async fn deliver_one(
             Err(_) => Outcome::Retry,
             Ok(true) => {
                 // 所属確認の待機中に解除・オフ・予定変更があれば送らない。
-                let valid: bool = sqlx::query_scalar(r#"
-                    SELECT EXISTS (
-                        SELECT 1 FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id
-                        JOIN user_push_settings p ON p.user_id=s.user_id
-                        JOIN "account" a ON a."userId"=s.user_id AND a."providerId"='discord' AND a."accountId"=$8
-                        JOIN events e ON e.id=$3 JOIN guilds g ON g.guild_id=e.guild_id
-                        LEFT JOIN guild_config c ON c.guild_id=e.guild_id
-                        WHERE d.outbox_id=$1 AND d.subscription_id=$2 AND NOT d.done AND d.attempts=$4
-                          AND NOT s.disabled AND s.endpoint=$5 AND s.p256dh=$6 AND s.auth=$7
-                          AND (p.scope='all' OR (p.scope='created' AND e.created_by=$8))
-                          AND e.start_at=$9 AND e.notifications=$10 AND e.is_all_day=$11
-                          AND COALESCE(c.notify_at_start,true)=$12
-                    )
-                "#).bind(row.outbox_id).bind(row.subscription_id).bind(row.event_id)
-                    .bind(row.attempts + 1).bind(&row.endpoint).bind(&row.p256dh).bind(&row.auth)
-                    .bind(&row.discord_id).bind(row.start_at).bind(&row.notifications).bind(row.is_all_day)
-                    .bind(row.notify_at_start).fetch_one(&state.pool).await?;
-                if valid {
+                let current_locale = revalidated_locale(&state.pool, &row).await?;
+                if let Some(locale) = current_locale {
+                    // 所属確認の待機中に変更された端末言語をペイロードへ反映する。
+                    row.locale = locale;
                     send(client, config, &row).await
                 } else {
                     Outcome::Skip
@@ -320,6 +307,25 @@ async fn deliver_one(
     };
     finish_delivery(&state.pool, &row, outcome).await?;
     Ok(true)
+}
+
+/// 認可・予定・端末を送信直前に再検証し、その時点の購読言語を返す。
+async fn revalidated_locale(pool: &PgPool, row: &Delivery) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar(r#"
+                        SELECT s.locale FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id
+                        JOIN user_push_settings p ON p.user_id=s.user_id
+                        JOIN "account" a ON a."userId"=s.user_id AND a."providerId"='discord' AND a."accountId"=$8
+                        JOIN events e ON e.id=$3 JOIN guilds g ON g.guild_id=e.guild_id
+                        LEFT JOIN guild_config c ON c.guild_id=e.guild_id
+                        WHERE d.outbox_id=$1 AND d.subscription_id=$2 AND NOT d.done AND d.attempts=$4
+                          AND NOT s.disabled AND s.endpoint=$5 AND s.p256dh=$6 AND s.auth=$7
+                          AND (p.scope='all' OR (p.scope='created' AND e.created_by=$8))
+                          AND e.start_at=$9 AND e.notifications=$10 AND e.is_all_day=$11
+                          AND COALESCE(c.notify_at_start,true)=$12
+                "#).bind(row.outbox_id).bind(row.subscription_id).bind(row.event_id)
+                    .bind(row.attempts + 1).bind(&row.endpoint).bind(&row.p256dh).bind(&row.auth)
+                    .bind(&row.discord_id).bind(row.start_at).bind(&row.notifications).bind(row.is_all_day)
+                    .bind(row.notify_at_start).fetch_optional(pool).await
 }
 
 async fn finish_delivery(pool: &PgPool, row: &Delivery, outcome: Outcome) -> sqlx::Result<()> {
@@ -358,6 +364,25 @@ enum Outcome {
     Skip,
 }
 
+fn payload(row: &Delivery) -> serde_json::Value {
+    let locale = crate::i18n::Locale::resolve(&row.locale);
+    let time = if row.is_all_day {
+        format!(
+            "{} {}",
+            locale.date(row.start_at),
+            locale.text("終日", "All day")
+        )
+    } else {
+        locale.datetime(row.start_at)
+    };
+    serde_json::json!({
+        "title": row.name, "body": format!("{}\n{}", row.guild_name, time),
+        "url": format!("/dashboard/{}?date={}", row.guild_id, row.start_at.date()),
+        // 同じ予定の再試行・近接通知は端末上で1枚にまとめる。
+        "tag": format!("event-{}", row.event_id)
+    })
+}
+
 async fn send(client: &reqwest::Client, config: &PushConfig, row: &Delivery) -> Outcome {
     let info = SubscriptionInfo::new(&row.endpoint, &row.p256dh, &row.auth);
     let message = (|| {
@@ -366,18 +391,7 @@ async fn send(client: &reqwest::Client, config: &PushConfig, row: &Delivery) -> 
         let mut builder = WebPushMessageBuilder::new(&info);
         builder.set_vapid_signature(signature.build()?);
         builder.set_ttl(3600);
-        let time = if row.is_all_day {
-            format!("{} 終日", row.start_at.format("%m/%d"))
-        } else {
-            format!("{} (JST)", row.start_at.format("%m/%d %H:%M"))
-        };
-        let payload = serde_json::json!({
-            "title": row.name, "body": format!("{}\n{}", row.guild_name, time),
-            "url": format!("/dashboard/{}?date={}", row.guild_id, row.start_at.date()),
-            // 同じ予定の再試行・近接通知は端末上で1枚にまとめる。
-            "tag": format!("event-{}", row.event_id)
-        })
-        .to_string();
+        let payload = payload(row).to_string();
         builder.set_payload(ContentEncoding::Aes128Gcm, payload.as_bytes());
         builder.build()
     })();
@@ -423,6 +437,23 @@ mod tests {
             public,
         )
     }
+    #[test]
+    fn push_payload_uses_device_language_and_preserves_event_content() {
+        let mut row = delivery("https://fcm.googleapis.com/test".into(), "test".into());
+        row.start_at = "2026-12-31T23:59:00".parse().unwrap();
+        row.is_all_day = true;
+        row.locale = "en".into();
+        let english = payload(&row);
+        assert_eq!(english["title"], "予定");
+        assert_eq!(english["body"], "サーバー\nDec 31, 2026 All day");
+        assert_eq!(english["url"], "/dashboard/111?date=2026-12-31");
+        assert_eq!(english["tag"], "event-1");
+        row.locale = "fr".into();
+        assert_eq!(payload(&row)["body"], "サーバー\n2026/12/31 終日");
+        row.locale = "en-GB".into();
+        row.is_all_day = false;
+        assert_eq!(payload(&row)["body"], "サーバー\nDec 31, 2026 23:59 JST");
+    }
     fn delivery(endpoint: String, public: String) -> Delivery {
         let start = now_jst();
         Delivery {
@@ -430,6 +461,7 @@ mod tests {
             subscription_id: 1,
             attempts: 0,
             endpoint,
+            locale: "ja".into(),
             p256dh: public,
             auth: URL_SAFE_NO_PAD.encode([1; 16]),
             guild_id: "111".into(),
@@ -444,6 +476,55 @@ mod tests {
             notify_at_start: true,
             discord_id: "222".into(),
         }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn revalidation_uses_latest_subscription_language(pool: PgPool) {
+        let mut row = delivery("https://fcm.googleapis.com/test".into(), "key".into());
+        row.auth = "auth".into();
+        sqlx::raw_sql(
+            r#"
+            CREATE TABLE "account" ("userId" TEXT, "providerId" TEXT, "accountId" TEXT);
+            INSERT INTO "account" VALUES ('u1','discord','222');
+            INSERT INTO guilds(guild_id,name) VALUES ('111','サーバー');
+            INSERT INTO user_push_settings(user_id,scope) VALUES ('u1','all');
+            INSERT INTO push_subscriptions(id,user_id,endpoint,p256dh,auth,device_name,locale)
+                VALUES (1,'u1','https://fcm.googleapis.com/test','key','auth','端末','ja');
+        "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO events(id,guild_id,name,color,is_all_day,start_at,end_at,notifications,created_by) VALUES (1,'111','予定','#5865F2',false,$1,$1,'[]','222')")
+            .bind(row.start_at).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO push_outbox(id,event_id,fire_at,start_at) VALUES (1,1,$1,$1)")
+            .bind(row.start_at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO push_deliveries(outbox_id,subscription_id,attempts) VALUES (1,1,1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            revalidated_locale(&pool, &row).await.unwrap().as_deref(),
+            Some("ja")
+        );
+        crate::models::push::set_locale(&pool, "u1", &row.endpoint, "en")
+            .await
+            .unwrap();
+        row.locale = revalidated_locale(&pool, &row).await.unwrap().unwrap();
+        assert!(payload(&row)["body"].as_str().unwrap().ends_with("JST"));
+        assert_eq!(row.locale, "en", "取得後の言語変更を送信直前に反映する");
+        crate::models::push::set_scope(&pool, "u1", &crate::models::push::PushScope::Off)
+            .await
+            .unwrap();
+        assert!(
+            revalidated_locale(&pool, &row).await.unwrap().is_none(),
+            "通知の認可も引き続き再検証する"
+        );
     }
     #[tokio::test]
     async fn encrypts_payload_and_classifies_push_service_responses_without_redirecting() {
@@ -569,6 +650,7 @@ mod tests {
             &pool,
             "u1",
             &crate::models::push::SubscriptionInput {
+                locale: "ja".into(),
                 endpoint: "https://fcm.googleapis.com/fcm/send/test".into(),
                 p256dh: public,
                 auth: URL_SAFE_NO_PAD.encode([1; 16]),

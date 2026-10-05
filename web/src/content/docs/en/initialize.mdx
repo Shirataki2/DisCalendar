@@ -14,15 +14,27 @@ Hover or focus an information icon for details; tap it on a phone. Select **Save
 
 ## Configure with /init in Discord
 
-Run `/init` in the destination channel. To select another channel, use its channel option (currently labeled `チャンネル`):
+Run `/init` in the destination channel. To select another channel, use its `channel` option:
 
 ```
-/init チャンネル: #reminders
+/init channel: #reminders
 ```
 
 The bot confirms the destination, or reports that it changed an existing setting. Then [create events](/docs/calendar) to receive start-time and advance reminders.
 
 Discord displays timestamps in each member's language and time zone, with relative time until the start. All-day dates remain as registered. The reminder title and calendar link open the server calendar, returning there after sign-in if needed. Events with an active public share link also include a details link that needs no sign-in.
+
+
+## Language for replies and notifications
+
+The website language selector controls the interface and push notifications on that device.
+Discord help, command descriptions, input dialogs, replies, and errors follow the language of the person running the command.
+In Server settings, **Server notification and post language** controls channel reminders, start notifications, daily and weekly summaries, and scheduling poll posts. Management permissions are required to change it.
+Choose **日本語** or **English**, then **Save**. Existing poll posts are also updated.
+
+Unsupported languages and missing translations fall back to Japanese. Event titles, descriptions, locations, and user names are kept as entered.
+Changing the language does not change stored dates, all-day dates, or notification times.
+Push notification language is saved per device. Open the website and select a language on each device.
 
 ## Post event summaries
 

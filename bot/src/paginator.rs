@@ -56,19 +56,25 @@ impl Paginator {
             )))
     }
 
-    fn components(&self, ids: &ButtonIds, page: usize, disabled: bool) -> Vec<CreateActionRow> {
+    fn components(
+        &self,
+        ids: &ButtonIds,
+        page: usize,
+        disabled: bool,
+        locale: crate::i18n::Locale,
+    ) -> Vec<CreateActionRow> {
         vec![CreateActionRow::Buttons(vec![
             CreateButton::new(&ids.prev)
                 .style(serenity::ButtonStyle::Primary)
-                .label("前へ")
+                .label(crate::messages::message(locale, "前へ"))
                 .disabled(disabled || page == 0),
             CreateButton::new(&ids.finish)
                 .style(serenity::ButtonStyle::Danger)
-                .label("完了")
+                .label(crate::messages::message(locale, "完了"))
                 .disabled(disabled),
             CreateButton::new(&ids.next)
                 .style(serenity::ButtonStyle::Primary)
-                .label("次へ")
+                .label(crate::messages::message(locale, "次へ"))
                 .disabled(disabled || page + 1 >= self.total_pages()),
         ])]
     }
@@ -83,7 +89,7 @@ impl Paginator {
             .send(
                 poise::CreateReply::default()
                     .embed(self.embed(page))
-                    .components(self.components(&ids, page, false)),
+                    .components(self.components(&ids, page, false, crate::i18n::user_locale(ctx))),
             )
             .await?;
         // ボタンを外すときの編集に使う。スラッシュコマンドの interaction トークン (15 分) が切れても
@@ -130,7 +136,12 @@ impl Paginator {
                     serenity::CreateInteractionResponse::UpdateMessage(
                         serenity::CreateInteractionResponseMessage::new()
                             .embed(self.embed(page))
-                            .components(self.components(&ids, page, false)),
+                            .components(self.components(
+                                &ids,
+                                page,
+                                false,
+                                crate::i18n::user_locale(ctx),
+                            )),
                     ),
                 )
                 .await?;

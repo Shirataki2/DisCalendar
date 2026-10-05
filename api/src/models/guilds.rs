@@ -50,10 +50,12 @@ pub const DEFAULT_NOTIFICATIONS: [Notification; 2] = [
     },
 ];
 
-/// ギルドごとの設定。`restricted` / `notify_at_start` / `default_notifications` は `guild_config` テーブル、
+/// ギルドごとの設定。`locale` / `restricted` / `notify_at_start` / `default_notifications` は `guild_config` テーブル、
 /// `notification_channel_id` は `/init` と共有の `event_settings` テーブル (#181)
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GuildConfig {
+    /// チャンネル投稿・定期通知の言語。個人返信と端末通知には使わない。
+    pub locale: String,
     #[schema(example = "782502586817314816")]
     pub guild_id: String,
     /// true の場合、予定の追加・編集・削除を管理権限
@@ -102,12 +104,14 @@ pub async fn get_config<'e>(
     let row = sqlx::query!(
         r#"
         SELECT
+            COALESCE(gc.locale, guild.locale, 'ja') AS "locale!",
             COALESCE(gc.editor_role_ids, '{}'::text[]) AS "editor_role_ids!",
             COALESCE(gc.restricted, FALSE) AS "restricted!",
             COALESCE(gc.notify_at_start, TRUE) AS "notify_at_start!",
             COALESCE(gc.default_notifications, $2::jsonb) AS "default_notifications!",
             es.channel_id AS "notification_channel_id?"
         FROM (SELECT $1::text AS guild_id) g
+        LEFT JOIN guilds guild ON guild.guild_id = g.guild_id
         LEFT JOIN guild_config gc ON gc.guild_id = g.guild_id
         LEFT JOIN LATERAL (
             SELECT channel_id FROM event_settings WHERE guild_id = g.guild_id ORDER BY id LIMIT 1
@@ -119,6 +123,7 @@ pub async fn get_config<'e>(
     .fetch_one(executor)
     .await?;
     Ok(GuildConfig {
+        locale: crate::i18n::Locale::resolve(&row.locale).as_str().into(),
         guild_id: guild_id.to_owned(),
         restricted: row.restricted,
         editor_role_ids: row.editor_role_ids,

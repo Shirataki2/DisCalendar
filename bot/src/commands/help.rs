@@ -6,12 +6,20 @@ use crate::{data::Context, error::BotError};
 #[poise::command(slash_command)]
 pub async fn help(ctx: Context<'_>) -> Result<(), BotError> {
     // 本文は help.txt。`{dummy}` は Discord の埋め込みで行頭の字下げに使う全角スペース
-    let description = format!(
-        include_str!("help.txt"),
-        dummy = "　",
-        invite = ctx.data().invite_url,
-        site = ctx.data().site_base_url
-    );
+    let description = if crate::i18n::user_locale(ctx) == crate::i18n::Locale::En {
+        format!(
+            include_str!("help.en.txt"),
+            site = ctx.data().site_base_url,
+            invite = ctx.data().invite_url
+        )
+    } else {
+        format!(
+            include_str!("help.txt"),
+            dummy = "　",
+            invite = ctx.data().invite_url,
+            site = ctx.data().site_base_url
+        )
+    };
     // CurrentUserRef はキャッシュのロックなので、URL だけ取り出してすぐ手放す
     let thumbnail = ctx.cache().current_user().face();
     let embed = CreateEmbed::new()

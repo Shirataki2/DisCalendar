@@ -166,6 +166,7 @@ export function GuildSettingsDialog({ guildId, open, onOpenChange }: Props) {
 
 /** 設定を取れていないときのフォーム初期値 (通常は RSC で hydrate 済みなので使われない) */
 const FALLBACK_CONFIG: Omit<GuildConfig, "guild_id"> = {
+  locale: "ja",
   restricted: false,
   editor_role_ids: [],
   notify_at_start: true,
@@ -284,6 +285,37 @@ function GuildSettingsForm({
             {t("サーバーの設定の変更には管理権限が必要です")}
           </p>
         )}
+
+        <Field>
+          <FieldLabel htmlFor="guild-locale">
+            {t("サーバーの通知・投稿の言語")}
+          </FieldLabel>
+          <Controller
+            control={control}
+            name="locale"
+            render={({ field }) => (
+              <select
+                id="guild-locale"
+                value={field.value}
+                onChange={field.onChange}
+                disabled={!canManage || saving || syncing || syncFailed}
+                className="h-11 rounded-md border border-border bg-background px-2"
+              >
+                <option value="ja" lang="ja">
+                  日本語
+                </option>
+                <option value="en" lang="en">
+                  English
+                </option>
+              </select>
+            )}
+          />
+          <FieldDescription>
+            {t(
+              "チャンネル通知・まとめ・日程調整の投稿に使います。個人への返信とプッシュ通知の言語は変わりません。",
+            )}
+          </FieldDescription>
+        </Field>
 
         <Field orientation="horizontal" data-disabled={!canManage || undefined}>
           <Controller

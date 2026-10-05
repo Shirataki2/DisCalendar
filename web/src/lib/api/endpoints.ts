@@ -229,6 +229,11 @@ export function createApi(request: ApiFetcher) {
           method: "POST",
           body: input,
         }),
+      setLocale: (endpoint: string, locale: "ja" | "en") =>
+        request<void>("/users/@me/push-subscriptions", {
+          method: "PUT",
+          body: { endpoint, locale },
+        }),
       setScope: (scope: PushScope) =>
         request<void>("/users/@me/push-settings", {
           method: "PUT",

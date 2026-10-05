@@ -36,6 +36,7 @@ export function syncAdminGuildConfig(
         ? {
             ...detail,
             restricted: config.restricted,
+            locale: detail.registered ? config.locale : null,
             channel_id: config.notification_channel_configured
               ? (config.notification_channel_id ?? detail.channel_id)
               : null,

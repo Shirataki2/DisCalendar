@@ -386,3 +386,6 @@ pub mod recurring;
 
 #[path = "../../shared/poll_votes.rs"]
 pub mod poll_votes;
+
+#[path = "../../shared/i18n.rs"]
+pub mod i18n;

@@ -68,12 +68,16 @@ pub async fn author_can_manage_server(ctx: Context<'_>) -> Result<bool, BotError
 
 /// `#[poise::command(check = "...")]` 用。権限がなければ本人にだけ理由を返して false
 pub async fn require_manage_permissions(ctx: Context<'_>) -> Result<bool, BotError> {
+    let locale = crate::i18n::user_locale(ctx);
     if author_can_manage_server(ctx).await? {
         return Ok(true);
     }
     ctx.send(
         poise::CreateReply::default()
-            .content(MANAGE_PERMISSIONS_REQUIRED)
+            .content(crate::messages::message(
+                locale,
+                MANAGE_PERMISSIONS_REQUIRED,
+            ))
             .ephemeral(true),
     )
     .await?;
@@ -101,6 +105,13 @@ pub fn notification_permissions(is_thread: bool) -> Permissions {
 
 /// 権限の日本語名を「」で囲んで並べる (通知に関係する権限だけ)。例: 「チャンネルを見る」「埋め込みリンク」
 pub fn describe_permissions(permissions: Permissions) -> String {
+    describe_permissions_localized(permissions, crate::i18n::Locale::Ja)
+}
+
+pub fn describe_permissions_localized(
+    permissions: Permissions,
+    locale: crate::i18n::Locale,
+) -> String {
     [
         (Permissions::VIEW_CHANNEL, "チャンネルを見る"),
         (Permissions::SEND_MESSAGES, "メッセージを送信"),
@@ -112,7 +123,10 @@ pub fn describe_permissions(permissions: Permissions) -> String {
     ]
     .into_iter()
     .filter(|(permission, _)| permissions.contains(*permission))
-    .map(|(_, name)| format!("「{name}」"))
+    .map(|(_, name)| {
+        let name = crate::messages::message(locale, name);
+        crate::tr!(locale, "「{name}」", "\"{name}\"")
+    })
     .collect()
 }
 

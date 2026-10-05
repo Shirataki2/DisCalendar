@@ -17,7 +17,6 @@ use poise::serenity_prelude::{self as serenity, ChannelId, HttpError};
 
 use crate::{
     data::Data,
-    datetime::format_date_range,
     models::{
         event_settings, event_share_links,
         events::{self, Event},
@@ -299,7 +298,15 @@ async fn notify_for_event(
             return false;
         }
     };
-    let links = NotificationLinks::new(&data.site_base_url, &event.guild_id, token.as_deref());
+    let locale = match crate::i18n::guild_locale(&data.pool, &event.guild_id).await {
+        Ok(locale) => locale,
+        Err(error) => {
+            tracing::warn!(%error, "failed to read notification language");
+            return false;
+        }
+    };
+    let mut links = NotificationLinks::new(&data.site_base_url, &event.guild_id, token.as_deref());
+    links.locale = locale;
 
     let mut all_sent = all_enqueued;
     for (notification, fire) in due {
@@ -501,7 +508,22 @@ fn is_permanent_error_code(code: isize) -> bool {
 }
 
 /// 「以下の予定が開催されます」(開始時刻通知) / 「30分後に以下の予定が開催されます」(事前通知)
+#[cfg(test)]
 fn author_text(notification: Notification) -> String {
+    author_text_localized(notification, crate::i18n::Locale::Ja)
+}
+
+fn author_text_localized(notification: Notification, locale: crate::i18n::Locale) -> String {
+    if locale == crate::i18n::Locale::En {
+        return if notification.num == 0 {
+            "The following event is starting".into()
+        } else {
+            format!(
+                "The following event starts in {}",
+                notification.localized(locale).trim_end_matches(" before")
+            )
+        };
+    }
     if notification.num == 0 {
         "以下の予定が開催されます".to_owned()
     } else {
@@ -516,22 +538,29 @@ fn author_text(notification: Notification) -> String {
 struct NotificationLinks {
     calendar: String,
     share: Option<String>,
+    locale: crate::i18n::Locale,
 }
 
 impl NotificationLinks {
     fn new(site_base_url: &str, guild_id: &str, token: Option<&str>) -> Self {
         let base = site_base_url.trim_end_matches('/');
         Self {
+            locale: crate::i18n::Locale::Ja,
             calendar: format!("{base}/dashboard/{guild_id}"),
             share: token.map(|token| format!("{base}/share/{token}")),
         }
     }
 
     fn buttons(&self) -> serenity::CreateActionRow {
-        let mut buttons =
-            vec![serenity::CreateButton::new_link(&self.calendar).label("カレンダーで開く")];
+        let mut buttons = vec![
+            serenity::CreateButton::new_link(&self.calendar)
+                .label(self.locale.text("カレンダーで開く", "Open calendar")),
+        ];
         if let Some(url) = &self.share {
-            buttons.push(serenity::CreateButton::new_link(url).label("詳細を見る"));
+            buttons.push(
+                serenity::CreateButton::new_link(url)
+                    .label(self.locale.text("詳細を見る", "View details")),
+            );
         }
         serenity::CreateActionRow::Buttons(buttons)
     }
@@ -550,17 +579,25 @@ fn build_embed(
         .title(&event.name)
         .url(&links.calendar)
         .colour(color)
-        .author(serenity::CreateEmbedAuthor::new(author_text(notification)))
+        .author(serenity::CreateEmbedAuthor::new(author_text_localized(
+            notification,
+            links.locale,
+        )))
         .field(
-            "日時",
-            format_date_range(event.is_all_day, start, end),
+            links.locale.text("日時", "Date/time"),
+            crate::datetime::format_date_range_localized(
+                event.is_all_day,
+                start,
+                end,
+                links.locale,
+            ),
             false,
         );
     if let Some(description) = &event.description {
         embed = embed.description(description);
     }
     if let Some(location) = &event.location {
-        embed = embed.field("場所", location, false);
+        embed = embed.field(links.locale.text("場所", "Location"), location, false);
     }
     embed
 }
@@ -576,22 +613,41 @@ fn build_plain_text(
     use std::fmt::Write as _;
 
     let mut content = String::new();
-    let _ = writeln!(content, ":bell: {}\n", author_text(notification));
+    let _ = writeln!(
+        content,
+        ":bell: {}\n",
+        author_text_localized(notification, links.locale)
+    );
     let _ = writeln!(content, "**{}**", event.name);
     if let Some(description) = &event.description {
         let _ = writeln!(content, "{}\n", description);
     }
     if let Some(location) = &event.location {
-        let _ = writeln!(content, "**場所**\n　{}", location);
+        let _ = writeln!(
+            content,
+            "**{}**\n　{}",
+            links.locale.text("場所", "Location"),
+            location
+        );
     }
     let _ = writeln!(
         content,
-        "**日時**\n　{}",
-        format_date_range(event.is_all_day, start, end)
+        "**{}**\n　{}",
+        links.locale.text("日時", "Date/time"),
+        crate::datetime::format_date_range_localized(event.is_all_day, start, end, links.locale)
     );
-    let _ = writeln!(content, "カレンダーで開く: {}", links.calendar);
+    let _ = writeln!(
+        content,
+        "{}: {}",
+        links.locale.text("カレンダーで開く", "Open calendar"),
+        links.calendar
+    );
     if let Some(url) = &links.share {
-        let _ = writeln!(content, "詳細を見る: {url}");
+        let _ = writeln!(
+            content,
+            "{}: {url}",
+            links.locale.text("詳細を見る", "View details")
+        );
     }
     content
         .replace("@everyone", "@\u{200b}everyone")
@@ -602,6 +658,7 @@ fn build_plain_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datetime::format_date_range;
 
     fn dt(s: &str) -> NaiveDateTime {
         s.parse().unwrap()
@@ -1136,6 +1193,37 @@ mod tests {
             );
             assert_eq!(row["components"][1]["style"], 5);
         }
+    }
+
+    #[test]
+    fn english_notification_units_and_links_are_localized() {
+        let locale = crate::i18n::Locale::En;
+        assert_eq!(
+            author_text_localized(Notification::new(1, NotificationUnit::Hours), locale),
+            "The following event starts in 1 hour"
+        );
+        assert_eq!(
+            author_text_localized(Notification::new(2, NotificationUnit::Days), locale),
+            "The following event starts in 2 days"
+        );
+        assert_eq!(
+            author_text_localized(Notification::new(0, NotificationUnit::Minutes), locale),
+            "The following event is starting"
+        );
+        let mut links = NotificationLinks::new("https://example.com", "111", Some("test"));
+        links.locale = locale;
+        let buttons = serde_json::to_value(links.buttons()).unwrap();
+        assert_eq!(buttons["components"][0]["label"], "Open calendar");
+        assert_eq!(buttons["components"][1]["label"], "View details");
+        assert_eq!(
+            crate::datetime::format_date_range_localized(
+                true,
+                dt("2026-12-31T00:00:00"),
+                dt("2027-01-01T00:00:00"),
+                locale
+            ),
+            "Dec 31, 2026 - Jan 01, 2027"
+        );
     }
 
     #[test]

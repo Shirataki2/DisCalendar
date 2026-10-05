@@ -8,6 +8,40 @@ const GUILD: &str = "111111111111111111";
 const OTHER_GUILD: &str = "222222222222222222";
 
 #[sqlx::test(migrations = "../api/migrations")]
+async fn restores_saved_language_after_leaving_and_rejoining(pool: PgPool) {
+    guilds::upsert(&pool, GUILD, "a", None, true).await.unwrap();
+    sqlx::query("INSERT INTO guild_config (guild_id,locale,restricted) VALUES ($1,'en',true) ON CONFLICT (guild_id) DO UPDATE SET locale='en',restricted=true")
+        .bind(GUILD).execute(&pool).await.unwrap();
+    for bulk in [false, true] {
+        if bulk {
+            guilds::delete_many(&pool, &[GUILD.to_owned()])
+                .await
+                .unwrap();
+        } else {
+            guilds::delete(&pool, GUILD).await.unwrap();
+        }
+        guilds::upsert(&pool, GUILD, "rejoined", None, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            guilds::find_by_guild_id(&pool, GUILD)
+                .await
+                .unwrap()
+                .unwrap()
+                .locale,
+            "en"
+        );
+        let restricted: bool =
+            sqlx::query_scalar("SELECT restricted FROM guild_config WHERE guild_id=$1")
+                .bind(GUILD)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(restricted, "他の保存設定も保持する");
+    }
+}
+
+#[sqlx::test(migrations = "../api/migrations")]
 async fn upsert_inserts_then_updates_without_touching_locale(pool: PgPool) {
     guilds::upsert(&pool, GUILD, "DisCalendar", None, true)
         .await

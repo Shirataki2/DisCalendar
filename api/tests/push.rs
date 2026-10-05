@@ -19,6 +19,7 @@ fn input(id: usize) -> SubscriptionInput {
     let mut public = [1; 65];
     public[0] = 4;
     SubscriptionInput {
+        locale: "ja".into(),
         endpoint: format!("https://fcm.googleapis.com/fcm/send/test-{id}"),
         p256dh: URL_SAFE_NO_PAD.encode(public),
         auth: URL_SAFE_NO_PAD.encode([1; 16]),
@@ -283,4 +284,50 @@ async fn rollback_removes_only_push_tables_and_its_migration(pool: PgPool) {
             .await
             .unwrap();
     assert_eq!(count, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn subscription_language_follows_each_device_and_preserves_ownership(pool: PgPool) {
+    let mut english = input(1);
+    english.locale = "en-US".into();
+    push::subscribe(&pool, "u1", &english).await.unwrap();
+    push::subscribe(&pool, "u1", &input(2)).await.unwrap();
+    let locales: Vec<String> =
+        sqlx::query_scalar("SELECT locale FROM push_subscriptions ORDER BY endpoint")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(locales, ["en", "ja"]);
+    push::set_locale(&pool, "u2", &english.endpoint, "ja")
+        .await
+        .unwrap();
+    let locale: String =
+        sqlx::query_scalar("SELECT locale FROM push_subscriptions WHERE endpoint=$1")
+            .bind(&english.endpoint)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(locale, "en", "他人の端末は更新できない");
+    push::set_locale(&pool, "u1", &english.endpoint, "fr")
+        .await
+        .unwrap();
+    let locale: String =
+        sqlx::query_scalar("SELECT locale FROM push_subscriptions WHERE endpoint=$1")
+            .bind(&english.endpoint)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(locale, "ja", "未対応言語は日本語に戻す");
+    push::subscribe(&pool, "u1", &english).await.unwrap();
+    let locale: String =
+        sqlx::query_scalar("SELECT locale FROM push_subscriptions WHERE endpoint=$1")
+            .bind(&english.endpoint)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(locale, "en", "同じ端末の再登録でも言語を更新する");
+    assert_eq!(push::get(&pool, "u1").await.unwrap().subscriptions.len(), 2);
+    let old = serde_json::json!({"endpoint":english.endpoint,"p256dh":english.p256dh,"auth":english.auth,"device_name":english.device_name});
+    let old: SubscriptionInput = serde_json::from_value(old).unwrap();
+    assert_eq!(old.locale, "ja", "旧クライアントの登録は日本語を維持する");
 }

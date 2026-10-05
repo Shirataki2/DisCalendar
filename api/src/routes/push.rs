@@ -65,3 +65,19 @@ pub async fn remove_current(
     push::remove_endpoint(&state.pool, &user.id, &body.endpoint).await?;
     Ok(HttpResponse::NoContent().finish())
 }
+
+#[derive(Deserialize, ToSchema)]
+pub struct LocaleInput {
+    pub endpoint: String,
+    pub locale: String,
+}
+#[utoipa::path(tag = "push", request_body = LocaleInput, responses((status = 204), (status = 401, body = ErrorBody)))]
+#[put("/users/@me/push-subscriptions")]
+pub async fn locale(
+    user: AuthUser,
+    state: web::Data<AppState>,
+    body: web::Json<LocaleInput>,
+) -> Result<HttpResponse, ApiError> {
+    push::set_locale(&state.pool, &user.id, &body.endpoint, &body.locale).await?;
+    Ok(HttpResponse::NoContent().finish())
+}

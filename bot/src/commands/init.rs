@@ -17,8 +17,12 @@ pub async fn init(
     #[channel_types("Text", "News")]
     channel: Option<ChannelId>,
 ) -> Result<(), BotError> {
+    let locale = crate::i18n::user_locale(ctx);
     let Some(guild_id) = ctx.guild_id() else {
-        return Err(BotError::user("このコマンドはサーバー内でのみ実行できます"));
+        return Err(crate::user_error!(
+            "このコマンドはサーバー内でのみ実行できます",
+            "This command can only be used in a server."
+        ));
     };
     let channel_id = channel.unwrap_or_else(|| ctx.channel_id());
 
@@ -32,11 +36,12 @@ pub async fn init(
         Some(bot) => {
             let missing = checks::notification_permissions(bot.is_thread) - bot.permissions;
             if !missing.is_empty() {
-                return Err(BotError::user(format!(
+                return Err(crate::user_error!(
                     "<#{channel_id}> で Bot に {} の権限がないため、通知を投稿できません。\
                      Bot のロールかチャンネルの権限設定を見直してから、もう一度実行してください",
-                    checks::describe_permissions(missing)
-                )));
+                    "The bot cannot post notifications in <#{channel_id}> because it lacks {}. Review its role or channel permissions and try again.",
+                    checks::describe_permissions_localized(missing, locale)
+                ));
             }
         }
         None => tracing::warn!(
@@ -60,11 +65,18 @@ pub async fn init(
     );
 
     let message = match previous {
-        Some(previous) => format!(
+        Some(previous) => crate::tr!(
+            locale,
             "イベント通知先を変更しました\n通知先: <#{}> → <#{}>",
-            previous.channel_id, channel_id
+            "Notification channel updated\nChannel: <#{}> → <#{}>",
+            previous.channel_id,
+            channel_id
         ),
-        None => format!("イベント通知を有効にしました\n通知先: <#{channel_id}>"),
+        None => crate::tr!(
+            locale,
+            "イベント通知を有効にしました\n通知先: <#{channel_id}>",
+            "Event notifications enabled\nChannel: <#{channel_id}>"
+        ),
     };
     ctx.say(message).await?;
     Ok(())

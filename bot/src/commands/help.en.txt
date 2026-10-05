@@ -1,0 +1,19 @@
+DisCalendar is a shared __calendar bot for Discord__.
+Most actions are available on the **website**. [Log in]({site}) to view your server calendar.
+
+__**🌟 Notification setup 🌟**__
+You can create events without setting up notifications. To receive reminders and start notifications, run `/init` in the channel where you want them posted. Run it again in another channel to change the destination.
+Server managers can use `/settings` to check the current settings and bot permissions privately. This does not change settings or send a test message, and does not guarantee successful delivery.
+
+__**🌟 Commands 🌟**__
+Use `/list` to show past, future, all, today, this week, or the next event. Dates use JST and weeks start on Monday.
+Use `/quick name:Meeting date:tomorrow time:21:00` to create an event. Times use Japan time (JST). Duration defaults to 60 minutes; set `duration` to change it. Confirm the date/time before saving.
+Right-click a message (long-press on mobile), then select Apps → Create event. Review the title, date, time, and duration, and fill any blank fields. Replies are private; the event keeps a link to the source message.
+Use `/create` for more options and `/invite` to invite the bot to another server.
+Personal replies use your Discord language. Channel notifications and poll posts use the server language, which server managers can change on the website. Unsupported languages fall back to Japanese.
+
+__**🌟 Support 🌟**__
+For feature requests or bugs, visit the [support server](https://discord.gg/MyaZRuze23).
+
+__**🌟 Invite to another server 🌟**__
+[Invite DisCalendar]({invite})

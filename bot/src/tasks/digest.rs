@@ -6,7 +6,7 @@ use poise::serenity_prelude::{self as serenity, CreateEmbed, CreateEmbedFooter};
 use sqlx::PgPool;
 
 use crate::{
-    commands::list::describe,
+    commands::list::describe_localized,
     data::Data,
     error::BotError,
     models::{event_settings, events, events::Event, now_jst},
@@ -230,8 +230,14 @@ async fn post(
                     "w"
                 }
             );
+            let locale: String = sqlx::query_scalar("SELECT locale FROM guilds WHERE guild_id=$1")
+                .bind(guild)
+                .fetch_one(&mut *tx)
+                .await?;
+            let locale = crate::i18n::Locale::resolve(&locale);
             let message = serenity::CreateMessage::new()
-                .embed(build_embed(
+                .embed(build_embed_localized(
+                    locale,
                     kind,
                     start.date(),
                     &events,
@@ -283,7 +289,18 @@ fn truncate(value: &str, limit: usize) -> String {
         .collect()
 }
 
+#[cfg(test)]
 fn build_embed(kind: Kind, date: NaiveDate, events: &[Event], calendar: &str) -> CreateEmbed {
+    build_embed_localized(crate::i18n::Locale::Ja, kind, date, events, calendar)
+}
+
+fn build_embed_localized(
+    locale: crate::i18n::Locale,
+    kind: Kind,
+    date: NaiveDate,
+    events: &[Event],
+    calendar: &str,
+) -> CreateEmbed {
     let title = match kind {
         Kind::Daily => format!("今日の予定 ({}月{}日)", date.month(), date.day()),
         Kind::Weekly => {
@@ -297,7 +314,33 @@ fn build_embed(kind: Kind, date: NaiveDate, events: &[Event], calendar: &str) ->
             )
         }
     };
-    let description = if events.is_empty() {
+    let title = if locale == crate::i18n::Locale::En {
+        let start = locale.date(date.and_time(NaiveTime::MIN));
+        if matches!(kind, Kind::Daily) {
+            format!("Today's events ({start})")
+        } else {
+            format!(
+                "This week's events ({start} - {})",
+                locale.date((date + Duration::days(6)).and_time(NaiveTime::MIN))
+            )
+        }
+    } else {
+        title
+    };
+    let description = if locale == crate::i18n::Locale::En {
+        if events.is_empty() {
+            format!(
+                "No events {}.\n[Open calendar]({calendar})",
+                if matches!(kind, Kind::Daily) {
+                    "today"
+                } else {
+                    "this week"
+                }
+            )
+        } else {
+            format!("[Open calendar]({calendar})")
+        }
+    } else if events.is_empty() {
         format!(
             "{}の予定はありません\n[カレンダーを開く]({calendar})",
             if matches!(kind, Kind::Daily) {
@@ -318,11 +361,11 @@ fn build_embed(kind: Kind, date: NaiveDate, events: &[Event], calendar: &str) ->
     for event in events.iter().take(25) {
         let name = truncate(&event.name, 256);
         let name = if name.is_empty() {
-            "（名称なし）".into()
+            locale.text("（名称なし）", "(Untitled)").into()
         } else {
             name
         };
-        let value = truncate(&describe(event), 1024);
+        let value = truncate(&describe_localized(event, locale), 1024);
         length += name.encode_utf16().count() + value.encode_utf16().count();
         if length > 6000 {
             break;
@@ -331,9 +374,11 @@ fn build_embed(kind: Kind, date: NaiveDate, events: &[Event], calendar: &str) ->
         shown += 1;
     }
     if shown < events.len() {
-        embed = embed.footer(CreateEmbedFooter::new(format!(
+        embed = embed.footer(CreateEmbedFooter::new(crate::tr!(
+            locale,
             "ほか {} 件・カレンダーで全件を確認できます",
-            events.len() - shown
+            "{} more — view all events in the calendar",
+            locale.count(events.len() - shown)
         )));
     }
     embed
@@ -342,6 +387,35 @@ fn build_embed(kind: Kind, date: NaiveDate, events: &[Event], calendar: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn english_digests_keep_jst_periods_and_translate_empty_guidance() {
+        let date = NaiveDate::from_ymd_opt(2026, 12, 31).unwrap();
+        for (kind, title) in [
+            (Kind::Daily, "Today's events (Dec 31, 2026)"),
+            (
+                Kind::Weekly,
+                "This week's events (Dec 31, 2026 - Jan 06, 2027)",
+            ),
+        ] {
+            let embed = serde_json::to_value(build_embed_localized(
+                crate::i18n::Locale::En,
+                kind,
+                date,
+                &[],
+                "https://example.com",
+            ))
+            .unwrap();
+            assert_eq!(embed["title"], title);
+            assert!(
+                embed["description"]
+                    .as_str()
+                    .unwrap()
+                    .contains("[Open calendar]")
+            );
+            assert!(embed["description"].as_str().unwrap().contains("No events"));
+        }
+    }
 
     async fn seed_guilds(pool: &PgPool) {
         sqlx::query("INSERT INTO guilds (guild_id, name) VALUES ('1', 'test1'), ('2', 'test2')")
