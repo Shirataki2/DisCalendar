@@ -58,7 +58,7 @@ The editor has three tabs: **Basic** for event details and Discord sync; **Repea
 | --- | --- |
 | Title | Required; up to 32 characters |
 | Start and end dates and times | New duration follows personal defaults unless a range was selected. Moving the start date after the end date moves the end date to the same day without changing times. An end before the start is rejected. |
-| Repeat | Daily, weekly, every two weeks, or monthly, with an end date or count |
+| Repeat | Daily, weekly, every two weeks, monthly, or yearly, with an end date or count |
 | All day | Hides time inputs and uses dates only; the end date is included |
 | Color | Personal default for new events; choose a preset or custom color |
 | Reminders | Personal defaults, or server defaults if unspecified. Set a number of minutes, hours, days, or weeks before; up to 10 reminders. |
@@ -77,7 +77,7 @@ Import `.ics` files exported from Google Calendar, Apple Calendar, Outlook, and 
 2. Optionally narrow the date range and select events. Events with the same title and start time are marked Already exists and initially unselected.
 3. Choose an import color and select **Import N events**.
 
-Up to 200 events can be imported at once, with at most 10,000 estimated occurrences including repeats. Titles longer than 32 characters and descriptions longer than 1,000 are shortened and marked. Simple daily, weekly, biweekly, and monthly rules become repeating events. Unsupported rules, including individually changed or excluded occurrences, are skipped.
+Up to 200 events can be imported at once, with at most 10,000 estimated occurrences including repeats. Titles longer than 32 characters and descriptions longer than 1,000 are shortened and marked. Simple daily, weekly, biweekly, monthly, and yearly rules become repeating events. Unsupported rules, including individually changed or excluded occurrences, are skipped.
 
 Imported events have no advance reminders, mention targets, or Discord event sync; edit them afterward if needed. The file and ICS UID are not stored, so selecting the same event again can create a duplicate.
 
@@ -133,8 +133,8 @@ Use `/create` to add events without opening a browser. See [Available commands](
 
 ### Repeating events
 
-In **Repeat & reminders**, select **Does not repeat** to configure daily, weekly, biweekly, or monthly rules (by date or first through fifth weekday). Weekly rules can include multiple weekdays. End with no limit, an end date, or a count.
+In **Repeat & reminders**, select **Does not repeat** to configure daily, weekly, biweekly, monthly (by date or first through fifth weekday), or yearly rules. Weekly rules can include multiple weekdays. End with no limit, an end date, or a count.
 
 Review the next three occurrences and select **Apply settings**, then **Create** in the event editor. Back and Cancel return without applying recurrence changes. Closing the entire editor checks for unsaved changes.
 
-The start date must match the rule. Months lacking the chosen date or fifth weekday are skipped. Counts include the first occurrence, and canceled occurrences are not replaced. Attachments are saved only on the first occurrence. Repeating events cannot also sync to Discord scheduled events.
+The start date must match the rule. Months lacking the chosen date or fifth weekday are skipped. Yearly events repeat on the start date’s month and day; February 29 occurs only in leap years. Lists and iCal show occurrences within the next 730 days, with later dates added over time. The preview can show the next three occurrences beyond that window. Counts include the first occurrence, and canceled occurrences are not replaced. Attachments are saved only on the first occurrence. Repeating events cannot also sync to Discord scheduled events.

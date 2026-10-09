@@ -48,6 +48,7 @@ function recurrenceLabel(rule: RecurrenceRule | undefined) {
     biweekly: "隔週",
     monthly_date: "毎月",
     monthly_weekday: "毎月",
+    yearly: "毎年",
   }[rule.frequency];
 }
 

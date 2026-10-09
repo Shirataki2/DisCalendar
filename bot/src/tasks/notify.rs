@@ -751,6 +751,27 @@ mod tests {
     async fn recurring_occurrences_have_distinct_due_keys_and_duplicate_settings_send_once(
         pool: sqlx::PgPool,
     ) {
+        check_recurring_notifications(
+            pool,
+            crate::recurrence::Rule::Daily {
+                end: crate::recurrence::Ending::Count { count: 3 },
+            },
+        )
+        .await;
+    }
+
+    #[sqlx::test(migrations = "../api/migrations")]
+    async fn yearly_occurrences_replenish_and_notify_without_duplicates(pool: sqlx::PgPool) {
+        check_recurring_notifications(
+            pool,
+            crate::recurrence::Rule::Yearly {
+                end: crate::recurrence::Ending::Count { count: 3 },
+            },
+        )
+        .await;
+    }
+
+    async fn check_recurring_notifications(pool: sqlx::PgPool, rule: crate::recurrence::Rule) {
         sqlx::raw_sql("INSERT INTO guilds(guild_id,name) VALUES ('111','定例'); INSERT INTO event_settings(guild_id,channel_id) VALUES ('111','222'); INSERT INTO push_subscriptions(user_id,endpoint,p256dh,auth,device_name) VALUES ('user','https://fcm.googleapis.com/test','test','test','端末')").execute(&pool).await.unwrap();
         let now = dt("2026-09-21T10:00:00");
         let start = now + Duration::days(700);
@@ -762,9 +783,7 @@ mod tests {
                 "name":"定例","description":null,"color":"#2196F3","is_all_day":false,
                 "notifications":[{"num":100,"unit":"weeks"},{"num":100,"unit":"weeks"}]
             }),
-            &crate::recurrence::Rule::Daily {
-                end: crate::recurrence::Ending::Count { count: 3 },
-            },
+            &rule,
             start,
             start + Duration::hours(1),
             "333",
@@ -774,6 +793,14 @@ mod tests {
         .unwrap();
         tx.commit().await.unwrap();
         crate::recurring_events::replenish(&pool, now)
+            .await
+            .unwrap();
+        let replenish_at = if matches!(rule, crate::recurrence::Rule::Yearly { .. }) {
+            now + Duration::days(crate::recurrence::LOOKAHEAD_DAYS)
+        } else {
+            now
+        };
+        crate::recurring_events::replenish(&pool, replenish_at)
             .await
             .unwrap();
         let events = events::list_all_future(&pool, now).await.unwrap();

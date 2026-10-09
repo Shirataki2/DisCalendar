@@ -765,3 +765,99 @@ async fn repeated_range_fill_does_not_write_existing_occurrences(pool: PgPool) {
         .unwrap();
     assert_eq!(count, 0);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn yearly_occurrences_keep_exceptions_when_shifted_and_deleted(pool: PgPool) {
+    let mut body = input();
+    body.start_at = (discalendar_api::models::now_jst() + chrono::Duration::days(1))
+        .date()
+        .and_hms_opt(19, 30, 0)
+        .unwrap();
+    body.end_at = body.start_at + chrono::Duration::hours(1);
+    body.recurrence = Some(discalendar_api::recurrence::Rule::Yearly {
+        end: discalendar_api::recurrence::Ending::Count { count: 2 },
+    });
+    let mut tx = pool.begin().await.unwrap();
+    let first = events::create(&mut *tx, "111", &body, body.start_at, "333")
+        .await
+        .unwrap();
+    recurring::attach_created(&mut tx, "111", first.id, &body, "333")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let all = ids(&pool).await;
+    assert_eq!(all.len(), 2);
+    let second = events::find_by_id(&pool, "111", all[1])
+        .await
+        .unwrap()
+        .unwrap();
+    let feed = events::list_for_feed(&pool, "111", body.start_at)
+        .await
+        .unwrap();
+    assert_eq!(feed.len(), 2);
+    assert_eq!(feed[1].notifications, first.notifications);
+
+    // 初回の個別変更を保ち、2回目以降を別の月日へ移動する。
+    body.recurrence = None;
+    body.name = "誕生日の個別変更".into();
+    let mut tx = pool.begin().await.unwrap();
+    recurring::update(&mut tx, "111", first.id, &body, "333")
+        .await
+        .unwrap();
+    let info = store::info(&mut tx, "111", second.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(info.rule["frequency"], "yearly");
+    body.scope = ChangeScope::Future;
+    body.expected_series_version = Some(info.version);
+    body.name = "移動した記念日".into();
+    body.start_at = second.start_at + chrono::Duration::days(7);
+    body.end_at = body.start_at + chrono::Duration::hours(1);
+    recurring::update(&mut tx, "111", second.id, &body, "333")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(ids(&pool).await, all);
+    let changed = events::find_by_id(&pool, "111", second.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(changed.start_at, body.start_at);
+    let mut tx = pool.begin().await.unwrap();
+    let info = store::info(&mut tx, "111", second.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(info.rule["end"]["count"], 1);
+    recurring::before_delete(
+        &mut tx,
+        "111",
+        second.id,
+        &DeleteOptions {
+            scope: ChangeScope::Future,
+            expected_series_version: Some(info.version),
+        },
+    )
+    .await
+    .unwrap();
+    events::delete(&mut *tx, "111", second.id).await.unwrap();
+    tx.commit().await.unwrap();
+    store::ensure_range(
+        &pool,
+        "111",
+        first.start_at,
+        body.start_at + chrono::Duration::days(1),
+    )
+    .await
+    .unwrap();
+    assert_eq!(ids(&pool).await, vec![first.id]);
+    assert_eq!(
+        events::find_by_id(&pool, "111", first.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .name,
+        "誕生日の個別変更"
+    );
+}

@@ -15,13 +15,15 @@ export function describeRecurrence(
     if (rule.frequency === "none") return "Does not repeat";
     const days = recurrenceWeekdays(language);
     const frequency =
-      rule.frequency === "daily"
-        ? "Daily"
-        : rule.frequency === "weekly" || rule.frequency === "biweekly"
-          ? `${rule.frequency === "weekly" ? "Weekly" : "Every 2 weeks"} on ${rule.weekdays.map((day) => days[day]).join(", ")}`
-          : rule.frequency === "monthly_date"
-            ? `Monthly on day ${rule.day}`
-            : `Monthly on ${rule.nth === 1 ? "1st" : rule.nth === 2 ? "2nd" : rule.nth === 3 ? "3rd" : `${rule.nth}th`} ${days[rule.weekday]}`;
+      rule.frequency === "yearly"
+        ? "Yearly"
+        : rule.frequency === "daily"
+          ? "Daily"
+          : rule.frequency === "weekly" || rule.frequency === "biweekly"
+            ? `${rule.frequency === "weekly" ? "Weekly" : "Every 2 weeks"} on ${rule.weekdays.map((day) => days[day]).join(", ")}`
+            : rule.frequency === "monthly_date"
+              ? `Monthly on day ${rule.day}`
+              : `Monthly on ${rule.nth === 1 ? "1st" : rule.nth === 2 ? "2nd" : rule.nth === 3 ? "3rd" : `${rule.nth}th`} ${days[rule.weekday]}`;
     const endDate = rule.end.type === "until" ? parseISO(rule.end.date) : null;
     const ending =
       rule.end.type === "never"
@@ -35,13 +37,15 @@ export function describeRecurrence(
   }
   if (rule.frequency === "none") return "繰り返しなし";
   const frequency =
-    rule.frequency === "daily"
-      ? "毎日"
-      : rule.frequency === "weekly" || rule.frequency === "biweekly"
-        ? `${rule.frequency === "weekly" ? "毎週" : "隔週"}${rule.weekdays.map((day) => WEEKDAYS[day]).join("・")}曜日`
-        : rule.frequency === "monthly_date"
-          ? `毎月${rule.day}日`
-          : `毎月第${rule.nth}${WEEKDAYS[rule.weekday]}曜日`;
+    rule.frequency === "yearly"
+      ? "毎年"
+      : rule.frequency === "daily"
+        ? "毎日"
+        : rule.frequency === "weekly" || rule.frequency === "biweekly"
+          ? `${rule.frequency === "weekly" ? "毎週" : "隔週"}${rule.weekdays.map((day) => WEEKDAYS[day]).join("・")}曜日`
+          : rule.frequency === "monthly_date"
+            ? `毎月${rule.day}日`
+            : `毎月第${rule.nth}${WEEKDAYS[rule.weekday]}曜日`;
   const ending =
     rule.end.type === "never"
       ? "終了なし"

@@ -12,6 +12,7 @@ const DAYS: [&str; 7] = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
 pub enum Rule {
     None,
     Daily { end: Ending },
+    Yearly { end: Ending },
     Weekly { weekdays: Vec<u8>, end: Ending },
     Biweekly { weekdays: Vec<u8>, end: Ending },
     MonthlyDate { day: u8, end: Ending },
@@ -35,6 +36,7 @@ impl Rule {
         match self {
             Self::None => None,
             Self::Daily { end }
+            | Self::Yearly { end }
             | Self::Weekly { end, .. }
             | Self::Biweekly { end, .. }
             | Self::MonthlyDate { end, .. }
@@ -46,6 +48,7 @@ impl Rule {
         match self {
             Self::None => None,
             Self::Daily { end }
+            | Self::Yearly { end }
             | Self::Weekly { end, .. }
             | Self::Biweekly { end, .. }
             | Self::MonthlyDate { end, .. }
@@ -61,6 +64,7 @@ impl Rule {
         let (mut rule, ending) = match self {
             Self::None => return Err("繰り返し条件を指定してください".into()),
             Self::Daily { end } => ("FREQ=DAILY".to_owned(), end),
+            Self::Yearly { end } => ("FREQ=YEARLY".to_owned(), end),
             Self::Weekly { weekdays, end } | Self::Biweekly { weekdays, end } => {
                 if weekdays.is_empty()
                     || weekdays.len() > 7
@@ -221,6 +225,65 @@ mod tests {
     fn dt(s: &str) -> NaiveDateTime {
         s.parse().unwrap()
     }
+    #[test]
+    fn yearly_endings_leap_days_and_generation_window() {
+        let start = dt("2026-10-09T19:30:00");
+        let rule: Rule =
+            serde_json::from_str(r#"{"frequency":"yearly","end":{"type":"never"}}"#).unwrap();
+        assert_eq!(serde_json::to_value(&rule).unwrap()["frequency"], "yearly");
+        assert_eq!(
+            preview(&rule, start).unwrap(),
+            vec![start, dt("2027-10-09T19:30:00"), dt("2028-10-09T19:30:00")]
+        );
+        let window = between(
+            &rule.rrule(start).unwrap(),
+            start,
+            start,
+            start + Duration::days(LOOKAHEAD_DAYS),
+        )
+        .unwrap();
+        assert_eq!(window, vec![start, dt("2027-10-09T19:30:00")]);
+        let leap = dt("2028-02-29T10:00:00");
+        assert_eq!(
+            preview(&rule, leap).unwrap(),
+            vec![leap, dt("2032-02-29T10:00:00"), dt("2036-02-29T10:00:00")]
+        );
+        assert!(
+            between(
+                &rule.rrule(leap).unwrap(),
+                leap,
+                leap + Duration::days(1),
+                leap + Duration::days(LOOKAHEAD_DAYS)
+            )
+            .unwrap()
+            .is_empty()
+        );
+        let count = Rule::Yearly {
+            end: Ending::Count { count: 2 },
+        };
+        assert_eq!(
+            preview(&count, leap).unwrap(),
+            vec![leap, dt("2032-02-29T10:00:00")]
+        );
+        assert_eq!(
+            end_before(&count, leap).unwrap(),
+            Some(dt("2032-02-29T10:00:01"))
+        );
+        let until = Rule::Yearly {
+            end: Ending::Until {
+                date: "2027-10-09".parse().unwrap(),
+            },
+        };
+        assert_eq!(preview(&until, start).unwrap(), window);
+        assert!(
+            Rule::Yearly {
+                end: Ending::Count { count: 0 }
+            }
+            .rrule(start)
+            .is_err()
+        );
+    }
+
     #[test]
     fn calendar_boundaries_and_endings() {
         let start = dt("2026-01-31T19:30:00");
