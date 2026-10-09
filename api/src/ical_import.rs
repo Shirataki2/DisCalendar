@@ -240,17 +240,29 @@ fn convert(
     subscription: bool,
 ) -> Result<ParsedImportEvent, &'static str> {
     let (start_at, end_at, is_all_day) = convert_dates(&invite, vtimezones)?;
-    let recurrence_start = if subscription {
-        source_local(&invite.dtstart)?
-    } else {
-        start_at
-    };
+    let source_start = source_local(&invite.dtstart)?;
+    let recurrence_start = if subscription { source_start } else { start_at };
     let recurrence = invite
         .rrule
         .as_deref()
-        .map(|raw| parse_rule_inner(raw, recurrence_start, subscription))
+        .map(|raw| parse_rule_inner(raw, recurrence_start, subscription, source_start))
         .transpose()
         .map_err(|_| "unsupported_recurrence")?;
+
+    // うるう日前後を時差でまたぐ条件は、JSTの固定月日では同じ開催日を再現できない。
+    if matches!(recurrence, Some(Rule::Yearly { .. }))
+        && source_start.date() != start_at.date()
+        && ((source_start.month() == 2 && source_start.day() == 29)
+            || (source_start.month() == 2
+                && source_start.day() == 28
+                && start_at.date() > source_start.date())
+            || (source_start.month() == 3
+                && source_start.day() == 1
+                && start_at.date() < source_start.date()))
+        && !subscription
+    {
+        return Err("unsupported_recurrence");
+    }
 
     let mut truncated_fields = Vec::new();
     let name = truncate(
@@ -372,7 +384,12 @@ pub(crate) fn to_jst(
     }
 }
 
-fn parse_rule_inner(raw: &str, start: NaiveDateTime, defer_until: bool) -> Result<Rule, String> {
+fn parse_rule_inner(
+    raw: &str,
+    start: NaiveDateTime,
+    defer_until: bool,
+    source_start: NaiveDateTime,
+) -> Result<Rule, String> {
     let mut parts = BTreeMap::new();
     for part in raw.split(';') {
         let (key, value) = part
@@ -410,12 +427,12 @@ fn parse_rule_inner(raw: &str, start: NaiveDateTime, defer_until: bool) -> Resul
             if interval == 1
                 && !parts.contains_key("BYDAY")
                 && (!parts.contains_key("BYMONTHDAY") || parts.contains_key("BYMONTH"))
-                && parts
-                    .get("BYMONTH")
-                    .is_none_or(|value| value.parse::<u32>().ok() == Some(start.month()))
+                && parts.get("BYMONTH").is_none_or(|value| {
+                    value.parse::<u32>().ok() == Some(source_start.month())
+                })
                 && parts
                     .get("BYMONTHDAY")
-                    .is_none_or(|value| value.parse::<u32>().ok() == Some(start.day())) =>
+                    .is_none_or(|value| value.parse::<u32>().ok() == Some(source_start.day())) =>
         {
             Rule::Yearly { end: Ending::Never }
         }
@@ -496,6 +513,15 @@ pub(crate) fn parse_until(value: &str) -> Result<(NaiveDateTime, bool), String> 
     Ok((date.ok_or("繰り返し終了日が不正です")?, utc))
 }
 
+fn search_span(rule: &Rule) -> Duration {
+    // 2100年などはうるう年でなく、2月29日の開催間隔が最大8年になる。
+    Duration::days(if matches!(rule, Rule::Yearly { .. }) {
+        8 * 366
+    } else {
+        370
+    })
+}
+
 fn apply_ending(
     rule: &mut Rule,
     count: Option<&String>,
@@ -520,7 +546,7 @@ fn apply_ending(
                 boundary
             };
             let from = boundary
-                .checked_sub_signed(Duration::days(370))
+                .checked_sub_signed(search_span(rule))
                 .unwrap_or(NaiveDateTime::MIN)
                 .max(start);
             let to = boundary
@@ -600,10 +626,9 @@ pub fn overlaps(
         .checked_sub_signed(duration)
         .unwrap_or(NaiveDateTime::MIN)
         .max(event.start_at);
-    // 対応する繰り返しは最長でも月単位なので、次の1回の有無は1年見れば判定できる。
     let to = range_end.min(
         range_start
-            .checked_add_signed(Duration::days(370))
+            .checked_add_signed(search_span(rule))
             .unwrap_or(NaiveDateTime::MAX),
     );
     if to <= from {
@@ -724,6 +749,80 @@ mod tests {
     }
 
     #[test]
+    fn yearly_leap_day_until_and_open_ended_filters_cover_eight_year_gaps() {
+        for (year, until, last) in [
+            (2028, "20350228", "2032-02-29"),
+            (2096, "21030228", "2096-02-29"),
+        ] {
+            let ics = format!(
+                "{HEADER}BEGIN:VEVENT\r\nUID:leap\r\nDTSTAMP:20260101T000000Z\r\nDTSTART;VALUE=DATE:{year}0229\r\nRRULE:FREQ=YEARLY;UNTIL={until}\r\nSUMMARY:Leap day\r\nEND:VEVENT\r\n{FOOTER}"
+            );
+            let parsed = parse(&ics).unwrap();
+            let event = &parsed.events[0].event;
+            assert_eq!(
+                event.recurrence.as_ref().unwrap().ending(),
+                Some(&Ending::Until {
+                    date: last.parse().unwrap()
+                })
+            );
+            let mut open = event.clone();
+            open.recurrence = Some(Rule::Yearly { end: Ending::Never });
+            let from = format!("{}-03-02", year).parse().unwrap();
+            assert!(overlaps(&open, from, NaiveDate::MAX).unwrap());
+            assert_eq!(overlaps(event, from, NaiveDate::MAX).unwrap(), year != 2096);
+            assert!(
+                !overlaps(&open, from, format!("{}-02-28", year + 4).parse().unwrap()).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn yearly_month_and_day_are_checked_before_jst_conversion() {
+        for start in ["20261001T180000Z", "TZID=America/New_York:20261001T180000"] {
+            let dtstart = if start.starts_with("TZID") {
+                format!("DTSTART;{start}")
+            } else {
+                format!("DTSTART:{start}")
+            };
+            let ics = format!(
+                "{HEADER}BEGIN:VEVENT\r\nUID:utc-yearly\r\nDTSTAMP:20260101T000000Z\r\n{dtstart}\r\nRRULE:FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=1;COUNT=2\r\nSUMMARY:Anniversary\r\nEND:VEVENT\r\n{FOOTER}"
+            );
+            let parsed = parse(&ics).unwrap();
+            let event = &parsed.events[0].event;
+            assert_eq!(
+                event.start_at.date(),
+                "2026-10-02".parse::<NaiveDate>().unwrap()
+            );
+            assert_eq!(
+                recurrence::preview(event.recurrence.as_ref().unwrap(), event.start_at).unwrap()[1]
+                    .date(),
+                "2027-10-02".parse::<NaiveDate>().unwrap()
+            );
+            assert_eq!(parse_subscription(&ics).unwrap().events.len(), 1);
+            let invalid = ics.replace("BYMONTHDAY=1", "BYMONTHDAY=2");
+            assert!(parse(&invalid).unwrap().events.is_empty());
+        }
+    }
+
+    #[test]
+    fn yearly_timezone_shifts_that_change_leap_day_semantics_are_skipped() {
+        for dtstart in [
+            "DTSTART:20280229T180000Z",
+            "DTSTART:20280228T180000Z",
+            "DTSTART:20260228T180000Z",
+            "DTSTART;TZID=Pacific/Auckland:20260301T010000",
+        ] {
+            let ics = format!(
+                "{HEADER}BEGIN:VEVENT\r\nUID:shifted\r\nDTSTAMP:20260101T000000Z\r\n{dtstart}\r\nRRULE:FREQ=YEARLY\r\nSUMMARY:Leap boundary\r\nEND:VEVENT\r\n{FOOTER}"
+            );
+            let parsed = parse(&ics).unwrap();
+            assert!(parsed.events.is_empty(), "{dtstart}");
+            assert_eq!(parsed.skipped[0].reason, "unsupported_recurrence");
+            assert_eq!(parse_subscription(&ics).unwrap().events.len(), 1);
+        }
+    }
+
+    #[test]
     fn imports_fixed_yearly_rules_and_rejects_other_yearly_conditions() {
         for raw in [
             "FREQ=YEARLY",
@@ -767,7 +866,7 @@ mod tests {
             "FREQ=YEARLY;INTERVAL=2",
             "FREQ=MONTHLY;BYMONTH=2",
         ] {
-            assert!(parse_rule_inner(raw, start, false).is_err(), "{raw}");
+            assert!(parse_rule_inner(raw, start, false, start).is_err(), "{raw}");
             let ics = format!(
                 "{HEADER}BEGIN:VEVENT\r\nUID:unsupported\r\nDTSTAMP:20260101T000000Z\r\nDTSTART;VALUE=DATE:20280229\r\nRRULE:{raw}\r\nSUMMARY:Unsupported\r\nEND:VEVENT\r\n{FOOTER}"
             );
