@@ -167,6 +167,11 @@ export const english: Readonly<
   隔週: "Every 2 weeks",
   "毎月（日付）": "Monthly (by date)",
   "毎月（第n曜日）": "Monthly (by weekday)",
+  毎年: "Yearly",
+  "開始日と同じ月日に繰り返します。2月29日はうるう年だけ開催します。":
+    "Repeats on the same month and day as the start date. February 29 occurs only in leap years.",
+  "一覧には未来730日以内の開催日が表示され、順次追加されます。":
+    "Lists show occurrences within the next 730 days; later occurrences are added over time.",
   "曜日（複数選択）": "Weekdays (select multiple)",
   毎月の日付: "Day of the month",
   週の順番: "Week of the month",

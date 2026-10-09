@@ -86,7 +86,8 @@ export function RecurrenceSettings({
   const weekday = (startDate.getDay() + 6) % 7;
   function choose(frequency: RecurrenceRule["frequency"]) {
     if (frequency === "none") setRule({ frequency });
-    else if (frequency === "daily") setRule({ frequency, end });
+    else if (frequency === "daily" || frequency === "yearly")
+      setRule({ frequency, end });
     else if (frequency === "weekly" || frequency === "biweekly")
       setRule({ frequency, weekdays: [weekday], end });
     else if (frequency === "monthly_date")
@@ -136,6 +137,7 @@ export function RecurrenceSettings({
             <option value="biweekly">{t("隔週")}</option>
             <option value="monthly_date">{t("毎月（日付）")}</option>
             <option value="monthly_weekday">{t("毎月（第n曜日）")}</option>
+            <option value="yearly">{t("毎年")}</option>
           </select>
         </label>
         {(rule.frequency === "weekly" || rule.frequency === "biweekly") && (
@@ -231,6 +233,14 @@ export function RecurrenceSettings({
             {t(
               "該当日がない月はスキップします。開始日と同じ日付・第n曜日を指定してください。",
             )}
+          </p>
+        )}
+        {rule.frequency === "yearly" && (
+          <p className="text-sm text-muted-foreground">
+            {t(
+              "開始日と同じ月日に繰り返します。2月29日はうるう年だけ開催します。",
+            )}
+            {t("一覧には未来730日以内の開催日が表示され、順次追加されます。")}
           </p>
         )}
         {rule.frequency !== "none" && (

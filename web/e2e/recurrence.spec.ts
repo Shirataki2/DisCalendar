@@ -5,8 +5,13 @@ import { E2E_GUILDS } from "./fixtures";
 
 const guild = E2E_GUILDS.admin.id;
 const base = `/local/api/events/${guild}`;
-for (const width of [320, 1280]) {
-  test(`${width}px: 繰り返し設定を適用し、各回と編集範囲を確認する`, async ({
+for (const [width, frequency] of [
+  [320, "weekly"],
+  [1280, "weekly"],
+  [320, "yearly"],
+  [1280, "yearly"],
+] as const) {
+  test(`${width}px: ${frequency}の設定を適用し、各回と編集範囲を確認する`, async ({
     page,
   }) => {
     await page.clock.setFixedTime(new Date("2026-09-21T03:00:00Z"));
@@ -17,7 +22,7 @@ for (const width of [320, 1280]) {
       content: "nextjs-portal { display: none !important; }",
     });
     let form = page.getByRole("dialog", { name: "予定を作成", exact: true });
-    const name = `繰り返し ${width}`;
+    const name = `繰り返し ${frequency} ${width}`;
     await form.getByLabel("タイトル").fill(name);
     await openEventTab(form, "繰り返し・通知");
     await form.getByRole("button", { name: "繰り返しなし" }).click();
@@ -36,7 +41,7 @@ for (const width of [320, 1280]) {
         (element) => element.getBoundingClientRect().bottom,
       ),
     );
-    await settings.getByLabel("繰り返しの頻度").selectOption("weekly");
+    await settings.getByLabel("繰り返しの頻度").selectOption(frequency);
     await expect(
       settings.getByRole("listitem").filter({ hasText: "2026/09/21" }),
     ).toBeVisible();
@@ -50,15 +55,26 @@ for (const width of [320, 1280]) {
         ),
       ).toBe(settingsHeight);
     };
+    if (frequency === "yearly") {
+      await expect(
+        settings.getByRole("listitem").filter({ hasText: "2028/09/21" }),
+      ).toBeVisible();
+      await expect(settings).toContainText("2月29日はうるう年だけ開催します");
+      const select = settings.getByLabel("繰り返しの頻度");
+      await select.focus();
+      await expect(select).toBeFocused();
+    }
     await settings.getByRole("radio", { name: "終了日", exact: true }).check();
     await expectStableHeight();
     await settings.getByLabel("回数", { exact: true }).check();
     await expectStableHeight();
     await settings.getByLabel("繰り返し回数").fill("3");
-    await settings.getByRole("button", { name: "火", exact: true }).click();
-    await expectStableHeight();
-    await settings.getByRole("button", { name: "火", exact: true }).click();
-    await expectStableHeight();
+    if (frequency === "weekly") {
+      await settings.getByRole("button", { name: "火", exact: true }).click();
+      await expectStableHeight();
+      await settings.getByRole("button", { name: "火", exact: true }).click();
+      await expectStableHeight();
+    }
     await expect(
       settings.getByRole("listitem").filter({ hasText: "2026/09/21" }),
     ).toBeVisible();
@@ -68,11 +84,15 @@ for (const width of [320, 1280]) {
     expect(
       await settings.evaluate((el) => el.scrollWidth <= el.clientWidth),
     ).toBe(true);
-    await page.screenshot({ path: `/tmp/recurrence-settings-${width}.png` });
+    await page.screenshot({
+      path: `/tmp/recurrence-settings-${frequency}-${width}.png`,
+    });
     await settings.getByRole("button", { name: "設定を適用" }).click();
     form = page.getByRole("dialog", { name: "予定を作成", exact: true });
     await expect(
-      form.getByRole("button", { name: "毎週月曜日／全3回" }),
+      form.getByRole("button", {
+        name: frequency === "weekly" ? "毎週月曜日／全3回" : "毎年／全3回",
+      }),
     ).toBeFocused();
     const response = page.waitForResponse(
       (r) => r.url().endsWith(base) && r.request().method() === "POST",
@@ -81,18 +101,27 @@ for (const width of [320, 1280]) {
     const created = await response;
     expect(created.status()).toBe(201);
     await expect(form).toBeHidden();
-    let rows: ApiEvent[] = await (
-      await page.request.get(
-        `${base}?start=2026-09-01T00:00:00&end=2026-11-01T00:00:00`,
-      )
-    ).json();
+    const readRows = async (): Promise<ApiEvent[]> => {
+      const years = frequency === "yearly" ? [2026, 2027, 2028] : [2026];
+      const results = await Promise.all(
+        years.map(async (year) => {
+          const response = await page.request.get(
+            `${base}?start=${year}-09-01T00:00:00&end=${year}-11-01T00:00:00`,
+          );
+          expect(response.status()).toBe(200);
+          return response.json() as Promise<ApiEvent[]>;
+        }),
+      );
+      return results.flat();
+    };
+    let rows = await readRows();
     rows = rows.filter((e) => e.name === name);
     expect(rows).toHaveLength(3);
-    expect(rows.map((e) => e.start_at.slice(0, 10))).toEqual([
-      "2026-09-21",
-      "2026-09-28",
-      "2026-10-05",
-    ]);
+    expect(rows.map((e) => e.start_at.slice(0, 10))).toEqual(
+      frequency === "weekly"
+        ? ["2026-09-21", "2026-09-28", "2026-10-05"]
+        : ["2026-09-21", "2027-09-21", "2028-09-21"],
+    );
     await page
       .getByRole("gridcell")
       .filter({
@@ -106,15 +135,14 @@ for (const width of [320, 1280]) {
       .getByRole("alertdialog")
       .getByRole("button", { name: "この回以降", exact: true })
       .click();
-    const edit = page.getByRole("dialog", { name: "予定を編集", exact: true });
+    const edit = page.getByRole("dialog", {
+      name: "予定を編集",
+      exact: true,
+    });
     await edit.getByLabel("タイトル").fill(`${name}変更`);
     await edit.getByRole("button", { name: "保存", exact: true }).click();
     await expect(edit).toBeHidden();
-    const changed: ApiEvent[] = await (
-      await page.request.get(
-        `${base}?start=2026-09-01T00:00:00&end=2026-11-01T00:00:00`,
-      )
-    ).json();
+    const changed = await readRows();
     expect(
       changed.filter((e) => e.name === `${name}変更`).map((e) => e.id),
     ).toEqual(rows.map((e) => e.id));

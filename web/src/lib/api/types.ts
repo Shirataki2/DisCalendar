@@ -20,6 +20,7 @@ export type RecurrenceEnding =
 export type RecurrenceRule =
   | { frequency: "none" }
   | { frequency: "daily"; end: RecurrenceEnding }
+  | { frequency: "yearly"; end: RecurrenceEnding }
   | {
       frequency: "weekly";
       weekdays: number[];

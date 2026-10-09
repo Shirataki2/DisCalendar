@@ -388,11 +388,15 @@ fn parse_rule_inner(raw: &str, start: NaiveDateTime, defer_until: bool) -> Resul
         "INTERVAL",
         "BYDAY",
         "BYMONTHDAY",
+        "BYMONTH",
         "COUNT",
         "UNTIL",
         "WKST",
     ];
     if parts.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err("対応していない繰り返し条件です".into());
+    }
+    if parts.contains_key("BYMONTH") && parts.get("FREQ").map(String::as_str) != Some("YEARLY") {
         return Err("対応していない繰り返し条件です".into());
     }
     let interval = parts
@@ -402,6 +406,18 @@ fn parse_rule_inner(raw: &str, start: NaiveDateTime, defer_until: bool) -> Resul
         .map_err(|_| "繰り返し間隔が不正です")?
         .unwrap_or(1);
     let mut rule = match parts.get("FREQ").map(String::as_str) {
+        Some("YEARLY")
+            if interval == 1
+                && !parts.contains_key("BYDAY")
+                && parts
+                    .get("BYMONTH")
+                    .is_none_or(|value| value.parse::<u32>().ok() == Some(start.month()))
+                && parts
+                    .get("BYMONTHDAY")
+                    .is_none_or(|value| value.parse::<u32>().ok() == Some(start.day())) =>
+        {
+            Rule::Yearly { end: Ending::Never }
+        }
         Some("DAILY")
             if interval == 1
                 && !parts.contains_key("BYDAY")
@@ -707,9 +723,50 @@ mod tests {
     }
 
     #[test]
+    fn imports_fixed_yearly_rules_and_rejects_other_yearly_conditions() {
+        for raw in [
+            "FREQ=YEARLY",
+            "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29;COUNT=3",
+            "FREQ=YEARLY;UNTIL=20360229",
+        ] {
+            let ics = format!(
+                "{HEADER}BEGIN:VEVENT\r\nUID:yearly\r\nDTSTAMP:20260101T000000Z\r\nDTSTART;VALUE=DATE:20280229\r\nRRULE:{raw}\r\nSUMMARY:Birthday\r\nEND:VEVENT\r\n{FOOTER}"
+            );
+            let parsed = parse(&ics).unwrap();
+            assert!(parsed.skipped.is_empty(), "{raw}");
+            let event = &parsed.events[0].event;
+            assert!(matches!(event.recurrence, Some(Rule::Yearly { .. })));
+            assert!(event.is_all_day);
+            assert_eq!(
+                recurrence::preview(event.recurrence.as_ref().unwrap(), event.start_at).unwrap()[1],
+                "2032-02-29T00:00:00".parse().unwrap()
+            );
+            assert_eq!(parse_subscription(&ics).unwrap().events.len(), 1);
+        }
+        let start = "2028-02-29T00:00:00".parse().unwrap();
+        for raw in [
+            "FREQ=YEARLY;BYMONTH=2,3",
+            "FREQ=YEARLY;BYMONTHDAY=28,29",
+            "FREQ=YEARLY;BYMONTH=3",
+            "FREQ=YEARLY;BYMONTHDAY=28",
+            "FREQ=YEARLY;BYDAY=2MO",
+            "FREQ=YEARLY;INTERVAL=2",
+            "FREQ=MONTHLY;BYMONTH=2",
+        ] {
+            assert!(parse_rule_inner(raw, start, false).is_err(), "{raw}");
+            let ics = format!(
+                "{HEADER}BEGIN:VEVENT\r\nUID:unsupported\r\nDTSTAMP:20260101T000000Z\r\nDTSTART;VALUE=DATE:20280229\r\nRRULE:{raw}\r\nSUMMARY:Unsupported\r\nEND:VEVENT\r\n{FOOTER}"
+            );
+            let parsed = parse(&ics).unwrap();
+            assert!(parsed.events.is_empty());
+            assert_eq!(parsed.skipped[0].reason, "unsupported_recurrence");
+        }
+    }
+
+    #[test]
     fn skips_exception_series_and_unsupported_rules() {
         let ics = format!(
-            "{HEADER}BEGIN:VEVENT\r\nUID:series\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20261001T100000Z\r\nRRULE:FREQ=YEARLY\r\nSUMMARY:Unsupported\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:exception\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20261001T100000Z\r\nRRULE:FREQ=DAILY;COUNT=3\r\nEXDATE:20261002T100000Z\r\nSUMMARY:Exception\r\nEND:VEVENT\r\n{FOOTER}"
+            "{HEADER}BEGIN:VEVENT\r\nUID:series\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20261001T100000Z\r\nRRULE:FREQ=YEARLY;INTERVAL=2\r\nSUMMARY:Unsupported\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:exception\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20261001T100000Z\r\nRRULE:FREQ=DAILY;COUNT=3\r\nEXDATE:20261002T100000Z\r\nSUMMARY:Exception\r\nEND:VEVENT\r\n{FOOTER}"
         );
         let parsed = parse(&ics).unwrap();
         assert!(parsed.events.is_empty());

@@ -13,7 +13,7 @@ function icsEvent(uid: string, title: string, start: string) {
   return `BEGIN:VEVENT\r\nUID:${uid}\r\nDTSTAMP:20260901T000000Z\r\nDTSTART;TZID=Asia/Tokyo:${start}\r\nDTEND;TZID=Asia/Tokyo:${start.slice(0, 9)}110000\r\nSUMMARY:${title}\r\nEND:VEVENT\r\n`;
 }
 
-test("390pxでプレビューし、重複を選び直して共通色で取り込める", async ({
+test("390pxで毎年の予定をプレビューし、重複を選び直して共通色で取り込める", async ({
   page,
 }) => {
   await page.clock.setFixedTime(new Date("2026-09-21T03:00:00Z"));
@@ -41,7 +41,11 @@ test("390pxでプレビューし、重複を選び直して共通色で取り込
     name: "ICSファイルから取り込む",
   });
   const height = await dialog.evaluate((element) => element.clientHeight);
-  const ics = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//E2E//JA\r\n${icsEvent("duplicate", duplicateTitle, "20260922T100000")}${icsEvent("new", importedTitle, "20260922T100000")}${icsEvent("filtered", `ICS 期間外 ${stamp}`, "20260930T100000")}END:VCALENDAR\r\n`;
+  const yearlyEvent = icsEvent("new", importedTitle, "20260922T100000").replace(
+    "END:VEVENT\r\n",
+    "RRULE:FREQ=YEARLY;COUNT=3\r\nEND:VEVENT\r\n",
+  );
+  const ics = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//E2E//JA\r\n${icsEvent("duplicate", duplicateTitle, "20260922T100000")}${yearlyEvent}${icsEvent("filtered", `ICS 期間外 ${stamp}`, "20260930T100000")}END:VCALENDAR\r\n`;
   await dialog.getByLabel("ICSファイル").setInputFiles({
     name: "events.ics",
     mimeType: "text/calendar",
@@ -57,6 +61,10 @@ test("390pxでプレビューし、重複を選び直して共通色で取り込
   await expect(
     dialog.getByRole("listitem").filter({ hasText: importedTitle }),
   ).toBeVisible();
+
+  await expect(
+    dialog.getByRole("listitem").filter({ hasText: importedTitle }),
+  ).toContainText("毎年");
 
   await dialog.getByLabel("終了日").fill("2026-09-22");
   await dialog.getByRole("button", { name: "期間を反映" }).click();
@@ -103,9 +111,12 @@ test("390pxでプレビューし、重複を選び直して共通色で取り込
   ).toBe(true);
 
   for (const event of importedRows) {
-    expect((await page.request.delete(`${base}/${event.id}`)).status()).toBe(
-      204,
-    );
+    const scope = event.recurrence
+      ? `?scope=future&expected_series_version=${event.recurrence.version}`
+      : "";
+    expect(
+      (await page.request.delete(`${base}/${event.id}${scope}`)).status(),
+    ).toBe(204);
   }
 });
 

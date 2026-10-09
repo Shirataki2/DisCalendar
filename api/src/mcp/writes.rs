@@ -1344,7 +1344,7 @@ mod tests {
             .unwrap();
         let recurring: EventInput = serde_json::from_value(json!({
             "name":"MCP定例","color":"#123456","start_at":recurring_start,
-            "end_at":recurring_start + chrono::Duration::hours(1),"recurrence_rule":{"frequency":"daily","end":{"type":"count","count":3}}
+            "end_at":recurring_start + chrono::Duration::hours(1),"recurrence_rule":{"frequency":"yearly","end":{"type":"count","count":2}}
         })).unwrap();
         let mut tx = pool.begin().await.unwrap();
         let event = events::create(&mut *tx, "111", &recurring, now_jst(), "333")
@@ -1359,6 +1359,10 @@ mod tests {
         patch.expected_version = Some(super::super::event_version(&event).unwrap());
         let changed = result(write(user(), patch, state.clone(), "update").await.unwrap()).await;
         assert_eq!(changed["event"]["recurrence"]["is_exception"], true);
+        assert_eq!(
+            changed["event"]["recurrence"]["rule"]["frequency"],
+            "yearly"
+        );
         let mut deletion = input("recurring-delete", json!({}));
         deletion.event_id = Some(event.id);
         deletion.expected_version = changed["event"]["version"].as_str().map(str::to_owned);
@@ -1383,7 +1387,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(remaining, 2);
+        assert_eq!(remaining, 1);
         handle.stop(false).await;
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM events")
             .fetch_one(&pool)
