@@ -8,7 +8,7 @@ import {
 
 const base: EventSnapshot = {
   name: "定例",
-  description: null,
+  description_hash: null,
   location: null,
   color: "#2196F3",
   is_all_day: false,
@@ -73,7 +73,7 @@ describe("diffEventSnapshots", () => {
   test("説明・場所・メンション先の変更を拾う", () => {
     const after: EventSnapshot = {
       ...base,
-      description: "持ち物あり",
+      description_hash: "5d41402abc4b2a76b9719d911017c592",
       location: "会議室 A",
       notification_mentions: [{ type: "everyone" }],
     };
@@ -86,7 +86,7 @@ describe("diffEventSnapshots", () => {
 });
 
 describe("historyActorIds", () => {
-  test("重複と管理コンソールの操作者を除き、20 件までに絞る", () => {
+  test("重複と管理コンソールの操作者を除き、20 人を超えても全員を返す", () => {
     const entries = [
       entry(3, "111"),
       entry(2, "222", "admin"),
@@ -95,7 +95,7 @@ describe("historyActorIds", () => {
       ...Array.from({ length: 30 }, (_, i) => entry(-i - 1, `9${i}`)),
     ];
     const ids = historyActorIds(entries);
-    expect(ids).toHaveLength(20);
+    expect(ids).toHaveLength(31);
     expect(ids[0]).toBe("111");
     expect(ids).not.toContain("222");
   });

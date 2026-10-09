@@ -427,8 +427,12 @@ pub async fn update(
             let mut tx = state.pool.begin().await?;
             let previous_series =
                 crate::recurring_events::info(&mut tx, guild_id, path.event_id).await?;
-            // 同じギルドへの書き込みは `lock_writer` で直列化しているので、ロックせずに読んでよい
-            let before = event_history::snapshot(&mut tx, guild_id, path.event_id).await?;
+            // 同じギルドへの書き込みは `lock_writer` で直列化しているので、ロックせずに読んでよい。
+            // 「この回以降」は後続の回もまとめて変わるので、変わりうる回すべての変更前を読んでおく
+            let affected =
+                crate::recurring::affected_ids(&mut tx, guild_id, path.event_id, body.scope)
+                    .await?;
+            let befores = event_history::snapshots(&mut tx, guild_id, &affected).await?;
             if let Some(row) = crate::recurring::update(
                 &mut tx,
                 guild_id,
@@ -438,14 +442,13 @@ pub async fn update(
             )
             .await?
             {
-                event_history::record(
+                event_history::record_many(
                     &mut tx,
                     guild_id,
-                    row.id,
+                    &with_befores(befores),
                     Some(&member.user.discord_user_id),
                     Source::Web,
                     Action::Update,
-                    before.as_ref(),
                 )
                 .await?;
                 crate::webhook_outbox::enqueue_with_scope(
@@ -784,6 +787,16 @@ pub async fn delete(
     }
     tracing::info!(guild_id, event_id = path.event_id, user_id = %member.user.discord_user_id, "event deleted");
     Ok(HttpResponse::NoContent().finish())
+}
+
+/// [`event_history::snapshots`] の結果を [`event_history::record_many`] に渡す形にする
+pub(crate) fn with_befores(
+    befores: Vec<(i32, serde_json::Value)>,
+) -> Vec<(i32, Option<serde_json::Value>)> {
+    befores
+        .into_iter()
+        .map(|(id, before)| (id, Some(before)))
+        .collect()
 }
 
 /// 予定の変更履歴 (#165)。新しい順に最大 50 件。

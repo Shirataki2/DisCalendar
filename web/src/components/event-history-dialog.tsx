@@ -22,7 +22,7 @@ import {
 } from "@/lib/event-history";
 import type { Language } from "@/lib/i18n";
 import { useEventHistoryQuery } from "@/lib/query/events";
-import { useMemberProfilesQuery } from "@/lib/query/guild";
+import { useMemberProfilesInChunks } from "@/lib/query/guild";
 
 interface Props {
   guildId: string;
@@ -57,7 +57,7 @@ export function EventHistoryDialog({
   const { t, language } = useLanguage();
   const history = useEventHistoryQuery(guildId, eventId, open);
   const entries = history.data ?? [];
-  const profiles = useMemberProfilesQuery(
+  const profiles = useMemberProfilesInChunks(
     guildId,
     historyActorIds(entries),
     open,
@@ -101,7 +101,8 @@ export function EventHistoryDialog({
                 key={entry.id}
                 entry={entry}
                 profiles={profiles.data}
-                profilesFailed={profiles.isError}
+                // 取得し終えても見つからない (失敗・応答に含まれない) ときは「読み込み中」のままにしない
+                profilesSettled={!profiles.isPending}
                 t={t}
                 language={language}
               />
@@ -116,13 +117,13 @@ export function EventHistoryDialog({
 function HistoryItem({
   entry,
   profiles,
-  profilesFailed,
+  profilesSettled,
   t,
   language,
 }: {
   entry: EventHistoryEntry;
   profiles: MemberProfile[] | undefined;
-  profilesFailed: boolean;
+  profilesSettled: boolean;
   t: Translate;
   language: Language;
 }) {
@@ -137,7 +138,7 @@ function HistoryItem({
         <Actor
           entry={entry}
           profiles={profiles}
-          profilesFailed={profilesFailed}
+          profilesSettled={profilesSettled}
           t={t}
         />
         <span className="text-muted-foreground">
@@ -166,12 +167,12 @@ function HistoryItem({
 function Actor({
   entry,
   profiles,
-  profilesFailed,
+  profilesSettled,
   t,
 }: {
   entry: EventHistoryEntry;
   profiles: MemberProfile[] | undefined;
-  profilesFailed: boolean;
+  profilesSettled: boolean;
   t: Translate;
 }) {
   // 管理コンソールの操作者はサーバーのメンバーとは限らないので、名前を引かずに「運営」と出す
@@ -184,7 +185,7 @@ function Actor({
   if (!profile) {
     return (
       <span className="font-medium">
-        {profilesFailed ? t("メンバー情報を取得できません") : t("読み込み中…")}
+        {profilesSettled ? t("メンバー情報を取得できません") : t("読み込み中…")}
       </span>
     );
   }

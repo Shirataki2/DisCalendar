@@ -70,7 +70,11 @@ export interface ApiEvent {
  */
 export interface EventSnapshot {
   name: string;
-  description: string | null;
+  /**
+   * 説明の MD5 (説明が無ければ null)。履歴はメンバー全員が読めるので本文は残さず、
+   * 変わったかどうかだけを比べられるようにしている
+   */
+  description_hash: string | null;
   location: string | null;
   color: string;
   is_all_day: boolean;

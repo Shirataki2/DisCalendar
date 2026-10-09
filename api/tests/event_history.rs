@@ -11,6 +11,8 @@ use discalendar_api::{
         notifications::{Notification, NotificationUnit},
         now_jst,
     },
+    recurring::{self, ChangeScope},
+    recurring_events,
 };
 use serde_json::json;
 use sqlx::PgPool;
@@ -107,7 +109,7 @@ async fn create_and_update_record_snapshots(pool: PgPool) {
         created.after,
         Some(json!({
             "name": "定例",
-            "description": null,
+            "description_hash": null,
             "location": null,
             "color": "#2196F3",
             "is_all_day": false,
@@ -263,4 +265,120 @@ async fn history_is_deleted_with_the_event(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(count, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn description_text_is_not_kept(pool: PgPool) {
+    let id = create(&pool, GUILD, "定例").await;
+    let mut body = input("定例");
+    body.description = Some("合言葉は 1234".to_owned());
+    update(&pool, id, &body).await;
+    body.description = None;
+    update(&pool, id, &body).await;
+
+    let entries = history::list(&pool, GUILD, id).await.unwrap();
+    assert_eq!(entries.len(), 3);
+    // 説明を消した変更も履歴に残るが、消した本文はどこにも入らない
+    let expected: String = sqlx::query_scalar("SELECT md5('合言葉は 1234')")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        entries[0].before.as_ref().unwrap()["description_hash"],
+        json!(expected)
+    );
+    assert_eq!(
+        entries[0].after.as_ref().unwrap()["description_hash"],
+        json!(null)
+    );
+    let raw: String =
+        sqlx::query_scalar("SELECT string_agg(before::text || after::text, '') FROM event_history")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(!raw.contains("合言葉"));
+}
+
+/// 「この回以降」の変更は、値が変わった後続の回すべてに履歴を残す
+#[sqlx::test(migrations = "./migrations")]
+async fn future_scope_updates_are_recorded_on_every_changed_occurrence(pool: PgPool) {
+    let mut body: EventInput = serde_json::from_value(json!({
+        "name": "定例", "color": "#2196F3",
+        "start_at": "2026-09-21T19:30:00", "end_at": "2026-09-21T21:00:00",
+        "recurrence_rule": {"frequency": "weekly", "weekdays": [0], "end": {"type": "count", "count": 6}}
+    }))
+    .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let row = events::create(&mut *tx, GUILD, &body, body.start_at, ACTOR)
+        .await
+        .unwrap();
+    recurring::attach_created(&mut tx, GUILD, row.id, &body, ACTOR)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    recurring_events::ensure_range(
+        &pool,
+        GUILD,
+        dt("2026-09-01T00:00:00"),
+        dt("2026-12-01T00:00:00"),
+    )
+    .await
+    .unwrap();
+    let ids: Vec<i32> =
+        sqlx::query_scalar("SELECT id FROM events WHERE guild_id = $1 ORDER BY start_at")
+            .bind(GUILD)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(ids.len(), 6);
+
+    // 4 回目以降の名前を変える (ルートの更新と同じ手順)
+    let target = ids[3];
+    let mut tx = pool.begin().await.unwrap();
+    let info = recurring_events::info(&mut tx, GUILD, target)
+        .await
+        .unwrap()
+        .unwrap();
+    body.name = "定例 (新)".to_owned();
+    body.start_at = info.original_start_at;
+    body.end_at = info.original_start_at + chrono::Duration::minutes(90);
+    body.scope = ChangeScope::Future;
+    body.expected_series_version = Some(info.version);
+    body.recurrence = None;
+    let affected = recurring::affected_ids(&mut tx, GUILD, target, ChangeScope::Future)
+        .await
+        .unwrap();
+    assert_eq!(affected.len(), 3);
+    let befores = event_history::snapshots(&mut tx, GUILD, &affected)
+        .await
+        .unwrap();
+    recurring::update(&mut tx, GUILD, target, &body, ACTOR)
+        .await
+        .unwrap()
+        .unwrap();
+    event_history::record_many(
+        &mut tx,
+        GUILD,
+        &befores
+            .into_iter()
+            .map(|(id, before)| (id, Some(before)))
+            .collect::<Vec<_>>(),
+        Some(ACTOR),
+        Source::Web,
+        Action::Update,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    for (index, id) in ids.iter().enumerate() {
+        let entries = history::list(&pool, GUILD, *id).await.unwrap();
+        if index < 3 {
+            assert!(entries.is_empty(), "{index} 回目は変わっていない");
+        } else {
+            assert_eq!(entries.len(), 1, "{index} 回目");
+            assert_eq!(entries[0].before.as_ref().unwrap()["name"], "定例");
+            assert_eq!(entries[0].after.as_ref().unwrap()["name"], "定例 (新)");
+        }
+    }
 }

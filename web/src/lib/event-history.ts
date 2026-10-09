@@ -50,7 +50,7 @@ export function diffEventSnapshots(
       after: after.location ?? null,
     });
   }
-  if (!same(before.description, after.description)) {
+  if (!same(before.description_hash, after.description_hash)) {
     changes.push({ field: "description" });
   }
   if (before.color.toLowerCase() !== after.color.toLowerCase()) {
@@ -73,7 +73,7 @@ export function diffEventSnapshots(
 }
 
 /**
- * 名前を引く操作者 (重複なし)。メンバー名の解決 (`/guilds/{id}/members`) は 1 回 20 件までなので、新しい順に先頭から絞る。
+ * 名前を引く操作者 (重複なし、新しい順)。
  * 管理コンソールの操作者はサーバーのメンバーとは限らないので引かない (表示は「運営」)
  */
 export function historyActorIds(entries: EventHistoryEntry[]): string[] {
@@ -82,7 +82,6 @@ export function historyActorIds(entries: EventHistoryEntry[]): string[] {
     if (entry.source === "admin") continue;
     const id = entry.actor_discord_user_id;
     if (id && !ids.includes(id)) ids.push(id);
-    if (ids.length === 20) break;
   }
   return ids;
 }

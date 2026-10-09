@@ -324,7 +324,7 @@ async fn create_records_history_from_the_bot(pool: PgPool) {
             None,
             Some(serde_json::json!({
                 "name": "定例",
-                "description": null,
+                "description_hash": null,
                 "location": null,
                 "color": "#2196F3",
                 "is_all_day": false,

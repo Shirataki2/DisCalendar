@@ -162,6 +162,32 @@ fn remaining_count(series: &Series, original: NaiveDateTime, count: u32) -> Resu
     Ok(count.saturating_sub(consumed).max(1))
 }
 
+/// [`update`] で値が変わりうる予定 (変更履歴 #165 の記録先)。
+/// 「この回以降」なら同じシリーズの対象回以降のすべての回、それ以外は対象の回だけ。
+/// [`update`] の前に読み、更新前のスナップショットを取るのに使う
+pub async fn affected_ids(
+    conn: &mut PgConnection,
+    guild: &str,
+    id: i32,
+    scope: ChangeScope,
+) -> Result<Vec<i32>, ApiError> {
+    if scope != ChangeScope::Future {
+        return Ok(vec![id]);
+    }
+    let mut ids: Vec<i32> = sqlx::query_scalar(
+        "SELECT e.id FROM events e JOIN events t ON t.guild_id = e.guild_id AND t.series_id = e.series_id
+         WHERE t.guild_id = $1 AND t.id = $2 AND e.original_start_at >= t.original_start_at",
+    )
+    .bind(guild)
+    .bind(id)
+    .fetch_all(conn)
+    .await?;
+    if !ids.contains(&id) {
+        ids.push(id);
+    }
+    Ok(ids)
+}
+
 /// Someは繰り返し操作を処理済み、Noneは従来の単発更新へ進む。
 pub async fn update(
     conn: &mut PgConnection,
