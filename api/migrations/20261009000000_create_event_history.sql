@@ -24,3 +24,5 @@ CREATE TABLE event_history (
 CREATE INDEX idx_event_history_event_id ON event_history (event_id, id DESC);
 -- 保持期間 (180 日) を過ぎた行の定期削除用
 CREATE INDEX idx_event_history_created_at ON event_history (created_at);
+-- 予定の詳細で操作者の名前を引くときの確認 (このギルドの履歴に残った操作者か、routes/members.rs)
+CREATE INDEX idx_event_history_guild_actor ON event_history (guild_id, actor_discord_user_id);
