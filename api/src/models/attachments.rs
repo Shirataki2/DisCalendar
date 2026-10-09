@@ -93,12 +93,13 @@ pub async fn lock_event(
     guild_id: &str,
     event_id: i32,
 ) -> Result<(), ApiError> {
-    let id: Option<i32> =
-        sqlx::query_scalar("SELECT id FROM events WHERE guild_id=$1 AND id=$2 FOR UPDATE")
-            .bind(guild_id)
-            .bind(event_id)
-            .fetch_optional(conn)
-            .await?;
+    let id: Option<i32> = sqlx::query_scalar(
+        "SELECT id FROM events WHERE guild_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(guild_id)
+    .bind(event_id)
+    .fetch_optional(conn)
+    .await?;
     id.ok_or_else(|| ApiError::NotFound("event not found".into()))?;
     Ok(())
 }

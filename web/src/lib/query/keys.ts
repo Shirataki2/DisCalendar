@@ -22,6 +22,10 @@ export const queryKeys = {
     event: (guildId: string, eventId: number) =>
       ["event-history", guildId, eventId] as const,
   },
+  /** 削除した予定 (ゴミ箱、#159)。予定一覧向けの `setQueriesData` に巻き込まれないよう別の先頭キーにする */
+  trash: {
+    list: (guildId: string) => ["event-trash", guildId] as const,
+  },
   events: {
     all: (guildId: string) => ["events", guildId] as const,
     range: (guildId: string, start: string, end: string) =>

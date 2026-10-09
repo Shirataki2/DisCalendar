@@ -91,7 +91,25 @@ async fn share_lifecycle_and_public_fields(pool: PgPool) {
         .await
         .unwrap();
     assert!(shares::find(&pool, &next.token).await.unwrap().is_none());
-    events::delete(&pool, "111", event.id).await.unwrap();
+    // ゴミ箱 (#159) に入れてもリンクの行は残り、完全に消すと一緒に消える
+    let mut conn = pool.acquire().await.unwrap();
+    assert!(
+        events::soft_delete(
+            &mut conn,
+            "111",
+            event.id,
+            "333",
+            "2026-09-05T12:00:00".parse().unwrap()
+        )
+        .await
+        .unwrap()
+    );
+    let count: (i64,) = sqlx::query_as("SELECT count(*) FROM event_share_links")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count.0, 1);
+    assert!(events::purge(&pool, "111", event.id).await.unwrap());
     let count: (i64,) = sqlx::query_as("SELECT count(*) FROM event_share_links")
         .fetch_one(&pool)
         .await

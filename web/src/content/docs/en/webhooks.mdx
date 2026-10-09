@@ -16,7 +16,7 @@ The embed contains the event name, description, dates, color, and calendar link.
 
 ## Generic JSON payload
 
-Creation, updates, and deletion from the website, the bot's `/create` and `/quick`, and the admin console (including deletion of all events) are supported. Types are `event.created`, `event.updated`, and `event.deleted`. Tests use `webhook.test` with a null event.
+Creation, updates, and deletion from the website, the bot's `/create` and `/quick`, and the admin console (including deletion of all events) are supported. Types are `event.created`, `event.updated`, and `event.deleted`. Restoring a deleted event sends `event.created`; permanent deletion sends nothing. Tests use `webhook.test` with a null event.
 
 ```json
 {

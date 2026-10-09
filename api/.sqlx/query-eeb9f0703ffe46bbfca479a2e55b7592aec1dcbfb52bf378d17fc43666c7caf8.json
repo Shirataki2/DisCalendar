@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO event_share_links (event_id, token)\n        SELECT id, $3 FROM events WHERE guild_id = $1 AND id = $2 AND deleted_at IS NULL\n        ON CONFLICT (event_id) DO UPDATE SET token = event_share_links.token\n        RETURNING token\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "event_share_links",
+            "name": "token"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "eeb9f0703ffe46bbfca479a2e55b7592aec1dcbfb52bf378d17fc43666c7caf8"
+}

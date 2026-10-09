@@ -61,7 +61,7 @@ pub async fn list<'e>(
             UNION SELECT guild_id FROM event_settings
             UNION SELECT guild_id FROM events
         ),
-        counts AS (SELECT guild_id, count(*) AS n FROM events GROUP BY guild_id),
+        counts AS (SELECT guild_id, count(*) AS n FROM events WHERE deleted_at IS NULL GROUP BY guild_id),
         channels AS (SELECT DISTINCT ON (guild_id) guild_id, channel_id FROM event_settings ORDER BY guild_id, id)
         SELECT k.guild_id AS "guild_id!", g.name AS "name?", g.avatar_url AS "avatar_url?", g.locale AS "locale?",
                (g.guild_id IS NOT NULL) AS "registered!",
@@ -121,7 +121,7 @@ pub async fn find<'e>(
                (g.guild_id IS NOT NULL) AS "registered!",
                COALESCE(c.restricted, false) AS "restricted!",
                (SELECT s.channel_id FROM event_settings s WHERE s.guild_id = $1 ORDER BY s.id LIMIT 1) AS channel_id,
-               (SELECT count(*) FROM events e WHERE e.guild_id = $1) AS "event_count!"
+               (SELECT count(*) FROM events e WHERE e.guild_id = $1 AND e.deleted_at IS NULL) AS "event_count!"
         FROM (SELECT 1) AS one
         LEFT JOIN guilds g ON g.guild_id = $1
         LEFT JOIN guild_config c ON c.guild_id = $1

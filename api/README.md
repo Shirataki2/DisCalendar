@@ -50,8 +50,11 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | POST | `/events/{guild_id}` | 予定の作成 (201) |
 | POST | `/events/{guild_id}/recurrence/preview` | 保存せず直近3回を確認 |
 | PUT | `/events/{guild_id}/{event_id}` | 予定の更新 |
-| DELETE | `/events/{guild_id}/{event_id}` | 予定の削除 (204) |
-| GET | `/events/{guild_id}/{event_id}/history` | 予定の変更履歴 (#165。`event_history`、新しい順に 50 件)。閲覧はメンバー全員。作成・更新 (web / 管理コンソール / MCP / ICS 取り込み、Bot の `/create`) が書き込みと同じトランザクションで 1 行ずつ残す |
+| DELETE | `/events/{guild_id}/{event_id}` | 予定の削除 (204)。ゴミ箱 (#159) に入れるだけ (`events.deleted_at` / `deleted_by`) で、30 日間は元に戻せる。予定を読むすべての経路が `deleted_at IS NULL` で絞る。繰り返し予定の「この回以降」(`scope=future`) だけは行ごと消す |
+| POST | `/events/{guild_id}/{event_id}/restore` | ゴミ箱の予定を元に戻す。権限は削除と同じ。Discord イベントとの連携は解除されたまま、繰り返し予定の 1 回は単発として戻る |
+| GET | `/events/{guild_id}/trash` | ゴミ箱の一覧 (削除した日時の新しい順、最大 200 件)。管理権限 (`can_manage_server`) が必要 |
+| DELETE | `/events/{guild_id}/{event_id}/purge` | ゴミ箱の予定を完全に削除 (204)。管理権限が必要。30 日を過ぎた分は bot の定期タスクが消す |
+| GET | `/events/{guild_id}/{event_id}/history` | 予定の変更履歴 (#165。`event_history`、新しい順に 50 件)。閲覧はメンバー全員。作成・更新・削除・復元 (web / 管理コンソール / MCP / ICS 取り込み、Bot の `/create`) が書き込みと同じトランザクションで 1 行ずつ残す |
 | GET / POST / DELETE | `/events/{guild_id}/{event_id}/share` | 予定の共有リンクの取得 (未発行なら null)・発行・無効化。すべて予定の編集権限が必要。再コピーは同じ URL を返す |
 | GET | `/share/{token}` | 認証不要の予定閲覧。タイトル・説明・日時・サーバー ID / 名前 / アイコンのみ。失効・削除・Bot 退出で 404 |
 | GET | `/admin/me` | 管理者の確認 (`ADMIN_DISCORD_USER_IDS` 以外は 403)。`/admin/*` は管理コンソール用で、ギルドのメンバーシップを見ない代わりにホワイトリストで制限する (#33) |

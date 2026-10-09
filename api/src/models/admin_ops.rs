@@ -61,6 +61,8 @@ pub async fn delete_guild_events(
         let recurrence = crate::recurring_events::info(conn, guild_id, row.id).await?;
         snapshots.push((row, recurrence));
     }
+    // ゴミ箱 (#159) に入っている予定も一緒に消す (運用操作なので、ここは元に戻せない削除のまま)。
+    // ゴミ箱の予定は入れた時点で削除を通知済みなので、Webhook は予約しない。
     // DELETE が実際に消した全行から予約する。先に SELECT するだけだと、並行作成が
     // SELECT と DELETE の間にコミットされた場合に、その削除の通知だけ漏れてしまう。
     let deleted: i64 = sqlx::query_scalar(
@@ -70,8 +72,8 @@ pub async fn delete_guild_events(
                 (SELECT jsonb_build_object('series_id',s.id,'original_start_at',e.original_start_at,'rule',s.recurrence,'version',s.version,'is_exception',EXISTS(SELECT 1 FROM event_series_exceptions x WHERE x.event_id=e.id)) FROM event_series s WHERE s.id=e.series_id) AS recurrence
         ), queued AS (
             INSERT INTO guild_webhook_outbox (webhook_id,event_id,kind,payload,actor_id,generation)
-            SELECT w.id,d.id,'event.deleted',to_jsonb(d) - 'series_id' - 'original_start_at' - 'generated_from_series',$2,w.generation FROM deleted d
-            JOIN guild_webhooks w ON w.guild_id=d.guild_id AND w.enabled
+            SELECT w.id,d.id,'event.deleted',to_jsonb(d) - 'series_id' - 'original_start_at' - 'generated_from_series' - 'deleted_at' - 'deleted_by',$2,w.generation FROM deleted d
+            JOIN guild_webhooks w ON w.guild_id=d.guild_id AND w.enabled AND d.deleted_at IS NULL
             FOR KEY SHARE OF w
         ) SELECT count(*) FROM deleted"
     ).bind(guild_id).bind(actor_id).fetch_one(&mut *conn).await?;

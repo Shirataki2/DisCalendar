@@ -39,6 +39,8 @@ export interface EventsSource {
    * 書き込み本体は成功済みなので、ここでの失敗は mutation の結果に影響させない (返り値なし)
    */
   afterCountChanged?: () => void;
+  /** 削除した予定がゴミ箱 (#159) に残るか。練習用の取得元では残らないので、削除の確認で戻し方を案内しない */
+  keepsTrash?: boolean;
 }
 
 // どちらの画面で予定を作成・削除しても、管理コンソールのギルド一覧 (RSC) の予定数を古いままにしない
@@ -47,12 +49,14 @@ export const dashboardEventsSource: EventsSource = {
   client: api.events,
   keys: queryKeys.events,
   afterCountChanged: revalidateAdminPagesQuietly,
+  keepsTrash: true,
 };
 
 export const adminEventsSource: EventsSource = {
   client: api.admin.events,
   keys: queryKeys.admin.events,
   afterCountChanged: revalidateAdminPagesQuietly,
+  keepsTrash: true,
 };
 
 /** 表示範囲に重なる予定。範囲が決まるまで (FullCalendar の datesSet 前) は取得しない */
@@ -94,6 +98,45 @@ export function useJoinedEventsQuery(
   });
 }
 
+/** 削除した予定 (ゴミ箱、#159)。サーバー設定を開いている間だけ取得する (管理権限が要る) */
+export function useTrashQuery(guildId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.trash.list(guildId),
+    queryFn: ({ signal }) => api.trash.list(guildId, signal),
+    enabled,
+    // 他の人が消した予定も拾えるよう、開くたびに取り直す
+    staleTime: 0,
+  });
+}
+
+/**
+ * ゴミ箱の予定を元に戻す (#159)。カレンダーの一覧・横断カレンダー・ゴミ箱の一覧を取り直す
+ * (`invalidateEvents`)。共有リンクは同じ URL で復活するので、発行状況のキャッシュも捨てる
+ */
+export function useRestoreEvent(guildId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (eventId: number) => api.trash.restore(guildId, eventId),
+    onSettled: (_data, _error, eventId) =>
+      Promise.all([
+        invalidateEvents(queryClient, dashboardEventsSource, guildId, true),
+        queryClient.invalidateQueries({
+          queryKey: ["event-share", guildId, eventId],
+        }),
+      ]),
+  });
+}
+
+/** ゴミ箱の予定を完全に削除する (#159)。添付ファイルも消えるので使用量も取り直す (`invalidateEvents`) */
+export function usePurgeEvent(guildId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (eventId: number) => api.trash.purge(guildId, eventId),
+    onSettled: () =>
+      invalidateEvents(queryClient, dashboardEventsSource, guildId, true),
+  });
+}
+
 /** 予定の変更履歴 (#165)。履歴ダイアログを開いている間だけ取得する */
 export function useEventHistoryQuery(
   guildId: string,
@@ -126,6 +169,8 @@ export function invalidateEvents(
     // 変更履歴 (#165) は変更のたびに 1 行増える。開いていない予定の分もまとめて捨てる
     queryKeys.eventHistory.all(guildId),
   ];
+  // 削除・復元・完全削除でゴミ箱 (#159) の中身が変わる
+  if (countChanged) targets.push(queryKeys.trash.list(guildId));
   if (countChanged) {
     // 予定削除は添付も削除する。通常・管理画面の一括削除で使用量を古いままにしない。
     targets.push(queryKeys.attachments.all(guildId));

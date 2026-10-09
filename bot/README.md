@@ -200,7 +200,8 @@ src/
   models/           sqlx クエリ (guilds / events / event_settings / guild_config) と通知設定の読み書き (notifications)。
                     guild_config は web が書く設定 (restricted / 開始時刻に通知するか / 既定の事前通知、#181) を読む
   tasks/            定期タスク (notify = 予定の通知 / presence = ステータス表示 / icon_updater = 日付アイコン /
-                    history_cleanup = 180 日を過ぎた予定の変更履歴 (#165) の削除)
+                    history_cleanup = 180 日を過ぎた予定の変更履歴 (#165) の削除 /
+                    trash_cleanup = ゴミ箱 (#159) に入って 30 日を過ぎた予定の完全削除)
 tests/              DB テスト (#[sqlx::test])
 assets/             icon_updater が使う日付入りアイコン画像 (01.png 〜 31.png、土曜は _b、日曜・祝日は _r)
 ```

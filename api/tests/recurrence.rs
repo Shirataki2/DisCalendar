@@ -34,10 +34,12 @@ async fn create(pool: &PgPool) -> i32 {
     row.id
 }
 async fn ids(pool: &PgPool) -> Vec<i32> {
-    sqlx::query_scalar("SELECT id FROM events WHERE guild_id='111' ORDER BY start_at")
-        .fetch_all(pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "SELECT id FROM events WHERE guild_id='111' AND deleted_at IS NULL ORDER BY start_at",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
 }
 #[sqlx::test(migrations = "./migrations")]
 async fn exceptions_survive_split_and_replenishment(pool: PgPool) {
@@ -74,7 +76,9 @@ async fn exceptions_survive_split_and_replenishment(pool: PgPool) {
     recurring::before_delete(&mut tx, "111", all[3], &DeleteOptions::default())
         .await
         .unwrap();
-    events::delete(&mut *tx, "111", all[3]).await.unwrap();
+    events::soft_delete(&mut tx, "111", all[3], "333", input().start_at)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
     let mut tx = pool.begin().await.unwrap();
     let info = store::info(&mut tx, "111", all[1]).await.unwrap().unwrap();
@@ -160,7 +164,9 @@ async fn future_delete_removes_moved_exception_and_prevents_recreation(pool: PgP
     recurring::before_delete(&mut tx, "111", all[1], &options)
         .await
         .unwrap();
-    events::delete(&mut *tx, "111", all[1]).await.unwrap();
+    events::delete_permanently(&mut *tx, "111", all[1])
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
     store::ensure_range(
         &pool,
@@ -588,7 +594,9 @@ async fn creation_survives_first_cancellation_and_split(pool: PgPool) {
     recurring::before_delete(&mut tx, "111", first, &DeleteOptions::default())
         .await
         .unwrap();
-    events::delete(&mut *tx, "111", first).await.unwrap();
+    events::soft_delete(&mut tx, "111", first, "333", input().start_at)
+        .await
+        .unwrap();
     let info = store::info(&mut tx, "111", all[1]).await.unwrap().unwrap();
     let mut body = input();
     body.start_at += chrono::Duration::days(7);
@@ -841,7 +849,9 @@ async fn yearly_occurrences_keep_exceptions_when_shifted_and_deleted(pool: PgPoo
     )
     .await
     .unwrap();
-    events::delete(&mut *tx, "111", second.id).await.unwrap();
+    events::delete_permanently(&mut *tx, "111", second.id)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
     store::ensure_range(
         &pool,

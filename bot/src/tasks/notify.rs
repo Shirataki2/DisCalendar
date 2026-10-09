@@ -253,7 +253,7 @@ async fn notify_for_event(
     let mut all_enqueued = true;
     for (_, fire) in &due {
         if let Err(error) = sqlx::query!(
-            "INSERT INTO push_outbox (event_id, fire_at, start_at) SELECT id, $2, $3 FROM events WHERE id = $1 AND EXISTS (SELECT 1 FROM push_subscriptions WHERE NOT disabled) ON CONFLICT (event_id, fire_at) DO NOTHING",
+            "INSERT INTO push_outbox (event_id, fire_at, start_at) SELECT id, $2, $3 FROM events WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM push_subscriptions WHERE NOT disabled) ON CONFLICT (event_id, fire_at) DO NOTHING",
             event.id, *fire, start
         ).execute(&data.pool).await {
             tracing::error!(event_id = event.id, error = %error, "failed to enqueue push notification");

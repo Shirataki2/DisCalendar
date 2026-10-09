@@ -281,3 +281,51 @@ test("削除を確認するとカレンダーから消える", async ({ page }) 
   await expect(page.getByRole("grid")).toBeVisible();
   await expect(eventOn(page, editedTitle)).toHaveCount(0);
 });
+
+// 上のテストで消した予定はゴミ箱 (#159) に残っている。ここでは作り直した予定で「元に戻す」を確かめる
+test("削除した直後に「元に戻す」を押すと、同じ日に予定が戻る", async ({
+  page,
+}) => {
+  const title = `E2E 元に戻す ${stamp}`;
+  await createEvent(page, title);
+  const today = await calendarToday(page);
+  await expect(eventOn(dayCell(page, today), title)).toBeVisible();
+
+  const popover = await openEventPopover(page, title);
+  await popover.getByRole("button", { name: "削除" }).click();
+  const confirm = page.getByRole("alertdialog");
+  // 取り消せない削除ではなくなったので、戻し方を案内する
+  await expect(confirm).toContainText("30 日間");
+  await expect(confirm).not.toContainText("取り消せません");
+  await confirm.getByRole("button", { name: "削除" }).click();
+  await expect(eventOn(page, title)).toHaveCount(0);
+
+  const notice = page.getByRole("status").filter({ hasText: title });
+  await expect(notice).toContainText(`「${title}」を削除しました`);
+  const restored = page.waitForResponse(
+    (res) =>
+      res.url().endsWith("/restore") && res.request().method() === "POST",
+  );
+  await notice.getByRole("button", { name: "元に戻す" }).click();
+  const restoredResponse = await restored;
+  expect(restoredResponse.status()).toBe(200);
+  const { id } = await restoredResponse.json();
+  await expect(notice).toHaveCount(0);
+
+  // 元の日に戻り、再読込しても残る
+  await expect(eventOn(dayCell(page, today), title)).toBeVisible();
+  await page.reload();
+  await expect(eventOn(dayCell(page, today), title)).toBeVisible();
+  // 変更履歴に削除と復元が残る
+  const reopened = await openEventPopover(page, title);
+  await reopened.getByRole("button", { name: "変更履歴" }).click();
+  const history = page.getByRole("dialog", { name: "変更履歴" });
+  await expect(history).toContainText("予定を削除しました");
+  await expect(history).toContainText("予定を復元しました");
+
+  // 他のテストに予定を残さない
+  const cleanup = await page.request.delete(
+    `/local/api/events/${guildId}/${id}`,
+  );
+  expect(cleanup.status()).toBe(204);
+});

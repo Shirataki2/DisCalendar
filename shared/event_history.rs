@@ -73,9 +73,10 @@ impl Source {
 pub enum Action {
     Create,
     Update,
-    /// 予定の削除は今は物理削除で、履歴も `ON DELETE CASCADE` で一緒に消えるため記録しない。
-    /// ゴミ箱 (#159) で論理削除になったら、削除・復元の各経路から記録する
+    /// ゴミ箱 (#159) に入れた。after は NULL。
+    /// 行ごと消す削除 (繰り返し予定の「この回以降」、ゴミ箱からの完全削除) は、履歴も `ON DELETE CASCADE` で消えるので記録しない
     Delete,
+    /// ゴミ箱から元に戻した。before は NULL (削除前の値は直前の `Delete` の行にある)
     Restore,
 }
 

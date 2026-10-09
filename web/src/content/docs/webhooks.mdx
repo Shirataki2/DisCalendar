@@ -28,6 +28,7 @@ Discord モードでは署名を付けません。URL 自体が投稿権限を�
 
 Web・Bot の `/create` / `/quick`・管理コンソールからの作成・変更・削除（全予定削除を含む）が対象です。
 送信する種類は `event.created` / `event.updated` / `event.deleted` です。
+削除した予定を元に戻したときは `event.created` を送ります (自動での完全削除では何も送りません)。
 テスト送信は `webhook.test` で、`event` は `null` になります。
 
 ```json

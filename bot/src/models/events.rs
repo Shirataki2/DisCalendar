@@ -108,7 +108,7 @@ pub async fn list_all(pool: &PgPool, guild_id: &str) -> sqlx::Result<Vec<Event>>
         Event,
         r#"
         SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
-        FROM events WHERE guild_id = $1 AND (series_id IS NULL OR (start_at < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo') + INTERVAL '730 days' AND end_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo') - INTERVAL '366 days')) ORDER BY start_at, id
+        FROM events WHERE guild_id = $1 AND deleted_at IS NULL AND (series_id IS NULL OR (start_at < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo') + INTERVAL '730 days' AND end_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo') - INTERVAL '366 days')) ORDER BY start_at, id
         "#,
         guild_id
     )
@@ -126,7 +126,7 @@ pub async fn list_past(
         Event,
         r#"
         SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
-        FROM events WHERE guild_id = $1 AND start_at <= $2 AND (series_id IS NULL OR end_at >= $2::timestamp - INTERVAL '366 days') ORDER BY start_at, id
+        FROM events WHERE guild_id = $1 AND deleted_at IS NULL AND start_at <= $2 AND (series_id IS NULL OR end_at >= $2::timestamp - INTERVAL '366 days') ORDER BY start_at, id
         "#,
         guild_id,
         now
@@ -145,7 +145,7 @@ pub async fn list_future(
         Event,
         r#"
         SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
-        FROM events WHERE guild_id = $1 AND start_at >= $2 AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days') ORDER BY start_at, id
+        FROM events WHERE guild_id = $1 AND deleted_at IS NULL AND start_at >= $2 AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days') ORDER BY start_at, id
         "#,
         guild_id,
         now
@@ -161,7 +161,7 @@ pub async fn list_all_future(pool: &PgPool, now: NaiveDateTime) -> sqlx::Result<
         Event,
         r#"
         SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
-        FROM events WHERE start_at >= $1 ORDER BY start_at, id
+        FROM events WHERE deleted_at IS NULL AND start_at >= $1 ORDER BY start_at, id
         "#,
         now
     )
@@ -178,7 +178,7 @@ pub async fn list_period(
 ) -> sqlx::Result<Vec<Event>> {
     sqlx::query_as!(Event, r#"
         SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
-        FROM events WHERE guild_id = $1 AND start_at < $3
+        FROM events WHERE guild_id = $1 AND deleted_at IS NULL AND start_at < $3
           AND (end_at > $2 OR (end_at = $2 AND (is_all_day OR start_at = end_at)))
         ORDER BY start_at, id
     "#, guild_id, start, end).fetch_all(pool).await
@@ -192,9 +192,25 @@ pub async fn list_next(
 ) -> sqlx::Result<Vec<Event>> {
     sqlx::query_as!(Event, r#"
         SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
-        FROM events WHERE guild_id = $1
+        FROM events WHERE guild_id = $1 AND deleted_at IS NULL
           AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days')
-          AND start_at = (SELECT MIN(start_at) FROM events WHERE guild_id = $1 AND start_at >= $2 AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days'))
+          AND start_at = (SELECT MIN(start_at) FROM events WHERE guild_id = $1 AND deleted_at IS NULL AND start_at >= $2 AND (series_id IS NULL OR start_at < $2::timestamp + INTERVAL '730 days'))
         ORDER BY start_at, id
     "#, guild_id, now).fetch_all(pool).await
+}
+
+/// ゴミ箱 (#159) の保持期間。api の `models::events::TRASH_RETENTION_DAYS` と揃える
+pub const TRASH_RETENTION_DAYS: i32 = 30;
+
+/// ゴミ箱に入ってから [`TRASH_RETENTION_DAYS`] 日を過ぎた予定を完全に消し、消した件数を返す。
+/// `now` は JST の現在時刻 (`deleted_at` と同じ基準)
+pub async fn purge_expired_trash(pool: &PgPool, now: NaiveDateTime) -> sqlx::Result<u64> {
+    let result = sqlx::query!(
+        "DELETE FROM events WHERE deleted_at IS NOT NULL AND deleted_at < $1::timestamp - make_interval(days => $2)",
+        now,
+        TRASH_RETENTION_DAYS
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }

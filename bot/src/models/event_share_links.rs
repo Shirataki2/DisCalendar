@@ -7,7 +7,7 @@ pub async fn get_token(
     event_id: i32,
 ) -> sqlx::Result<Option<String>> {
     sqlx::query_scalar!(
-        "SELECT s.token FROM event_share_links s JOIN events e ON e.id = s.event_id WHERE e.guild_id = $1 AND e.id = $2",
+        "SELECT s.token FROM event_share_links s JOIN events e ON e.id = s.event_id WHERE e.guild_id = $1 AND e.id = $2 AND e.deleted_at IS NULL",
         guild_id,
         event_id
     )

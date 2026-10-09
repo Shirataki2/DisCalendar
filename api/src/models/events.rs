@@ -275,7 +275,7 @@ pub async fn list_between(
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id
-        WHERE e.guild_id = $1 AND e.start_at < $3 AND e.end_at >= $2
+        WHERE e.guild_id = $1 AND e.deleted_at IS NULL AND e.start_at < $3 AND e.end_at >= $2
         ORDER BY e.start_at, e.id
         "#,
         guild_id,
@@ -303,7 +303,7 @@ pub async fn list_between_guilds(
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id
-        WHERE e.guild_id = ANY($1) AND e.start_at < $3 AND e.end_at >= $2
+        WHERE e.guild_id = ANY($1) AND e.deleted_at IS NULL AND e.start_at < $3 AND e.end_at >= $2
         ORDER BY e.start_at, e.id
         "#,
         guild_ids,
@@ -332,7 +332,7 @@ pub async fn list_for_feed(
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id
-        WHERE e.guild_id = $1
+        WHERE e.guild_id = $1 AND e.deleted_at IS NULL
           AND (e.series_id IS NULL OR e.start_at < $2::timestamp + INTERVAL '1095 days')
           AND e.end_at >= $2::timestamp - CASE WHEN e.is_all_day THEN INTERVAL '1 day' ELSE INTERVAL '0 days' END
         ORDER BY e.start_at, e.id
@@ -345,6 +345,7 @@ pub async fn list_for_feed(
 }
 
 /// プロフィール取得を、このギルドの予定に記録された操作者だけに限定する。
+/// ゴミ箱 (#159) の一覧に削除した人を出すので、削除済みの予定とその削除者も含める。
 pub async fn author_ids(
     pool: &PgPool,
     guild_id: &str,
@@ -355,6 +356,8 @@ pub async fn author_ids(
         SELECT created_by AS "actor_id!" FROM events WHERE guild_id = $1 AND created_by = ANY($2)
         UNION
         SELECT updated_by AS "actor_id!" FROM events WHERE guild_id = $1 AND updated_by = ANY($2)
+        UNION
+        SELECT deleted_by AS "actor_id!" FROM events WHERE guild_id = $1 AND deleted_by = ANY($2)
         "#,
         guild_id,
         ids
@@ -403,6 +406,7 @@ pub async fn create<'e>(
 }
 
 /// ギルドに属する予定を 1 件、ロックせずに読む (対応付け込み)。該当なしなら `None`。
+/// ゴミ箱 (#159) に入っている予定は「無い」ものとして扱う (この下の読み書きもすべて同じ)。
 /// Discord 連携 (#94) の更新で、外部呼び出しの間 DB 接続を占有しないための分岐の起点に使う
 /// (実際の書き込みは [`find_by_id_for_update`] でロックを取り直し、ここで読んだ状態と突き合わせる)
 pub async fn find_by_id(pool: &PgPool, guild_id: &str, id: i32) -> sqlx::Result<Option<EventRow>> {
@@ -414,7 +418,7 @@ pub async fn find_by_id(pool: &PgPool, guild_id: &str, id: i32) -> sqlx::Result<
                l.scheduled_event_id AS "discord_scheduled_event_id?"
         FROM events e
         LEFT JOIN event_discord_links l ON l.event_id = e.id
-        WHERE e.id = $1 AND e.guild_id = $2
+        WHERE e.id = $1 AND e.guild_id = $2 AND e.deleted_at IS NULL
         "#,
         id,
         guild_id
@@ -444,7 +448,7 @@ pub async fn find_by_id_for_update(
                start_at, end_at, created_at, created_by, updated_by, updated_at,
                NULL::text AS "discord_scheduled_event_id?"
         FROM events
-        WHERE id = $1 AND guild_id = $2
+        WHERE id = $1 AND guild_id = $2 AND deleted_at IS NULL
         FOR UPDATE
         "#,
         id,
@@ -482,7 +486,7 @@ pub async fn update_if_unlinked<'e>(
         r#"
         UPDATE events
         SET name = $3, description = $4, location = $5, notifications = $6, color = $7, is_all_day = $8, start_at = $9, end_at = $10, updated_by = $11, updated_at = $12, notification_mentions = COALESCE($13::jsonb, notification_mentions)
-        WHERE id = $1 AND guild_id = $2
+        WHERE id = $1 AND guild_id = $2 AND deleted_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM event_discord_links l WHERE l.event_id = events.id)
         RETURNING id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
@@ -526,7 +530,7 @@ pub async fn update<'e>(
         r#"
         UPDATE events
         SET name = $3, description = $4, location = $5, notifications = $6, color = $7, is_all_day = $8, start_at = $9, end_at = $10, updated_by = $11, updated_at = $12, notification_mentions = COALESCE($13::jsonb, notification_mentions)
-        WHERE id = $1 AND guild_id = $2
+        WHERE id = $1 AND guild_id = $2 AND deleted_at IS NULL
         RETURNING id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
                   NULL::text AS "discord_scheduled_event_id?"
         "#,
@@ -548,20 +552,148 @@ pub async fn update<'e>(
     .await
 }
 
-/// 削除できたら `true`
-pub async fn delete<'e>(
+/// ゴミ箱 (#159) の保持期間。過ぎた予定は bot の定期タスク (`tasks/trash_cleanup.rs`) が完全に消す
+pub const TRASH_RETENTION_DAYS: i64 = 30;
+/// ゴミ箱の一覧で返す件数の上限 (新しい順)
+pub const TRASH_LIST_MAX: i64 = 200;
+
+/// 予定をゴミ箱に入れる (#159)。入れられたら `true` (無い・既にゴミ箱なら `false`)。
+///
+/// 行は残すので、`ON DELETE CASCADE` に任せていた後始末のうち、消えたままでよいものをここで行う:
+/// - Discord イベントとの対応付け (#94): 呼び出し側が Discord 側のイベントも消すので、復元後は未連携になる
+/// - 送信待ちのプッシュ通知: 残すと削除済みの予定の通知が届いてしまう (復元後の通知は bot が改めて予約する)
+///
+/// 繰り返し予定の 1 回は、シリーズから切り離してから入れる (呼び出し側が先に「中止」の例外を記録しておく)。
+/// シリーズの操作 (この回以降の変更・削除、各回の補充) がゴミ箱の中の回を拾わないようにするためで、
+/// 復元すると単発の予定として戻る。共有リンク・添付ファイル・変更履歴は残す
+pub async fn soft_delete(
+    conn: &mut sqlx::PgConnection,
+    guild_id: &str,
+    id: i32,
+    deleted_by: &str,
+    deleted_at: NaiveDateTime,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query!(
+        r#"
+        UPDATE events
+        SET deleted_at = $3, deleted_by = $4, series_id = NULL, original_start_at = NULL
+        WHERE id = $1 AND guild_id = $2 AND deleted_at IS NULL
+        "#,
+        id,
+        guild_id,
+        deleted_at,
+        deleted_by
+    )
+    .execute(&mut *conn)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Ok(false);
+    }
+    super::event_links::delete(&mut *conn, guild_id, id).await?;
+    sqlx::query!("DELETE FROM push_outbox WHERE event_id = $1", id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(true)
+}
+
+/// ゴミ箱の予定を元に戻す (#159)。ゴミ箱に無ければ `None`。
+/// 日時や通知設定は行に残っているので、元の位置にそのまま戻る
+pub async fn restore<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+    id: i32,
+) -> sqlx::Result<Option<EventRow>> {
+    sqlx::query_as!(
+        EventRow,
+        r#"
+        UPDATE events
+        SET deleted_at = NULL, deleted_by = NULL
+        WHERE id = $1 AND guild_id = $2 AND deleted_at IS NOT NULL
+        RETURNING id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at,
+                  NULL::text AS "discord_scheduled_event_id?"
+        "#,
+        id,
+        guild_id
+    )
+    .fetch_optional(executor)
+    .await
+}
+
+/// ゴミ箱の予定を完全に消す (#159)。消せたら `true`。ゴミ箱に入っていない予定は消さない。
+/// 共有リンク・添付ファイル・変更履歴は `ON DELETE CASCADE` で一緒に消える
+pub async fn purge<'e>(
     executor: impl PgExecutor<'e>,
     guild_id: &str,
     id: i32,
 ) -> sqlx::Result<bool> {
     let result = sqlx::query!(
-        "DELETE FROM events WHERE id = $1 AND guild_id = $2",
+        "DELETE FROM events WHERE id = $1 AND guild_id = $2 AND deleted_at IS NOT NULL",
         id,
         guild_id
     )
     .execute(executor)
     .await?;
     Ok(result.rows_affected() > 0)
+}
+
+/// 予定を行ごと消す (ゴミ箱を経由しない)。消せたら `true`。
+/// 繰り返し予定の「この回以降」の削除で使う (シリーズを打ち切って後続の回をまとめて消す操作で、
+/// 1 件ずつ元に戻せる形にならないため、従来どおり取り消せない削除のままにしている)
+pub async fn delete_permanently<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+    id: i32,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query!(
+        "DELETE FROM events WHERE id = $1 AND guild_id = $2 AND deleted_at IS NULL",
+        id,
+        guild_id
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// ゴミ箱の予定 (#159)
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TrashedEvent {
+    #[schema(example = 1)]
+    pub id: i32,
+    #[schema(example = "定例ミーティング")]
+    pub name: String,
+    pub is_all_day: bool,
+    #[schema(example = "2026-08-22T10:00:00")]
+    pub start_at: NaiveDateTime,
+    #[schema(example = "2026-08-22T11:00:00")]
+    pub end_at: NaiveDateTime,
+    /// 削除した日時 (JST)
+    #[schema(example = "2026-08-20T09:30:00")]
+    pub deleted_at: NaiveDateTime,
+    /// 削除した人の Discord ユーザー ID
+    pub deleted_by: Option<String>,
+    /// この日時 (JST) を過ぎると自動で完全に削除される
+    #[schema(example = "2026-09-19T09:30:00")]
+    pub expires_at: NaiveDateTime,
+}
+
+/// ゴミ箱の一覧 (削除した日時の新しい順、最大 [`TRASH_LIST_MAX`] 件)
+pub async fn list_trash(pool: &PgPool, guild_id: &str) -> sqlx::Result<Vec<TrashedEvent>> {
+    sqlx::query_as!(
+        TrashedEvent,
+        r#"
+        SELECT id, name, is_all_day, start_at, end_at, deleted_at AS "deleted_at!", deleted_by,
+               deleted_at + make_interval(days => $2) AS "expires_at!"
+        FROM events
+        WHERE guild_id = $1 AND deleted_at IS NOT NULL
+        ORDER BY deleted_at DESC, id DESC
+        LIMIT $3
+        "#,
+        guild_id,
+        TRASH_RETENTION_DAYS as i32,
+        TRASH_LIST_MAX
+    )
+    .fetch_all(pool)
+    .await
 }
 
 #[cfg(test)]

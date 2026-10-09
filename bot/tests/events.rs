@@ -338,3 +338,149 @@ async fn create_records_history_from_the_bot(pool: PgPool) {
         )]
     );
 }
+
+/// ゴミ箱 (#159) に入っている予定は、`/list` のどの範囲にも通知の対象にも出てこない。
+/// 行は残っているので、読む経路ごとに確かめる (api 側は `api/tests/trash.rs`)
+#[sqlx::test(migrations = "../api/migrations")]
+async fn trashed_events_are_hidden_from_lists_and_notifications(pool: PgPool) {
+    let at = dt("2026-08-23T10:00:00");
+    let mut ids = Vec::new();
+    for (name, start, end) in [
+        ("過去", "2026-08-22T10:00:00", "2026-08-22T11:00:00"),
+        ("未来", "2026-08-24T10:00:00", "2026-08-24T11:00:00"),
+    ] {
+        let kept = events::create(&pool, &new_event(GUILD, name, start, end))
+            .await
+            .unwrap();
+        let gone = events::create(&pool, &new_event(GUILD, "消した予定", start, end))
+            .await
+            .unwrap();
+        ids.push((kept.id, gone.id));
+    }
+    let trashed: Vec<i32> = ids.iter().map(|(_, gone)| *gone).collect();
+    sqlx::query("UPDATE events SET deleted_at = '2026-08-20 09:00:00', deleted_by = '444' WHERE id = ANY($1)")
+        .bind(&trashed)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let names = |events: Vec<events::Event>| -> Vec<String> {
+        events.into_iter().map(|e| e.name).collect()
+    };
+    assert_eq!(
+        names(events::list_all(&pool, GUILD).await.unwrap()),
+        ["過去", "未来"]
+    );
+    assert_eq!(
+        names(events::list_past(&pool, GUILD, at).await.unwrap()),
+        ["過去"]
+    );
+    assert_eq!(
+        names(events::list_future(&pool, GUILD, at).await.unwrap()),
+        ["未来"]
+    );
+    assert_eq!(
+        names(
+            events::list_period(
+                &pool,
+                GUILD,
+                dt("2026-08-22T00:00:00"),
+                dt("2026-08-25T00:00:00")
+            )
+            .await
+            .unwrap()
+        ),
+        ["過去", "未来"]
+    );
+    assert_eq!(
+        names(events::list_next(&pool, GUILD, at).await.unwrap()),
+        ["未来"]
+    );
+    // 通知タスクの対象
+    assert_eq!(
+        names(events::list_all_future(&pool, at).await.unwrap()),
+        ["未来"]
+    );
+
+    // 元に戻せば (deleted_at を外せば) また通知の対象になる
+    sqlx::query("UPDATE events SET deleted_at = NULL, deleted_by = NULL WHERE id = $1")
+        .bind(ids[1].1)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        names(events::list_all_future(&pool, at).await.unwrap()),
+        ["未来", "消した予定"]
+    );
+}
+
+/// 次の予定 (`list_next`) は、いちばん早い予定がゴミ箱に入っていたら、その次の予定を返す
+#[sqlx::test(migrations = "../api/migrations")]
+async fn next_skips_a_trashed_earliest_event(pool: PgPool) {
+    let at = dt("2026-08-23T10:00:00");
+    let gone = events::create(
+        &pool,
+        &new_event(
+            GUILD,
+            "消した予定",
+            "2026-08-24T10:00:00",
+            "2026-08-24T11:00:00",
+        ),
+    )
+    .await
+    .unwrap();
+    events::create(
+        &pool,
+        &new_event(
+            GUILD,
+            "次の予定",
+            "2026-08-25T10:00:00",
+            "2026-08-25T11:00:00",
+        ),
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE events SET deleted_at = '2026-08-20 09:00:00' WHERE id = $1")
+        .bind(gone.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let next = events::list_next(&pool, GUILD, at).await.unwrap();
+    assert_eq!(next.len(), 1);
+    assert_eq!(next[0].name, "次の予定");
+}
+
+/// ゴミ箱に入って 30 日を過ぎた予定だけが完全に消える
+#[sqlx::test(migrations = "../api/migrations")]
+async fn expired_trash_is_purged(pool: PgPool) {
+    let now = dt("2026-10-10T12:00:00");
+    let mut ids = Vec::new();
+    for name in ["期限切れ", "まだ残す", "消していない"] {
+        let event = events::create(
+            &pool,
+            &new_event(GUILD, name, "2026-08-24T10:00:00", "2026-08-24T11:00:00"),
+        )
+        .await
+        .unwrap();
+        ids.push(event.id);
+    }
+    // 30 日と 1 分前 / 30 日ちょうどの 1 分手前
+    for (id, deleted_at) in [
+        (ids[0], "2026-09-10T11:59:00"),
+        (ids[1], "2026-09-10T12:01:00"),
+    ] {
+        sqlx::query("UPDATE events SET deleted_at = $2 WHERE id = $1")
+            .bind(id)
+            .bind(dt(deleted_at))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    assert_eq!(events::purge_expired_trash(&pool, now).await.unwrap(), 1);
+    let remaining: Vec<i32> = sqlx::query_scalar("SELECT id FROM events ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(remaining, [ids[1], ids[2]]);
+    assert_eq!(events::purge_expired_trash(&pool, now).await.unwrap(), 0);
+}

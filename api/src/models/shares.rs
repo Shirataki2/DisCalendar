@@ -35,7 +35,7 @@ pub async fn issue(
         ShareLink,
         r#"
         INSERT INTO event_share_links (event_id, token)
-        SELECT id, $3 FROM events WHERE guild_id = $1 AND id = $2
+        SELECT id, $3 FROM events WHERE guild_id = $1 AND id = $2 AND deleted_at IS NULL
         ON CONFLICT (event_id) DO UPDATE SET token = event_share_links.token
         RETURNING token
     "#,
@@ -52,7 +52,7 @@ pub async fn get(pool: &PgPool, guild_id: &str, event_id: i32) -> sqlx::Result<O
         ShareLink,
         r#"
         SELECT s.token FROM event_share_links s JOIN events e ON e.id = s.event_id
-        WHERE e.guild_id = $1 AND e.id = $2
+        WHERE e.guild_id = $1 AND e.id = $2 AND e.deleted_at IS NULL
     "#,
         guild_id,
         event_id
@@ -75,7 +75,7 @@ pub async fn revoke(pool: &PgPool, guild_id: &str, event_id: i32) -> sqlx::Resul
     Ok(())
 }
 
-/// Bot が退出したギルドは JOIN で除外する。編集内容は毎回現在の予定から取得する。
+/// Bot が退出したギルドは JOIN で除外する。ゴミ箱 (#159) の予定は見せない (行は残すので、復元すれば同じ URL で戻る)。編集内容は毎回現在の予定から取得する。
 pub async fn find(pool: &PgPool, token: &str) -> sqlx::Result<Option<SharedEvent>> {
     sqlx::query_as!(
         SharedEvent,
@@ -85,7 +85,7 @@ pub async fn find(pool: &PgPool, token: &str) -> sqlx::Result<Option<SharedEvent
         FROM event_share_links s
         JOIN events e ON e.id = s.event_id
         JOIN guilds g ON g.guild_id = e.guild_id
-        WHERE s.token = $1
+        WHERE s.token = $1 AND e.deleted_at IS NULL
     "#,
         token
     )
