@@ -20,6 +20,16 @@ Select **Edit**, change the fields, and **Save**.
 
 You can also drag an event to another date or time, or drag its lower edge in week, 4-day, and day views to change its duration. If saving fails, the event returns to its original position and an error appears above the calendar.
 
+<h2 id="history">View the change history</h2>
+
+Select **History** in the event details to see who changed the event, when, and how, newest first. Edits list only the fields that changed, such as the title or the date and time, including changes made by dragging.
+
+- Every member of the server can view the history, even when editing is restricted.
+- Changes from the web, events created with the bot's `/create`, and changes from AI assistants (MCP) are recorded. Fixes made by staff in the admin console appear as "DisCalendar staff".
+- Description changes are shown without the text differences.
+- Up to the latest 50 changes are shown. History older than 180 days, and anything beyond 100 entries per event, is removed automatically.
+- Changes made before recording started and event deletions are not recorded (deleting an event also removes its history).
+
 <h2 id="description-format">Format descriptions</h2>
 
 Use Discord-style formatting and **Preview** to check it before saving. Select Preview again to return to editing.

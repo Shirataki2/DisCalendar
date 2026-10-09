@@ -215,6 +215,16 @@ pub async fn create_event(
     );
     crate::recurring::attach_created(&mut tx, guild_id, event.id, &body, &admin.discord_user_id)
         .await?;
+    crate::event_history::record(
+        &mut tx,
+        guild_id,
+        event.id,
+        Some(&admin.discord_user_id),
+        crate::event_history::Source::Admin,
+        crate::event_history::Action::Create,
+        None,
+    )
+    .await?;
     let event = crate::recurring::decorate(&mut tx, event).await?;
     admin_audit::record(
         &mut *tx,
@@ -279,6 +289,7 @@ pub async fn update_event(
         .map(Event::from)
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
     let before = crate::recurring::decorate(&mut tx, before).await?;
+    let history_before = crate::event_history::snapshot(&mut tx, guild_id, path.event_id).await?;
     let row = match crate::recurring::update(
         &mut tx,
         guild_id,
@@ -305,6 +316,16 @@ pub async fn update_event(
     // 変更前の値を引き継ぐ (`events::update` の戻り値は常に None のため、そのままだと
     // レスポンスと監査ログの after が「連携解除」に見えてしまう)
     after.discord_scheduled_event_id = before.discord_scheduled_event_id.clone();
+    crate::event_history::record(
+        &mut tx,
+        guild_id,
+        after.id,
+        Some(&admin.discord_user_id),
+        crate::event_history::Source::Admin,
+        crate::event_history::Action::Update,
+        history_before.as_ref(),
+    )
+    .await?;
     admin_audit::record(
         &mut *tx,
         &admin,

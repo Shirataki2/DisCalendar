@@ -223,6 +223,16 @@ pub async fn bulk(
     for input in &inputs {
         let row = events::create(&mut *tx, guild_id, input, created_at, actor).await?;
         crate::recurring::attach_created(&mut tx, guild_id, row.id, input, actor).await?;
+        crate::event_history::record(
+            &mut tx,
+            guild_id,
+            row.id,
+            Some(actor),
+            crate::event_history::Source::Web,
+            crate::event_history::Action::Create,
+            None,
+        )
+        .await?;
         let event = crate::recurring::decorate(&mut tx, Event::from(row)).await?;
         crate::webhook_outbox::enqueue(&mut tx, guild_id, event.id, "event.created", actor).await?;
         created.push(event);

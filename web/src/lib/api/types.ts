@@ -64,6 +64,40 @@ export interface ApiEvent {
   discord_scheduled_event_id: string | null;
 }
 
+/**
+ * 変更履歴 (#165) に残る予定のスナップショット。api / bot が SQL で組み立てる
+ * (`shared/event_history.rs`)。日時は予定と同じ JST naive
+ */
+export interface EventSnapshot {
+  name: string;
+  description: string | null;
+  location: string | null;
+  color: string;
+  is_all_day: boolean;
+  start_at: string;
+  end_at: string;
+  notifications: Notification[];
+  notification_mentions: NotificationMention[];
+  /** Discord のスケジュールイベントと連携しているか (#94) */
+  discord_linked: boolean;
+}
+
+/** 予定の変更履歴 1 件 (`GET /events/{guild_id}/{event_id}/history`、新しい順) */
+export interface EventHistoryEntry {
+  id: number;
+  event_id: number;
+  /** 操作した Discord ユーザー。利用者以外の操作なら null */
+  actor_discord_user_id: string | null;
+  source: "web" | "bot" | "admin" | "mcp";
+  action: "create" | "update" | "delete" | "restore";
+  /** create では null */
+  before: EventSnapshot | null;
+  /** delete では null */
+  after: EventSnapshot | null;
+  /** RFC 3339 (UTC)。予定の日時と違いタイムゾーン付き */
+  created_at: string;
+}
+
 /** 予定の作成・更新リクエスト (更新は全フィールド置き換え) */
 export interface ApiEventInput {
   recurrence_rule?: RecurrenceRule;

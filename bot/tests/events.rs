@@ -287,3 +287,53 @@ async fn bot_creation_queues_webhook_in_the_same_transaction(pool: PgPool) {
     assert_eq!(payload["name"], "Bot の予定");
     assert_eq!(payload["notifications"], serde_json::json!([]));
 }
+
+/// guild_id, actor, "source:action", before, after
+type HistoryRow = (
+    String,
+    Option<String>,
+    String,
+    Option<serde_json::Value>,
+    Option<serde_json::Value>,
+);
+
+/// `/create` で保存した予定には、api と同じ形の変更履歴 (#165) が `source = bot` で 1 行残る
+#[sqlx::test(migrations = "../api/migrations")]
+async fn create_records_history_from_the_bot(pool: PgPool) {
+    let event = events::create(
+        &pool,
+        &new_event(GUILD, "定例", "2026-08-23T10:00:00", "2026-08-23T11:00:00"),
+    )
+    .await
+    .unwrap();
+
+    let rows: Vec<HistoryRow> = sqlx::query_as(
+        "SELECT guild_id, actor_discord_user_id, source || ':' || action, before, after
+             FROM event_history WHERE event_id = $1",
+    )
+    .bind(event.id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![(
+            GUILD.to_owned(),
+            Some("333".to_owned()),
+            "bot:create".to_owned(),
+            None,
+            Some(serde_json::json!({
+                "name": "定例",
+                "description": null,
+                "location": null,
+                "color": "#2196F3",
+                "is_all_day": false,
+                "start_at": "2026-08-23T10:00:00",
+                "end_at": "2026-08-23T11:00:00",
+                "notifications": [],
+                "notification_mentions": [],
+                "discord_linked": false,
+            })),
+        )]
+    );
+}

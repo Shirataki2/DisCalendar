@@ -170,6 +170,13 @@ async fn server_locale_requires_membership_and_management_permissions(pool: PgPo
         .await
         .unwrap();
     assert_eq!(title, "日本語の予定", "利用者の入力は翻訳しない");
+    // 後から入ったマイグレーションも新しい順に戻してから検証する
+    sqlx::raw_sql(include_str!(
+        "../rollback/20261009000000_drop_event_history.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::raw_sql(include_str!(
         "../rollback/20261005000000_persist_guild_locale.sql"
     ))

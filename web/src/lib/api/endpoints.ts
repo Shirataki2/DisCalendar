@@ -17,6 +17,7 @@ import type {
   AttachmentUrl,
   ChangeScope,
   EventAttachment,
+  EventHistoryEntry,
   ExternalCalendar,
   ExternalCalendarInput,
   ExternalCalendarResult,
@@ -184,6 +185,11 @@ export function createApi(request: ApiFetcher) {
           { method: "POST", body: { option_id, expected_version, event } },
         ),
     },
+    /** 予定の変更履歴 (#165)。新しい順に最大 50 件 */
+    eventHistory: (guildId: string, eventId: number, signal?: AbortSignal) =>
+      request<EventHistoryEntry[]>(`/events/${guildId}/${eventId}/history`, {
+        signal,
+      }),
     attachments: {
       limits: (guildId: string) =>
         request<AttachmentLimits>(`/guilds/${guildId}/attachments`),

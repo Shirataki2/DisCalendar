@@ -14,6 +14,8 @@ pub mod data;
 pub mod datetime;
 pub mod error;
 pub mod event;
+#[path = "../../shared/event_history.rs"]
+pub mod event_history;
 pub mod models;
 pub mod paginator;
 pub mod tasks;

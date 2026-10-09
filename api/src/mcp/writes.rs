@@ -291,6 +291,10 @@ async fn write(
         }
         Some(row)
     };
+    let history_before = match &old {
+        Some(row) => crate::event_history::snapshot(&mut tx, &input.guild_id, row.id).await?,
+        None => None,
+    };
     if action == "delete" && !input.changes.is_empty() {
         return Err(ApiError::BadRequest(
             "delete does not accept changes".into(),
@@ -384,6 +388,23 @@ async fn write(
     let event_id = row.id;
     if action != "delete" && !desired && linked.is_some() {
         crate::models::event_links::delete(&mut *tx, &input.guild_id, event_id).await?;
+    }
+    // 削除は履歴を残さない (予定と一緒に消えるため。routes/events.rs の delete を参照)
+    if action != "delete" {
+        crate::event_history::record(
+            &mut tx,
+            &input.guild_id,
+            event_id,
+            Some(&user.discord_user_id),
+            crate::event_history::Source::Mcp,
+            if action == "create" {
+                crate::event_history::Action::Create
+            } else {
+                crate::event_history::Action::Update
+            },
+            history_before.as_ref(),
+        )
+        .await?;
     }
     if action != "delete" {
         crate::webhook_outbox::enqueue(

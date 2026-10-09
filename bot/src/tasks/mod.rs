@@ -1,6 +1,6 @@
-//! 定期タスク (予定の通知 / presence 表示の切り替え / 日付入りアイコンへの更新)。
+//! 定期タスク (予定の通知 / presence 表示の切り替え / 日付入りアイコンへの更新 / 変更履歴の後片付け)。
 //!
-//! notify / digest / icon_updater はシャードに依存しない処理 (DB アクセスと HTTP 経由の更新) なので、
+//! notify / digest / icon_updater / history_cleanup はシャードに依存しない処理 (DB アクセスと HTTP 経由の更新) なので、
 //! `event::handle_event` の最初の `FullEvent::Ready` から一度だけ起動する
 //! (`Data::mark_tasks_started` で複数シャードでの二重起動を防ぐ)。全シャードが揃うのを待つ
 //! `ShardsReady` だと、いずれか1シャードでも接続障害で `Ready` に到達しない間はこれらの
@@ -11,6 +11,7 @@
 //! `Data::replace_presence_task` で再接続時に古いループを中断してから置き換える)。
 
 mod digest;
+mod history_cleanup;
 mod icon_updater;
 mod notify;
 pub(crate) mod polls;
@@ -26,6 +27,7 @@ pub fn spawn_all(ctx: serenity::Context, data: Data) {
     tokio::spawn(polls::run_loop(ctx.clone(), data.clone()));
     tokio::spawn(digest::run_loop(ctx.clone(), data.clone()));
     tokio::spawn(notify::run_loop(ctx.clone(), data.clone()));
+    tokio::spawn(history_cleanup::run_loop(data.clone()));
     tokio::spawn(icon_updater::run_loop(ctx, data));
 }
 

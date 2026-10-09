@@ -850,6 +850,7 @@ export function EventCalendar({
               : null
           }
           allowAttachments={eventsSource === dashboardEventsSource}
+          allowHistory={eventsSource === dashboardEventsSource}
           resolveAuthors={eventsSource === dashboardEventsSource}
           event={popoverEvent}
           anchor={popover?.anchor ?? null}
