@@ -409,6 +409,7 @@ fn parse_rule_inner(raw: &str, start: NaiveDateTime, defer_until: bool) -> Resul
         Some("YEARLY")
             if interval == 1
                 && !parts.contains_key("BYDAY")
+                && (!parts.contains_key("BYMONTHDAY") || parts.contains_key("BYMONTH"))
                 && parts
                     .get("BYMONTH")
                     .is_none_or(|value| value.parse::<u32>().ok() == Some(start.month()))
@@ -744,9 +745,22 @@ mod tests {
             assert_eq!(parse_subscription(&ics).unwrap().events.len(), 1);
         }
         let start = "2028-02-29T00:00:00".parse().unwrap();
+        // YEARLYのBYMONTHDAY単独指定は毎月へ展開され、月日固定の毎年ではない。
+        assert!(
+            recurrence::between(
+                "FREQ=YEARLY;BYMONTHDAY=29",
+                start,
+                start,
+                start + Duration::days(366)
+            )
+            .unwrap()
+            .len()
+                > 1
+        );
         for raw in [
             "FREQ=YEARLY;BYMONTH=2,3",
             "FREQ=YEARLY;BYMONTHDAY=28,29",
+            "FREQ=YEARLY;BYMONTHDAY=29",
             "FREQ=YEARLY;BYMONTH=3",
             "FREQ=YEARLY;BYMONTHDAY=28",
             "FREQ=YEARLY;BYDAY=2MO",
