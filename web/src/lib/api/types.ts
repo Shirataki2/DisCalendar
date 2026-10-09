@@ -121,6 +121,13 @@ export interface TrashedEvent {
   expires_at: string;
 }
 
+/** ゴミ箱の一覧の 1 ページ */
+export interface TrashPage {
+  events: TrashedEvent[];
+  /** 続きがあるときだけ入る。`cursor` に渡すと次のページが返る */
+  next_cursor: string | null;
+}
+
 /** 予定の作成・更新リクエスト (更新は全フィールド置き換え) */
 export interface ApiEventInput {
   recurrence_rule?: RecurrenceRule;

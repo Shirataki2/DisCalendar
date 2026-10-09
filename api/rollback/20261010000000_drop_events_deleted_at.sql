@@ -11,4 +11,4 @@ ALTER TABLE events
     DROP COLUMN deleted_at,
     DROP COLUMN deleted_by;
 -- 旧 api の起動時に VersionMissing にならないよう、適用記録も戻す。
-DELETE FROM _sqlx_migrations WHERE version = 20261010000000;
+DELETE FROM _sqlx_migrations WHERE version IN (20261010000000, 20261010000001);

@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use actix_web::{HttpResponse, delete, get, post, put, web};
 use chrono::{Duration, NaiveDateTime};
 use futures_util::{StreamExt as _, TryStreamExt as _, stream};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use utoipa::IntoParams;
+use utoipa::{IntoParams, ToSchema};
 
 use super::GuildMember;
 use crate::{
@@ -16,7 +16,7 @@ use crate::{
     models::{
         event_history::{self as history_model, EventHistoryEntry},
         event_links,
-        events::{self, Event, EventInput, TrashedEvent},
+        events::{self, Event, EventInput, TrashCursor, TrashedEvent},
         guilds, now_jst,
     },
     state::AppState,
@@ -868,12 +868,28 @@ pub async fn restore(
     Ok(web::Json(Event::from(row)))
 }
 
-/// ゴミ箱の一覧 (#159)。削除した日時の新しい順。管理権限 (`can_manage_server`) が要る
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TrashQuery {
+    /// 続きを取るときに、前のページの `next_cursor` を渡す
+    cursor: Option<String>,
+}
+
+/// ゴミ箱の一覧の 1 ページ
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TrashPage {
+    pub events: Vec<TrashedEvent>,
+    /// 続きがあるときだけ入る。`cursor` に渡すと次のページが返る
+    pub next_cursor: Option<String>,
+}
+
+/// ゴミ箱の一覧 (#159)。削除した日時の新しい順に 1 ページ ([`events::TRASH_PAGE_SIZE`] 件) ずつ返す。
+/// 管理権限 (`can_manage_server`) が要る
 #[utoipa::path(
     tag = "events",
-    params(("guild_id" = String, Path, description = "ギルド ID")),
+    params(("guild_id" = String, Path, description = "ギルド ID"), TrashQuery),
     responses(
-        (status = 200, body = Vec<TrashedEvent>),
+        (status = 200, body = TrashPage),
+        (status = 400, description = "cursor が不正", body = ErrorBody),
         (status = 401, body = ErrorBody),
         (status = 403, description = "非メンバー / 管理権限なし", body = ErrorBody),
     )
@@ -882,11 +898,33 @@ pub async fn restore(
 pub async fn trash(
     member: GuildMember,
     state: web::Data<AppState>,
-) -> Result<web::Json<Vec<TrashedEvent>>, ApiError> {
+    query: web::Query<TrashQuery>,
+) -> Result<web::Json<TrashPage>, ApiError> {
     ensure_can_manage_trash(&member)?;
-    Ok(web::Json(
-        events::list_trash(&state.pool, member.guild_id()).await?,
-    ))
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(str::parse::<TrashCursor>)
+        .transpose()
+        .map_err(|()| ApiError::BadRequest("invalid cursor".to_owned()))?;
+    // 続きがあるかを知るために 1 件多く読む
+    let mut events = events::list_trash(
+        &state.pool,
+        member.guild_id(),
+        cursor.as_ref(),
+        events::TRASH_PAGE_SIZE + 1,
+    )
+    .await?;
+    let has_more = events.len() as i64 > events::TRASH_PAGE_SIZE;
+    events.truncate(events::TRASH_PAGE_SIZE as usize);
+    let next_cursor = events
+        .last()
+        .filter(|_| has_more)
+        .map(|event| TrashCursor::of(event).to_string());
+    Ok(web::Json(TrashPage {
+        events,
+        next_cursor,
+    }))
 }
 
 /// ゴミ箱の予定を完全に削除する (#159)。元に戻せない。管理権限 (`can_manage_server`) が要る。

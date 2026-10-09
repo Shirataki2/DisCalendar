@@ -46,7 +46,7 @@ import type {
   ShareLink,
   SqlHistoryEntry,
   SqlResult,
-  TrashedEvent,
+  TrashPage,
 } from "./types";
 
 /**
@@ -191,8 +191,11 @@ export function createApi(request: ApiFetcher) {
      * 元に戻すのは予定を編集できる人なら誰でもできる (削除直後の「元に戻す」で使う)
      */
     trash: {
-      list: (guildId: string, signal?: AbortSignal) =>
-        request<TrashedEvent[]>(`/events/${guildId}/trash`, { signal }),
+      list: (guildId: string, cursor: string | null, signal?: AbortSignal) =>
+        request<TrashPage>(
+          `/events/${guildId}/trash${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+          { signal },
+        ),
       restore: (guildId: string, eventId: number) =>
         request<ApiEvent>(`/events/${guildId}/${eventId}/restore`, {
           method: "POST",

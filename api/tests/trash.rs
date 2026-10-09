@@ -235,16 +235,42 @@ async fn trash_lists_newest_first_and_purge_only_takes_trashed_events(pool: PgPo
     assert!(trash(&pool, first, "2026-10-02T09:00:00").await);
     assert!(trash(&pool, second, "2026-10-03T09:00:00").await);
 
-    let listed = events::list_trash(&pool, GUILD).await.unwrap();
+    let listed = events::list_trash(&pool, GUILD, None, 10).await.unwrap();
     assert_eq!(
         listed.iter().map(|e| e.id).collect::<Vec<_>>(),
         [second, first]
+    );
+    // 続きは前のページの最後の予定より古いものから
+    let page = events::list_trash(&pool, GUILD, None, 1).await.unwrap();
+    assert_eq!(page.iter().map(|e| e.id).collect::<Vec<_>>(), [second]);
+    let cursor = events::TrashCursor::of(&page[0]);
+    let cursor: events::TrashCursor = cursor.to_string().parse().unwrap();
+    let page = events::list_trash(&pool, GUILD, Some(&cursor), 1)
+        .await
+        .unwrap();
+    assert_eq!(page.iter().map(|e| e.id).collect::<Vec<_>>(), [first]);
+    let cursor = events::TrashCursor::of(&page[0]);
+    assert!(
+        events::list_trash(&pool, GUILD, Some(&cursor), 1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        "2026-10-03T09:00:00"
+            .parse::<events::TrashCursor>()
+            .is_err()
     );
     assert_eq!(listed[0].deleted_by.as_deref(), Some("444"));
     assert_eq!(listed[0].deleted_at, dt("2026-10-03T09:00:00"));
     assert_eq!(listed[0].expires_at, dt("2026-11-02T09:00:00"));
     // 他ギルドのゴミ箱には出ない
-    assert!(events::list_trash(&pool, "222").await.unwrap().is_empty());
+    assert!(
+        events::list_trash(&pool, "222", None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     // 削除した人の名前を引けるよう、操作者の確認に含める
     assert_eq!(
         events::author_ids(&pool, GUILD, &["444".to_owned()])
@@ -263,7 +289,7 @@ async fn trash_lists_newest_first_and_purge_only_takes_trashed_events(pool: PgPo
             .unwrap()
             .is_none()
     );
-    let listed = events::list_trash(&pool, GUILD).await.unwrap();
+    let listed = events::list_trash(&pool, GUILD, None, 10).await.unwrap();
     assert_eq!(listed.iter().map(|e| e.id).collect::<Vec<_>>(), [second]);
     assert_eq!(names(&pool).await, ["消していない"]);
 }
@@ -405,7 +431,7 @@ async fn rollback_purges_the_trash_before_dropping_the_columns(pool: PgPool) {
     .unwrap();
     assert_eq!(columns, 0);
     let applied: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE version = 20261010000000")
+        sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE version >= 20261010000000")
             .fetch_one(&pool)
             .await
             .unwrap();

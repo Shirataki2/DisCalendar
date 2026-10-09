@@ -2,6 +2,7 @@ import {
   keepPreviousData,
   type QueryKey,
   skipToken,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -98,11 +99,17 @@ export function useJoinedEventsQuery(
   });
 }
 
-/** 削除した予定 (ゴミ箱、#159)。サーバー設定を開いている間だけ取得する (管理権限が要る) */
+/**
+ * 削除した予定 (ゴミ箱、#159)。サーバー設定を開いている間だけ取得する (管理権限が要る)。
+ * 1 ページずつ読み、続きは `fetchNextPage` で足す
+ */
 export function useTrashQuery(guildId: string, enabled: boolean) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: queryKeys.trash.list(guildId),
-    queryFn: ({ signal }) => api.trash.list(guildId, signal),
+    queryFn: ({ pageParam, signal }) =>
+      api.trash.list(guildId, pageParam, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
     enabled,
     // 他の人が消した予定も拾えるよう、開くたびに取り直す
     staleTime: 0,

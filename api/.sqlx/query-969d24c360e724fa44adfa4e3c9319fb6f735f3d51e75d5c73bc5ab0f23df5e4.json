@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, name, is_all_day, start_at, end_at, deleted_at AS \"deleted_at!\", deleted_by,\n               deleted_at + make_interval(days => $2) AS \"expires_at!\"\n        FROM events\n        WHERE guild_id = $1 AND deleted_at IS NOT NULL\n        ORDER BY deleted_at DESC, id DESC\n        LIMIT $3\n        ",
+  "query": "\n        SELECT id, name, is_all_day, start_at, end_at, deleted_at AS \"deleted_at!\", deleted_by,\n               deleted_at + make_interval(days => $2) AS \"expires_at!\"\n        FROM events\n        WHERE guild_id = $1 AND deleted_at IS NOT NULL\n          AND ($3::timestamp IS NULL OR (deleted_at, id) < ($3, $4))\n        ORDER BY deleted_at DESC, id DESC\n        LIMIT $5\n        ",
   "describe": {
     "columns": [
       {
@@ -91,6 +91,8 @@
       "Left": [
         "Text",
         "Int4",
+        "Timestamp",
+        "Int4",
         "Int8"
       ]
     },
@@ -105,5 +107,5 @@
       null
     ]
   },
-  "hash": "752a4f5dd0e0faeea09040689413ee94965f82e3ec115509d36c4daeb918863a"
+  "hash": "969d24c360e724fa44adfa4e3c9319fb6f735f3d51e75d5c73bc5ab0f23df5e4"
 }

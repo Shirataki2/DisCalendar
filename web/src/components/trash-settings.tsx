@@ -45,7 +45,7 @@ export function TrashSettings({ guildId }: { guildId: string }) {
   // 確認ダイアログを閉じるアニメーションの間も名前を出しておく
   const purgeShown = useLastValue(purgeTarget);
   const [notice, setNotice] = useState<string | null>(null);
-  const events = trash.data ?? [];
+  const events = trash.data?.pages.flatMap((page) => page.events) ?? [];
   const profiles = useMemberProfilesInChunks(
     guildId,
     events.flatMap((event) => (event.deleted_by ? [event.deleted_by] : [])),
@@ -159,6 +159,18 @@ export function TrashSettings({ guildId }: { guildId: string }) {
             </li>
           ))}
         </ul>
+      )}
+      {trash.hasNextPage && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="justify-self-start"
+          disabled={trash.isFetchingNextPage}
+          onClick={() => trash.fetchNextPage()}
+        >
+          {trash.isFetchingNextPage ? t("読み込み中…") : t("さらに表示")}
+        </Button>
       )}
       <AlertDialog
         open={purgeTarget !== null}

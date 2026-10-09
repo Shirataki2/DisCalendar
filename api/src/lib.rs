@@ -352,7 +352,7 @@ async fn cleanup_invalid_concurrent_indexes(conn: &mut sqlx::PgConnection) -> an
 /// マイグレーションで CONCURRENTLY のインデックスを増やしたらここにも足す
 /// (足し忘れると、その作成が中断したときに無効なインデックスが残り続ける)。
 /// DROP 文を組み立てず定数で持つのは、sqlx が動的な SQL 文字列を型で弾くため
-const CONCURRENT_EVENT_INDEXES: [(&str, &str); 2] = [
+const CONCURRENT_EVENT_INDEXES: [(&str, &str); 3] = [
     (
         "idx_events_start_at",
         "DROP INDEX CONCURRENTLY IF EXISTS public.idx_events_start_at",
@@ -360,6 +360,10 @@ const CONCURRENT_EVENT_INDEXES: [(&str, &str); 2] = [
     (
         "idx_events_guild_id_start_at",
         "DROP INDEX CONCURRENTLY IF EXISTS public.idx_events_guild_id_start_at",
+    ),
+    (
+        "idx_events_deleted_at",
+        "DROP INDEX CONCURRENTLY IF EXISTS public.idx_events_deleted_at",
     ),
 ];
 

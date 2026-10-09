@@ -554,8 +554,8 @@ pub async fn update<'e>(
 
 /// ゴミ箱 (#159) の保持期間。過ぎた予定は bot の定期タスク (`tasks/trash_cleanup.rs`) が完全に消す
 pub const TRASH_RETENTION_DAYS: i64 = 30;
-/// ゴミ箱の一覧で返す件数の上限 (新しい順)
-pub const TRASH_LIST_MAX: i64 = 200;
+/// ゴミ箱の一覧の 1 ページの件数 (新しい順)。続きは [`TrashCursor`] で取る
+pub const TRASH_PAGE_SIZE: i64 = 50;
 
 /// 予定をゴミ箱に入れる (#159)。入れられたら `true` (無い・既にゴミ箱なら `false`)。
 ///
@@ -676,8 +676,54 @@ pub struct TrashedEvent {
     pub expires_at: NaiveDateTime,
 }
 
-/// ゴミ箱の一覧 (削除した日時の新しい順、最大 [`TRASH_LIST_MAX`] 件)
-pub async fn list_trash(pool: &PgPool, guild_id: &str) -> sqlx::Result<Vec<TrashedEvent>> {
+/// ゴミ箱の一覧の続きを指す位置 (前のページの最後の予定)。文字列では `<deleted_at>_<id>`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrashCursor {
+    deleted_at: NaiveDateTime,
+    id: i32,
+}
+
+impl TrashCursor {
+    pub fn of(event: &TrashedEvent) -> Self {
+        Self {
+            deleted_at: event.deleted_at,
+            id: event.id,
+        }
+    }
+}
+
+impl std::fmt::Display for TrashCursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // 同じ秒に消した予定を飛ばさないよう、小数秒まで含める
+        write!(
+            f,
+            "{}_{}",
+            self.deleted_at.format("%Y-%m-%dT%H:%M:%S%.6f"),
+            self.id
+        )
+    }
+}
+
+impl std::str::FromStr for TrashCursor {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (deleted_at, id) = value.rsplit_once('_').ok_or(())?;
+        Ok(Self {
+            deleted_at: NaiveDateTime::parse_from_str(deleted_at, "%Y-%m-%dT%H:%M:%S%.f")
+                .map_err(|_| ())?,
+            id: id.parse().map_err(|_| ())?,
+        })
+    }
+}
+
+/// ゴミ箱の一覧 (削除した日時の新しい順に `limit` 件)。`after` を渡すとその予定より古いものから返す
+pub async fn list_trash(
+    pool: &PgPool,
+    guild_id: &str,
+    after: Option<&TrashCursor>,
+    limit: i64,
+) -> sqlx::Result<Vec<TrashedEvent>> {
     sqlx::query_as!(
         TrashedEvent,
         r#"
@@ -685,12 +731,15 @@ pub async fn list_trash(pool: &PgPool, guild_id: &str) -> sqlx::Result<Vec<Trash
                deleted_at + make_interval(days => $2) AS "expires_at!"
         FROM events
         WHERE guild_id = $1 AND deleted_at IS NOT NULL
+          AND ($3::timestamp IS NULL OR (deleted_at, id) < ($3, $4))
         ORDER BY deleted_at DESC, id DESC
-        LIMIT $3
+        LIMIT $5
         "#,
         guild_id,
         TRASH_RETENTION_DAYS as i32,
-        TRASH_LIST_MAX
+        after.map(|cursor| cursor.deleted_at),
+        after.map_or(0, |cursor| cursor.id),
+        limit
     )
     .fetch_all(pool)
     .await

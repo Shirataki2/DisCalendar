@@ -360,6 +360,7 @@ export const english: Readonly<
   "「{name}」を元に戻す": "Restore “{name}”",
   "「{name}」を完全に削除": "Permanently delete “{name}”",
   完全に削除: "Delete permanently",
+  さらに表示: "Show more",
   "完全に削除しますか？": "Delete permanently?",
   "「{name}」を完全に削除します。添付ファイル・共有リンク・変更履歴も消え、元に戻せなくなります。":
     "“{name}” will be permanently deleted, along with its attachments, share link, and change history. This cannot be undone.",
