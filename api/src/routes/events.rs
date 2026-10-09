@@ -12,7 +12,9 @@ use crate::{
     auth::AuthUser,
     discord::{DiscordClient, DiscordError, is_snowflake, scheduled_events::ScheduledEventPayload},
     error::{ApiError, ErrorBody},
+    event_history::{self, Action, Source},
     models::{
+        event_history::{self as history_model, EventHistoryEntry},
         event_links,
         events::{self, Event, EventInput},
         guilds, now_jst,
@@ -275,6 +277,16 @@ pub(crate) async fn create_for_member(
             &member.user.discord_user_id,
         )
         .await?;
+        event_history::record(
+            &mut tx,
+            guild_id,
+            row.id,
+            Some(&member.user.discord_user_id),
+            Source::Web,
+            Action::Create,
+            None,
+        )
+        .await?;
         let event = crate::recurring::decorate(&mut tx, Event::from(row)).await?;
         crate::webhook_outbox::enqueue(
             &mut tx,
@@ -315,6 +327,16 @@ pub(crate) async fn create_for_member(
         )
         .await?;
         event_links::insert(&mut *tx, guild_id, row.id, &scheduled_event_id, now_jst()).await?;
+        event_history::record(
+            &mut tx,
+            guild_id,
+            row.id,
+            Some(&member.user.discord_user_id),
+            Source::Web,
+            Action::Create,
+            None,
+        )
+        .await?;
         crate::webhook_outbox::enqueue(
             &mut tx,
             guild_id,
@@ -405,6 +427,12 @@ pub async fn update(
             let mut tx = state.pool.begin().await?;
             let previous_series =
                 crate::recurring_events::info(&mut tx, guild_id, path.event_id).await?;
+            // 同じギルドへの書き込みは `lock_writer` で直列化しているので、ロックせずに読んでよい。
+            // 「この回以降」は後続の回もまとめて変わるので、変わりうる回すべての変更前を読んでおく
+            let affected =
+                crate::recurring::affected_ids(&mut tx, guild_id, path.event_id, body.scope)
+                    .await?;
+            let befores = event_history::snapshots(&mut tx, guild_id, &affected).await?;
             if let Some(row) = crate::recurring::update(
                 &mut tx,
                 guild_id,
@@ -414,6 +442,15 @@ pub async fn update(
             )
             .await?
             {
+                event_history::record_many(
+                    &mut tx,
+                    guild_id,
+                    &with_befores(befores),
+                    Some(&member.user.discord_user_id),
+                    Source::Web,
+                    Action::Update,
+                )
+                .await?;
                 crate::webhook_outbox::enqueue_with_scope(
                     &mut tx,
                     guild_id,
@@ -452,6 +489,7 @@ pub async fn update(
         // 連携ありの経路でやり直す (そのまま書くと、連携先に反映されない値が入ってしまう)
         if old.discord_scheduled_event_id.is_none() && !discord_scheduled_event {
             let mut tx = state.pool.begin().await?;
+            let before = event_history::snapshot(&mut tx, guild_id, path.event_id).await?;
             if let Some(row) = events::update_if_unlinked(
                 &mut *tx,
                 guild_id,
@@ -462,6 +500,16 @@ pub async fn update(
             )
             .await?
             {
+                event_history::record(
+                    &mut tx,
+                    guild_id,
+                    row.id,
+                    Some(&member.user.discord_user_id),
+                    Source::Web,
+                    Action::Update,
+                    before.as_ref(),
+                )
+                .await?;
                 crate::webhook_outbox::enqueue(
                     &mut tx,
                     guild_id,
@@ -562,6 +610,7 @@ pub async fn update(
             if current.discord_scheduled_event_id != old.discord_scheduled_event_id {
                 return Ok(None);
             }
+            let before = event_history::snapshot(&mut tx, guild_id, path.event_id).await?;
             let mut row = events::update(
                 &mut *tx,
                 guild_id,
@@ -591,6 +640,16 @@ pub async fn update(
                 }
                 _ => {}
             }
+            event_history::record(
+                &mut tx,
+                guild_id,
+                row.id,
+                Some(&member.user.discord_user_id),
+                Source::Web,
+                Action::Update,
+                before.as_ref(),
+            )
+            .await?;
             crate::webhook_outbox::enqueue(
                 &mut tx,
                 guild_id,
@@ -697,6 +756,8 @@ pub async fn delete(
     .await?;
 
     crate::recurring::before_delete(&mut tx, guild_id, path.event_id, &options).await?;
+    // 変更履歴 (#165) は残さない: 予定の行と一緒に `ON DELETE CASCADE` で消えるため。
+    // ゴミ箱 (#159) で論理削除にしたら、ここで `Action::Delete` を記録する
     events::delete(&mut *tx, guild_id, path.event_id).await?;
     if let Err(err) = tx.commit().await {
         // COMMIT の応答だけ失われて、実際には消えていることがある。その場合に何もしないと
@@ -726,6 +787,47 @@ pub async fn delete(
     }
     tracing::info!(guild_id, event_id = path.event_id, user_id = %member.user.discord_user_id, "event deleted");
     Ok(HttpResponse::NoContent().finish())
+}
+
+/// [`event_history::snapshots`] の結果を [`event_history::record_many`] に渡す形にする
+pub(crate) fn with_befores(
+    befores: Vec<(i32, serde_json::Value)>,
+) -> Vec<(i32, Option<serde_json::Value>)> {
+    befores
+        .into_iter()
+        .map(|(id, before)| (id, Some(before)))
+        .collect()
+}
+
+/// 予定の変更履歴 (#165)。新しい順に最大 50 件。
+/// 閲覧は予定と同じくメンバー全員 (restricted モードは編集だけを制限する)。
+/// `guild_id` と `event_id` の組で絞るので、他ギルドの予定 ID を指定しても 404 になる
+#[utoipa::path(
+    tag = "events",
+    params(EventPath),
+    responses(
+        (status = 200, body = Vec<EventHistoryEntry>),
+        (status = 401, body = ErrorBody),
+        (status = 403, body = ErrorBody),
+        (status = 404, body = ErrorBody),
+    )
+)]
+#[get("/{guild_id}/{event_id}/history")]
+pub async fn history(
+    member: GuildMember,
+    path: web::Path<EventPath>,
+    state: web::Data<AppState>,
+) -> Result<web::Json<Vec<EventHistoryEntry>>, ApiError> {
+    let guild_id = member.guild_id();
+    if events::find_by_id(&state.pool, guild_id, path.event_id)
+        .await?
+        .is_none()
+    {
+        return Err(ApiError::NotFound("event not found".into()));
+    }
+    Ok(web::Json(
+        history_model::list(&state.pool, guild_id, path.event_id).await?,
+    ))
 }
 
 /// restricted モードのギルドでは管理権限または編集ロールを持つユーザーが予定を編集できる。

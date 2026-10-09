@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type {
   Guild,
@@ -184,6 +189,40 @@ export function useMemberProfilesQuery(
     enabled: enabled && uniqueIds.length > 0,
     staleTime: 60_000,
     retry: false,
+  });
+}
+
+/** `/guilds/{id}/members` が一度に受け付ける ID の数 */
+const MEMBER_PROFILES_MAX_IDS = 20;
+
+/**
+ * [`useMemberProfilesQuery`] の上限 (20 件) を超えうる ID を、20 件ずつに分けて解決する (変更履歴 #165 の操作者など)。
+ * `data` は取得できた分だけを返す。`isPending` はどれかがまだ読み込み中、`isError` はどれかが失敗
+ */
+export function useMemberProfilesInChunks(
+  guildId: string,
+  ids: string[],
+  enabled: boolean,
+) {
+  const uniqueIds = [...new Set(ids)];
+  const chunks: string[][] = [];
+  for (let i = 0; i < uniqueIds.length; i += MEMBER_PROFILES_MAX_IDS) {
+    chunks.push(uniqueIds.slice(i, i + MEMBER_PROFILES_MAX_IDS).sort());
+  }
+  return useQueries({
+    queries: chunks.map((chunk) => ({
+      queryKey: queryKeys.guild.members(guildId, chunk),
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        api.guilds.members(guildId, chunk, signal),
+      enabled,
+      staleTime: 60_000,
+      retry: false,
+    })),
+    combine: (results) => ({
+      data: results.flatMap((result) => result.data ?? []),
+      isPending: results.some((result) => result.isPending),
+      isError: results.some((result) => result.isError),
+    }),
   });
 }
 

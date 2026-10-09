@@ -13,6 +13,15 @@ export const queryKeys = {
     event: (guildId: string, eventId: number) =>
       ["attachments", guildId, eventId] as const,
   },
+  /**
+   * 予定の変更履歴 (#165)。予定一覧 (`["events", guildId, ...]`) の前方一致に混ぜると
+   * 一覧向けの `setQueriesData` に巻き込まれるので、別の先頭キーにする
+   */
+  eventHistory: {
+    all: (guildId: string) => ["event-history", guildId] as const,
+    event: (guildId: string, eventId: number) =>
+      ["event-history", guildId, eventId] as const,
+  },
   events: {
     all: (guildId: string) => ["events", guildId] as const,
     range: (guildId: string, start: string, end: string) =>

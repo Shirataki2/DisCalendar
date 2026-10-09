@@ -291,6 +291,10 @@ async fn write(
         }
         Some(row)
     };
+    let history_before = match &old {
+        Some(row) => crate::event_history::snapshot(&mut tx, &input.guild_id, row.id).await?,
+        None => None,
+    };
     if action == "delete" && !input.changes.is_empty() {
         return Err(ApiError::BadRequest(
             "delete does not accept changes".into(),
@@ -384,6 +388,23 @@ async fn write(
     let event_id = row.id;
     if action != "delete" && !desired && linked.is_some() {
         crate::models::event_links::delete(&mut *tx, &input.guild_id, event_id).await?;
+    }
+    // 削除は履歴を残さない (予定と一緒に消えるため。routes/events.rs の delete を参照)
+    if action != "delete" {
+        crate::event_history::record(
+            &mut tx,
+            &input.guild_id,
+            event_id,
+            Some(&user.discord_user_id),
+            crate::event_history::Source::Mcp,
+            if action == "create" {
+                crate::event_history::Action::Create
+            } else {
+                crate::event_history::Action::Update
+            },
+            history_before.as_ref(),
+        )
+        .await?;
     }
     if action != "delete" {
         crate::webhook_outbox::enqueue(
@@ -571,11 +592,24 @@ async fn reflect(
         sqlx::query("UPDATE mcp_event_operations SET discord_event_id=$5, result=jsonb_set(result,'{discord_event_id}',to_jsonb($5::text)) WHERE user_id=$1 AND client_id=$2 AND guild_id=$3 AND key_hash=$4")
             .bind(&user.sub).bind(&user.client_id).bind(guild).bind(key(input)?).bind(&sid).execute(&state.pool).await?;
         let mut tx = state.pool.begin().await?;
+        let before = crate::event_history::snapshot(&mut tx, guild, id).await?;
         if linked.is_some() {
             event_links::set_scheduled_event_id(&mut *tx, guild, id, &sid).await?;
         } else {
             event_links::insert(&mut *tx, guild, id, &sid, now_jst()).await?;
         }
+        // 予定の保存 (`write`) の時点ではまだ連携していないので、連携が確定したこの時点で
+        // 変更履歴 (#165) にも残す (連携先の付け替えだけなら内容は変わらず、記録されない)
+        crate::event_history::record(
+            &mut tx,
+            guild,
+            id,
+            Some(&user.discord_user_id),
+            crate::event_history::Source::Mcp,
+            crate::event_history::Action::Update,
+            before.as_ref(),
+        )
+        .await?;
         // 保存時の通知とは別に、確定した連携IDを同じトランザクションで通知する。
         crate::webhook_outbox::enqueue(&mut tx, guild, id, "event.updated", &user.discord_user_id)
             .await?;

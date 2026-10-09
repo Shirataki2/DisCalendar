@@ -15,6 +15,8 @@ pub mod discord;
 #[path = "../../shared/discord_datetime.rs"]
 pub mod discord_datetime;
 pub mod error;
+#[path = "../../shared/event_history.rs"]
+pub mod event_history;
 pub mod external_calendars;
 pub mod ical;
 pub mod ical_import;

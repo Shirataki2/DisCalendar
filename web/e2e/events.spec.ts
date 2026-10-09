@@ -182,6 +182,40 @@ test("ドラッグで別の日に移動すると API に保存される", async 
   await expect(eventOn(dayCell(page, target), editedTitle)).toBeVisible();
 });
 
+test("変更履歴に作成・編集・ドラッグでの変更が差分で出る (#165)", async ({
+  page,
+}) => {
+  const popover = await openEventPopover(page, editedTitle);
+  const loaded = page.waitForResponse(
+    (res) =>
+      res.url().includes(`/local/api/events/${guildId}/`) &&
+      res.url().endsWith("/history"),
+  );
+  await popover.getByRole("button", { name: "変更履歴" }).click();
+  expect((await loaded).status()).toBe(200);
+  const dialog = page.getByRole("dialog", { name: "変更履歴" });
+  await expect(dialog).toBeVisible();
+
+  const entries = dialog.getByTestId("event-history").locator(":scope > li");
+  // 新しい順: ドラッグ → 編集 → 作成
+  await expect(entries).toHaveCount(3);
+  await expect(entries.nth(0)).toContainText(E2E_USER.name);
+  await expect(entries.nth(0)).toContainText("日時:");
+  await expect(entries.nth(0)).not.toContainText("タイトル:");
+  await expect(entries.nth(1)).toContainText(
+    `タイトル: 「${createdTitle}」→「${editedTitle}」`,
+  );
+  await expect(entries.nth(1)).toContainText(
+    "場所: なし → https://meet.example.com/e2e-room",
+  );
+  await expect(entries.nth(1)).toContainText("説明を変更");
+  await expect(entries.nth(1)).not.toContainText("日時:");
+  await expect(entries.nth(2)).toContainText("予定を作成しました");
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+});
+
 test("保存に失敗したドラッグは元の位置に戻り、エラーが表示される", async ({
   page,
 }) => {

@@ -94,6 +94,21 @@ export function useJoinedEventsQuery(
   });
 }
 
+/** 予定の変更履歴 (#165)。履歴ダイアログを開いている間だけ取得する */
+export function useEventHistoryQuery(
+  guildId: string,
+  eventId: number,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: queryKeys.eventHistory.event(guildId, eventId),
+    queryFn: ({ signal }) => api.eventHistory(guildId, eventId, signal),
+    enabled,
+    // 他の人の変更も拾えるよう、開くたびに取り直す
+    staleTime: 0,
+  });
+}
+
 /**
  * 予定一覧と、同じ予定を見ている他のキャッシュ (`keys.onChanged`: もう一方の一覧、
  * `keys.onCountChanged`: 件数に依存するもの) をまとめて無効化する。
@@ -105,7 +120,12 @@ export function invalidateEvents(
   guildId: string,
   countChanged: boolean,
 ) {
-  const targets = [keys.all(guildId), ...(keys.onChanged?.(guildId) ?? [])];
+  const targets = [
+    keys.all(guildId),
+    ...(keys.onChanged?.(guildId) ?? []),
+    // 変更履歴 (#165) は変更のたびに 1 行増える。開いていない予定の分もまとめて捨てる
+    queryKeys.eventHistory.all(guildId),
+  ];
   if (countChanged) {
     // 予定削除は添付も削除する。通常・管理画面の一括削除で使用量を古いままにしない。
     targets.push(queryKeys.attachments.all(guildId));

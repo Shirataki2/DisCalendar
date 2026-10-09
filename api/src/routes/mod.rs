@@ -93,6 +93,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(attachments::read_url)
                 .service(attachments::remove)
                 .service(events::list_joined)
+                .service(events::history)
                 .service(shares::get_share)
                 .service(shares::issue_share)
                 .service(shares::revoke_share)

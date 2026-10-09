@@ -80,6 +80,16 @@ pub async fn create(pool: &PgPool, event: &NewEvent<'_>) -> sqlx::Result<Event> 
     )
     .fetch_one(&mut *tx)
     .await?;
+    crate::event_history::record(
+        &mut tx,
+        event.guild_id,
+        row.id,
+        Some(event.created_by),
+        crate::event_history::Source::Bot,
+        crate::event_history::Action::Create,
+        None,
+    )
+    .await?;
     crate::webhook_outbox::enqueue(
         &mut tx,
         event.guild_id,

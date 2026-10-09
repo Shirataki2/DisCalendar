@@ -51,6 +51,7 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | POST | `/events/{guild_id}/recurrence/preview` | 保存せず直近3回を確認 |
 | PUT | `/events/{guild_id}/{event_id}` | 予定の更新 |
 | DELETE | `/events/{guild_id}/{event_id}` | 予定の削除 (204) |
+| GET | `/events/{guild_id}/{event_id}/history` | 予定の変更履歴 (#165。`event_history`、新しい順に 50 件)。閲覧はメンバー全員。作成・更新 (web / 管理コンソール / MCP / ICS 取り込み、Bot の `/create`) が書き込みと同じトランザクションで 1 行ずつ残す |
 | GET / POST / DELETE | `/events/{guild_id}/{event_id}/share` | 予定の共有リンクの取得 (未発行なら null)・発行・無効化。すべて予定の編集権限が必要。再コピーは同じ URL を返す |
 | GET | `/share/{token}` | 認証不要の予定閲覧。タイトル・説明・日時・サーバー ID / 名前 / アイコンのみ。失効・削除・Bot 退出で 404 |
 | GET | `/admin/me` | 管理者の確認 (`ADMIN_DISCORD_USER_IDS` 以外は 403)。`/admin/*` は管理コンソール用で、ギルドのメンバーシップを見ない代わりにホワイトリストで制限する (#33) |
