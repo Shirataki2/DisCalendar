@@ -8,7 +8,6 @@ import {
 
 const base: EventSnapshot = {
   name: "定例",
-  description_hash: null,
   location: null,
   color: "#2196F3",
   is_all_day: false,
@@ -17,6 +16,7 @@ const base: EventSnapshot = {
   notifications: [{ num: 10, unit: "minutes" }],
   notification_mentions: [],
   discord_linked: false,
+  recurrence: null,
 };
 
 function entry(
@@ -73,7 +73,7 @@ describe("diffEventSnapshots", () => {
   test("説明・場所・メンション先の変更を拾う", () => {
     const after: EventSnapshot = {
       ...base,
-      description_hash: "5d41402abc4b2a76b9719d911017c592",
+      description_changed: true,
       location: "会議室 A",
       notification_mentions: [{ type: "everyone" }],
     };
@@ -81,6 +81,31 @@ describe("diffEventSnapshots", () => {
       { field: "location", before: null, after: "会議室 A" },
       { field: "description" },
       { field: "mentions" },
+    ]);
+  });
+});
+
+describe("diffEventSnapshots (繰り返し)", () => {
+  test("繰り返し条件の変更を拾い、説明は after の印だけで判断する", () => {
+    const before = {
+      ...base,
+      recurrence: {
+        frequency: "weekly",
+        weekdays: [0],
+        end: { type: "count" },
+      },
+    };
+    const after = {
+      ...before,
+      recurrence: {
+        frequency: "biweekly",
+        weekdays: [0],
+        end: { type: "count" },
+      },
+      description_changed: false,
+    };
+    expect(diffEventSnapshots(before, after)).toEqual([
+      { field: "recurrence" },
     ]);
   });
 });

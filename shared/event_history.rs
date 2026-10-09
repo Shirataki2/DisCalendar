@@ -5,8 +5,10 @@
 //! スナップショットは SQL の中で `events` の行から組み立てるので、api と bot で中身の形が揃う。
 //! 日時は `events` と同じ JST naive の文字列 (`YYYY-MM-DDTHH:MM:SS`)、`notifications` は
 //! `events.notifications` の JSONB (`[{num, unit}]`) をそのまま入れる。
-//! 説明は本文を残さず、変わったかどうかだけ分かるハッシュ (`description_hash`) にする。
+//! 説明は本文もハッシュも残さず、更新の after に「説明が変わったか」(`description_changed`) だけを入れる。
 //! 履歴はメンバー全員が読めるので、説明から消した内容を履歴から取り出せないようにするため
+//! (短い合言葉などは、無ソルトのハッシュでも候補を総当たりすれば分かってしまう)。
+//! 比べるためのハッシュ (`description_hash`) はスナップショットを読んでから書くまでの間だけ持ち、保存前に取り除く
 use serde_json::Value;
 use sqlx::{PgConnection, PgPool};
 
@@ -15,7 +17,10 @@ pub const MAX_PER_EVENT: i64 = 100;
 /// 保持期間。過ぎた行は bot の定期タスクが [`prune_expired`] で消す
 pub const RETENTION_DAYS: i32 = 180;
 
-/// 予定 1 件 (`events e`) のスナップショットを作る式。`discord_linked` は Discord スケジュールイベントとの連携 (#94) の有無
+/// 予定 1 件 (`events e`) のスナップショットを作る式。`discord_linked` は Discord スケジュールイベントとの連携 (#94) の有無。
+/// `recurrence` は所属するシリーズの繰り返し条件 (単発なら null)。回数で終わる条件は回数を除く:
+/// 「この回以降」の分割では、回数を変えなくても消化済みの回を引いた残り回数がシリーズに入るため、
+/// 回数まで比べると利用者が変えていない変更が履歴に出てしまう
 macro_rules! snapshot_sql {
     () => {
         "jsonb_build_object(
@@ -28,7 +33,13 @@ macro_rules! snapshot_sql {
             'end_at', to_char(e.end_at, 'YYYY-MM-DD\"T\"HH24:MI:SS'),
             'notifications', e.notifications,
             'notification_mentions', e.notification_mentions,
-            'discord_linked', EXISTS (SELECT 1 FROM event_discord_links l WHERE l.event_id = e.id)
+            'discord_linked', EXISTS (SELECT 1 FROM event_discord_links l WHERE l.event_id = e.id),
+            'recurrence', (
+                SELECT CASE WHEN s.recurrence->'end'->>'type' = 'count'
+                            THEN jsonb_set(s.recurrence, '{end}', '{\"type\": \"count\"}')
+                            ELSE s.recurrence END
+                FROM event_series s WHERE s.id = e.series_id
+            )
         )"
     };
 }
@@ -149,16 +160,25 @@ pub async fn record_many(
         return Ok(());
     }
     let (ids, befores): (Vec<i32>, Vec<Option<Value>>) = entries.iter().cloned().unzip();
+    // 説明のハッシュは比べるためだけに使い、保存する before / after からは取り除く
     let recorded: Vec<i32> = sqlx::query_scalar(concat!(
-        "INSERT INTO event_history (event_id, guild_id, actor_discord_user_id, source, action, before, after)
-         SELECT e.id, e.guild_id, $3, $4, $5, b.before, CASE WHEN $5 = 'delete' THEN NULL ELSE ",
+        "WITH changed AS (
+             SELECT e.id, e.guild_id, b.before, ",
         snapshot_sql!(),
-        " END
-         FROM UNNEST($1::int[], $6::jsonb[]) AS b(event_id, before)
-         JOIN events e ON e.id = b.event_id AND e.guild_id = $2
-         WHERE $5 <> 'update' OR b.before IS DISTINCT FROM ",
-        snapshot_sql!(),
-        " RETURNING event_id"
+        " AS snap
+             FROM UNNEST($1::int[], $6::jsonb[]) AS b(event_id, before)
+             JOIN events e ON e.id = b.event_id AND e.guild_id = $2
+         )
+         INSERT INTO event_history (event_id, guild_id, actor_discord_user_id, source, action, before, after)
+         SELECT c.id, c.guild_id, $3, $4, $5, c.before - 'description_hash',
+                CASE WHEN $5 = 'delete' THEN NULL
+                     ELSE (c.snap - 'description_hash') || jsonb_build_object(
+                         'description_changed',
+                         c.before IS NOT NULL AND c.before->'description_hash' IS DISTINCT FROM c.snap->'description_hash')
+                END
+         FROM changed c
+         WHERE $5 <> 'update' OR c.before IS DISTINCT FROM c.snap
+         RETURNING event_id"
     ))
     .bind(&ids)
     .bind(guild_id)

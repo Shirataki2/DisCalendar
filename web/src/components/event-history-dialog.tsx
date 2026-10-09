@@ -268,6 +268,8 @@ function ChangeLine({
         </>
       );
     }
+    case "recurrence":
+      return <>{t("繰り返しの設定を変更")}</>;
     case "mentions":
       return <>{t("通知のメンション先を変更")}</>;
     case "discord":

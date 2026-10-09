@@ -109,7 +109,6 @@ async fn create_and_update_record_snapshots(pool: PgPool) {
         created.after,
         Some(json!({
             "name": "定例",
-            "description_hash": null,
             "location": null,
             "color": "#2196F3",
             "is_all_day": false,
@@ -118,11 +117,23 @@ async fn create_and_update_record_snapshots(pool: PgPool) {
             "notifications": [{"num": 10, "unit": "minutes"}],
             "notification_mentions": [],
             "discord_linked": false,
+            "recurrence": null,
+            "description_changed": false,
         }))
     );
 
     assert_eq!(updated.action, "update");
-    assert_eq!(updated.before, created.after);
+    // before は変更前のスナップショットそのもの (after だけが持つ description_changed は無い)
+    let mut created_after = created.after.clone().unwrap();
+    created_after
+        .as_object_mut()
+        .unwrap()
+        .remove("description_changed");
+    assert_eq!(updated.before, Some(created_after));
+    assert_eq!(
+        updated.after.as_ref().unwrap()["description_changed"],
+        false
+    );
     let after = updated.after.as_ref().unwrap();
     assert_eq!(after["name"], "定例 (延期)");
     assert_eq!(after["start_at"], "2026-09-06T21:00:00");
@@ -278,24 +289,22 @@ async fn description_text_is_not_kept(pool: PgPool) {
 
     let entries = history::list(&pool, GUILD, id).await.unwrap();
     assert_eq!(entries.len(), 3);
-    // 説明を消した変更も履歴に残るが、消した本文はどこにも入らない
-    let expected: String = sqlx::query_scalar("SELECT md5('合言葉は 1234')")
+    // 説明を足した変更も消した変更も「説明が変わった」とだけ残り、本文もハッシュもどこにも入らない
+    for entry in &entries[..2] {
+        assert_eq!(entry.after.as_ref().unwrap()["description_changed"], true);
+    }
+    let digest: String = sqlx::query_scalar("SELECT md5('合言葉は 1234')")
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        entries[0].before.as_ref().unwrap()["description_hash"],
-        json!(expected)
-    );
-    assert_eq!(
-        entries[0].after.as_ref().unwrap()["description_hash"],
-        json!(null)
-    );
-    let raw: String =
-        sqlx::query_scalar("SELECT string_agg(before::text || after::text, '') FROM event_history")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let raw: String = sqlx::query_scalar(
+        "SELECT string_agg(COALESCE(before::text, '') || COALESCE(after::text, ''), '') FROM event_history",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!raw.contains(&digest));
+    assert!(!raw.contains("description_hash"));
     assert!(!raw.contains("合言葉"));
 }
 
@@ -381,4 +390,86 @@ async fn future_scope_updates_are_recorded_on_every_changed_occurrence(pool: PgP
             assert_eq!(entries[0].after.as_ref().unwrap()["name"], "定例 (新)");
         }
     }
+}
+
+/// 繰り返し条件だけを変えた「この回以降」の変更も履歴に残る (回数は比べない)
+#[sqlx::test(migrations = "./migrations")]
+async fn recurrence_rule_changes_are_recorded(pool: PgPool) {
+    let body: EventInput = serde_json::from_value(json!({
+        "name": "定例", "color": "#2196F3",
+        "start_at": "2026-09-21T19:30:00", "end_at": "2026-09-21T21:00:00",
+        "recurrence_rule": {"frequency": "weekly", "weekdays": [0], "end": {"type": "count", "count": 6}}
+    }))
+    .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let row = events::create(&mut *tx, GUILD, &body, body.start_at, ACTOR)
+        .await
+        .unwrap();
+    recurring::attach_created(&mut tx, GUILD, row.id, &body, ACTOR)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    // 回数だけ変える → 比べないので残らない。毎週 → 隔週 → 残る
+    for (rule, expected) in [
+        (
+            json!({"frequency": "weekly", "weekdays": [0], "end": {"type": "count", "count": 9}}),
+            0,
+        ),
+        (
+            json!({"frequency": "biweekly", "weekdays": [0], "end": {"type": "count", "count": 9}}),
+            1,
+        ),
+    ] {
+        let mut tx = pool.begin().await.unwrap();
+        let info = recurring_events::info(&mut tx, GUILD, row.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut change = body.clone();
+        change.scope = ChangeScope::Future;
+        change.expected_series_version = Some(info.version);
+        change.recurrence = Some(serde_json::from_value(rule).unwrap());
+        let before = event_history::snapshots(&mut tx, GUILD, &[row.id])
+            .await
+            .unwrap();
+        recurring::update(&mut tx, GUILD, row.id, &change, ACTOR)
+            .await
+            .unwrap()
+            .unwrap();
+        event_history::record_many(
+            &mut tx,
+            GUILD,
+            &before
+                .into_iter()
+                .map(|(id, before)| (id, Some(before)))
+                .collect::<Vec<_>>(),
+            Some(ACTOR),
+            Source::Web,
+            Action::Update,
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let updates = history::list(&pool, GUILD, row.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|entry| entry.action == "update")
+            .count();
+        assert_eq!(updates, expected);
+    }
+    let latest = &history::list(&pool, GUILD, row.id).await.unwrap()[0];
+    assert_eq!(
+        latest.before.as_ref().unwrap()["recurrence"]["frequency"],
+        "weekly"
+    );
+    assert_eq!(
+        latest.after.as_ref().unwrap()["recurrence"]["frequency"],
+        "biweekly"
+    );
+    assert_eq!(
+        latest.after.as_ref().unwrap()["recurrence"]["end"],
+        json!({"type": "count"})
+    );
 }

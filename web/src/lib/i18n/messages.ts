@@ -160,6 +160,7 @@ export const english: Readonly<
   "日時: {before} → {after}": "Date & time: {before} → {after}",
   "場所: {before} → {after}": "Location: {before} → {after}",
   説明を変更: "Changed the description",
+  繰り返しの設定を変更: "Changed the repeat settings",
   "色:": "Color:",
   "通知: {before} → {after}": "Reminders: {before} → {after}",
   通知のメンション先を変更: "Changed who is mentioned in reminders",

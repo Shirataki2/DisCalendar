@@ -13,6 +13,7 @@ export type EventHistoryChange =
     }
   | { field: "location"; before: string | null; after: string | null }
   | { field: "description" }
+  | { field: "recurrence" }
   | { field: "color"; before: string; after: string }
   | {
       field: "notifications";
@@ -50,7 +51,7 @@ export function diffEventSnapshots(
       after: after.location ?? null,
     });
   }
-  if (!same(before.description_hash, after.description_hash)) {
+  if (after.description_changed) {
     changes.push({ field: "description" });
   }
   if (before.color.toLowerCase() !== after.color.toLowerCase()) {
@@ -65,6 +66,9 @@ export function diffEventSnapshots(
   }
   if (!same(before.notification_mentions, after.notification_mentions)) {
     changes.push({ field: "mentions" });
+  }
+  if (!same(before.recurrence, after.recurrence)) {
+    changes.push({ field: "recurrence" });
   }
   if (Boolean(before.discord_linked) !== Boolean(after.discord_linked)) {
     changes.push({ field: "discord", after: Boolean(after.discord_linked) });

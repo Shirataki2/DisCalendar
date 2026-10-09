@@ -70,11 +70,6 @@ export interface ApiEvent {
  */
 export interface EventSnapshot {
   name: string;
-  /**
-   * 説明の MD5 (説明が無ければ null)。履歴はメンバー全員が読めるので本文は残さず、
-   * 変わったかどうかだけを比べられるようにしている
-   */
-  description_hash: string | null;
   location: string | null;
   color: string;
   is_all_day: boolean;
@@ -84,6 +79,13 @@ export interface EventSnapshot {
   notification_mentions: NotificationMention[];
   /** Discord のスケジュールイベントと連携しているか (#94) */
   discord_linked: boolean;
+  /** 所属する繰り返しの条件 (単発なら null)。回数で終わる条件は回数を含まない */
+  recurrence: unknown;
+  /**
+   * 更新の after にだけ入る「説明が変わったか」。履歴はメンバー全員が読めるので、
+   * 説明は本文もハッシュも返さない
+   */
+  description_changed?: boolean;
 }
 
 /** 予定の変更履歴 1 件 (`GET /events/{guild_id}/{event_id}/history`、新しい順) */
