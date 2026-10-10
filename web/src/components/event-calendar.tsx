@@ -15,6 +15,7 @@ import {
   ChevronDownIcon,
   FileUpIcon,
   PlusIcon,
+  XIcon,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -103,6 +104,7 @@ import {
   useCreateEvent,
   useDeleteEvent,
   useEventsQuery,
+  useRestoreEvent,
   useUpdateEvent,
 } from "@/lib/query/events";
 import { useExternalEvents } from "@/lib/query/external-calendars";
@@ -145,6 +147,9 @@ interface PopoverState {
   eventId: number;
   anchor: PopoverAnchor;
 }
+
+/** 削除直後の「元に戻す」の表示時間 (#159)。読んでから押せるよう長めにする */
+const UNDO_NOTICE_MS = 10_000;
 
 interface QuickAddState {
   id: number;
@@ -301,6 +306,8 @@ export function EventCalendar({
   const [dialog, setDialog] = useState<EventDialogState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiEvent | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
+  // 削除直後の「元に戻す」(#159)。対象は直前に消した 1 件だけ
+  const [undo, setUndo] = useState<{ id: number; name: string } | null>(null);
   const [importDefaultColor, setImportDefaultColor] = useState<string | null>(
     null,
   );
@@ -343,6 +350,12 @@ export function EventCalendar({
   const createEvent = useCreateEvent(guildId, eventsSource);
   const updateEvent = useUpdateEvent(guildId, eventsSource);
   const deleteEvent = useDeleteEvent(guildId, eventsSource);
+  const restoreEvent = useRestoreEvent(guildId);
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), UNDO_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [undo]);
 
   const events = useMemo(() => {
     const current = (eventsQuery.data ?? []).map((event) => ({
@@ -596,17 +609,34 @@ export function EventCalendar({
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
-    const { id } = deleteTarget;
+    const { id, name } = deleteTarget;
     setDeleteTarget(null);
     setPopover(null);
     setDialog(null);
     setActionError(null);
+    setUndo(null);
     try {
       await deleteEvent.mutateAsync({
         id,
         scope: deleteScope,
         expected_series_version: deleteTarget.recurrence?.version,
       });
+      // 「この回以降」の削除はまとめて消えるので元に戻せない。
+      // 管理コンソールには復元の API が無い (サーバー設定の「削除した予定」から戻す)
+      if (deleteScope === "this" && eventsSource === dashboardEventsSource)
+        setUndo({ id, name });
+    } catch (error) {
+      setActionError(error);
+    }
+  };
+
+  const undoDelete = async () => {
+    if (!undo) return;
+    const { id } = undo;
+    setUndo(null);
+    setActionError(null);
+    try {
+      await restoreEvent.mutateAsync(id);
     } catch (error) {
       setActionError(error);
     }
@@ -937,9 +967,18 @@ export function EventCalendar({
             <AlertDialogHeader>
               <AlertDialogTitle>{t("予定を削除しますか？")}</AlertDialogTitle>
               <AlertDialogDescription>
-                {t("「{name}」を削除します。この操作は取り消せません。", {
-                  name: deleteShown?.name ?? "",
-                })}
+                {deleteTarget?.recurrence && deleteScope === "future"
+                  ? t("「{name}」を削除します。この操作は取り消せません。", {
+                      name: deleteShown?.name ?? "",
+                    })
+                  : eventsSource.keepsTrash
+                    ? t(
+                        "「{name}」を削除します。削除してから 30 日間は、サーバー設定の「削除した予定」から元に戻せます。",
+                        { name: deleteShown?.name ?? "" },
+                      )
+                    : t("「{name}」を削除します。", {
+                        name: deleteShown?.name ?? "",
+                      })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             {deleteTarget?.recurrence && (
@@ -979,6 +1018,37 @@ export function EventCalendar({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        {undo && (
+          <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+            <div
+              role="status"
+              className="pointer-events-auto flex max-w-full items-center gap-3 rounded-lg border bg-popover py-2 pr-2 pl-4 text-sm text-popover-foreground shadow-lg"
+            >
+              <span className="min-w-0 break-words">
+                {t("「{name}」を削除しました", { name: undo.name })}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={undoDelete}
+              >
+                {t("元に戻す")}
+              </Button>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                className="shrink-0"
+                aria-label={t("閉じる")}
+                onClick={() => setUndo(null)}
+              >
+                <XIcon />
+              </Button>
+            </div>
+          </div>
+        )}
         <AlertDialog
           open={scopeRequest !== null}
           onOpenChange={(open) => {

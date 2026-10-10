@@ -458,14 +458,14 @@ pub async fn event_creation<'e>(
     let row = sqlx::query!(
         r#"
         SELECT
-            (SELECT count(*) FROM events) AS "total!",
+            (SELECT count(*) FROM events WHERE deleted_at IS NULL) AS "total!",
             count(*) FILTER (WHERE created_at >= $1 AND created_at <= $7) AS "day!",
             count(*) FILTER (WHERE created_at >= $2 AND created_at < $1) AS "day_prev!",
             count(*) FILTER (WHERE created_at >= $3 AND created_at <= $7) AS "week!",
             count(*) FILTER (WHERE created_at >= $4 AND created_at < $3) AS "week_prev!",
             count(*) FILTER (WHERE created_at >= $5 AND created_at <= $7) AS "month!",
             count(*) FILTER (WHERE created_at >= $6 AND created_at < $5) AS "month_prev!",
-            (SELECT count(*) FROM events WHERE is_all_day) AS "all_day!"
+            (SELECT count(*) FROM events WHERE is_all_day AND deleted_at IS NULL) AS "all_day!"
         FROM event_creations
         "#,
         day,
@@ -508,7 +508,7 @@ pub async fn notification_stats<'e>(executor: impl PgExecutor<'e>) -> sqlx::Resu
     let mut rows = sqlx::query!(
         r#"
         SELECT start_at, is_all_day, notifications
-        FROM events WHERE jsonb_array_length(notifications) > 0
+        FROM events WHERE jsonb_array_length(notifications) > 0 AND deleted_at IS NULL
         "#
     )
     .fetch(executor);

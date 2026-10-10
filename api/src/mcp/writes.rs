@@ -381,7 +381,15 @@ async fn write(
                 &user.discord_user_id,
             )
             .await?;
-            events::delete(&mut *tx, &input.guild_id, row.id).await?;
+            // ゴミ箱 (#159) に入れる。繰り返し予定の回は上で「中止」を記録済みで、ここでシリーズから外れる
+            events::soft_delete(
+                &mut tx,
+                &input.guild_id,
+                row.id,
+                &user.discord_user_id,
+                now_jst(),
+            )
+            .await?;
             row
         }
     };
@@ -389,23 +397,20 @@ async fn write(
     if action != "delete" && !desired && linked.is_some() {
         crate::models::event_links::delete(&mut *tx, &input.guild_id, event_id).await?;
     }
-    // 削除は履歴を残さない (予定と一緒に消えるため。routes/events.rs の delete を参照)
-    if action != "delete" {
-        crate::event_history::record(
-            &mut tx,
-            &input.guild_id,
-            event_id,
-            Some(&user.discord_user_id),
-            crate::event_history::Source::Mcp,
-            if action == "create" {
-                crate::event_history::Action::Create
-            } else {
-                crate::event_history::Action::Update
-            },
-            history_before.as_ref(),
-        )
-        .await?;
-    }
+    crate::event_history::record(
+        &mut tx,
+        &input.guild_id,
+        event_id,
+        Some(&user.discord_user_id),
+        crate::event_history::Source::Mcp,
+        match action {
+            "create" => crate::event_history::Action::Create,
+            "delete" => crate::event_history::Action::Delete,
+            _ => crate::event_history::Action::Update,
+        },
+        history_before.as_ref(),
+    )
+    .await?;
     if action != "delete" {
         crate::webhook_outbox::enqueue(
             &mut tx,

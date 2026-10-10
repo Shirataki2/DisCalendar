@@ -386,6 +386,14 @@ test("確定時のR2障害・差し替えと予定削除との競合でも未検
     expect((await finishing).status()).toBe(200);
     expect((await deleting).status()).toBe(204);
     expect((await page.request.get(base)).status()).toBe(404);
+    // 削除はゴミ箱 (#159) に入るだけで、添付ファイルは元に戻せるよう残す。完全に削除すると実体も回収する
+    expect(
+      (
+        await page.request.delete(
+          `/local/api/events/${guild}/${event.id}/purge`,
+        )
+      ).status(),
+    ).toBe(204);
     const queued = await pool.query(
       "SELECT object_key FROM attachment_deletions WHERE object_key IN ($1,$2)",
       [`temporary/${first.id}`, `attachments/${first.id}`],

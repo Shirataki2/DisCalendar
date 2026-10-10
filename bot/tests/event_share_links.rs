@@ -75,6 +75,30 @@ async fn reads_only_published_links_for_the_event_and_guild(pool: PgPool) {
         .execute(&pool)
         .await
         .unwrap();
+    // ゴミ箱 (#159) の予定の共有リンクは通知に載せない (行は残るので、復元すれば同じ URL で戻る)
+    sqlx::query("UPDATE events SET deleted_at = '2026-09-01 00:00:00' WHERE id = $1")
+        .bind(event.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        event_share_links::get_token(&pool, "123", event.id)
+            .await
+            .unwrap(),
+        None
+    );
+    sqlx::query("UPDATE events SET deleted_at = NULL WHERE id = $1")
+        .bind(event.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        event_share_links::get_token(&pool, "123", event.id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(token.as_str())
+    );
     sqlx::query("DELETE FROM events WHERE id = $1")
         .bind(event.id)
         .execute(&pool)

@@ -467,18 +467,25 @@ pub async fn update(
         .map_err(Into::into)
 }
 
+/// 予定を削除する前のシリーズ側の処理。戻り値は「この回以降」の削除だったか。
+///
+/// - この回のみ (`false`): 開催枠を「中止」として記録する。対象の回は呼び出し側がゴミ箱 (#159) に入れる
+/// - この回以降 (`true`): シリーズを打ち切り、後続の回を消す。対象の回も呼び出し側が行ごと消す
+///   ([`events::delete_permanently`]。まとめて消える操作なので、ゴミ箱には入れない)
+///
+/// 単発の予定は何もせず `false`
 pub async fn before_delete(
     conn: &mut PgConnection,
     guild: &str,
     id: i32,
     options: &DeleteOptions,
-) -> Result<(), ApiError> {
+) -> Result<bool, ApiError> {
     let Some(series) = store::lock_for_event(conn, guild, id).await? else {
-        return Ok(());
+        return Ok(false);
     };
     if options.scope == ChangeScope::This {
         store::record_exception(conn, guild, id, true).await?;
-        return Ok(());
+        return Ok(false);
     }
     check_version(&series, options.expected_series_version)?;
     let info = store::info(conn, guild, id)
@@ -495,7 +502,7 @@ pub async fn before_delete(
         .bind(id)
         .execute(conn)
         .await?;
-    Ok(())
+    Ok(true)
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

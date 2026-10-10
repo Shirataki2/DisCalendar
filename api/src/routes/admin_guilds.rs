@@ -359,7 +359,8 @@ pub async fn update_event(
     Ok(web::Json(after))
 }
 
-/// 予定の削除。`admin_audit_logs` に削除前の内容を記録する
+/// 予定の削除。`admin_audit_logs` に削除前の内容を記録する。
+/// 通常の削除と同じくゴミ箱 (#159) に入るので、ギルドの管理者がサーバー設定から元に戻せる
 #[utoipa::path(
     tag = "admin",
     params(GuildEventPath, crate::recurring::DeleteOptions),
@@ -400,9 +401,34 @@ pub async fn delete_event(
         before.recurrence.as_ref(),
     )
     .await?;
-    crate::recurring::before_delete(&mut tx, guild_id, path.event_id, &options).await?;
-    if !events::delete(&mut *tx, guild_id, path.event_id).await? {
-        return Err(ApiError::NotFound("event not found".into()));
+    let history_before = crate::event_history::snapshot(&mut tx, guild_id, path.event_id).await?;
+    // 通常の削除 (routes/events.rs) と同じ: ゴミ箱 (#159) に入れ、「この回以降」だけ行ごと消す
+    if crate::recurring::before_delete(&mut tx, guild_id, path.event_id, &options).await? {
+        if !events::delete_permanently(&mut *tx, guild_id, path.event_id).await? {
+            return Err(ApiError::NotFound("event not found".into()));
+        }
+    } else {
+        if !events::soft_delete(
+            &mut tx,
+            guild_id,
+            path.event_id,
+            &admin.discord_user_id,
+            now_jst(),
+        )
+        .await?
+        {
+            return Err(ApiError::NotFound("event not found".into()));
+        }
+        crate::event_history::record(
+            &mut tx,
+            guild_id,
+            path.event_id,
+            Some(&admin.discord_user_id),
+            crate::event_history::Source::Admin,
+            crate::event_history::Action::Delete,
+            history_before.as_ref(),
+        )
+        .await?;
     }
     admin_audit::record(
         &mut *tx,

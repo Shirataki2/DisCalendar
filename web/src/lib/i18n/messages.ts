@@ -346,6 +346,26 @@ export const english: Readonly<
   週間前: { one: "week before", other: "weeks before" },
   "「{name}」を削除します。この操作は取り消せません。":
     "“{name}” will be deleted. This cannot be undone.",
+  "「{name}」を削除します。削除してから 30 日間は、サーバー設定の「削除した予定」から元に戻せます。":
+    "“{name}” will be deleted. For 30 days, it can be restored from “Deleted events” in the server settings.",
+  "「{name}」を削除します。": "“{name}” will be deleted.",
+  "「{name}」を削除しました": "Deleted “{name}”",
+  元に戻す: "Restore",
+  削除した予定: "Deleted events",
+  "削除した予定は 30 日間ここに残り、元に戻せます。30 日を過ぎると自動で完全に削除されます。操作はその場で反映されます。":
+    "Deleted events stay here for 30 days and can be restored. After 30 days they are permanently deleted automatically. Actions take effect immediately.",
+  "削除した予定はありません。": "There are no deleted events.",
+  "削除: {user} ({at}) · {until} まで元に戻せます":
+    "Deleted by {user} ({at}) · Can be restored until {until}",
+  "「{name}」を元に戻す": "Restore “{name}”",
+  "「{name}」を完全に削除": "Permanently delete “{name}”",
+  完全に削除: "Delete permanently",
+  さらに表示: "Show more",
+  "完全に削除しますか？": "Delete permanently?",
+  "「{name}」を完全に削除します。添付ファイル・共有リンク・変更履歴も消え、元に戻せなくなります。":
+    "“{name}” will be permanently deleted, along with its attachments, share link, and change history. This cannot be undone.",
+  "「{name}」を元に戻しました。": "Restored “{name}”.",
+  "「{name}」を完全に削除しました。": "Permanently deleted “{name}”.",
   "{count} サーバーの予定をまとめて表示": {
     one: "Events from {count} server",
     other: "Events from {count} servers",

@@ -14,6 +14,7 @@ import { ExternalCalendarSettings } from "@/components/external-calendar-setting
 import { NotificationsField } from "@/components/form/notifications-field";
 import { GuildDigestSettingsSection } from "@/components/guild-digest-settings";
 import { useLanguage } from "@/components/language-provider";
+import { TrashSettings } from "@/components/trash-settings";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -469,6 +470,8 @@ function GuildSettingsForm({
         <ExternalCalendarSettings guildId={guildId} canManage={canManage} />
 
         {canManage && <WebhookSettings guildId={guildId} />}
+
+        {canManage && <TrashSettings guildId={guildId} />}
 
         {syncFailed && (
           <p role="alert" className="text-sm text-destructive">

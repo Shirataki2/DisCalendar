@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM events WHERE deleted_at IS NOT NULL AND deleted_at < $1::timestamp - make_interval(days => $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0275256fbca483a1de346db1f850504543f8e317393e4b9e7d09eacfe24d2a4c"
+}

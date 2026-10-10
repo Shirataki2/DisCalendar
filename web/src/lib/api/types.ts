@@ -105,6 +105,29 @@ export interface EventHistoryEntry {
   created_at: string;
 }
 
+/** ゴミ箱の予定 (#159。`GET /events/{guild_id}/trash`、削除した日時の新しい順) */
+export interface TrashedEvent {
+  id: number;
+  name: string;
+  is_all_day: boolean;
+  /** タイムゾーンなしの JST */
+  start_at: string;
+  end_at: string;
+  /** 削除した日時 (タイムゾーンなしの JST) */
+  deleted_at: string;
+  /** 削除した人の Discord ユーザー ID */
+  deleted_by: string | null;
+  /** この日時 (タイムゾーンなしの JST) を過ぎると自動で完全に削除される */
+  expires_at: string;
+}
+
+/** ゴミ箱の一覧の 1 ページ */
+export interface TrashPage {
+  events: TrashedEvent[];
+  /** 続きがあるときだけ入る。`cursor` に渡すと次のページが返る */
+  next_cursor: string | null;
+}
+
 /** 予定の作成・更新リクエスト (更新は全フィールド置き換え) */
 export interface ApiEventInput {
   recurrence_rule?: RecurrenceRule;

@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            (SELECT count(*) FROM events WHERE deleted_at IS NULL) AS \"total!\",\n            count(*) FILTER (WHERE created_at >= $1 AND created_at <= $7) AS \"day!\",\n            count(*) FILTER (WHERE created_at >= $2 AND created_at < $1) AS \"day_prev!\",\n            count(*) FILTER (WHERE created_at >= $3 AND created_at <= $7) AS \"week!\",\n            count(*) FILTER (WHERE created_at >= $4 AND created_at < $3) AS \"week_prev!\",\n            count(*) FILTER (WHERE created_at >= $5 AND created_at <= $7) AS \"month!\",\n            count(*) FILTER (WHERE created_at >= $6 AND created_at < $5) AS \"month_prev!\",\n            (SELECT count(*) FROM events WHERE is_all_day AND deleted_at IS NULL) AS \"all_day!\"\n        FROM event_creations\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "day!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "day_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "week!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "week_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "month!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "month_prev!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "all_day!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Timestamp",
+        "Timestamp",
+        "Timestamp",
+        "Timestamp",
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "9fa858f155b749431d968b69a912880e46b2990be47def4abb9b947e1cab0a2d"
+}

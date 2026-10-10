@@ -268,9 +268,69 @@ async fn old_entries_are_pruned(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn history_is_deleted_with_the_event(pool: PgPool) {
+async fn history_records_delete_and_restore_and_goes_with_the_purged_event(pool: PgPool) {
     let id = create(&pool, GUILD, "定例").await;
-    assert!(events::delete(&pool, GUILD, id).await.unwrap());
+
+    // ゴミ箱 (#159) に入れる: 削除前の値を before に、after は NULL
+    let mut tx = pool.begin().await.unwrap();
+    let before = event_history::snapshot(&mut tx, GUILD, id).await.unwrap();
+    assert!(
+        events::soft_delete(&mut tx, GUILD, id, "444", dt("2026-10-01T12:00:00"))
+            .await
+            .unwrap()
+    );
+    event_history::record(
+        &mut tx,
+        GUILD,
+        id,
+        Some("444"),
+        Source::Web,
+        Action::Delete,
+        before.as_ref(),
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    let entries = history::list(&pool, GUILD, id).await.unwrap();
+    assert_eq!(entries[0].action, "delete");
+    assert_eq!(entries[0].actor_discord_user_id.as_deref(), Some("444"));
+    assert_eq!(entries[0].before.as_ref().unwrap()["name"], "定例");
+    assert!(entries[0].after.is_none());
+
+    // 元に戻す: 戻した内容が after に入る
+    let mut tx = pool.begin().await.unwrap();
+    assert!(
+        events::restore(&mut *tx, GUILD, id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    event_history::record(
+        &mut tx,
+        GUILD,
+        id,
+        Some("444"),
+        Source::Web,
+        Action::Restore,
+        None,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    let entries = history::list(&pool, GUILD, id).await.unwrap();
+    assert_eq!(entries[0].action, "restore");
+    assert!(entries[0].before.is_none());
+    assert_eq!(entries[0].after.as_ref().unwrap()["name"], "定例");
+    assert_eq!(entries.len(), 3);
+
+    // 完全に消したら履歴も消える
+    let mut conn = pool.acquire().await.unwrap();
+    assert!(
+        events::soft_delete(&mut conn, GUILD, id, "444", dt("2026-10-01T12:00:00"))
+            .await
+            .unwrap()
+    );
+    assert!(events::purge(&pool, GUILD, id).await.unwrap());
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM event_history")
         .fetch_one(&pool)
         .await

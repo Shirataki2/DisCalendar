@@ -135,7 +135,7 @@ pub async fn preview(
         HashSet::new()
     } else {
         sqlx::query_as::<_, (String, NaiveDateTime)>(
-            "SELECT DISTINCT e.name,e.start_at FROM events e JOIN UNNEST($2::text[],$3::timestamp[]) AS input(name,start_at) ON input.name=e.name AND input.start_at=e.start_at WHERE e.guild_id=$1",
+            "SELECT DISTINCT e.name,e.start_at FROM events e JOIN UNNEST($2::text[],$3::timestamp[]) AS input(name,start_at) ON input.name=e.name AND input.start_at=e.start_at WHERE e.guild_id=$1 AND e.deleted_at IS NULL",
         )
         .bind(member.guild_id())
         .bind(&names)

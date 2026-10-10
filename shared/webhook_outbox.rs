@@ -28,7 +28,7 @@ pub async fn enqueue_with_scope(
     // 同時削除された Webhook はロック取得後に除外する。FK 検査だけだと予定保存が失敗する。
     sqlx::query(
         "INSERT INTO guild_webhook_outbox (webhook_id, event_id, kind, payload, actor_id, generation)
-         SELECT w.id, e.id, $3, (to_jsonb(e) - 'series_id' - 'original_start_at' - 'generated_from_series') || jsonb_build_object(
+         SELECT w.id, e.id, $3, (to_jsonb(e) - 'series_id' - 'original_start_at' - 'generated_from_series' - 'deleted_at' - 'deleted_by') || jsonb_build_object(
              'discord_scheduled_event_id', l.scheduled_event_id, 'recurrence', NULL) || CASE WHEN s.id IS NULL AND $6::jsonb IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('recurrence',CASE WHEN s.id IS NULL THEN $6::jsonb ELSE jsonb_build_object('series_id',s.id,'original_start_at',e.original_start_at,'rule',s.recurrence,'version',s.version,'is_exception',EXISTS(SELECT 1 FROM event_series_exceptions x WHERE x.event_id=e.id)) END,'change_scope',CASE WHEN $3='event.created' OR ($3='event.updated' AND $6::jsonb IS NULL AND $7) THEN 'future' ELSE COALESCE($5::text,'this') END) END, $4, w.generation
          FROM events e
          JOIN guild_webhooks w ON w.guild_id = e.guild_id AND w.enabled

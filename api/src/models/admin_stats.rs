@@ -88,8 +88,8 @@ pub async fn counts<'e>(
                 UNION SELECT guild_id FROM event_settings
                 UNION SELECT guild_id FROM events
             ) k) AS "known_guilds!",
-            (SELECT count(*) FROM events) AS "events!",
-            (SELECT count(*) FROM events WHERE
+            (SELECT count(*) FROM events WHERE deleted_at IS NULL) AS "events!",
+            (SELECT count(*) FROM events WHERE deleted_at IS NULL AND
                 CASE WHEN is_all_day
                      -- 終日予定は終了日の 0:00 が入っているので、その日いっぱいは残す
                      THEN date_trunc('day', end_at) + interval '1 day' > $1
@@ -140,7 +140,7 @@ pub async fn left_guilds<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<Vec<
         r#"
         WITH counts AS (
             SELECT guild_id, count(*) AS n, max(created_at) AS last_created
-            FROM events GROUP BY guild_id
+            FROM events WHERE deleted_at IS NULL GROUP BY guild_id
         ),
         known AS (
             SELECT guild_id FROM guild_config
@@ -204,7 +204,7 @@ pub async fn notifications_between<'e>(
         -- Bot が退出したギルド (guilds に行が無い) には送れない
         JOIN guilds g ON g.guild_id = e.guild_id
         LEFT JOIN guild_config gc ON gc.guild_id = e.guild_id
-        WHERE e.start_at >= $1 AND e.start_at < $2
+        WHERE e.deleted_at IS NULL AND e.start_at >= $1 AND e.start_at < $2
         "#,
         day_start,
         horizon

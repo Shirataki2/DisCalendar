@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH channels AS (\n            -- 旧スキーマには guild_id の一意制約が無いので、Bot (event_settings::get) と同じく先頭の 1 行を使う\n            SELECT DISTINCT ON (guild_id) guild_id, channel_id\n            FROM event_settings ORDER BY guild_id, id\n        )\n        SELECT e.start_at, e.is_all_day, e.notifications, c.channel_id,\n               -- 開始時刻に通知するか (#181)。設定の行が無いギルドは既定の true\n               COALESCE(gc.notify_at_start, TRUE) AS \"notify_at_start!\"\n        FROM events e\n        JOIN channels c ON c.guild_id = e.guild_id\n        -- Bot が退出したギルド (guilds に行が無い) には送れない\n        JOIN guilds g ON g.guild_id = e.guild_id\n        LEFT JOIN guild_config gc ON gc.guild_id = e.guild_id\n        WHERE e.deleted_at IS NULL AND e.start_at >= $1 AND e.start_at < $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "start_at",
+        "type_info": "Timestamp",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "start_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "is_all_day",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "is_all_day"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "notifications",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "notifications"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "channel_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "event_settings",
+            "name": "channel_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "notify_at_start!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "c35ff8235a6b5ab310d5dca26d5f8641137a9cb3f7302efe3abb6e6aaafc5c28"
+}

@@ -46,6 +46,7 @@ import type {
   ShareLink,
   SqlHistoryEntry,
   SqlResult,
+  TrashPage,
 } from "./types";
 
 /**
@@ -184,6 +185,25 @@ export function createApi(request: ApiFetcher) {
           `/polls/${guild}/${id}/confirm`,
           { method: "POST", body: { option_id, expected_version, event } },
         ),
+    },
+    /**
+     * 削除した予定 (ゴミ箱、#159)。一覧と完全削除は管理権限が要る。
+     * 元に戻すのは予定を編集できる人なら誰でもできる (削除直後の「元に戻す」で使う)
+     */
+    trash: {
+      list: (guildId: string, cursor: string | null, signal?: AbortSignal) =>
+        request<TrashPage>(
+          `/events/${guildId}/trash${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+          { signal },
+        ),
+      restore: (guildId: string, eventId: number) =>
+        request<ApiEvent>(`/events/${guildId}/${eventId}/restore`, {
+          method: "POST",
+        }),
+      purge: (guildId: string, eventId: number) =>
+        request<void>(`/events/${guildId}/${eventId}/purge`, {
+          method: "DELETE",
+        }),
     },
     /** 予定の変更履歴 (#165)。新しい順に最大 50 件 */
     eventHistory: (guildId: string, eventId: number, signal?: AbortSignal) =>

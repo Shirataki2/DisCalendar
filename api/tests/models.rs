@@ -73,8 +73,10 @@ async fn event_crud_is_scoped_to_guild(pool: PgPool) {
         .unwrap()
         .is_none()
     );
+    let mut conn = pool.acquire().await.unwrap();
+    let deleted_at = dt("2026-09-05T12:00:00");
     assert!(
-        !events::delete(&pool, OTHER_GUILD, created.id)
+        !events::soft_delete(&mut conn, OTHER_GUILD, created.id, "333", deleted_at)
             .await
             .unwrap()
     );
@@ -96,8 +98,16 @@ async fn event_crud_is_scoped_to_guild(pool: PgPool) {
     // created_at は更新で変わらない
     assert_eq!(updated.created_at, created.created_at);
 
-    assert!(events::delete(&pool, GUILD, created.id).await.unwrap());
-    assert!(!events::delete(&pool, GUILD, created.id).await.unwrap());
+    assert!(
+        events::soft_delete(&mut conn, GUILD, created.id, "333", deleted_at)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !events::soft_delete(&mut conn, GUILD, created.id, "333", deleted_at)
+            .await
+            .unwrap()
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -298,8 +308,13 @@ async fn event_links_are_scoped_and_cascade(pool: PgPool) {
         Some("9003")
     );
 
-    // 予定の削除に CASCADE で追随する
-    assert!(events::delete(&pool, GUILD, event.id).await.unwrap());
+    // 予定をゴミ箱 (#159) に入れると対応付けも消える (復元後は未連携)
+    let mut conn = pool.acquire().await.unwrap();
+    assert!(
+        events::soft_delete(&mut conn, GUILD, event.id, "333", dt("2026-09-05T12:00:00"))
+            .await
+            .unwrap()
+    );
     assert_eq!(
         event_links::get(&pool, GUILD, event.id).await.unwrap(),
         None

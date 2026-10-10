@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use actix_web::{HttpResponse, delete, get, post, put, web};
 use chrono::{Duration, NaiveDateTime};
 use futures_util::{StreamExt as _, TryStreamExt as _, stream};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use utoipa::IntoParams;
+use utoipa::{IntoParams, ToSchema};
 
 use super::GuildMember;
 use crate::{
@@ -16,7 +16,7 @@ use crate::{
     models::{
         event_history::{self as history_model, EventHistoryEntry},
         event_links,
-        events::{self, Event, EventInput},
+        events::{self, Event, EventInput, TrashCursor, TrashedEvent},
         guilds, now_jst,
     },
     state::AppState,
@@ -711,7 +711,10 @@ pub async fn update(
     ))
 }
 
-/// 予定の削除
+/// 予定の削除。ゴミ箱 (#159) に入れるだけで、[`restore`] で元に戻せる。
+///
+/// 繰り返し予定の「この回以降」(`scope=future`) だけは従来どおり行ごと消し、元に戻せない
+/// (シリーズを打ち切って後続の回をまとめて消す操作のため)
 #[utoipa::path(
     tag = "events",
     params(EventPath, crate::recurring::DeleteOptions),
@@ -734,12 +737,12 @@ pub async fn delete(
     crate::mcp::ensure_resolved(&state.pool, member.guild_id(), path.event_id).await?;
     let guild_id = member.guild_id();
 
-    // 対応付け (#94) を読んでから消すため、行をロックして削除する。
-    // 対応付けの行自体は events の削除に CASCADE で追随する
+    // 対応付け (#94) を読んでから消すため、行をロックして削除する
     let mut tx = state.pool.begin().await?;
     let row = events::find_by_id_for_update(&mut tx, guild_id, path.event_id)
         .await?
         .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+    let before = event_history::snapshot(&mut tx, guild_id, path.event_id).await?;
     crate::webhook_outbox::enqueue_with_scope(
         &mut tx,
         guild_id,
@@ -755,10 +758,29 @@ pub async fn delete(
     )
     .await?;
 
-    crate::recurring::before_delete(&mut tx, guild_id, path.event_id, &options).await?;
-    // 変更履歴 (#165) は残さない: 予定の行と一緒に `ON DELETE CASCADE` で消えるため。
-    // ゴミ箱 (#159) で論理削除にしたら、ここで `Action::Delete` を記録する
-    events::delete(&mut *tx, guild_id, path.event_id).await?;
+    if crate::recurring::before_delete(&mut tx, guild_id, path.event_id, &options).await? {
+        // 「この回以降」: 変更履歴 (#165) も予定の行と一緒に `ON DELETE CASCADE` で消えるので残さない
+        events::delete_permanently(&mut *tx, guild_id, path.event_id).await?;
+    } else {
+        events::soft_delete(
+            &mut tx,
+            guild_id,
+            path.event_id,
+            &member.user.discord_user_id,
+            now_jst(),
+        )
+        .await?;
+        event_history::record(
+            &mut tx,
+            guild_id,
+            path.event_id,
+            Some(&member.user.discord_user_id),
+            Source::Web,
+            Action::Delete,
+            before.as_ref(),
+        )
+        .await?;
+    }
     if let Err(err) = tx.commit().await {
         // COMMIT の応答だけ失われて、実際には消えていることがある。その場合に何もしないと
         // 予定は消えたのに Discord のイベントだけ残り、再試行しても 404 で ID を回収できない。
@@ -782,11 +804,166 @@ pub async fn delete(
         // 予定を消したら Discord のイベントも消す (開始済みかどうかでは分けない。
         // DB の start_at は Discord に同期していない変更でずれることがあり、判定に使えない)。
         // ベストエフォート: Discord 側の失敗で予定の削除を詰まらせない
-        // (Bot が権限を失っていても削除はできる。取り残したイベントは Discord 側で手動削除できる)
+        // (Bot が権限を失っていても削除はできる。取り残したイベントは Discord 側で手動削除できる)。
+        // ゴミ箱から復元しても Discord のイベントは作り直さない (復元後は未連携。
+        // 作り直しには復元する人の「イベントの作成」権限が要り、開始済みの日時では Discord が受け付けないため)
         cleanup_scheduled_event(&state.discord, guild_id, scheduled_event_id).await;
     }
     tracing::info!(guild_id, event_id = path.event_id, user_id = %member.user.discord_user_id, "event deleted");
     Ok(HttpResponse::NoContent().finish())
+}
+
+/// ゴミ箱の予定を元に戻す (#159)。権限は削除と同じ (restricted モードなら管理権限か編集ロール)。
+///
+/// 日時・通知設定・共有リンク・添付ファイルは残っているので、元の位置にそのまま戻る。
+/// Discord イベントとの連携は解除された状態で戻る (必要なら編集で連携し直す)。
+/// 繰り返し予定の 1 回は、繰り返しから外れた単発の予定として戻る
+#[utoipa::path(
+    tag = "events",
+    params(EventPath),
+    responses(
+        (status = 200, body = Event),
+        (status = 401, body = ErrorBody),
+        (status = 403, description = "非メンバー / restricted モードで権限なし", body = ErrorBody),
+        (status = 404, description = "ゴミ箱に無い (復元済み・完全に削除済みを含む)", body = ErrorBody),
+    )
+)]
+#[post("/{guild_id}/{event_id}/restore")]
+pub async fn restore(
+    member: GuildMember,
+    path: web::Path<EventPath>,
+    state: web::Data<AppState>,
+) -> Result<web::Json<Event>, ApiError> {
+    let _writer = event_links::lock_writer(&state.pool, member.guild_id()).await?;
+    ensure_can_edit(&state.pool, &member).await?;
+    crate::mcp::ensure_resolved(&state.pool, member.guild_id(), path.event_id).await?;
+    let guild_id = member.guild_id();
+
+    let mut tx = state.pool.begin().await?;
+    let row = events::restore(&mut *tx, guild_id, path.event_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("event not found in the trash".into()))?;
+    // before は入れない (削除前の値は直前の「削除」の行に残っている。after に戻した内容が入る)
+    event_history::record(
+        &mut tx,
+        guild_id,
+        row.id,
+        Some(&member.user.discord_user_id),
+        Source::Web,
+        Action::Restore,
+        None,
+    )
+    .await?;
+    // Webhook の受け手は削除で `event.deleted` を受け取っているので、戻ったことは作成として伝える
+    crate::webhook_outbox::enqueue(
+        &mut tx,
+        guild_id,
+        row.id,
+        "event.created",
+        &member.user.discord_user_id,
+    )
+    .await?;
+    tx.commit().await?;
+    tracing::info!(guild_id, event_id = row.id, user_id = %member.user.discord_user_id, "event restored");
+    Ok(web::Json(Event::from(row)))
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TrashQuery {
+    /// 続きを取るときに、前のページの `next_cursor` を渡す
+    cursor: Option<String>,
+}
+
+/// ゴミ箱の一覧の 1 ページ
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TrashPage {
+    pub events: Vec<TrashedEvent>,
+    /// 続きがあるときだけ入る。`cursor` に渡すと次のページが返る
+    pub next_cursor: Option<String>,
+}
+
+/// ゴミ箱の一覧 (#159)。削除した日時の新しい順に 1 ページ ([`events::TRASH_PAGE_SIZE`] 件) ずつ返す。
+/// 管理権限 (`can_manage_server`) が要る
+#[utoipa::path(
+    tag = "events",
+    params(("guild_id" = String, Path, description = "ギルド ID"), TrashQuery),
+    responses(
+        (status = 200, body = TrashPage),
+        (status = 400, description = "cursor が不正", body = ErrorBody),
+        (status = 401, body = ErrorBody),
+        (status = 403, description = "非メンバー / 管理権限なし", body = ErrorBody),
+    )
+)]
+#[get("/{guild_id}/trash")]
+pub async fn trash(
+    member: GuildMember,
+    state: web::Data<AppState>,
+    query: web::Query<TrashQuery>,
+) -> Result<web::Json<TrashPage>, ApiError> {
+    ensure_can_manage_trash(&member)?;
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(str::parse::<TrashCursor>)
+        .transpose()
+        .map_err(|()| ApiError::BadRequest("invalid cursor".to_owned()))?;
+    // 続きがあるかを知るために 1 件多く読む
+    let mut events = events::list_trash(
+        &state.pool,
+        member.guild_id(),
+        cursor.as_ref(),
+        events::TRASH_PAGE_SIZE + 1,
+    )
+    .await?;
+    let has_more = events.len() as i64 > events::TRASH_PAGE_SIZE;
+    events.truncate(events::TRASH_PAGE_SIZE as usize);
+    let next_cursor = events
+        .last()
+        .filter(|_| has_more)
+        .map(|event| TrashCursor::of(event).to_string());
+    Ok(web::Json(TrashPage {
+        events,
+        next_cursor,
+    }))
+}
+
+/// ゴミ箱の予定を完全に削除する (#159)。元に戻せない。管理権限 (`can_manage_server`) が要る。
+/// ゴミ箱に入っていない予定は対象外 (404)
+#[utoipa::path(
+    tag = "events",
+    params(EventPath),
+    responses(
+        (status = 204),
+        (status = 401, body = ErrorBody),
+        (status = 403, description = "非メンバー / 管理権限なし", body = ErrorBody),
+        (status = 404, description = "ゴミ箱に無い", body = ErrorBody),
+    )
+)]
+#[delete("/{guild_id}/{event_id}/purge")]
+pub async fn purge(
+    member: GuildMember,
+    path: web::Path<EventPath>,
+    state: web::Data<AppState>,
+) -> Result<HttpResponse, ApiError> {
+    ensure_can_manage_trash(&member)?;
+    let guild_id = member.guild_id();
+    let _writer = event_links::lock_writer(&state.pool, guild_id).await?;
+    if !events::purge(&state.pool, guild_id, path.event_id).await? {
+        return Err(ApiError::NotFound("event not found in the trash".into()));
+    }
+    tracing::info!(guild_id, event_id = path.event_id, user_id = %member.user.discord_user_id, "trashed event purged");
+    Ok(HttpResponse::NoContent().finish())
+}
+
+/// ゴミ箱の一覧と完全削除は、restricted モードかどうかに関わらず管理権限を要求する (#159)。
+/// 一覧には他の人が消した予定も並び、完全削除は取り消せないため
+fn ensure_can_manage_trash(member: &GuildMember) -> Result<(), ApiError> {
+    if !member.permissions().can_manage_server() {
+        return Err(ApiError::Forbidden(
+            "manage permissions are required to manage the trash".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// [`event_history::snapshots`] の結果を [`event_history::record_many`] に渡す形にする
@@ -802,6 +979,7 @@ pub(crate) fn with_befores(
 /// 予定の変更履歴 (#165)。新しい順に最大 50 件。
 /// 閲覧は予定と同じくメンバー全員 (restricted モードは編集だけを制限する)。
 /// `guild_id` と `event_id` の組で絞るので、他ギルドの予定 ID を指定しても 404 になる
+/// ゴミ箱 (#159) の中の予定は 404 (復元すると、削除・復元の行も含めて読めるようになる)
 #[utoipa::path(
     tag = "events",
     params(EventPath),

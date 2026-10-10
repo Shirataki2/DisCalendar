@@ -28,7 +28,8 @@ Select **History** in the event details (a clock icon next to Delete if you can 
 - Changes from the web, events created with the bot's `/create`, and changes from AI assistants (MCP) are recorded. Fixes made by staff in the admin console appear as "DisCalendar staff".
 - Description changes are shown without the text differences.
 - Up to the latest 50 changes are shown. History older than 180 days, and anything beyond 100 entries per event, is removed automatically.
-- Changes made before recording started and event deletions are not recorded (deleting an event also removes its history).
+- Deleting an event and restoring a deleted event are recorded too. Changes made before recording started are not.
+- The history of a deleted event becomes visible again when the event is restored. Permanently deleting an event also removes its history.
 
 <h2 id="description-format">Format descriptions</h2>
 
@@ -58,7 +59,7 @@ Open **Edit → Files & sharing → Copy share link** to generate and copy a pub
 
 - Only members who can edit the event can issue or disable links.
 - Copying again keeps the URL. Unsaved changes are not published; saved changes appear on the shared page.
-- Disabling the link or deleting the event makes the page unavailable. Reissuing after disabling creates a different URL.
+- Disabling the link or deleting the event makes the page unavailable. Reissuing after disabling creates a different URL. Restoring a deleted event makes the same URL work again.
 - Social services may retain cached preview images after changes or revocation.
 
 <Callout type="warning">
@@ -67,13 +68,31 @@ Anyone with the link can see the title, dates, location, description, and server
 
 ## Delete an event
 
-Select Delete in the details or editor, then confirm. Deletion cannot be undone.
+Select Delete in the details or editor, then confirm. The event disappears from the calendar and its reminders stop.
+
+<h3 id="restore">Restore a deleted event</h3>
+
+A deleted event can be restored for 30 days.
+
+- **Right after deleting**: a notice with a **Restore** button appears at the bottom of the screen for about 10 seconds. Select it to put the event back at its original date and time.
+- **Later**: open Server settings (the gear icon above the calendar) and find **Deleted events**, listed newest first with who deleted each event and when. Select **Restore**. Only members with management permissions can use this list.
+
+A restored event keeps its dates, description, reminders, attachments, and share link. Two things differ from before:
+
+- The link to a Discord event is removed, because the Discord event is deleted together with the event. Link it again from the editor if needed.
+- A single occurrence of a recurring event comes back as a standalone event, detached from the series.
+
+Events are permanently deleted automatically 30 days after deletion. To remove one sooner, select **Delete permanently** in **Deleted events**. Permanent deletion also removes attachments, the share link, and the change history, and cannot be undone.
+
+<Callout type="warning">
+Deleting **this and future occurrences** of a recurring event is permanent right away. Those occurrences are not kept and cannot be restored.
+</Callout>
 
 ## Restrict editing in Server settings
 
 Initially, every server member can create, edit, and delete events. Open the gear icon above the calendar, enable restricted editing, and save. Only members with management permissions or selected roles can then edit; everyone can still view.
 
-<Screenshot src={settingsShot} alt="Server settings for notification and post language, editing restrictions and roles, reminders, daily and weekly summaries, feed URL, external calendars, and Webhooks (Japanese interface)." />
+<Screenshot src={settingsShot} alt="Server settings for notification and post language, editing restrictions and roles, reminders, daily and weekly summaries, feed URL, external calendars, Webhooks, and deleted events (Japanese interface)." />
 
 - Management permissions: Administrator, Manage Server, Manage Roles, or Manage Messages. The server owner always qualifies.
 - Select up to 25 editing roles. Holding any selected role is enough; extra management permissions are unnecessary.
@@ -102,6 +121,6 @@ Attachments are excluded from public links and Discord reminders and are not cop
 
 Editing, deleting, dragging, or resizing lets you choose **This occurrence** or **This and future occurrences**. The latter uses original occurrence dates and leaves earlier occurrences unchanged.
 
-Individually edited or canceled occurrences remain if their original dates still match the new rule. Edited occurrences and occurrences with attachments that no longer match remain as standalone events with the same IDs. However, **deleting this and future occurrences also deletes their individual changes and attachments**, even if an occurrence was moved into the past.
+Individually edited or canceled occurrences remain if their original dates still match the new rule. Edited occurrences and occurrences with attachments that no longer match remain as standalone events with the same IDs. However, **deleting this and future occurrences also deletes their individual changes and attachments**, even if an occurrence was moved into the past. This deletion [cannot be undone](#restore); deleting only one occurrence can be restored for 30 days.
 
 Attachments and share links belong to individual occurrences. Duplicating creates a standalone event from the selected occurrence. If another person changes the series concurrently, saving stops; reopen it and review the latest contents.

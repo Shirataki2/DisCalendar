@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE events\n        SET deleted_at = $3, deleted_by = $4, series_id = NULL, original_start_at = NULL\n        WHERE id = $1 AND guild_id = $2 AND deleted_at IS NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "Timestamp",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d8e956fc001c47f8372db8beccfa176aaab82b77a0235dcd77602949df7eea6d"
+}

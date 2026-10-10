@@ -154,9 +154,39 @@ async fn deletion_outbox_survives_all_sql_paths_but_not_rollback(pool: PgPool) {
                 .await
                 .unwrap();
         } else {
-            discalendar_api::models::events::delete(&mut *tx, "111", id)
+            // ゴミ箱 (#159) に入れただけでは添付ファイルを消さず、完全削除で消す
+            assert!(
+                discalendar_api::models::events::soft_delete(
+                    &mut tx,
+                    "111",
+                    id,
+                    "222",
+                    "2026-09-05T12:00:00".parse().unwrap(),
+                )
+                .await
+                .unwrap()
+            );
+            let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM attachment_deletions")
+                .fetch_one(&mut *tx)
                 .await
                 .unwrap();
+            let before: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM event_attachments WHERE event_id=$1")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap();
+            assert_eq!(before, 1);
+            assert!(
+                discalendar_api::models::events::purge(&mut *tx, "111", id)
+                    .await
+                    .unwrap()
+            );
+            let after: i64 = sqlx::query_scalar("SELECT count(*) FROM attachment_deletions")
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+            assert!(after > kept);
         }
         tx.commit().await.unwrap();
         let count: i64 = sqlx::query_scalar(

@@ -418,7 +418,7 @@ pub async fn list_rows(
         r#"
         SELECT e.*, l.scheduled_event_id AS discord_scheduled_event_id
         FROM events e LEFT JOIN event_discord_links l ON l.event_id = e.id
-        WHERE e.guild_id = $1
+        WHERE e.guild_id = $1 AND e.deleted_at IS NULL
           AND (CASE WHEN e.is_all_day THEN date_trunc('day', e.start_at) ELSE e.start_at END) < $3
           AND (CASE WHEN e.is_all_day THEN date_trunc('day', e.end_at) + INTERVAL '1 day' > $2
                     WHEN e.start_at = e.end_at THEN e.start_at >= $2 ELSE e.end_at > $2 END)
