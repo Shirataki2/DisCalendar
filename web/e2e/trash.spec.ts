@@ -1,11 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import {
-  calendarToday,
-  createEvent,
-  dayCell,
-  eventOn,
-  isoDate,
-} from "./calendar";
+import { calendarToday, dayCell, eventOn, isoDate } from "./calendar";
 import { E2E_GUILDS, E2E_USER } from "./fixtures";
 
 // 削除した予定 (ゴミ箱、#159)。サーバー設定の一覧から元に戻す・完全に削除する。
@@ -21,8 +15,8 @@ async function openSettings(page: Page) {
   return dialog;
 }
 
-/** API で予定を作ってすぐ消す (ブラウザと同じ cookie で叩く)。ゴミ箱に入った予定の ID を返す */
-async function createTrashedEvent(page: Page, name: string, date: string) {
+/** API で date の 10:00〜11:00 に予定を作る (ブラウザと同じ cookie で叩く)。作った予定を返す */
+async function createApiEvent(page: Page, name: string, date: string) {
   const created = await page.request.post(`/local/api/events/${guildId}`, {
     data: {
       name,
@@ -35,12 +29,17 @@ async function createTrashedEvent(page: Page, name: string, date: string) {
     },
   });
   expect(created.status()).toBe(201);
-  const { id } = await created.json();
+  return (await created.json()) as { id: number; start_at: string };
+}
+
+/** API で予定を作ってすぐ消す。ゴミ箱に入った予定の ID を返す */
+async function createTrashedEvent(page: Page, name: string, date: string) {
+  const { id } = await createApiEvent(page, name, date);
   const deleted = await page.request.delete(
     `/local/api/events/${guildId}/${id}`,
   );
   expect(deleted.status()).toBe(204);
-  return id as number;
+  return id;
 }
 
 test.describe("管理権限のあるギルド", () => {
@@ -124,14 +123,18 @@ test.describe("管理権限のあるギルド", () => {
     page,
   }) => {
     const title = `E2E ゴミ箱 共有 ${stamp}`;
-    const today = await calendarToday(page);
-    await createEvent(page, title);
-    const list = await page.request.get(
-      `/local/api/events/${guildId}?start=${isoDate(today)}T00:00:00&end=${isoDate(today)}T23:59:59`,
-    );
-    const event = (await list.json()).find(
-      (item: { name: string }) => item.name === title,
-    );
+    // UI の「新規作成」は既定が「次の正時」で、23 時台に走ると翌日になる。
+    // ここで見たいのはゴミ箱と共有の API なので、日時を決めて API で作る
+    const date = isoDate(await calendarToday(page));
+    const event = await createApiEvent(page, title, date);
+    const listIds = async () => {
+      const list = await page.request.get(
+        `/local/api/events/${guildId}?start=${date}T00:00:00&end=${date}T23:59:59`,
+      );
+      expect(list.status()).toBe(200);
+      return (await list.json()).map((item: { id: number }) => item.id);
+    };
+    expect(await listIds()).toContain(event.id);
     const share = await page.request.post(
       `/local/api/events/${guildId}/${event.id}/share`,
     );
@@ -144,6 +147,7 @@ test.describe("管理権限のあるギルド", () => {
       `/local/api/events/${guildId}/${event.id}`,
     );
     expect(deleted.status()).toBe(204);
+    expect(await listIds()).not.toContain(event.id);
     // 削除中は共有ページも履歴も見えず、編集もできない
     expect((await page.request.get(`/local/api/share/${token}`)).status()).toBe(
       404,
