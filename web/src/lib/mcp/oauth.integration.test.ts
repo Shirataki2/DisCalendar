@@ -259,72 +259,66 @@ async function refresh(
   );
 }
 
-suite(
-  "metadata・CIMD・loopback・初回同意・PKCE交換・読み取り・コード再利用拒否",
-  async () => {
-    const metadata = await http.oauthHandler(
-      request(
-        "/.well-known/oauth-authorization-server/api/auth",
-        undefined,
-        false,
-      ),
-    );
-    const json = await metadata.json();
-    expect(json.client_id_metadata_document_supported).toBe(true);
-    expect(json.registration_endpoint).toBeUndefined();
-    expect(json.code_challenge_methods_supported).toEqual(["S256"]);
-    const login = await authorize(undefined, false);
-    expect(login.location).toContain("/mcp/login?");
-    const { tokens, exchange } = await issue();
-    const response = await read(tokens.access_token);
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(
-      (
-        await http.oauthHandler(
-          request("/api/auth/oauth2/token", exchange, false),
-        )
-      ).status,
-    ).toBe(400);
-  },
-);
+suite("metadata・CIMD・loopback・初回同意・PKCE交換・読み取り・コード再利用拒否", async () => {
+  const metadata = await http.oauthHandler(
+    request(
+      "/.well-known/oauth-authorization-server/api/auth",
+      undefined,
+      false,
+    ),
+  );
+  const json = await metadata.json();
+  expect(json.client_id_metadata_document_supported).toBe(true);
+  expect(json.registration_endpoint).toBeUndefined();
+  expect(json.code_challenge_methods_supported).toEqual(["S256"]);
+  const login = await authorize(undefined, false);
+  expect(login.location).toContain("/mcp/login?");
+  const { tokens, exchange } = await issue();
+  const response = await read(tokens.access_token);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(
+    (
+      await http.oauthHandler(
+        request("/api/auth/oauth2/token", exchange, false),
+      )
+    ).status,
+  ).toBe(400);
+});
 
-suite(
-  "OAuth専用ログインはDiscordのstate経由で同意へ復帰し、改ざんを拒否する",
-  async () => {
-    const flow = await authorize(undefined, false);
-    const signedQuery = new URL(flow.location ?? "", origin).search.slice(1);
-    const start = (await import("../../app/mcp/login/start/route")).POST;
-    const loginRequest = (query: string) =>
-      new Request(`${origin}/mcp/login/start`, {
-        method: "POST",
-        headers: { Origin: origin, "Content-Type": "application/json" },
-        body: JSON.stringify({ oauth_query: query }),
-      });
-    expect(
-      (await start(loginRequest(`${signedQuery}&scope=events:delete`))).status,
-    ).toBe(400);
-    const login = await start(loginRequest(signedQuery));
-    expect(login.status).toBe(200);
-    const discord = new URL((await login.json()).url);
-    expect(discord.origin).toBe("https://discord.com");
-    const state = discord.searchParams.get("state") ?? "";
-    const cookies = login.headers
-      .getSetCookie()
-      .map((c) => c.split(";")[0])
-      .join("; ");
-    const callback = await auth.handler(
-      new Request(
-        `${origin}/api/auth/callback/discord?${new URLSearchParams({ state, code: "mock-discord-code" })}`,
-        { headers: { Cookie: cookies, Accept: "text/html" } },
-      ),
-    );
-    expect(
-      callback.headers.get("location"),
-      await callback.clone().text(),
-    ).toContain("/mcp/consent?");
-  },
-);
+suite("OAuth専用ログインはDiscordのstate経由で同意へ復帰し、改ざんを拒否する", async () => {
+  const flow = await authorize(undefined, false);
+  const signedQuery = new URL(flow.location ?? "", origin).search.slice(1);
+  const start = (await import("../../app/mcp/login/start/route")).POST;
+  const loginRequest = (query: string) =>
+    new Request(`${origin}/mcp/login/start`, {
+      method: "POST",
+      headers: { Origin: origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ oauth_query: query }),
+    });
+  expect(
+    (await start(loginRequest(`${signedQuery}&scope=events:delete`))).status,
+  ).toBe(400);
+  const login = await start(loginRequest(signedQuery));
+  expect(login.status).toBe(200);
+  const discord = new URL((await login.json()).url);
+  expect(discord.origin).toBe("https://discord.com");
+  const state = discord.searchParams.get("state") ?? "";
+  const cookies = login.headers
+    .getSetCookie()
+    .map((c) => c.split(";")[0])
+    .join("; ");
+  const callback = await auth.handler(
+    new Request(
+      `${origin}/api/auth/callback/discord?${new URLSearchParams({ state, code: "mock-discord-code" })}`,
+      { headers: { Cookie: cookies, Accept: "text/html" } },
+    ),
+  );
+  expect(
+    callback.headers.get("location"),
+    await callback.clone().text(),
+  ).toContain("/mcp/consent?");
+});
 
 suite("scope・サーバー・署名改ざんと未同意・誤PKCEを拒否", async () => {
   const flow = await authorize();
@@ -368,24 +362,21 @@ suite("scope・サーバー・署名改ざんと未同意・誤PKCEを拒否", a
   ).toBe(403);
 });
 
-suite(
-  "再同意で旧トークンを拡張せず、解除後は読み取り・更新を拒否",
-  async () => {
-    const first = await issue();
-    const second = await issue([
-      "guilds:read",
-      "events:delete",
-      "offline_access",
-    ]);
-    const old = await (await read(first.tokens.access_token)).json();
-    const newer = await (await read(second.tokens.access_token)).json();
-    expect(old.id).not.toBe(newer.id);
-    await store.revokeConnections("mcp-user", old.id);
-    expect((await read(first.tokens.access_token)).status).toBe(401);
-    expect((await refresh(first.tokens.refresh_token)).status).toBe(400);
-    expect((await read(second.tokens.access_token)).status).toBe(200);
-  },
-);
+suite("再同意で旧トークンを拡張せず、解除後は読み取り・更新を拒否", async () => {
+  const first = await issue();
+  const second = await issue([
+    "guilds:read",
+    "events:delete",
+    "offline_access",
+  ]);
+  const old = await (await read(first.tokens.access_token)).json();
+  const newer = await (await read(second.tokens.access_token)).json();
+  expect(old.id).not.toBe(newer.id);
+  await store.revokeConnections("mcp-user", old.id);
+  expect((await read(first.tokens.access_token)).status).toBe(401);
+  expect((await refresh(first.tokens.refresh_token)).status).toBe(400);
+  expect((await read(second.tokens.access_token)).status).toBe(200);
+});
 
 suite.each([clientId, null, "https://other.example/client.json"])(
   "更新の並行利用・猶予外再利用の失効（client_id=%s）",
@@ -418,54 +409,51 @@ suite.each([clientId, null, "https://other.example/client.json"])(
   },
 );
 
-suite(
-  "期限切れ・誤issuer/audience・接続のないJWT・introspectionの認証を拒否",
-  async () => {
-    const { tokens } = await issue();
-    const claims = JSON.parse(
-      Buffer.from(tokens.access_token.split(".")[1], "base64url").toString(),
+suite("期限切れ・誤issuer/audience・接続のないJWT・introspectionの認証を拒否", async () => {
+  const { tokens } = await issue();
+  const claims = JSON.parse(
+    Buffer.from(tokens.access_token.split(".")[1], "base64url").toString(),
+  );
+  for (const invalid of [
+    { exp: 1 },
+    { iss: "https://wrong.example" },
+    { aud: "https://wrong.example/mcp" },
+    { connection_id: "missing" },
+  ]) {
+    const { token } = await auth.api.signJWT({
+      body: { payload: { ...claims, ...invalid } },
+    });
+    expect((await read(token)).status).toBe(401);
+  }
+  const introspect = (await import("../../app/mcp/introspect/route")).POST;
+  vi.stubEnv("MCP_INTROSPECTION_SECRET", randomBytes(32).toString("hex"));
+  const call = (credential: string) =>
+    introspect(
+      new Request(`${origin}/mcp/introspect`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${credential}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token: tokens.access_token }),
+      }),
     );
-    for (const invalid of [
-      { exp: 1 },
-      { iss: "https://wrong.example" },
-      { aud: "https://wrong.example/mcp" },
-      { connection_id: "missing" },
-    ]) {
-      const { token } = await auth.api.signJWT({
-        body: { payload: { ...claims, ...invalid } },
-      });
-      expect((await read(token)).status).toBe(401);
-    }
-    const introspect = (await import("../../app/mcp/introspect/route")).POST;
-    vi.stubEnv("MCP_INTROSPECTION_SECRET", randomBytes(32).toString("hex"));
-    const call = (credential: string) =>
-      introspect(
-        new Request(`${origin}/mcp/introspect`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${credential}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ token: tokens.access_token }),
-        }),
-      );
-    expect((await call("wrong")).status).toBe(401);
-    const checked = await call(process.env.MCP_INTROSPECTION_SECRET ?? "");
-    expect((await checked.json()).active).toBe(true);
-    vi.stubEnv("MCP_ENABLED", "false");
-    expect((await read(tokens.access_token)).status).toBe(404);
-    expect((await refresh(tokens.refresh_token)).status).toBe(404);
-    expect((await authorize()).response.status).toBe(404);
-    expect(
-      (
-        await http.oauthHandler(
-          request("/.well-known/oauth-protected-resource/mcp"),
-        )
-      ).status,
-    ).toBe(404);
-    vi.stubEnv("MCP_ENABLED", "true");
-  },
-);
+  expect((await call("wrong")).status).toBe(401);
+  const checked = await call(process.env.MCP_INTROSPECTION_SECRET ?? "");
+  expect((await checked.json()).active).toBe(true);
+  vi.stubEnv("MCP_ENABLED", "false");
+  expect((await read(tokens.access_token)).status).toBe(404);
+  expect((await refresh(tokens.refresh_token)).status).toBe(404);
+  expect((await authorize()).response.status).toBe(404);
+  expect(
+    (
+      await http.oauthHandler(
+        request("/.well-known/oauth-protected-resource/mcp"),
+      )
+    ).status,
+  ).toBe(404);
+  vi.stubEnv("MCP_ENABLED", "true");
+});
 
 suite("MCPとOAuthは偽装Host・外部Originを拒否してno-storeを返す", async () => {
   const post = (await import("../../app/mcp/route")).POST;
@@ -492,121 +480,112 @@ suite("MCPとOAuthは偽装Host・外部Originを拒否してno-storeを返す",
   }
 });
 
-suite(
-  "新規接続停止中も既存接続の読み取り・更新・解除とWebセッションを維持する",
-  async () => {
-    const { tokens } = await issue();
-    vi.stubEnv("MCP_NEW_CONNECTIONS_ENABLED", "false");
-    try {
-      expect((await authorize()).response.status).toBe(503);
-      expect(
-        (
-          await http.oauthHandler(
-            request(
-              "/api/auth/oauth2/token",
-              new URLSearchParams({ grant_type: "authorization_code" }),
-            ),
-          )
-        ).status,
-      ).toBe(503);
-      expect(
-        (await submit(request("/mcp/consent/submit", new URLSearchParams())))
-          .status,
-      ).toBe(404);
-      expect((await read(tokens.access_token)).status).toBe(200);
-      expect((await refresh(tokens.refresh_token)).status).toBe(200);
-      expect(
-        await auth.api.getSession({ headers: request("/").headers }),
-      ).not.toBeNull();
-      const claims = JSON.parse(
-        Buffer.from(tokens.access_token.split(".")[1], "base64url").toString(),
-      );
-      const revoke = (await import("../../app/mcp/connections/revoke/route"))
-        .POST;
-      expect(
-        (
-          await revoke(
-            request(
-              "/mcp/connections/revoke",
-              new URLSearchParams({ id: claims.connection_id }),
-            ),
-          )
-        ).status,
-      ).toBe(303);
-      expect((await read(tokens.access_token)).status).toBe(401);
-    } finally {
-      vi.stubEnv("MCP_NEW_CONNECTIONS_ENABLED", "true");
-    }
-  },
-);
-
-suite(
-  "公式SDKのinitialize・tools/list・connection_infoを認証付きで呼べる",
-  async () => {
-    const { tokens } = await issue();
-    const post = (await import("../../app/mcp/route")).POST;
-    const call = (method: string, params: object) =>
-      post(
-        new Request(resource, {
-          method: "POST",
-          headers: {
-            Host: new URL(origin).host,
-            Authorization: `Bearer ${tokens.access_token}`,
-            "Content-Type": "application/json",
-            Accept: "application/json, text/event-stream",
-            "MCP-Protocol-Version": "2025-11-25",
-          },
-          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-        }),
-      );
-    const initialized = await call("initialize", {
-      protocolVersion: "2025-11-25",
-      capabilities: {},
-      clientInfo: { name: "integration-test", version: "1" },
-    });
-    expect(initialized.status, await initialized.clone().text()).toBe(200);
-    expect(await initialized.text()).toContain("2025-11-25");
-    const listed = await call("tools/list", {});
-    expect(listed.status).toBe(200);
-    expect(await listed.text()).toContain("connection_info");
-    const result = await call("tools/call", {
-      name: "connection_info",
-      arguments: {},
-    });
-    expect(result.status).toBe(200);
-    expect(await result.text()).toContain("guild_ids");
-  },
-);
-
-suite(
-  "現在のscopeを縮小すると既存トークンの実効scopeも次の操作から縮小する",
-  async () => {
-    const { tokens } = await issue([
-      "guilds:read",
-      "events:read",
-      "offline_access",
-    ]);
+suite("新規接続停止中も既存接続の読み取り・更新・解除とWebセッションを維持する", async () => {
+  const { tokens } = await issue();
+  vi.stubEnv("MCP_NEW_CONNECTIONS_ENABLED", "false");
+  try {
+    expect((await authorize()).response.status).toBe(503);
+    expect(
+      (
+        await http.oauthHandler(
+          request(
+            "/api/auth/oauth2/token",
+            new URLSearchParams({ grant_type: "authorization_code" }),
+          ),
+        )
+      ).status,
+    ).toBe(503);
+    expect(
+      (await submit(request("/mcp/consent/submit", new URLSearchParams())))
+        .status,
+    ).toBe(404);
+    expect((await read(tokens.access_token)).status).toBe(200);
+    expect((await refresh(tokens.refresh_token)).status).toBe(200);
+    expect(
+      await auth.api.getSession({ headers: request("/").headers }),
+    ).not.toBeNull();
     const claims = JSON.parse(
       Buffer.from(tokens.access_token.split(".")[1], "base64url").toString(),
     );
-    await store.authPool.query(
-      "UPDATE mcp_connections SET scopes = $1 WHERE id = $2",
-      [["guilds:read"], claims.connection_id],
-    );
-    const response = await protectedMcp(
+    const revoke = (await import("../../app/mcp/connections/revoke/route"))
+      .POST;
+    expect(
+      (
+        await revoke(
+          request(
+            "/mcp/connections/revoke",
+            new URLSearchParams({ id: claims.connection_id }),
+          ),
+        )
+      ).status,
+    ).toBe(303);
+    expect((await read(tokens.access_token)).status).toBe(401);
+  } finally {
+    vi.stubEnv("MCP_NEW_CONNECTIONS_ENABLED", "true");
+  }
+});
+
+suite("公式SDKのinitialize・tools/list・connection_infoを認証付きで呼べる", async () => {
+  const { tokens } = await issue();
+  const post = (await import("../../app/mcp/route")).POST;
+  const call = (method: string, params: object) =>
+    post(
       new Request(resource, {
+        method: "POST",
         headers: {
           Host: new URL(origin).host,
           Authorization: `Bearer ${tokens.access_token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "MCP-Protocol-Version": "2025-11-25",
         },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
       }),
-      async (_req, _connection, effective) =>
-        Response.json({ scope: effective.scope }),
     );
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ scope: "guilds:read" });
-  },
-);
+  const initialized = await call("initialize", {
+    protocolVersion: "2025-11-25",
+    capabilities: {},
+    clientInfo: { name: "integration-test", version: "1" },
+  });
+  expect(initialized.status, await initialized.clone().text()).toBe(200);
+  expect(await initialized.text()).toContain("2025-11-25");
+  const listed = await call("tools/list", {});
+  expect(listed.status).toBe(200);
+  expect(await listed.text()).toContain("connection_info");
+  const result = await call("tools/call", {
+    name: "connection_info",
+    arguments: {},
+  });
+  expect(result.status).toBe(200);
+  expect(await result.text()).toContain("guild_ids");
+});
+
+suite("現在のscopeを縮小すると既存トークンの実効scopeも次の操作から縮小する", async () => {
+  const { tokens } = await issue([
+    "guilds:read",
+    "events:read",
+    "offline_access",
+  ]);
+  const claims = JSON.parse(
+    Buffer.from(tokens.access_token.split(".")[1], "base64url").toString(),
+  );
+  await store.authPool.query(
+    "UPDATE mcp_connections SET scopes = $1 WHERE id = $2",
+    [["guilds:read"], claims.connection_id],
+  );
+  const response = await protectedMcp(
+    new Request(resource, {
+      headers: {
+        Host: new URL(origin).host,
+        Authorization: `Bearer ${tokens.access_token}`,
+      },
+    }),
+    async (_req, _connection, effective) =>
+      Response.json({ scope: effective.scope }),
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ scope: "guilds:read" });
+});
 
 suite("画面のJSON送信で同意・PKCE交換・拒否・接続解除を維持する", async () => {
   const { tokens } = await issue(["guilds:read"], true);
@@ -665,28 +644,25 @@ suite("Webログアウトで維持し、Discord連携削除で失効", async () 
   expect((await refresh(tokens.refresh_token)).status).toBe(400);
 });
 
-suite(
-  "アカウント削除で失効し、rollback後も基本認証テーブルを維持する",
-  async () => {
-    const ctx = await auth.$context;
-    await ctx.internalAdapter.createAccount({
-      id: "mcp-discord-relinked",
-      userId: "mcp-user",
-      providerId: "discord",
-      accountId: "111111111111111111",
-    });
-    const session = await ctx.internalAdapter.createSession("mcp-user", false);
-    cookie = `better-auth.session_token=${signSessionCookie(session.token, secret)}`;
-    const { tokens } = await issue();
-    await store.authPool.query(`DELETE FROM "user" WHERE id = 'mcp-user'`);
-    expect((await read(tokens.access_token)).status).toBe(401);
-    expect((await refresh(tokens.refresh_token)).status).toBe(400);
-    await store.authPool.query(
-      readFileSync("migrations/mcp/rollback.sql", "utf8"),
-    );
-    const { rows } = await store.authPool.query(
-      `SELECT to_regclass('mcp_connections') AS mcp, to_regclass('"user"') AS users`,
-    );
-    expect(rows[0]).toEqual({ mcp: null, users: '"user"' });
-  },
-);
+suite("アカウント削除で失効し、rollback後も基本認証テーブルを維持する", async () => {
+  const ctx = await auth.$context;
+  await ctx.internalAdapter.createAccount({
+    id: "mcp-discord-relinked",
+    userId: "mcp-user",
+    providerId: "discord",
+    accountId: "111111111111111111",
+  });
+  const session = await ctx.internalAdapter.createSession("mcp-user", false);
+  cookie = `better-auth.session_token=${signSessionCookie(session.token, secret)}`;
+  const { tokens } = await issue();
+  await store.authPool.query(`DELETE FROM "user" WHERE id = 'mcp-user'`);
+  expect((await read(tokens.access_token)).status).toBe(401);
+  expect((await refresh(tokens.refresh_token)).status).toBe(400);
+  await store.authPool.query(
+    readFileSync("migrations/mcp/rollback.sql", "utf8"),
+  );
+  const { rows } = await store.authPool.query(
+    `SELECT to_regclass('mcp_connections') AS mcp, to_regclass('"user"') AS users`,
+  );
+  expect(rows[0]).toEqual({ mcp: null, users: '"user"' });
+});
