@@ -83,7 +83,7 @@ git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
 - **"Deploy staging" の完了を待つ**。タグのコミットの `sha-xxxxxxx` イメージが GHCR に無いと release.yml は失敗する
   (待ってからタグを打ち直せばよい。打ち直すときは `git tag -d v3.1.0 && git push origin :refs/tags/v3.1.0` で消してから)
 - クラウド環境の権限でタグを push できない場合はユーザーに依頼するか、明示的な許可を得て API で作る:
-  `gh api repos/Shirataki2/DisCalendarV3-new/git/refs -f ref=refs/tags/v3.1.0 -f sha=$(git rev-parse main)`
+  `gh api repos/Shirataki2/DisCalendar/git/refs -f ref=refs/tags/v3.1.0 -f sha=$(git rev-parse main)`
 
 release.yml がやること (数十秒):
 

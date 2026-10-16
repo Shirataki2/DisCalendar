@@ -25,7 +25,7 @@ export const THEME_COLOR = "#5865F2";
 /** サポートサーバー (Discord) の招待リンク */
 export const SUPPORT_SERVER_URL = "https://discord.gg/MyaZRuze23";
 
-export const GITHUB_URL = "https://github.com/Shirataki2/DisCalendarV3-new";
+export const GITHUB_URL = "https://github.com/Shirataki2/DisCalendar";
 
 /** サイト内のリンク先。docs と規約 (利用規約 / プライバシーポリシー) は旧実装と同じ URL のまま */
 export const ROUTES = {
