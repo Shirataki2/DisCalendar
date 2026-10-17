@@ -3,6 +3,24 @@ import { createServer } from "node:http";
 import { expect, test } from "@playwright/test";
 import { E2E_GUILDS, E2E_USER } from "./fixtures";
 
+// Webhook の本文は Postgres の to_jsonb で組み立てる (shared/webhook_outbox.rs) ため、日時の小数秒の末尾ゼロが落ちる
+// (API 応答 `...41.781290` に対して本文は `...41.78129`)。同じ日時なので比較の前に末尾ゼロを揃える (#307)
+const FRACTIONAL_DATETIME = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d+)$/;
+function normalizeDatetimes(value: unknown): unknown {
+  if (typeof value === "string") {
+    const m = FRACTIONAL_DATETIME.exec(value);
+    if (!m) return value;
+    const fraction = m[2].replace(/0+$/, "");
+    return fraction ? `${m[1]}.${fraction}` : m[1];
+  }
+  if (Array.isArray(value)) return value.map(normalizeDatetimes);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, normalizeDatetimes(v)]),
+    );
+  return value;
+}
+
 // webhook-e2e 機能付き API だけが webhook.test をループバックへ解決する。
 // 本番ビルドの SSRF 判定には例外を入れない。
 test("Webhook の登録・署名付き配信・ログ・変更と削除・権限境界", async ({
@@ -66,7 +84,10 @@ test("Webhook の登録・署名付き配信・ログ・変更と削除・権限
     await expect.poll(() => received.length).toBe(1);
     const payload = JSON.parse(received[0].body);
     expect(payload.type).toBe("event.created");
-    expect(payload.event).toEqual(event);
+    // 署名は下で生の受信本文に対して検証する。正規化するのはイベント内容の比較だけ
+    expect(normalizeDatetimes(payload.event)).toEqual(
+      normalizeDatetimes(event),
+    );
     expect(payload.actor_id).toBe(E2E_USER.discordId);
     expect(received[0].signature).toBe(
       `sha256=${createHmac("sha256", secret).update(received[0].body).digest("hex")}`,
