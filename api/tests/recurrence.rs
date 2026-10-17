@@ -245,6 +245,16 @@ async fn changing_pattern_keeps_the_remaining_count(pool: PgPool) {
         .await
         .unwrap();
     tx.commit().await.unwrap();
+    // 分割後のシリーズは今日以降しか補充しないので、今日より前の回はカレンダーを読むときの補充で作られる。
+    // 読む側と同じく範囲を補充してから数え、テストの日付が過去になっても結果が変わらないようにする
+    store::ensure_range(
+        &pool,
+        "111",
+        dt("2026-09-01T00:00:00"),
+        dt("2026-12-01T00:00:00"),
+    )
+    .await
+    .unwrap();
     assert_eq!(ids(&pool).await.len(), 8);
     let mut conn = pool.acquire().await.unwrap();
     let changed = store::info(&mut conn, "111", all[2])
