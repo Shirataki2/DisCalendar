@@ -51,6 +51,10 @@ fi
 
 # 古いイメージを掃除する。sha-* タグが付いたままの旧イメージは dangling にならないので、
 # metadata-action が付ける OCI ラベルでこのリポジトリのイメージに絞り、コンテナから参照されていないものを消す
-# (同じホストの他のイメージには触れない。ロールバックは GHCR から pull し直す)
-docker image prune -af --filter "label=org.opencontainers.image.source=https://github.com/Shirataki2/DisCalendarV3-new" >/dev/null
+# (同じホストの他のイメージには触れない。ロールバックは GHCR から pull し直す)。
+# リポジトリを DisCalendarV3-new から DisCalendar にリネームした (#89) ため、リネーム前にビルドしたイメージは旧 URL のラベルを持つ。
+# --filter の label を複数並べると AND になるので、新旧それぞれで prune する
+for source in https://github.com/Shirataki2/DisCalendar https://github.com/Shirataki2/DisCalendarV3-new; do
+  docker image prune -af --filter "label=org.opencontainers.image.source=${source}" >/dev/null
+done
 echo "deployed IMAGE_TAG=${tag}"
