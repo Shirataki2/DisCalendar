@@ -5,6 +5,11 @@ export type NotificationUnit = "minutes" | "hours" | "days" | "weeks";
 
 /** 予定開始の「num unit 前」に通知する */
 export interface Notification {
+  /**
+   * 保存できるのは 1〜100 (`event-form.ts` の `NOTIFICATION_NUM_MIN` / `NOTIFICATION_NUM_MAX`、
+   * api の `models/notifications.rs` の同名の定数と同じ値)。旧版で作られた予定には範囲外の値が
+   * 残っていることがあり、取得では返ってくる。更新で同じ通知を送り直すのは api が許す (#46)
+   */
   num: number;
   unit: NotificationUnit;
 }

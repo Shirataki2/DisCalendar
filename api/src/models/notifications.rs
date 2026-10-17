@@ -12,7 +12,8 @@ use utoipa::ToSchema;
 use crate::error::ApiError;
 
 /// `num` の値域 (web の `NOTIFICATION_NUM_MIN` / `NOTIFICATION_NUM_MAX` と同じ)。
-/// 繰り返し予定とサーバー既定値に適用する。単発予定の従来の保存値は維持する。
+/// 予定の作成・更新とサーバー既定値に適用する。ただし予定の更新では、旧実装が検証せずに保存した
+/// 値域外の通知が変更前から残っていれば通す (`EventInput::validate_update`、#46)。
 /// サーバー既定の事前通知 (#181) は新規作成フォームの初期値になるので、web のフォームが受け付ける
 /// 範囲に収めておく (範囲外の初期値が入るとフォームを開いた時点で検証に落ちてしまう)
 pub const NOTIFICATION_NUM_MIN: u32 = 1;
@@ -133,7 +134,7 @@ impl Notification {
 
     /// その予定について Bot が実際に送る通知の発火時刻 ([`Notification::fire_minutes`] の順、発火が遅い順)。
     ///
-    /// `num` の値域は api で検証していない (#46) ので、`total_minutes()` に直した時点や
+    /// 旧実装が保存した値域外の `num` が残っている (#46 以降も更新で引き継がれる) ので、`total_minutes()` に直した時点や
     /// 開始からの減算で溢れることがある。Bot (`fire_at`) はそれを送れないので、ここでも除く。
     /// `notify_at_start` が true なら**開始時刻の通知は必ず計算できるため、戻り値は必ず 1 件以上**になる
     pub fn fire_times(

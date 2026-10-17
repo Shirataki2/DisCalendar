@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 
 use super::{
     notification_mentions::{self, NotificationMention},
-    notifications::Notification,
+    notifications::{NOTIFICATION_NUM_MAX, NOTIFICATION_NUM_MIN, Notification},
 };
 use crate::error::ApiError;
 
@@ -145,7 +145,17 @@ impl EventInput {
             .filter(|s| !s.is_empty())
     }
 
+    /// 作成時の検証。通知の `num` も値域 (`NOTIFICATION_NUM_MIN`〜`NOTIFICATION_NUM_MAX`) で検証する
     pub fn validate(&self) -> Result<(), ApiError> {
+        self.validate_update(&Value::Null)
+    }
+
+    /// 更新時の検証。`previous` は変更前の予定の `notifications` (DB の JSONB そのまま)。
+    ///
+    /// 旧実装は通知を検証せずに保存していたので、値域外の `num` (0 分前、巨大な値など) が残っている
+    /// 予定がある (#46)。web のドラッグ移動は既存の通知をそのまま送り直すため、変更前と同じ通知
+    /// (`num` と `unit` が同じ) は値域外でも通し、新しく足された値域外の通知だけを弾く
+    pub fn validate_update(&self, previous: &Value) -> Result<(), ApiError> {
         crate::recurring::validate(self)?;
         if self.name.trim().is_empty() {
             return Err(ApiError::BadRequest("name is required".into()));
@@ -200,6 +210,14 @@ impl EventInput {
         if self.notifications.len() > NOTIFICATIONS_MAX {
             return Err(ApiError::BadRequest(format!(
                 "at most {NOTIFICATIONS_MAX} notifications are allowed"
+            )));
+        }
+        let kept = Notification::decode_all(previous);
+        if self.notifications.iter().any(|n| {
+            !(NOTIFICATION_NUM_MIN..=NOTIFICATION_NUM_MAX).contains(&n.num) && !kept.contains(n)
+        }) {
+            return Err(ApiError::BadRequest(format!(
+                "notifications: num must be between {NOTIFICATION_NUM_MIN} and {NOTIFICATION_NUM_MAX}"
             )));
         }
         if let Some(mentions) = &self.notification_mentions {
@@ -895,5 +913,54 @@ mod tests {
             NOTIFICATIONS_MAX + 1
         ];
         assert!(i.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_out_of_range_notification_num_on_create() {
+        let mut i = input();
+        for (num, ok) in [
+            (0, false),
+            (NOTIFICATION_NUM_MIN, true),
+            (NOTIFICATION_NUM_MAX, true),
+            (NOTIFICATION_NUM_MAX + 1, false),
+            (u32::MAX, false),
+        ] {
+            i.notifications = vec![Notification {
+                num,
+                unit: NotificationUnit::Weeks,
+            }];
+            assert_eq!(i.validate().is_ok(), ok, "{num}");
+        }
+    }
+
+    #[test]
+    fn keeps_existing_out_of_range_notifications_on_update() {
+        let legacy = Notification {
+            num: 0,
+            unit: NotificationUnit::Minutes,
+        };
+        let previous = Notification::encode_all(&[legacy]);
+        let mut i = input();
+        // 変更前と同じ値域外の通知は、ドラッグ移動などで送り直されても通す
+        i.notifications = vec![
+            legacy,
+            Notification {
+                num: 30,
+                unit: NotificationUnit::Minutes,
+            },
+        ];
+        assert!(i.validate_update(&previous).is_ok());
+        assert!(i.validate().is_err());
+        // unit が違えば別の通知として扱い、新しく足した値域外の値は弾く
+        i.notifications = vec![Notification {
+            num: 0,
+            unit: NotificationUnit::Hours,
+        }];
+        assert!(i.validate_update(&previous).is_err());
+        i.notifications = vec![Notification {
+            num: 101,
+            unit: NotificationUnit::Minutes,
+        }];
+        assert!(i.validate_update(&previous).is_err());
     }
 }

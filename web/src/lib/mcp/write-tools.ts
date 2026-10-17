@@ -39,7 +39,7 @@ const fields = z
       .array(
         z
           .object({
-            num: z.number().int().nonnegative().max(4294967295),
+            num: z.number().int().min(1).max(100),
             unit: z.enum(["minutes", "hours", "days", "weeks"]),
           })
           .strict(),

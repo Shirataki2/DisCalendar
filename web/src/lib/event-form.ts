@@ -25,6 +25,7 @@ export const NAME_MAX_CHARS = 32;
 export const DESCRIPTION_MAX_CHARS = 1000;
 export const LOCATION_MAX_CHARS = 200;
 export const NOTIFICATIONS_MAX = 10;
+// api/src/models/notifications.rs の NOTIFICATION_NUM_MIN / NOTIFICATION_NUM_MAX と同じ値 (#46)
 export const NOTIFICATION_NUM_MIN = 1;
 export const NOTIFICATION_NUM_MAX = 100;
 /** 旧フォームの既定色 */

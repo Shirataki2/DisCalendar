@@ -138,7 +138,8 @@ fn merge(
     }
     let input: EventInput = serde_json::from_value(value)
         .map_err(|_| ApiError::BadRequest("invalid event fields".into()))?;
-    input.validate()?;
+    // 更新では変更前から残っている値域外の通知を通す (#46)
+    input.validate_update(old.map_or(&Value::Null, |row| &row.notifications))?;
     Ok(input)
 }
 
@@ -934,6 +935,31 @@ mod tests {
         )
         .unwrap();
         assert_eq!(day.end_at.date().to_string(), "2099-09-15");
+        // 旧版が保存した値域外の通知 (#46) は、通知以外を変える更新では引き継げる。
+        // 新しく値域外の通知を足す変更と、新規作成での値域外は弾く
+        sqlx::query(
+            r#"UPDATE events SET notifications='[{"num":0,"unit":"minutes"}]' WHERE id=$1"#,
+        )
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let legacy = events::find_by_id(&pool, "111", id).await.unwrap().unwrap();
+        assert!(merge(json!({"name":"改名"}).as_object().unwrap(), Some(&legacy)).is_ok());
+        let out_of_range =
+            json!({"notifications":[{"num":0,"unit":"minutes"},{"num":101,"unit":"minutes"}]});
+        assert!(merge(out_of_range.as_object().unwrap(), Some(&legacy)).is_err());
+        for (num, ok) in [(30, true), (0, false)] {
+            let fresh = json!({"name":"新規","start_at":"2099-09-13T10:00:00+09:00","end_at":"2099-09-13T11:00:00+09:00","color":"#5865F2","notifications":[{"num":num,"unit":"minutes"}]});
+            assert_eq!(merge(fresh.as_object().unwrap(), None).is_ok(), ok, "{num}");
+        }
+        // 後続の版の比較に影響しないよう元に戻す
+        sqlx::query("UPDATE events SET notifications=$2 WHERE id=$1")
+            .bind(id)
+            .bind(&row.notifications)
+            .execute(&pool)
+            .await
+            .unwrap();
         // 保存済みunknownはプロセス再起動後も外部操作を再実行しない。
         sqlx::query("UPDATE mcp_event_operations SET result=jsonb_set(result,'{discord}','\"unknown\"') WHERE key_hash=$1").bind(hash(b"create")).execute(&pool).await.unwrap();
         let replayed = result(
