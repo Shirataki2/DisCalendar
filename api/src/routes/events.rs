@@ -389,7 +389,6 @@ pub async fn update(
     let _writer = event_links::lock_writer(&state.pool, member.guild_id()).await?;
     ensure_can_edit(&state.pool, &member).await?;
     crate::mcp::ensure_resolved(&state.pool, member.guild_id(), path.event_id).await?;
-    body.validate()?;
     let guild_id = member.guild_id();
 
     // 同じ予定への更新は、連携の有無に関わらず最初から直列化する (#94)。
@@ -409,6 +408,8 @@ pub async fn update(
         let old = events::find_by_id(&state.pool, guild_id, path.event_id)
             .await?
             .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+        // 変更前から残っている値域外の通知は通す (#46)。変更前の値が要るのでここで検証する
+        body.validate_update(&old.notifications)?;
         let mut body = body.0.clone();
         // 省略された対象も検証し、検証した値を明示して保存する。
         // 並行更新でメンション先が変わっても、未検証の値を COALESCE で引き継がない。

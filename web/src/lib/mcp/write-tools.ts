@@ -39,6 +39,8 @@ const fields = z
       .array(
         z
           .object({
+            // 1〜100 の値域は api が検証する。更新では旧版で保存された値域外の通知を
+            // そのまま送り直すのを api が許す (#46) ので、ここでは u32 の範囲だけ見る
             num: z.number().int().nonnegative().max(4294967295),
             unit: z.enum(["minutes", "hours", "days", "weeks"]),
           })

@@ -274,7 +274,12 @@ pub async fn update_event(
 ) -> Result<web::Json<Event>, ApiError> {
     let guild_id = validated_guild_id(&path.guild_id)?;
     let _writer = crate::models::event_links::lock_writer(&state.pool, guild_id).await?;
-    body.validate()?;
+    // 変更前から残っている値域外の通知は通す (#46)。Discord への問い合わせより先に検証したいので、
+    // ロックせずに読む (同じギルドへの書き込みは `lock_writer` で直列化している)
+    let current = events::find_by_id(&state.pool, guild_id, path.event_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("event not found".into()))?;
+    body.validate_update(&current.notifications)?;
     // 運営管理者の代理編集では、省略されたメンションは DB の現在値を維持する。
     crate::models::notification_mentions::validate_targets(
         &state.discord,
