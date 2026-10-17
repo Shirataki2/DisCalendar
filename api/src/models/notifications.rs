@@ -22,8 +22,9 @@ pub const NOTIFICATION_NUM_MAX: u32 = 100;
 /// 予定開始の「num unit 前」に通知する
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Notification {
-    /// 単位ごとの数値 (例: 30 分前なら 30)
-    #[schema(example = 30)]
+    /// 単位ごとの数値 (例: 30 分前なら 30)。保存できるのは [`NOTIFICATION_NUM_MIN`]〜[`NOTIFICATION_NUM_MAX`]。
+    /// 旧版で保存された予定は範囲外の値を返すことがあり、更新で同じ通知を送り直すのは許す (#46)
+    #[schema(example = 30, minimum = 1, maximum = 100)]
     pub num: u32,
     pub unit: NotificationUnit,
 }

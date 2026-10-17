@@ -212,9 +212,13 @@ impl EventInput {
                 "at most {NOTIFICATIONS_MAX} notifications are allowed"
             )));
         }
+        // 同じ値域外の通知を複製して増やせないよう、変更前にあった件数までに限る
         let kept = Notification::decode_all(previous);
+        let count =
+            |list: &[Notification], n: &Notification| list.iter().filter(|m| *m == n).count();
         if self.notifications.iter().any(|n| {
-            !(NOTIFICATION_NUM_MIN..=NOTIFICATION_NUM_MAX).contains(&n.num) && !kept.contains(n)
+            !(NOTIFICATION_NUM_MIN..=NOTIFICATION_NUM_MAX).contains(&n.num)
+                && count(&self.notifications, n) > count(&kept, n)
         }) {
             return Err(ApiError::BadRequest(format!(
                 "notifications: num must be between {NOTIFICATION_NUM_MIN} and {NOTIFICATION_NUM_MAX}"
@@ -951,6 +955,9 @@ mod tests {
         ];
         assert!(i.validate_update(&previous).is_ok());
         assert!(i.validate().is_err());
+        // 変更前より多く複製するのは新しく足したのと同じなので弾く
+        i.notifications = vec![legacy, legacy];
+        assert!(i.validate_update(&previous).is_err());
         // unit が違えば別の通知として扱い、新しく足した値域外の値は弾く
         i.notifications = vec![Notification {
             num: 0,
