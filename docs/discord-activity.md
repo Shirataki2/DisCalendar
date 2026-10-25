@@ -62,9 +62,26 @@ web 側の環境変数の追加は不要。
    (`bot/src/commands/register.rs`。含めずに一括上書きすると Discord が 50240 で拒否する)
 5. 公開前は Developer Portal の **App Testers** に入れた人だけが起動できる。公開するには Activity の審査/公開設定を行う
 
+## Cloudflare の設定 (Rocket Loader を無効にする)
+
+`discalendar.app` のゾーン (staging も同じゾーン) では **Rocket Loader をオフにしておく**
+(ダッシュボードの「スピード → 最適化 → コンテンツの最適化 → Rocket Loader」。Terraform では管理していない)。
+オンのままだと、Activity は「読み込み中…」から進まない。
+
+- Discord のプロキシは CSP `script-src 'self' 'unsafe-eval' 'nonce-…' blob:` (`'unsafe-inline'` なし) を付け、
+  HTML のインラインスクリプトに nonce を付け足す
+- Rocket Loader は `<script>` の type を書き換えて後から作り直して実行するが、ブラウザは `nonce` 属性の値を隠すので、
+  作り直したスクリプトには nonce が付かない。Next.js のインラインスクリプト (RSC のデータ) が CSP で止まり、React がハイドレーションしない
+- 画面はサーバーで描画した初期表示 (「読み込み中…」) のまま。SDK の `ready()` / authorize まで進まないので、Discord 側にもエラーは出ない
+
+確かめ方: `https://<client_id>.discordsays.com/?frame_id=x&instance_id=y` をブラウザで開き、コンソールに
+"Executing inline script violates … Content Security Policy" が出ていないこと、HTML の `<script>` に
+`type="…-text/javascript"` や `rocket-loader.min.js` が無いことを見る (Discord の外で開いても CSP は付く)。
+2026-10 に staging でこの症状が出て、Rocket Loader の書き換えを外すとハイドレーションすることを確認した。
+
 ## 確認手順 (staging)
 
-1. staging の Discord アプリで上の設定をし、staging にデプロイする
+1. staging の Discord アプリで上の設定をし、staging にデプロイする。Cloudflare の Rocket Loader がオフになっていることも確かめる
 2. Bot がいるサーバーのボイスチャンネル / テキストチャンネルから Activity を起動する (デスクトップ・モバイルの両方)
    - 初回は同意画面が出て、そのサーバーのカレンダーが開く
    - 予定の作成・編集・削除ができる。restricted モードで権限のない人は編集できない
@@ -79,6 +96,7 @@ Discord モックでのコード交換 → Bearer で api を呼ぶところま�
 ## 既知の制約
 
 - 画面の同期はしない (各自の画面で操作し、保存した内容は再読み込みで反映される)
+- Cloudflare の Rocket Loader とは併用できない (上の「Cloudflare の設定」)
 - Discord の CSP により、URL マッピングに無いオリジンへの通信は止まる
   - 添付ファイルのアップロード (R2 の署名付き URL へ直接 PUT) は動かない可能性が高い。ダウンロードはブラウザで開く
   - Sentry (ブラウザ側) への送信は届かない
