@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { DISCORD_MOCK_URL } from "./env";
 import {
+  E2E_ACTIVITY_CODE,
   E2E_ALL_GUILDS,
   E2E_BOT_ROLE_ID,
   E2E_BOT_TOKEN,
@@ -17,7 +18,8 @@ import {
 
 // Discord API (https://discord.com/api/v10) のモック。web と api の DISCORD_API_BASE_URL をここに向ける。
 // 実装しているのは DisCalendar が呼ぶエンドポイントだけ:
-// - GET /users/@me                              api (Bot 自身のユーザー ID、#94)
+// - GET /users/@me                              api (Bot 自身のユーザー ID、#94) と web (Activity のログイン、#350)
+// - POST /oauth2/token                          web (Activity のコード交換、#350)
 // - GET /users/@me/guilds                       web (lib/discord.ts、ユーザーのトークン) と api の管理コンソール (Bot トークン)
 // - GET /guilds/{id}                            api (ギルド情報とロール一覧、権限計算)
 // - GET /guilds/{id}/members/{uid}              api (メンバー確認と所持ロール。Bot 自身も含む)
@@ -351,14 +353,50 @@ export function startDiscordMock(port: number): Promise<Server> {
       return json(405, { message: "Method Not Allowed", code: 0 });
     }
 
+    // Discord の Activity (#350) のコード交換。E2E_ACTIVITY_CODE だけを受け付け、テストユーザーと同じアクセストークンを返す
+    // (web が account を更新しても、他のテストが使うトークンが変わらないようにする)
+    if (url.pathname === "/oauth2/token" && req.method === "POST") {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        const form = new URLSearchParams(Buffer.concat(chunks).toString());
+        if (
+          form.get("grant_type") !== "authorization_code" ||
+          form.get("code") !== E2E_ACTIVITY_CODE
+        ) {
+          return json(400, { error: "invalid_grant" });
+        }
+        json(200, {
+          access_token: E2E_USER.accessToken,
+          token_type: "Bearer",
+          expires_in: 604800,
+          refresh_token: "e2e-activity-refresh-token",
+          scope: "identify email guilds",
+        });
+      });
+      return;
+    }
+
     if (req.method !== "GET") {
       return json(405, { message: "Method Not Allowed", code: 0 });
     }
 
-    // Bot 自身のユーザー情報 (#94。api が Bot の権限計算に使う)
+    // Bot 自身のユーザー情報 (#94。api が Bot の権限計算に使う)。
+    // ユーザーのトークンなら Activity のログイン (#350) で使うテストユーザーの情報を返す
     if (url.pathname === "/users/@me") {
       if (auth === `Bot ${E2E_BOT_TOKEN}`) {
         return json(200, { id: E2E_BOT_USER_ID, username: "DisCalendar" });
+      }
+      if (auth === `Bearer ${E2E_USER.accessToken}`) {
+        return json(200, {
+          id: E2E_USER.discordId,
+          username: "e2e-user",
+          global_name: E2E_USER.name,
+          avatar: null,
+          discriminator: "0",
+          email: E2E_USER.email,
+          verified: true,
+        });
       }
       return json(401, { message: "401: Unauthorized", code: 0 });
     }

@@ -44,6 +44,12 @@ export const DOC_PAGES: readonly DocPage[] = [
       "ブラウザのカレンダー画面の見方、全サーバーの予定をまとめて見る「すべての予定」、予定ダイアログからの予定の作成 (日時・色・事前通知・説明) について。",
   },
   {
+    slug: "activity",
+    title: "Discord の中で開く",
+    description:
+      "Discord のアクティビティとして、ボイスチャンネルやテキストチャンネルからサーバーのカレンダーを開く方法。",
+  },
+  {
     slug: "polls",
     title: "日程調整",
     description: "候補日への回答を集め、選んだ日時で予定を作成する方法。",

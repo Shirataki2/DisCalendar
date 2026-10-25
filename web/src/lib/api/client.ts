@@ -31,14 +31,45 @@ export type ApiFetcher = <T>(
 /**
  * ブラウザから API を呼び出してレスポンス JSON を返す (204 は undefined)。
  * 2xx 以外は ApiError を投げる。同一オリジンなのでセッション cookie は自動で付く
+ * (Activity ではトークンを Authorization ヘッダーで付ける。withAuthToken)
  */
 export const apiFetch: ApiFetcher = async <T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> => {
-  const res = await fetch(`${API_PREFIX}${path}`, buildInit(options));
+  const res = await fetch(
+    `${API_PREFIX}${path}`,
+    withAuthToken(buildInit(options), apiAuthToken),
+  );
   return handleResponse<T>(res);
 };
+
+/**
+ * cookie の代わりに送る署名付きセッショントークン。Discord の Activity (#350) は第三者の iframe で
+ * cookie が届かないので、ログイン後にここへ入れて `Authorization: Bearer` で送る。
+ * 通常の Web では null のままで、従来どおり cookie で認証する
+ */
+let apiAuthToken: string | null = null;
+
+export function setApiAuthToken(token: string | null) {
+  apiAuthToken = token;
+}
+
+export function withAuthToken(
+  init: RequestInit,
+  token: string | null,
+): RequestInit {
+  if (!token) {
+    return init;
+  }
+  return {
+    ...init,
+    headers: {
+      ...(init.headers as Record<string, string> | undefined),
+      authorization: `Bearer ${token}`,
+    },
+  };
+}
 
 export function buildInit(options: RequestOptions): RequestInit {
   const hasBody = options.body !== undefined;

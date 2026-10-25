@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { inviteUrlForGuild } from "@/lib/activity/links";
 import { auth } from "@/lib/auth";
 
 // Discord API のベース URL。E2E テスト (e2e/) ではモックサーバーに向ける (api 側の DISCORD_API_BASE_URL と同じ扱い)
@@ -85,9 +86,7 @@ export function botInviteUrl(guildId?: string): string {
     base.searchParams.set("scope", "bot applications.commands");
     base.searchParams.set("permissions", DEFAULT_BOT_PERMISSIONS);
   }
-  if (guildId) {
-    base.searchParams.set("guild_id", guildId);
-    base.searchParams.set("disable_guild_select", "true");
-  }
-  return base.toString();
+  return guildId
+    ? inviteUrlForGuild(base.toString(), guildId)
+    : base.toString();
 }

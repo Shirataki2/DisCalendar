@@ -105,6 +105,7 @@ SQLx のクエリ情報更新は [API の README](api/README.md) を参照。
 | compose、デプロイ、リリース、監視、DB のバックアップ・復元・ロールバック | [デプロイと運用](docs/operations.md) |
 | VAPID 鍵、配信の仕組み、端末での確認 | [プッシュ通知](docs/push-notifications.md) |
 | 予定変更の Webhook、配信・再試行、E2E | [Webhook](docs/webhooks.md) |
+| Discord の Activity、Developer Portal の設定 | [Discord の Activity](docs/discord-activity.md) |
 | 技術選定の背景 | [技術選定](docs/tech-stack-selection.md) |
 | 実装・レビュー規約 | [AGENTS.md](AGENTS.md) |
 

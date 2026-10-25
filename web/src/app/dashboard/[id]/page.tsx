@@ -7,6 +7,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { GuildDashboard } from "@/components/guild-dashboard";
+import { GuildUnavailable } from "@/components/guild-unavailable";
 import { Message } from "@/components/language-provider";
 import { ApiError } from "@/lib/api";
 import { serverApi } from "@/lib/api/server";
@@ -94,7 +95,19 @@ export default async function GuildCalendarPage({
       if (initialEventId) target.set("event", String(initialEventId));
       redirect(loginUrl(`/dashboard/${id}${target.size ? `?${target}` : ""}`));
     }
-    return <GuildUnavailable error={result.error} />;
+    return (
+      <GuildUnavailable
+        error={result.error}
+        action={
+          <Link
+            href="/dashboard"
+            className="rounded-full border border-foreground/20 px-5 py-2 text-sm hover:bg-foreground/10"
+          >
+            <Message message={"サーバー選択に戻る"} />
+          </Link>
+        }
+      />
+    );
   }
 
   const guildChoices = loadedChoices.some((guild) => guild.id === id)
@@ -119,47 +132,5 @@ export default async function GuildCalendarPage({
         initialEventId={initialEventId}
       />
     </HydrationBoundary>
-  );
-}
-
-function GuildUnavailable({ error }: { error: unknown }) {
-  const discordTrouble =
-    error instanceof ApiError &&
-    (error.kind === "discord_error" || error.kind === "rate_limited");
-  return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-      <h1 className="text-xl font-bold">
-        <Message message={"サーバーデータの取得に失敗しました"} />
-      </h1>
-      {discordTrouble ? (
-        <p className="text-sm text-muted-foreground">
-          <Message
-            message={
-              "Discord との通信に失敗しました。時間をおいて再度お試しください。"
-            }
-          />
-        </p>
-      ) : (
-        <div className="text-sm text-muted-foreground">
-          <p className="mb-2">
-            <Message message={"以下の事項をご確認ください"} />
-          </p>
-          <p>
-            <Message message={"･ BOTがサーバーに導入されているか"} />
-          </p>
-          <p>
-            <Message
-              message={"･ あなた自身がBOTを導入したサーバーに参加しているか"}
-            />
-          </p>
-        </div>
-      )}
-      <Link
-        href="/dashboard"
-        className="rounded-full border border-foreground/20 px-5 py-2 text-sm hover:bg-foreground/10"
-      >
-        <Message message={"サーバー選択に戻る"} />
-      </Link>
-    </main>
   );
 }

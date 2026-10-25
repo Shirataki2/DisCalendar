@@ -39,6 +39,7 @@ ssh して `docker compose pull && up -d` する (<https://staging.discalendar.a
   `compose.yaml` (デプロイのたびに上書き配布される) と `.env` (`.env.example` を元に staging の値。`COMPOSE_PROFILES=bot,tunnel`、
   `IMAGE_TAG` はデプロイが書き換える) を置き、`docker login ghcr.io` しておく (パッケージを public にしていれば不要)。
   staging 用に別の Discord アプリ (Bot トークン / Client ID / Secret) を使い、Redirects に `https://staging.discalendar.app/api/auth/callback/discord` を登録する。
+  Discord の Activity を使うときは、そのアプリで [Activity の設定](discord-activity.md#discord-developer-portal-の設定) も行う。
   DB は compose 内の `db-data` ボリューム。公開は compose の `cloudflared` (Cloudflare Zero Trust で Tunnel を作り、Public Hostname を
   `http://web:3000` に向けてトークンを `.env` の `TUNNEL_TOKEN` に入れる)
 - **GitHub 側の設定** (Environment `staging`): secrets `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` (Tailscale の OAuth クライアント。scope `auth_keys`、

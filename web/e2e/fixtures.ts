@@ -28,6 +28,9 @@ export const E2E_USER = {
 /** api が Discord モックを呼ぶときの Bot トークン (DISCORD_BOT_TOKEN) */
 export const E2E_BOT_TOKEN = "e2e-discord-bot-token";
 
+/** Discord の Activity (#350) の authorize で得たことにするコード。Discord モックの POST /oauth2/token だけが受け付ける */
+export const E2E_ACTIVITY_CODE = "e2e-activity-code";
+
 /** Bot 自身の Discord ユーザー ID (`GET /users/@me`。api が Bot の権限計算に使う) */
 export const E2E_BOT_USER_ID = "100000000000000050";
 
