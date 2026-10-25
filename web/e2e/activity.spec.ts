@@ -30,9 +30,11 @@ test.describe("Activity のログイン", () => {
     expect(guild.status()).toBe(200);
     expect((await guild.json()).name).toBe(E2E_GUILDS.admin.name);
 
-    // 権限は通常の Web と同じく api が判定する (Bot 未参加のサーバーは 403)
+    // 権限は通常の Web と同じく api が判定する (Bot のいないサーバーは 403)。
+    // api はギルドの取得結果をキャッシュするので、招待のテスト (invite.spec.ts) が Bot を参加させる
+    // E2E_GUILDS.invitable ではなく、どのテストも使わない ID で確かめる
     const notJoined = await request.get(
-      `/local/api/guilds/${E2E_GUILDS.invitable.id}`,
+      "/local/api/guilds/200000000000000099",
       { headers: { authorization: `Bearer ${token}` } },
     );
     expect(notJoined.status()).toBe(403);
