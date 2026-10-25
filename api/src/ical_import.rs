@@ -468,18 +468,22 @@ fn parse_rule_inner(
         }
         Some("MONTHLY") if interval == 1 => match (parts.get("BYMONTHDAY"), parts.get("BYDAY")) {
             (None, None) => Rule::MonthlyDate {
-                day: start.day() as u8,
+                days: vec![start.day() as u8],
                 end: Ending::Never,
             },
-            (Some(day), None) if !day.contains(',') => Rule::MonthlyDate {
-                day: day.parse().map_err(|_| "毎月の日付が不正です")?,
+            (Some(days), None) => Rule::MonthlyDate {
+                days: days
+                    .split(',')
+                    .map(str::parse)
+                    .collect::<Result<_, _>>()
+                    .map_err(|_| "毎月の日付が不正です")?,
                 end: Ending::Never,
             },
-            (None, Some(day)) if !day.contains(',') && day.len() >= 3 => {
-                let (nth, weekday) = day.split_at(day.len() - 2);
+            (None, Some(days)) => {
+                let (nths, weekdays) = parse_monthly_byday(days)?;
                 Rule::MonthlyWeekday {
-                    nth: nth.parse().map_err(|_| "毎月の第n曜日が不正です")?,
-                    weekday: parse_weekday(weekday)?,
+                    nths,
+                    weekdays,
                     end: Ending::Never,
                 }
             }
@@ -562,6 +566,27 @@ fn apply_ending(
         }
         (None, None) => Ok(()),
     }
+}
+
+/// `1SU,2SU,3SU` のような第n曜日の並び。週の順番と曜日の全組合せになっている場合だけ対応する。
+fn parse_monthly_byday(value: &str) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let mut pairs = std::collections::BTreeSet::new();
+    for day in value.split(',') {
+        if day.len() < 3 {
+            return Err("対応していない毎月の繰り返し条件です".into());
+        }
+        let (nth, weekday) = day.split_at(day.len() - 2);
+        let nth: u8 = nth.parse().map_err(|_| "毎月の第n曜日が不正です")?;
+        pairs.insert((nth, parse_weekday(weekday)?));
+    }
+    let nths: std::collections::BTreeSet<_> = pairs.iter().map(|(n, _)| *n).collect();
+    let weekdays: std::collections::BTreeSet<_> = pairs.iter().map(|(_, d)| *d).collect();
+    if pairs.len() != nths.len() * weekdays.len() {
+        return Err(
+            "週の順番と曜日の組合せになっていない毎月の繰り返し条件には対応していません".into(),
+        );
+    }
+    Ok((nths.into_iter().collect(), weekdays.into_iter().collect()))
 }
 
 fn parse_weekday(value: &str) -> Result<u8, String> {
@@ -873,6 +898,50 @@ mod tests {
             let parsed = parse(&ics).unwrap();
             assert!(parsed.events.is_empty());
             assert_eq!(parsed.skipped[0].reason, "unsupported_recurrence");
+        }
+    }
+
+    #[test]
+    fn monthly_multiple_values_are_imported() {
+        // 2026-11-01は日曜(第1日曜)。
+        let start: NaiveDateTime = "2026-11-01T10:00:00".parse().unwrap();
+        assert_eq!(
+            parse_rule_inner("FREQ=MONTHLY;BYMONTHDAY=15,1,25", start, false, start).unwrap(),
+            Rule::MonthlyDate {
+                days: vec![15, 1, 25],
+                end: Ending::Never
+            }
+        );
+        assert_eq!(
+            parse_rule_inner(
+                "FREQ=MONTHLY;BYDAY=3SU,1SU,2SU;COUNT=6",
+                start,
+                false,
+                start
+            )
+            .unwrap(),
+            Rule::MonthlyWeekday {
+                nths: vec![1, 2, 3],
+                weekdays: vec![6],
+                end: Ending::Count { count: 6 }
+            }
+        );
+        assert_eq!(
+            parse_rule_inner("FREQ=MONTHLY;BYDAY=1SU,1SA,3SA,3SU", start, false, start).unwrap(),
+            Rule::MonthlyWeekday {
+                nths: vec![1, 3],
+                weekdays: vec![5, 6],
+                end: Ending::Never
+            }
+        );
+        for raw in [
+            // 組合せになっていない・開始日を含まない・最終週指定は対応しない。
+            "FREQ=MONTHLY;BYDAY=1SU,3SA",
+            "FREQ=MONTHLY;BYMONTHDAY=5,15",
+            "FREQ=MONTHLY;BYDAY=-1SU",
+            "FREQ=MONTHLY;BYDAY=SU",
+        ] {
+            assert!(parse_rule_inner(raw, start, false, start).is_err(), "{raw}");
         }
     }
 

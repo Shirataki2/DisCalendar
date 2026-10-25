@@ -410,7 +410,7 @@ async fn distant_range_is_not_generated_and_feed_keeps_standalone(pool: PgPool) 
     body.start_at = dt("2026-01-01T00:00:00");
     body.end_at = dt("2026-01-03T00:00:00");
     body.recurrence = Some(discalendar_api::recurrence::Rule::MonthlyDate {
-        day: 1,
+        days: vec![1],
         end: discalendar_api::recurrence::Ending::Never,
     });
     let row = events::create(&mut *tx, "111", &body, body.start_at, "333")
@@ -880,4 +880,186 @@ async fn yearly_occurrences_keep_exceptions_when_shifted_and_deleted(pool: PgPoo
             .name,
         "誕生日の個別変更"
     );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn monthly_multiple_dates_shift_with_future_edit(pool: PgPool) {
+    let mut body = input();
+    body.start_at = dt("2026-10-05T19:30:00");
+    body.end_at = dt("2026-10-05T21:00:00");
+    body.recurrence = Some(discalendar_api::recurrence::Rule::MonthlyDate {
+        days: vec![25, 5, 15],
+        end: discalendar_api::recurrence::Ending::Never,
+    });
+    let mut tx = pool.begin().await.unwrap();
+    let first = events::create(&mut *tx, "111", &body, body.start_at, "333")
+        .await
+        .unwrap();
+    recurring::attach_created(&mut tx, "111", first.id, &body, "333")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    store::ensure_range(
+        &pool,
+        "111",
+        dt("2026-10-01T00:00:00"),
+        dt("2026-12-01T00:00:00"),
+    )
+    .await
+    .unwrap();
+    // 作成時に現在から730日先まで補充されるので、確認は11月までに絞る。
+    let all: Vec<i32> = sqlx::query_scalar(
+        "SELECT id FROM events WHERE guild_id='111' AND start_at < '2026-12-01' ORDER BY start_at",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(all.len(), 6);
+    let mut tx = pool.begin().await.unwrap();
+    let info = store::info(&mut tx, "111", all[3]).await.unwrap().unwrap();
+    // 保存する条件は重複なしの昇順にそろえる。
+    assert_eq!(info.rule["days"], serde_json::json!([5, 15, 25]));
+
+    // 11/25の回を12/2へ移すと、5日・15日が範囲外になるので自動では補正しない。
+    body.recurrence = None;
+    body.scope = ChangeScope::Future;
+    body.expected_series_version = Some(info.version);
+    body.start_at = dt("2026-12-02T19:30:00");
+    body.end_at = dt("2026-12-02T21:00:00");
+    assert!(matches!(
+        recurring::update(&mut tx, "111", all[5], &body, "333").await,
+        Err(discalendar_api::error::ApiError::BadRequest(_))
+    ));
+
+    // 11/5の回を11/6へ移すと、以降は毎月6・16・26日になる。
+    body.start_at = dt("2026-11-06T19:30:00");
+    body.end_at = dt("2026-11-06T21:00:00");
+    recurring::update(&mut tx, "111", all[3], &body, "333")
+        .await
+        .unwrap();
+    let info = store::info(&mut tx, "111", all[3]).await.unwrap().unwrap();
+    assert_eq!(info.rule["frequency"], "monthly_date");
+    assert_eq!(info.rule["days"], serde_json::json!([6, 16, 26]));
+    tx.commit().await.unwrap();
+    let starts: Vec<NaiveDateTime> = sqlx::query_scalar(
+        "SELECT start_at FROM events WHERE guild_id='111' AND deleted_at IS NULL AND start_at < '2026-12-01' ORDER BY start_at",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        starts,
+        [
+            "2026-10-05T19:30:00",
+            "2026-10-15T19:30:00",
+            "2026-10-25T19:30:00",
+            "2026-11-06T19:30:00",
+            "2026-11-16T19:30:00",
+            "2026-11-26T19:30:00",
+        ]
+        .map(dt)
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn monthly_weekdays_accept_legacy_input(pool: PgPool) {
+    // #355以前の単一値の形式でも作成でき、応答は配列の形式になる。
+    let body: EventInput = serde_json::from_value(serde_json::json!({"name":"定例","color":"#2196F3","start_at":"2026-11-01T10:00:00","end_at":"2026-11-01T11:00:00","notifications":[],"recurrence_rule":{"frequency":"monthly_weekday","nth":1,"weekday":6,"end":{"type":"count","count":3}}})).unwrap();
+    body.validate().unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let first = events::create(&mut *tx, "111", &body, body.start_at, "333")
+        .await
+        .unwrap();
+    recurring::attach_created(&mut tx, "111", first.id, &body, "333")
+        .await
+        .unwrap();
+    let info = store::info(&mut tx, "111", first.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        info.rule,
+        serde_json::json!({"frequency":"monthly_weekday","nths":[1],"weekdays":[6],"end":{"type":"count","count":3}})
+    );
+    tx.commit().await.unwrap();
+
+    let preview = recurring::preview_dates(
+        &pool,
+        "111",
+        &recurring::PreviewInput {
+            event_id: None,
+            start_at: dt("2026-11-01T10:00:00"),
+            recurrence: serde_json::from_value(serde_json::json!({"frequency":"monthly_weekday","nths":[1,2,3],"weekdays":[6],"end":{"type":"never"}})).unwrap(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        preview,
+        [
+            "2026-11-01T10:00:00",
+            "2026-11-08T10:00:00",
+            "2026-11-15T10:00:00"
+        ]
+        .map(dt)
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn multi_monthly_rollback_restores_legacy_shape_or_stops(pool: PgPool) {
+    let insert = |rule: serde_json::Value| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query("INSERT INTO event_series (guild_id,template,recurrence,rrule,start_at,end_at,created_at,created_by) VALUES ('111','{}',$1,'FREQ=MONTHLY','2026-11-01T10:00:00','2026-11-01T11:00:00','2026-10-01T00:00:00','333')")
+                .bind(rule)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    };
+    let rollback = include_str!("../rollback/20261026000000_revert_multi_monthly_recurrence.sql");
+    insert(serde_json::json!({"frequency":"monthly_date","days":[1],"end":{"type":"never"}})).await;
+    insert(serde_json::json!({"frequency":"monthly_weekday","nths":[1],"weekdays":[6],"end":{"type":"never"}})).await;
+    insert(serde_json::json!({"frequency":"monthly_weekday","nths":[1,2],"weekdays":[6],"end":{"type":"never"}})).await;
+    // 複数指定は旧形式で表せないので、何も変えずに止まる。
+    // psql の ON_ERROR_STOP と同じく、失敗した接続は ROLLBACK して捨てる。
+    let mut conn = pool.acquire().await.unwrap();
+    assert!(sqlx::raw_sql(rollback).execute(&mut *conn).await.is_err());
+    sqlx::raw_sql("ROLLBACK").execute(&mut *conn).await.unwrap();
+    drop(conn);
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM event_series WHERE recurrence ? 'day' OR recurrence ? 'nth'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+    sqlx::query("DELETE FROM event_series WHERE jsonb_array_length(recurrence->'nths') = 2")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(rollback).execute(&pool).await.unwrap();
+    let rules: Vec<serde_json::Value> =
+        sqlx::query_scalar("SELECT recurrence FROM event_series ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        rules,
+        [
+            serde_json::json!({"frequency":"monthly_date","day":1,"end":{"type":"never"}}),
+            serde_json::json!({"frequency":"monthly_weekday","nth":1,"weekday":6,"end":{"type":"never"}}),
+        ]
+    );
+    // 適用記録を消したので、再適用で新形式へ戻る。
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    let rules: Vec<serde_json::Value> =
+        sqlx::query_scalar("SELECT recurrence FROM event_series ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(rules[0]["days"], serde_json::json!([1]));
+    assert_eq!(rules[1]["nths"], serde_json::json!([1]));
+    assert_eq!(rules[1]["weekdays"], serde_json::json!([6]));
+    assert!(rules[1].get("nth").is_none());
 }

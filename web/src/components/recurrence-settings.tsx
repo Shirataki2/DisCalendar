@@ -14,10 +14,58 @@ import {
 import { Input } from "@/components/ui/input";
 import { describeApiError } from "@/lib/api";
 import type { RecurrenceEnding, RecurrenceRule } from "@/lib/api/types";
-import { describeRecurrence, recurrenceWeekdays } from "@/lib/recurrence";
+import {
+  describeRecurrence,
+  ordinalWeek,
+  recurrenceWeekdays,
+} from "@/lib/recurrence";
 
 const selectClass =
   "min-h-11 w-full rounded-md border bg-background px-3 text-base focus-visible:outline-2 focus-visible:outline-ring";
+/** 押すたびに選択を切り替える。並びは昇順に保つ */
+function toggle(values: number[], value: number): number[] {
+  return values.includes(value)
+    ? values.filter((v) => v !== value)
+    : [...values, value].sort((a, b) => a - b);
+}
+
+/** 複数選択のトグルボタン群 (週の曜日と同じ見た目) */
+function ToggleGroup({
+  legend,
+  options,
+  selected,
+  onChange,
+  className = "flex flex-wrap gap-2",
+  buttonClassName = "min-h-11 min-w-11",
+}: {
+  legend: string;
+  options: { value: number; label: string }[];
+  selected: number[];
+  onChange: (values: number[]) => void;
+  className?: string;
+  buttonClassName?: string;
+}) {
+  return (
+    <fieldset className="space-y-2">
+      <legend>{legend}</legend>
+      <div className={className}>
+        {options.map(({ value, label }) => (
+          <Button
+            key={value}
+            type="button"
+            className={buttonClassName}
+            aria-pressed={selected.includes(value)}
+            variant={selected.includes(value) ? "default" : "outline"}
+            onClick={() => onChange(toggle(selected, value))}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 interface Props {
   value: RecurrenceRule;
   start: string;
@@ -91,12 +139,12 @@ export function RecurrenceSettings({
     else if (frequency === "weekly" || frequency === "biweekly")
       setRule({ frequency, weekdays: [weekday], end });
     else if (frequency === "monthly_date")
-      setRule({ frequency, day: startDate.getDate(), end });
+      setRule({ frequency, days: [startDate.getDate()], end });
     else
       setRule({
         frequency,
-        nth: Math.floor((startDate.getDate() - 1) / 7) + 1,
-        weekday,
+        nths: [Math.floor((startDate.getDate() - 1) / 7) + 1],
+        weekdays: [weekday],
         end,
       });
   }
@@ -141,97 +189,60 @@ export function RecurrenceSettings({
           </select>
         </label>
         {(rule.frequency === "weekly" || rule.frequency === "biweekly") && (
-          <fieldset className="space-y-2">
-            <legend>{t("曜日（複数選択）")}</legend>
-            <div className="flex flex-wrap gap-2">
-              {recurrenceWeekdays(language).map((day, index) => (
-                <Button
-                  key={day}
-                  type="button"
-                  className="min-h-11 min-w-11"
-                  aria-pressed={rule.weekdays.includes(index)}
-                  variant={
-                    rule.weekdays.includes(index) ? "default" : "outline"
-                  }
-                  onClick={() =>
-                    setRule({
-                      ...rule,
-                      weekdays: rule.weekdays.includes(index)
-                        ? rule.weekdays.filter((d) => d !== index)
-                        : [...rule.weekdays, index].sort(),
-                    })
-                  }
-                >
-                  {day}
-                </Button>
-              ))}
-            </div>
-          </fieldset>
+          <ToggleGroup
+            legend={t("曜日（複数選択）")}
+            options={recurrenceWeekdays(language).map((label, value) => ({
+              value,
+              label,
+            }))}
+            selected={rule.weekdays}
+            onChange={(weekdays) => setRule({ ...rule, weekdays })}
+          />
         )}
         {rule.frequency === "monthly_date" && (
-          <label className="grid gap-2" htmlFor="recurrence-month-day">
-            {t("毎月の日付")}
-            <Input
-              id="recurrence-month-day"
-              type="number"
-              min={1}
-              max={31}
-              value={rule.day}
-              onChange={(e) =>
-                setRule({ ...rule, day: Number(e.target.value) })
-              }
-            />
-          </label>
+          <ToggleGroup
+            legend={t("毎月の日付（複数選択）")}
+            // 320px 幅でも 7 列に収まるよう、日付ボタンは列幅に合わせる (高さは 44px を保つ)
+            className="grid grid-cols-7 gap-1.5"
+            buttonClassName="min-h-11 min-w-0 px-0"
+            options={Array.from({ length: 31 }, (_, i) => ({
+              value: i + 1,
+              label: String(i + 1),
+            }))}
+            selected={rule.days}
+            onChange={(days) => setRule({ ...rule, days })}
+          />
         )}
         {rule.frequency === "monthly_weekday" && (
-          <div className="grid grid-cols-2 gap-3">
-            <label className="grid gap-2">
-              {t("週の順番")}
-              <select
-                className={selectClass}
-                value={rule.nth}
-                onChange={(e) =>
-                  setRule({ ...rule, nth: Number(e.target.value) })
-                }
-              >
-                {[1, 2, 3, 4, 5].map((nth) => (
-                  <option key={nth} value={nth}>
-                    {language === "en"
-                      ? nth === 1
-                        ? "1st"
-                        : nth === 2
-                          ? "2nd"
-                          : nth === 3
-                            ? "3rd"
-                            : `${nth}th`
-                      : `第${nth}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-2">
-              {t("曜日")}
-              <select
-                className={selectClass}
-                value={rule.weekday}
-                onChange={(e) =>
-                  setRule({ ...rule, weekday: Number(e.target.value) })
-                }
-              >
-                {recurrenceWeekdays(language).map((day, index) => (
-                  <option key={day} value={index}>
-                    {language === "en" ? day : `${day}曜日`}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <>
+            <ToggleGroup
+              legend={t("週の順番（複数選択）")}
+              options={[1, 2, 3, 4, 5].map((value) => ({
+                value,
+                label: ordinalWeek(value, language),
+              }))}
+              selected={rule.nths}
+              onChange={(nths) => setRule({ ...rule, nths })}
+            />
+            <ToggleGroup
+              legend={t("曜日（複数選択）")}
+              options={recurrenceWeekdays(language).map((label, value) => ({
+                value,
+                label,
+              }))}
+              selected={rule.weekdays}
+              onChange={(weekdays) => setRule({ ...rule, weekdays })}
+            />
+            <p className="text-sm text-muted-foreground">
+              {t("選んだ週の順番と曜日のすべての組合せで開催します。")}
+            </p>
+          </>
         )}
         {(rule.frequency === "monthly_date" ||
           rule.frequency === "monthly_weekday") && (
           <p className="text-sm text-muted-foreground">
             {t(
-              "該当日がない月はスキップします。開始日と同じ日付・第n曜日を指定してください。",
+              "該当日がない月はスキップします。開始日の日付・第n曜日を含めて選択してください。",
             )}
           </p>
         )}

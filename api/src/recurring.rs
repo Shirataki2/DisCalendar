@@ -285,10 +285,24 @@ pub async fn update(
                     *day = (i64::from(*day) + shift).rem_euclid(7) as u8;
                 }
             }
-            Rule::MonthlyDate { day, .. } => *day = input.start_at.day() as u8,
-            Rule::MonthlyWeekday { nth, weekday, .. } => {
-                *nth = ((input.start_at.day() - 1) / 7 + 1) as u8;
-                *weekday = input.start_at.weekday().num_days_from_monday() as u8;
+            // 毎月は日付・週の順番を移動量だけずらす。範囲を外れる値は推測せず、条件の明示を求める。
+            Rule::MonthlyDate { days, .. } => {
+                let shift =
+                    i64::from(input.start_at.day()) - i64::from(info.original_start_at.day());
+                *days = shift_values(days, shift, 1..=31)?;
+            }
+            Rule::MonthlyWeekday { nths, weekdays, .. } => {
+                let nth = |d: NaiveDateTime| i64::from((d.day() - 1) / 7 + 1);
+                *nths = shift_values(
+                    nths,
+                    nth(input.start_at) - nth(info.original_start_at),
+                    1..=5,
+                )?;
+                let shift = i64::from(input.start_at.weekday().num_days_from_monday())
+                    - i64::from(info.original_start_at.weekday().num_days_from_monday());
+                for day in weekdays {
+                    *day = (i64::from(*day) + shift).rem_euclid(7) as u8;
+                }
             }
             _ => (),
         }
@@ -568,4 +582,24 @@ pub async fn admin_preview(
     Ok(actix_web::web::Json(
         preview_dates(&state.pool, &path, &input).await?,
     ))
+}
+
+fn shift_values(
+    values: &[u8],
+    shift: i64,
+    range: std::ops::RangeInclusive<i64>,
+) -> Result<Vec<u8>, ApiError> {
+    values
+        .iter()
+        .map(|value| {
+            let value = i64::from(*value) + shift;
+            range.contains(&value).then_some(value as u8)
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| {
+            ApiError::BadRequest(
+                "移動先に合わせて毎月の条件を変更できません。繰り返しの設定で条件を指定してください"
+                    .into(),
+            )
+        })
 }
