@@ -75,6 +75,26 @@ test.describe("Activity の入口", () => {
     ).toBeVisible();
   });
 
+  test("画面の枠は表示領域の高さに固定される", async ({ page }) => {
+    // カレンダーは残りの高さ (flex-1 + min-h-0) を使うので、枠の高さが決まっていないと本体が 0 px になる。
+    // SDK は Discord の外では動かずカレンダーまで進めないので、カレンダーを入れる枠 (main の親) の高さで確かめる
+    // 枠の高さが min-height だけだと、中の % 指定の高さ (FullCalendar が使う) が 0 になる。
+    // 枠に height: 100% の要素を入れ、表示領域の高さになることを見る
+    await page.goto("/activity");
+    const frame = page.locator("main").locator("..");
+    await expect(frame).toBeVisible();
+    const probeHeight = await frame.evaluate((element) => {
+      const probe = document.createElement("div");
+      probe.style.height = "100%";
+      probe.style.flexShrink = "0";
+      element.append(probe);
+      const height = probe.getBoundingClientRect().height;
+      probe.remove();
+      return height;
+    });
+    expect(probeHeight).toBe(page.viewportSize()?.height);
+  });
+
   test("クエリの無いルートは従来どおり LP を出す", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByText("読み込み中…")).toHaveCount(0);
