@@ -1,5 +1,9 @@
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
+import {
+  activityTrustedOrigins,
+  discordActivity,
+} from "./activity/auth-plugin";
 import { accountIssuerCompatibility } from "./auth-schema.mjs";
 import { mcpEnabled } from "./mcp/config";
 import { mcpPlugins } from "./mcp/plugins";
@@ -21,8 +25,11 @@ export const baseAuthOptions = {
 
 export const auth = betterAuth({
   ...baseAuthOptions,
+  // Discord の Activity (#350) は discordsays.com のプロキシ経由で POST する
+  trustedOrigins: activityTrustedOrigins(),
   plugins: [
     ...baseAuthOptions.plugins,
+    discordActivity(),
     ...(mcpEnabled() ? mcpPlugins() : []),
     nextCookies(),
   ],

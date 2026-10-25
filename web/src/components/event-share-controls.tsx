@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { publicOrigin } from "@/lib/activity/links";
 import { api, describeApiError } from "@/lib/api";
 import type { ApiEvent, ShareLink } from "@/lib/api/types";
 
@@ -31,7 +32,7 @@ export function EventShareControls({ event }: { event: ApiEvent }) {
       queryClient.setQueryData<ShareLink>(queryKey, link);
       try {
         await navigator.clipboard.writeText(
-          `${window.location.origin}/share/${link.token}`,
+          `${publicOrigin()}/share/${link.token}`,
         );
         setMessage("共有リンクをコピーしました");
       } catch {
@@ -43,7 +44,7 @@ export function EventShareControls({ event }: { event: ApiEvent }) {
   });
   const url =
     share.data && typeof window !== "undefined"
-      ? `${window.location.origin}/share/${share.data.token}`
+      ? `${publicOrigin()}/share/${share.data.token}`
       : "";
   return (
     <section

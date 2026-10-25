@@ -22,6 +22,32 @@ pub fn definitions(commands: &[poise::Command<Data, BotError>]) -> Vec<serenity:
         .collect()
 }
 
+/// 既存のグローバルコマンドが Activity の Entry Point (type 4) なら、一括上書きに含め直す定義を返す。
+/// Entry Point は Activity を有効にすると Discord が作るもので、Bot 側では定義しない
+fn keep_entry_point(command: &serenity::Command) -> Option<serenity::CreateCommand> {
+    if command.kind != serenity::CommandType::PrimaryEntryPoint {
+        return None;
+    }
+    let mut create = serenity::CreateCommand::new(&command.name)
+        .kind(serenity::CommandType::PrimaryEntryPoint)
+        .description(&command.description)
+        .nsfw(command.nsfw)
+        .integration_types(command.integration_types.clone());
+    if let Some(handler) = command.handler {
+        create = create.handler(handler);
+    }
+    if let Some(contexts) = &command.contexts {
+        create = create.contexts(contexts.clone());
+    }
+    for (locale, name) in command.name_localizations.iter().flatten() {
+        create = create.name_localized(locale, name);
+    }
+    for (locale, description) in command.description_localizations.iter().flatten() {
+        create = create.description_localized(locale, description);
+    }
+    Some(create)
+}
+
 /// スラッシュコマンドを Discord に登録・削除します (Bot のオーナー専用)。
 #[poise::command(prefix_command, owners_only, hide_in_help)]
 pub async fn register(ctx: Context<'_>) -> Result<(), BotError> {
@@ -125,6 +151,13 @@ pub async fn register(ctx: Context<'_>) -> Result<(), BotError> {
         vec![]
     };
     if action.ends_with("global") {
+        // Activity (#350) を有効にしたアプリには Discord が Entry Point コマンドを作り、
+        // それを含まない一括上書きは拒否される (50240)。既存の Entry Point をそのまま残して上書きする
+        let existing = serenity::Command::get_global_commands(ctx.http()).await?;
+        let commands = commands
+            .into_iter()
+            .chain(existing.iter().filter_map(keep_entry_point))
+            .collect();
         serenity::Command::set_global_commands(ctx.http(), commands).await?;
     } else {
         let guild = ctx.guild_id().ok_or_else(|| {
@@ -147,4 +180,47 @@ pub async fn register(ctx: Context<'_>) -> Result<(), BotError> {
         )
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn command(kind: u8) -> serenity::Command {
+        serde_json::from_value(json!({
+            "id": "1",
+            "type": kind,
+            "application_id": "2",
+            "name": "launch",
+            "name_localizations": { "ja": "起動" },
+            "description": "Launch the activity",
+            "default_member_permissions": null,
+            "nsfw": false,
+            "integration_types": [0, 1],
+            "contexts": [0, 1, 2],
+            "version": "3",
+            "handler": 2
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn keeps_entry_point_as_is() {
+        let kept = keep_entry_point(&command(4)).expect("Entry Point は残す");
+        let value = serde_json::to_value(kept).unwrap();
+        assert_eq!(value["type"], 4);
+        assert_eq!(value["name"], "launch");
+        assert_eq!(value["description"], "Launch the activity");
+        assert_eq!(value["handler"], 2);
+        assert_eq!(value["integration_types"], json!([0, 1]));
+        assert_eq!(value["contexts"], json!([0, 1, 2]));
+        assert_eq!(value["name_localizations"]["ja"], "起動");
+    }
+
+    #[test]
+    fn ignores_other_commands() {
+        assert!(keep_entry_point(&command(1)).is_none());
+        assert!(keep_entry_point(&command(2)).is_none());
+    }
 }

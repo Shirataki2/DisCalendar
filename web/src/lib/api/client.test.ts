@@ -4,6 +4,7 @@ import {
   buildInit,
   describeApiError,
   handleResponse,
+  withAuthToken,
 } from "@/lib/api/client";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -31,6 +32,21 @@ describe("buildInit", () => {
       headers: undefined,
       body: undefined,
       signal: controller.signal,
+    });
+  });
+});
+
+describe("withAuthToken", () => {
+  it("トークンが無ければそのまま返す (通常の Web は cookie で認証する)", () => {
+    const init = buildInit({});
+    expect(withAuthToken(init, null)).toBe(init);
+  });
+
+  it("トークンがあれば既存のヘッダーを残して Authorization を足す", () => {
+    const init = withAuthToken(buildInit({ method: "POST", body: {} }), "t.s");
+    expect(init.headers).toEqual({
+      "content-type": "application/json",
+      authorization: "Bearer t.s",
     });
   });
 });

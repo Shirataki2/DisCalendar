@@ -98,6 +98,16 @@ export const english: Readonly<
   予定を編集できません: "You cannot edit events",
   日程調整: "Scheduling polls",
   "読み込み中…": "Loading…",
+  "この画面は Discord のアクティビティ専用です":
+    "This page is only for the Discord Activity",
+  "ブラウザではダッシュボードからカレンダーを開いてください。":
+    "In a browser, open the calendar from the dashboard.",
+  ログインできませんでした: "Could not sign in",
+  "アクティビティを開き直してください。続く場合は、ブラウザから DisCalendar を開いてください。":
+    "Please reopen the Activity. If this keeps happening, open DisCalendar in your browser.",
+  サーバーのチャンネルから起動してください: "Launch it from a server channel",
+  "DM やグループ DM ではカレンダーを開けません。":
+    "The calendar can't be opened in DMs or group DMs.",
   "予定を取得できませんでした:": "Could not load events:",
   再試行: "Retry",
   閉じる: "Close",
@@ -1071,6 +1081,9 @@ export const english: Readonly<
   予定の追加と表示: "Create and view events",
   "ブラウザのカレンダー画面の見方、全サーバーの予定をまとめて見る「すべての予定」、予定ダイアログからの予定の作成 (日時・色・事前通知・説明) について。":
     "Explore the calendar, view events across servers with All events, and create events with dates, colors, reminders, and descriptions.",
+  "Discord の中で開く": "Open inside Discord",
+  "Discord のアクティビティとして、ボイスチャンネルやテキストチャンネルからサーバーのカレンダーを開く方法。":
+    "Open your server's calendar from a voice or text channel as a Discord Activity.",
   "候補日への回答を集め、選んだ日時で予定を作成する方法。":
     "Collect votes on possible dates and create an event from the chosen option.",
   予定の編集と削除: "Edit and delete events",

@@ -2,6 +2,7 @@
 
 import { SerwistProvider } from "@serwist/turbopack/react";
 import { type ReactNode, useEffect } from "react";
+import { isDiscordActivityHost } from "@/lib/activity/links";
 
 // dev では Service Worker を登録しない (Turbopack の HMR やページの再コンパイルの邪魔になるため)
 const DISABLED = process.env.NODE_ENV === "development";
@@ -29,7 +30,8 @@ export function ServiceWorkerProvider({ children }: { children: ReactNode }) {
   return (
     <SerwistProvider
       swUrl="/serwist/sw.js"
-      disable={DISABLED}
+      // Discord の Activity (#350) の中では登録しない (プロキシのオリジンに SW を残さない)
+      disable={DISABLED || isDiscordActivityHost()}
       // ページ遷移のたびに遷移先を SW にキャッシュさせる機能。ページは SW でキャッシュしない方針なので切る
       // (history.pushState を差し替える実装でもあるので、Next のルーターに触らせない)
       cacheOnNavigation={false}
