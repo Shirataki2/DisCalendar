@@ -166,6 +166,13 @@ pub async fn fill(
     from: NaiveDateTime,
     to: NaiveDateTime,
 ) -> Result<(), anyhow::Error> {
+    // 補充済み範囲は連続区間として保つ。既存の範囲と離れていたら、その間も一緒に埋める。
+    let (from, to) = match (series.generated_from, series.generated_until) {
+        (Some(generated_from), Some(generated_until)) => {
+            (from.min(generated_until), to.max(generated_from))
+        }
+        _ => (from, to),
+    };
     let generated_from = from;
     let generated_until = to;
     let duration = series.end_at - series.start_at;
