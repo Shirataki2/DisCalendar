@@ -1006,39 +1006,76 @@ async fn monthly_weekdays_accept_legacy_input(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn multi_monthly_rollback_restores_legacy_shape_or_stops(pool: PgPool) {
-    let insert = |rule: serde_json::Value| {
-        let pool = pool.clone();
-        async move {
-            sqlx::query("INSERT INTO event_series (guild_id,template,recurrence,rrule,start_at,end_at,created_at,created_by) VALUES ('111','{}',$1,'FREQ=MONTHLY','2026-11-01T10:00:00','2026-11-01T11:00:00','2026-10-01T00:00:00','333')")
-                .bind(rule)
-                .execute(&pool)
-                .await
-                .unwrap();
-        }
-    };
-    let rollback = include_str!("../rollback/20261026000000_revert_multi_monthly_recurrence.sql");
-    insert(serde_json::json!({"frequency":"monthly_date","days":[1],"end":{"type":"never"}})).await;
-    insert(serde_json::json!({"frequency":"monthly_weekday","nths":[1],"weekdays":[6],"end":{"type":"never"}})).await;
-    insert(serde_json::json!({"frequency":"monthly_weekday","nths":[1,2],"weekdays":[6],"end":{"type":"never"}})).await;
-    // 複数指定は旧形式で表せないので、何も変えずに止まる。
-    // psql の ON_ERROR_STOP と同じく、失敗した接続は ROLLBACK して捨てる。
-    let mut conn = pool.acquire().await.unwrap();
-    assert!(sqlx::raw_sql(rollback).execute(&mut *conn).await.is_err());
-    sqlx::raw_sql("ROLLBACK").execute(&mut *conn).await.unwrap();
-    drop(conn);
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM event_series WHERE recurrence ? 'day' OR recurrence ? 'nth'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(count, 0);
-    sqlx::query("DELETE FROM event_series WHERE jsonb_array_length(recurrence->'nths') = 2")
-        .execute(&pool)
+async fn multi_monthly_rollback_detaches_multi_series_and_restores_legacy_shape(pool: PgPool) {
+    use discalendar_api::recurrence::{Ending, Rule};
+    // 毎月5・15・25日で作成し、11/15の回以降を毎月15日だけに変更する (Webの「この回以降」と同じ経路)。
+    let mut body = input();
+    body.start_at = dt("2026-10-05T19:30:00");
+    body.end_at = dt("2026-10-05T21:00:00");
+    body.recurrence = Some(Rule::MonthlyDate {
+        days: vec![5, 15, 25],
+        end: Ending::Never,
+    });
+    let mut tx = pool.begin().await.unwrap();
+    let first = events::create(&mut *tx, "111", &body, body.start_at, "333")
         .await
         .unwrap();
+    recurring::attach_created(&mut tx, "111", first.id, &body, "333")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    store::ensure_range(
+        &pool,
+        "111",
+        dt("2026-10-01T00:00:00"),
+        dt("2026-12-01T00:00:00"),
+    )
+    .await
+    .unwrap();
+    let occurrence = |start: &'static str| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i32>("SELECT id FROM events WHERE start_at=$1")
+                .bind(dt(start))
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    let split = occurrence("2026-11-15T19:30:00").await;
+    let mut tx = pool.begin().await.unwrap();
+    let info = store::info(&mut tx, "111", split).await.unwrap().unwrap();
+    let old_series = info.series_id;
+    body.scope = ChangeScope::Future;
+    body.expected_series_version = Some(info.version);
+    body.start_at = dt("2026-11-15T19:30:00");
+    body.end_at = dt("2026-11-15T21:00:00");
+    body.recurrence = Some(Rule::MonthlyDate {
+        days: vec![15],
+        end: Ending::Never,
+    });
+    recurring::update(&mut tx, "111", split, &body, "333")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let kept = occurrence("2026-10-15T19:30:00").await;
+
+    let rollback = include_str!("../rollback/20261026000000_revert_multi_monthly_recurrence.sql");
     sqlx::raw_sql(rollback).execute(&pool).await.unwrap();
+    // 複数指定だった元のシリーズは退避して削除し、生成済みの回は同じIDの単発として残す。
+    let backup: Vec<i32> = sqlx::query_scalar("SELECT id FROM event_series_multi_monthly_backup")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(backup, [old_series]);
+    let detached: (Option<i32>, Option<NaiveDateTime>) =
+        sqlx::query_as("SELECT series_id, original_start_at FROM events WHERE id=$1")
+            .bind(kept)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(detached, (None, None));
+    // 単一値になった分割後のシリーズは旧形式へ戻る。
     let rules: Vec<serde_json::Value> =
         sqlx::query_scalar("SELECT recurrence FROM event_series ORDER BY id")
             .fetch_all(&pool)
@@ -1046,20 +1083,31 @@ async fn multi_monthly_rollback_restores_legacy_shape_or_stops(pool: PgPool) {
             .unwrap();
     assert_eq!(
         rules,
-        [
-            serde_json::json!({"frequency":"monthly_date","day":1,"end":{"type":"never"}}),
-            serde_json::json!({"frequency":"monthly_weekday","nth":1,"weekday":6,"end":{"type":"never"}}),
-        ]
+        [serde_json::json!({"frequency":"monthly_date","day":15,"end":{"type":"never"}})]
     );
-    // 適用記録を消したので、再適用で新形式へ戻る。
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-    let rules: Vec<serde_json::Value> =
-        sqlx::query_scalar("SELECT recurrence FROM event_series ORDER BY id")
-            .fetch_all(&pool)
+    let series_of_split: Option<i32> =
+        sqlx::query_scalar("SELECT series_id FROM events WHERE id=$1")
+            .bind(split)
+            .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(rules[0]["days"], serde_json::json!([1]));
-    assert_eq!(rules[1]["nths"], serde_json::json!([1]));
-    assert_eq!(rules[1]["weekdays"], serde_json::json!([6]));
-    assert!(rules[1].get("nth").is_none());
+    assert!(series_of_split.is_some());
+
+    // 適用記録を消したので、再適用で新形式へ戻る。退避テーブルがあるうちは戻しを上書きしない。
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    let rule: serde_json::Value = sqlx::query_scalar("SELECT recurrence FROM event_series")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rule["days"], serde_json::json!([15]));
+    let mut conn = pool.acquire().await.unwrap();
+    assert!(sqlx::raw_sql(rollback).execute(&mut *conn).await.is_err());
+    // psql の ON_ERROR_STOP と同じく、失敗した接続は ROLLBACK して捨てる。
+    sqlx::raw_sql("ROLLBACK").execute(&mut *conn).await.unwrap();
+    drop(conn);
+    let rule: serde_json::Value = sqlx::query_scalar("SELECT recurrence FROM event_series")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rule["days"], serde_json::json!([15]));
 }
