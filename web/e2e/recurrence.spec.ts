@@ -268,7 +268,12 @@ test("設定の取消・キーボード・開始日の不一致と未保存確�
   ).toBeFocused();
   await form.getByRole("button", { name: "繰り返しなし" }).click();
   await settings.getByLabel("繰り返しの頻度").selectOption("monthly_weekday");
-  await expect(settings.getByLabel("週の順番")).toHaveValue("3");
+  await expect(
+    settings.getByRole("button", { name: "第3", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    settings.getByRole("button", { name: "第1", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
   await settings
     .getByRole("button", { name: "キャンセル", exact: true })
     .click();
@@ -289,6 +294,75 @@ test("設定の取消・キーボード・開始日の不一致と未保存確�
   await page.keyboard.press("Escape");
   await discard.getByRole("button", { name: "破棄して閉じる" }).click();
   await expect(form).toBeHidden();
+});
+
+test("毎月の複数の日付を選んで作成し、開始日を外すと適用できない", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date("2026-09-21T03:00:00Z"));
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto(`/dashboard/${guild}`);
+  await page.getByRole("button", { name: "新規作成", exact: true }).click();
+  await page.addStyleTag({
+    content: "nextjs-portal { display: none !important; }",
+  });
+  const form = page.getByRole("dialog", { name: "予定を作成", exact: true });
+  const name = "毎月複数の日付";
+  await form.getByLabel("タイトル").fill(name);
+  await openEventTab(form, "繰り返し・通知");
+  await form.getByRole("button", { name: "繰り返しなし" }).click();
+  const settings = page.getByRole("dialog", {
+    name: "繰り返しの設定",
+    exact: true,
+  });
+  await settings.getByLabel("繰り返しの頻度").selectOption("monthly_date");
+  const day = (value: string) =>
+    settings.getByRole("button", { name: value, exact: true });
+  await expect(day("21")).toHaveAttribute("aria-pressed", "true");
+  await day("5").click();
+  await day("28").click();
+  for (const date of ["2026/09/21", "2026/09/28", "2026/10/05"]) {
+    await expect(
+      settings.getByRole("listitem").filter({ hasText: date }),
+    ).toBeVisible();
+  }
+  expect(
+    await settings.evaluate((el) => el.scrollWidth <= el.clientWidth),
+  ).toBe(true);
+  // 開始日の日付を外すとプレビューがエラーになり、適用できない。
+  await day("21").click();
+  await expect(settings.getByRole("alert")).toContainText("開始日の日付");
+  await expect(
+    settings.getByRole("button", { name: "設定を適用" }),
+  ).toBeDisabled();
+  await day("21").click();
+  await settings.getByRole("button", { name: "設定を適用" }).click();
+  await expect(
+    form.getByRole("button", { name: "毎月5・21・28日／終了なし" }),
+  ).toBeFocused();
+  const response = page.waitForResponse(
+    (r) => r.url().endsWith(base) && r.request().method() === "POST",
+  );
+  await form.getByRole("button", { name: "作成", exact: true }).click();
+  expect((await response).status()).toBe(201);
+  await expect(form).toBeHidden();
+  // 固定した時計で開いた月表示の範囲に収まる回だけを確かめる。
+  const list = await page.request.get(
+    `${base}?start=2026-09-01T00:00:00&end=2026-10-06T00:00:00`,
+  );
+  const rows = ((await list.json()) as ApiEvent[]).filter(
+    (e) => e.name === name,
+  );
+  expect(rows.map((e) => e.start_at.slice(0, 10))).toEqual([
+    "2026-09-21",
+    "2026-09-28",
+    "2026-10-05",
+  ]);
+  expect(rows[0].recurrence?.rule).toEqual({
+    frequency: "monthly_date",
+    days: [5, 21, 28],
+    end: { type: "never" },
+  });
 });
 
 test("繰り返しのドラッグは取消・保存失敗で元に戻り、以降の削除を確認できる", async ({

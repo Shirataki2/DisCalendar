@@ -207,11 +207,12 @@ export const english: Readonly<
   "一覧には未来730日以内の開催日が表示され、順次追加されます。":
     "Lists show occurrences within the next 730 days; later occurrences are added over time.",
   "曜日（複数選択）": "Weekdays (select multiple)",
-  毎月の日付: "Day of the month",
-  週の順番: "Week of the month",
-  曜日: "Weekday",
-  "該当日がない月はスキップします。開始日と同じ日付・第n曜日を指定してください。":
-    "Months without a matching date are skipped. Use the same date or weekday occurrence as the start date.",
+  "毎月の日付（複数選択）": "Days of the month (select multiple)",
+  "週の順番（複数選択）": "Weeks of the month (select multiple)",
+  "該当日がない月はスキップします。開始日の日付・第n曜日を含めて選択してください。":
+    "Months without a matching date are skipped. Include the start date’s day or weekday occurrence.",
+  "選んだ週の順番と曜日のすべての組合せで開催します。":
+    "Occurs on every combination of the selected weeks and weekdays.",
   終了条件: "Ends",
   終了なし: "Never",
   繰り返しの終了日: "Repeat end date",
@@ -499,10 +500,12 @@ export const english: Readonly<
   繰り返し条件を指定してください: "Choose a repeat schedule",
   開始日の曜日を含む曜日を選択してください:
     "Select weekdays including the start date’s weekday",
-  開始日と同じ日付を指定してください:
-    "Use the same day of the month as the start date",
-  開始日と同じ第n曜日を指定してください:
-    "Use the same weekday occurrence as the start date",
+  開始日の日付を含む日付を選択してください:
+    "Select days of the month including the start date",
+  開始日の第n曜日を含む週の順番と曜日を選択してください:
+    "Select weeks and weekdays including the start date’s weekday occurrence",
+  "移動先に合わせて毎月の条件を変更できません。繰り返しの設定で条件を指定してください":
+    "The monthly schedule cannot follow this move. Choose the schedule in the repeat settings",
   "回数は1〜10000回で指定してください": "Enter 1 to 10,000 occurrences",
   繰り返しの終了日は開始日以降にしてください:
     "The repeat end date must be on or after the start date",

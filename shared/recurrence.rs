@@ -7,16 +7,122 @@ pub const LOOKBACK_DAYS: i64 = 366;
 const MAX_RESULTS: u16 = 65535;
 const DAYS: [&str; 7] = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
 
+/// 毎月は日付・第n曜日とも複数指定できる。第n曜日は週の順番と曜日の全組合せで開催する。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "frequency", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "frequency", rename_all = "snake_case", try_from = "RuleInput")]
 pub enum Rule {
     None,
-    Daily { end: Ending },
-    Yearly { end: Ending },
-    Weekly { weekdays: Vec<u8>, end: Ending },
-    Biweekly { weekdays: Vec<u8>, end: Ending },
-    MonthlyDate { day: u8, end: Ending },
-    MonthlyWeekday { nth: u8, weekday: u8, end: Ending },
+    Daily {
+        end: Ending,
+    },
+    Yearly {
+        end: Ending,
+    },
+    Weekly {
+        weekdays: Vec<u8>,
+        end: Ending,
+    },
+    Biweekly {
+        weekdays: Vec<u8>,
+        end: Ending,
+    },
+    MonthlyDate {
+        days: Vec<u8>,
+        end: Ending,
+    },
+    MonthlyWeekday {
+        nths: Vec<u8>,
+        weekdays: Vec<u8>,
+        end: Ending,
+    },
+}
+
+/// 入力と保存済みJSONの読み込み用。#355以前の単一値 (`day` / `nth`+`weekday`) も受け付ける。
+#[derive(Deserialize)]
+#[serde(tag = "frequency", rename_all = "snake_case", deny_unknown_fields)]
+enum RuleInput {
+    None,
+    Daily {
+        end: Ending,
+    },
+    Yearly {
+        end: Ending,
+    },
+    Weekly {
+        weekdays: Vec<u8>,
+        end: Ending,
+    },
+    Biweekly {
+        weekdays: Vec<u8>,
+        end: Ending,
+    },
+    MonthlyDate {
+        #[serde(default)]
+        days: Option<Vec<u8>>,
+        #[serde(default)]
+        day: Option<u8>,
+        end: Ending,
+    },
+    MonthlyWeekday {
+        #[serde(default)]
+        nths: Option<Vec<u8>>,
+        #[serde(default)]
+        weekdays: Option<Vec<u8>>,
+        #[serde(default)]
+        nth: Option<u8>,
+        #[serde(default)]
+        weekday: Option<u8>,
+        end: Ending,
+    },
+}
+
+impl TryFrom<RuleInput> for Rule {
+    type Error = String;
+
+    fn try_from(input: RuleInput) -> Result<Self, String> {
+        Ok(match input {
+            RuleInput::None => Self::None,
+            RuleInput::Daily { end } => Self::Daily { end },
+            RuleInput::Yearly { end } => Self::Yearly { end },
+            RuleInput::Weekly { weekdays, end } => Self::Weekly { weekdays, end },
+            RuleInput::Biweekly { weekdays, end } => Self::Biweekly { weekdays, end },
+            RuleInput::MonthlyDate { days, day, end } => Self::MonthlyDate {
+                days: match (days, day) {
+                    (Some(days), None) => days,
+                    (None, Some(day)) => vec![day],
+                    _ => return Err("毎月の日付は days で指定してください".into()),
+                },
+                end,
+            },
+            RuleInput::MonthlyWeekday {
+                nths,
+                weekdays,
+                nth,
+                weekday,
+                end,
+            } => match (nths, weekdays, nth, weekday) {
+                (Some(nths), Some(weekdays), None, None) => Self::MonthlyWeekday {
+                    nths,
+                    weekdays,
+                    end,
+                },
+                (None, None, Some(nth), Some(weekday)) => Self::MonthlyWeekday {
+                    nths: vec![nth],
+                    weekdays: vec![weekday],
+                    end,
+                },
+                _ => return Err("毎月の第n曜日は nths と weekdays で指定してください".into()),
+            },
+        })
+    }
+}
+
+/// 重複を除いて昇順に並べる。空・範囲外は呼び出し側で弾く。
+fn normalized(values: &[u8]) -> Vec<u8> {
+    let mut values = values.to_vec();
+    values.sort_unstable();
+    values.dedup();
+    values
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -56,6 +162,21 @@ impl Rule {
         }
     }
 
+    /// 曜日・日付の配列を重複なしの昇順にそろえる。保存するJSONとRRULEを一意にするため。
+    pub fn normalize(&mut self) {
+        match self {
+            Self::Weekly { weekdays, .. } | Self::Biweekly { weekdays, .. } => {
+                *weekdays = normalized(weekdays);
+            }
+            Self::MonthlyDate { days, .. } => *days = normalized(days),
+            Self::MonthlyWeekday { nths, weekdays, .. } => {
+                *nths = normalized(nths);
+                *weekdays = normalized(weekdays);
+            }
+            _ => (),
+        }
+    }
+
     pub fn rrule(&self, start: NaiveDateTime) -> Result<String, String> {
         if start.nanosecond() != 0 {
             return Err("繰り返し予定の開始日時は秒単位で指定してください".into());
@@ -73,10 +194,7 @@ impl Rule {
                 {
                     return Err("開始日の曜日を含む曜日を選択してください".into());
                 }
-                let mut days = weekdays.clone();
-                days.sort_unstable();
-                days.dedup();
-                let byday = days
+                let byday = normalized(weekdays)
                     .iter()
                     .map(|d| DAYS[*d as usize])
                     .collect::<Vec<_>>()
@@ -93,28 +211,45 @@ impl Rule {
                     end,
                 )
             }
-            Self::MonthlyDate { day, end } => {
-                if !(1..=31).contains(day) || u32::from(*day) != start.day() {
-                    return Err("開始日と同じ日付を指定してください".into());
+            Self::MonthlyDate { days, end } => {
+                if days.is_empty()
+                    || days.iter().any(|d| !(1..=31).contains(d))
+                    || !days.iter().any(|d| u32::from(*d) == start.day())
+                {
+                    return Err("開始日の日付を含む日付を選択してください".into());
                 }
-                (format!("FREQ=MONTHLY;BYMONTHDAY={day}"), end)
+                let bymonthday = normalized(days)
+                    .iter()
+                    .map(u8::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                (format!("FREQ=MONTHLY;BYMONTHDAY={bymonthday}"), end)
             }
             Self::MonthlyWeekday {
-                nth,
-                weekday: day,
+                nths,
+                weekdays,
                 end,
             } => {
-                if !(1..=5).contains(nth)
-                    || *day > 6
-                    || *day != weekday
-                    || u32::from(*nth) != (start.day() - 1) / 7 + 1
+                let nth = (start.day() - 1) / 7 + 1;
+                if nths.is_empty()
+                    || weekdays.is_empty()
+                    || nths.iter().any(|n| !(1..=5).contains(n))
+                    || weekdays.iter().any(|d| *d > 6)
+                    || !nths.iter().any(|n| u32::from(*n) == nth)
+                    || !weekdays.contains(&weekday)
                 {
-                    return Err("開始日と同じ第n曜日を指定してください".into());
+                    return Err("開始日の第n曜日を含む週の順番と曜日を選択してください".into());
                 }
-                (
-                    format!("FREQ=MONTHLY;BYDAY={}{}", nth, DAYS[*day as usize]),
-                    end,
-                )
+                let nths = normalized(nths);
+                let byday = normalized(weekdays)
+                    .iter()
+                    .flat_map(|d| {
+                        nths.iter()
+                            .map(move |n| format!("{n}{}", DAYS[*d as usize]))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                (format!("FREQ=MONTHLY;BYDAY={byday}"), end)
             }
         };
         match ending {
@@ -288,7 +423,7 @@ mod tests {
     fn calendar_boundaries_and_endings() {
         let start = dt("2026-01-31T19:30:00");
         let rule = Rule::MonthlyDate {
-            day: 31,
+            days: vec![31],
             end: Ending::Count { count: 3 },
         };
         assert_eq!(
@@ -296,8 +431,8 @@ mod tests {
             vec![start, dt("2026-03-31T19:30:00"), dt("2026-05-31T19:30:00")]
         );
         let fifth = Rule::MonthlyWeekday {
-            nth: 5,
-            weekday: 0,
+            nths: vec![5],
+            weekdays: vec![0],
             end: Ending::Never,
         };
         assert_eq!(
@@ -322,7 +457,7 @@ mod tests {
             vec![start, dt("2026-12-30T19:30:00"), dt("2027-01-11T19:30:00")]
         );
         let leap = Rule::MonthlyDate {
-            day: 29,
+            days: vec![29],
             end: Ending::Never,
         };
         assert_eq!(
@@ -331,5 +466,180 @@ mod tests {
         );
         assert!(weekly.rrule(dt("2026-12-29T19:30:00")).is_err());
         assert!(weekly.rrule(dt("2026-12-28T19:30:00.123")).is_err());
+    }
+
+    #[test]
+    fn monthly_multiple_dates() {
+        let start = dt("2026-01-15T19:30:00");
+        let rule = Rule::MonthlyDate {
+            days: vec![25, 5, 15, 31, 15],
+            end: Ending::Count { count: 6 },
+        };
+        assert_eq!(
+            rule.rrule(start).unwrap(),
+            "FREQ=MONTHLY;BYMONTHDAY=5,15,25,31;COUNT=6"
+        );
+        // 2月は31日がないのでスキップする。
+        let dates = between(
+            &rule.rrule(start).unwrap(),
+            start,
+            start,
+            dt("2027-01-01T00:00:00"),
+        )
+        .unwrap();
+        assert_eq!(
+            dates,
+            [
+                "2026-01-15T19:30:00",
+                "2026-01-25T19:30:00",
+                "2026-01-31T19:30:00",
+                "2026-02-05T19:30:00",
+                "2026-02-15T19:30:00",
+                "2026-02-25T19:30:00",
+            ]
+            .map(dt)
+        );
+        assert_eq!(
+            end_before(&rule, start).unwrap(),
+            Some(dt("2026-02-25T19:30:01"))
+        );
+        // 開始日の日付を含まない・空・範囲外は不可。
+        for days in [vec![5, 25], vec![], vec![0, 15], vec![15, 32]] {
+            assert!(
+                Rule::MonthlyDate {
+                    days,
+                    end: Ending::Never
+                }
+                .rrule(start)
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn monthly_multiple_weekdays() {
+        // 2026-11-01は第1日曜。
+        let start = dt("2026-11-01T10:00:00");
+        let rule = Rule::MonthlyWeekday {
+            nths: vec![3, 1, 2],
+            weekdays: vec![6],
+            end: Ending::Never,
+        };
+        assert_eq!(rule.rrule(start).unwrap(), "FREQ=MONTHLY;BYDAY=1SU,2SU,3SU");
+        let dates = between(
+            &rule.rrule(start).unwrap(),
+            start,
+            start,
+            dt("2026-12-31T00:00:00"),
+        )
+        .unwrap();
+        assert_eq!(
+            dates,
+            [
+                "2026-11-01T10:00:00",
+                "2026-11-08T10:00:00",
+                "2026-11-15T10:00:00",
+                "2026-12-06T10:00:00",
+                "2026-12-13T10:00:00",
+                "2026-12-20T10:00:00",
+            ]
+            .map(dt)
+        );
+        // 第2・第4 × 土日。2026-11-14は第2土曜。
+        let start = dt("2026-11-14T10:00:00");
+        let rule = Rule::MonthlyWeekday {
+            nths: vec![2, 4],
+            weekdays: vec![5, 6],
+            end: Ending::Count { count: 4 },
+        };
+        assert_eq!(
+            rule.rrule(start).unwrap(),
+            "FREQ=MONTHLY;BYDAY=2SA,4SA,2SU,4SU;COUNT=4"
+        );
+        assert_eq!(
+            preview(&rule, start).unwrap(),
+            [
+                "2026-11-14T10:00:00",
+                "2026-11-22T10:00:00",
+                "2026-11-28T10:00:00"
+            ]
+            .map(dt)
+        );
+        for (nths, weekdays) in [
+            (vec![1, 4], vec![5]),
+            (vec![2], vec![6]),
+            (vec![], vec![5]),
+            (vec![2], vec![]),
+            (vec![2, 6], vec![5]),
+            (vec![2], vec![5, 7]),
+        ] {
+            assert!(
+                Rule::MonthlyWeekday {
+                    nths,
+                    weekdays,
+                    end: Ending::Never
+                }
+                .rrule(start)
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_monthly_json_is_read_as_arrays() {
+        let date: Rule =
+            serde_json::from_str(r#"{"frequency":"monthly_date","day":5,"end":{"type":"never"}}"#)
+                .unwrap();
+        assert_eq!(
+            date,
+            Rule::MonthlyDate {
+                days: vec![5],
+                end: Ending::Never
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(&date).unwrap(),
+            serde_json::json!({"frequency":"monthly_date","days":[5],"end":{"type":"never"}})
+        );
+        let weekday: Rule = serde_json::from_str(
+            r#"{"frequency":"monthly_weekday","nth":2,"weekday":6,"end":{"type":"count","count":3}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            weekday,
+            Rule::MonthlyWeekday {
+                nths: vec![2],
+                weekdays: vec![6],
+                end: Ending::Count { count: 3 }
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(&weekday).unwrap(),
+            serde_json::json!({"frequency":"monthly_weekday","nths":[2],"weekdays":[6],"end":{"type":"count","count":3}})
+        );
+        // 新旧の混在・不足・未知の項目は受け付けない。
+        for json in [
+            r#"{"frequency":"monthly_date","day":5,"days":[5],"end":{"type":"never"}}"#,
+            r#"{"frequency":"monthly_date","end":{"type":"never"}}"#,
+            r#"{"frequency":"monthly_weekday","nth":2,"weekdays":[6],"end":{"type":"never"}}"#,
+            r#"{"frequency":"monthly_weekday","nths":[2],"end":{"type":"never"}}"#,
+            r#"{"frequency":"daily","day":5,"end":{"type":"never"}}"#,
+        ] {
+            assert!(serde_json::from_str::<Rule>(json).is_err(), "{json}");
+        }
+        let mut rule = Rule::MonthlyWeekday {
+            nths: vec![3, 1, 3],
+            weekdays: vec![6, 5],
+            end: Ending::Never,
+        };
+        rule.normalize();
+        assert_eq!(
+            rule,
+            Rule::MonthlyWeekday {
+                nths: vec![1, 3],
+                weekdays: vec![5, 6],
+                end: Ending::Never
+            }
+        );
     }
 }

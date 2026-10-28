@@ -1,4 +1,5 @@
 import type { EventHistoryEntry, EventSnapshot } from "@/lib/api/types";
+import { normalizeRecurrenceRule } from "@/lib/recurrence";
 
 /**
  * 変更履歴 (#165) の 1 件で変わった項目。表示の言葉は履歴ダイアログ側で付ける。
@@ -24,6 +25,17 @@ export type EventHistoryChange =
   | { field: "discord"; after: boolean };
 
 /** 古い行や手で書き換えた行で項目が欠けていても比べられるよう、比較用に値を揃える */
+/** 旧形式から変換した条件と保存済みの条件を、キーの並びに関係なく比べるため */
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, item]) => [key, sortKeys(item)]),
+  );
+}
+
 function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
@@ -67,7 +79,12 @@ export function diffEventSnapshots(
   if (!same(before.notification_mentions, after.notification_mentions)) {
     changes.push({ field: "mentions" });
   }
-  if (!same(before.recurrence, after.recurrence)) {
+  if (
+    !same(
+      sortKeys(normalizeRecurrenceRule(before.recurrence)),
+      sortKeys(normalizeRecurrenceRule(after.recurrence)),
+    )
+  ) {
     changes.push({ field: "recurrence" });
   }
   if (Boolean(before.discord_linked) !== Boolean(after.discord_linked)) {

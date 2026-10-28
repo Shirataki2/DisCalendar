@@ -32,11 +32,13 @@ export type RecurrenceRule =
       end: RecurrenceEnding;
     }
   | { frequency: "biweekly"; weekdays: number[]; end: RecurrenceEnding }
-  | { frequency: "monthly_date"; day: number; end: RecurrenceEnding }
+  /** 日付 1〜31 を複数指定できる */
+  | { frequency: "monthly_date"; days: number[]; end: RecurrenceEnding }
+  /** 週の順番 (第1〜第5) と曜日の全組合せで開催する */
   | {
       frequency: "monthly_weekday";
-      nth: number;
-      weekday: number;
+      nths: number[];
+      weekdays: number[];
       end: RecurrenceEnding;
     };
 export type ChangeScope = "this" | "future";
