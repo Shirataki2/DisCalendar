@@ -418,6 +418,12 @@ async fn rollback_purges_the_trash_before_dropping_the_columns(pool: PgPool) {
     .await
     .unwrap();
     sqlx::raw_sql(include_str!(
+        "../rollback/20261026000000_revert_multi_monthly_recurrence.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
         "../rollback/20261010000000_drop_events_deleted_at.sql"
     ))
     .execute(&pool)

@@ -131,10 +131,7 @@ pub async fn create_series(
     now: NaiveDateTime,
 ) -> Result<Series, anyhow::Error> {
     let mut rule = rule.clone();
-    if let Rule::Weekly { weekdays, .. } | Rule::Biweekly { weekdays, .. } = &mut rule {
-        weekdays.sort_unstable();
-        weekdays.dedup();
-    }
+    rule.normalize();
     let rrule = rule.rrule(start).map_err(anyhow::Error::msg)?;
     let end_before = recurrence::end_before(&rule, start).map_err(anyhow::Error::msg)?;
     Ok(sqlx::query_as("INSERT INTO event_series (guild_id,template,recurrence,rrule,start_at,end_at,created_by,created_at,end_before) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *")

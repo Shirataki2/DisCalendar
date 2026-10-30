@@ -110,6 +110,30 @@ describe("diffEventSnapshots (繰り返し)", () => {
   });
 });
 
+describe("diffEventSnapshots (毎月の旧形式)", () => {
+  test("旧形式の毎月の条件と同じ内容の新形式は変更として扱わない", () => {
+    const before = {
+      ...base,
+      recurrence: { end: { type: "never" }, day: 5, frequency: "monthly_date" },
+    };
+    const after = {
+      ...base,
+      recurrence: {
+        end: { type: "never" },
+        days: [5],
+        frequency: "monthly_date",
+      },
+    };
+    expect(diffEventSnapshots(before, after)).toEqual([]);
+    expect(
+      diffEventSnapshots(before, {
+        ...after,
+        recurrence: { ...after.recurrence, days: [5, 15] },
+      }),
+    ).toEqual([{ field: "recurrence" }]);
+  });
+});
+
 describe("historyActorIds", () => {
   test("重複と管理コンソールの操作者を除き、20 人を超えても全員を返す", () => {
     const entries = [

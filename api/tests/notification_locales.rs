@@ -178,6 +178,12 @@ async fn server_locale_requires_membership_and_management_permissions(pool: PgPo
     .await
     .unwrap();
     sqlx::raw_sql(include_str!(
+        "../rollback/20261026000000_revert_multi_monthly_recurrence.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
         "../rollback/20261010000000_drop_events_deleted_at.sql"
     ))
     .execute(&pool)
