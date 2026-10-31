@@ -90,10 +90,13 @@ pub async fn search(
         locale,
     };
     let ids = ComponentIds::new(ctx.id());
+    // 時間切れでボタンを外すときに再指定する、表示中の埋め込み。
+    // poise の `CreateReply` での編集は空の `embeds` も送るため、指定しないと内容が消える
+    let mut shown = view.list_embed(None);
     let reply = ctx
         .send(
             poise::CreateReply::default()
-                .embed(view.list_embed(None))
+                .embed(shown.clone())
                 .components(view.list_components(&ids)),
         )
         .await?;
@@ -113,7 +116,12 @@ pub async fn search(
         let Some(press) = press else {
             // 無操作タイムアウト: 内容は残してボタンとメニューだけ外す
             if let Err(error) = reply
-                .edit(ctx, poise::CreateReply::default().components(Vec::new()))
+                .edit(
+                    ctx,
+                    poise::CreateReply::default()
+                        .embed(shown)
+                        .components(Vec::new()),
+                )
                 .await
             {
                 tracing::warn!(%error, "failed to remove search components");
@@ -177,11 +185,12 @@ pub async fn search(
                 ctx.http(),
                 serenity::CreateInteractionResponse::UpdateMessage(
                     serenity::CreateInteractionResponseMessage::new()
-                        .embed(embed)
+                        .embed(embed.clone())
                         .components(components),
                 ),
             )
             .await?;
+        shown = embed;
         if finished {
             return Ok(());
         }
