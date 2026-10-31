@@ -2,7 +2,7 @@
 //!
 //! - Discord Gateway に接続し、Bot の参加・退出・ギルド情報の変更を `guilds` テーブルに反映する
 //!   (web のサーバー選択 (`GET /guilds/joined`) が「Bot 参加済み」の判定に使う)
-//! - スラッシュコマンド (`commands`): help / create / list / init / invite と、オーナー専用の register
+//! - スラッシュコマンド (`commands`): help / create / list / search / init / invite と、オーナー専用の register
 //! - 定期タスク (通知 / presence / アイコン更新、#4) はこの上に載せる
 //! - DB スキーマは api (`api/migrations/`) が正。Bot はマイグレーションを実行しない
 

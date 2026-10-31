@@ -47,6 +47,12 @@ Confirmations, results, and errors are visible only to you. The result title lin
 Lists future events by default. The range choices are `未来` (future), `過去` (past), and `全て` (all). Four events appear per page. Use the previous and next buttons to navigate and Done to close. Events created on the website are included.
 </CommandCard>
 
+<CommandCard name="/search" args="キーワード [範囲]">
+Searches event titles and descriptions for a keyword (partial match; letter case is ignored). The range choices are `未来` (future, default), `過去` (past), and `全て` (all), matching the same ranges as `/list`. Results are visible only to you.
+
+Matches are shown five per page with their dates. Select one to see its title, description, start and end, location, and reminders, plus a button that opens the event in the calendar (only people who can view the server calendar can open it). Events with an existing share link also show View details; searching never creates a share link. If more than 100 events match, only the first 100 are shown, so try a narrower keyword.
+</CommandCard>
+
 <CommandCard name="/invite">
 Shows an invitation link for adding the bot to another server.
 </CommandCard>
