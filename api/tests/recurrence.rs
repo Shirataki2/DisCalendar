@@ -1111,3 +1111,95 @@ async fn multi_monthly_rollback_detaches_multi_series_and_restores_legacy_shape(
         .unwrap();
     assert_eq!(rule["days"], serde_json::json!([15]));
 }
+
+/// 60 日前に始まった毎週の予定を、現在から 730 日先まで補充した状態で作る。
+async fn create_weekly_started_before(pool: &PgPool, days: i64) -> NaiveDateTime {
+    use chrono::Datelike;
+    let mut body = input();
+    body.start_at = discalendar_api::models::now_jst()
+        .date()
+        .and_hms_opt(19, 30, 0)
+        .unwrap()
+        - chrono::Duration::days(days);
+    body.end_at = body.start_at + chrono::Duration::hours(1);
+    body.recurrence = Some(discalendar_api::recurrence::Rule::Weekly {
+        weekdays: vec![body.start_at.weekday().num_days_from_monday() as u8],
+        end: discalendar_api::recurrence::Ending::Never,
+    });
+    let mut tx = pool.begin().await.unwrap();
+    let row = events::create(&mut *tx, "111", &body, body.start_at, "333")
+        .await
+        .unwrap();
+    recurring::attach_created(&mut tx, "111", row.id, &body, "333")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    body.start_at
+}
+
+async fn starts_between(
+    pool: &PgPool,
+    from: NaiveDateTime,
+    to: NaiveDateTime,
+) -> Vec<NaiveDateTime> {
+    sqlx::query_scalar(
+        "SELECT start_at FROM events WHERE guild_id='111' AND start_at>=$1 AND start_at<$2 ORDER BY start_at",
+    )
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+fn weekly(start: NaiveDateTime, to: NaiveDateTime) -> Vec<NaiveDateTime> {
+    (0..)
+        .map(|week| start + chrono::Duration::weeks(week))
+        .take_while(|at| *at < to)
+        .collect()
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn separated_ranges_fill_the_gap_between_them(pool: PgPool) {
+    let start = create_weekly_started_before(&pool, 60).await;
+    let day = start.date().and_hms_opt(0, 0, 0).unwrap();
+    // 作成時の補充 (現在〜) と離れた、開始直後の 2 週間だけを先に表示する。
+    store::ensure_range(&pool, "111", day, day + chrono::Duration::days(14))
+        .await
+        .unwrap();
+    let today = discalendar_api::models::now_jst()
+        .date()
+        .and_hms_opt(0, 0, 0)
+        .unwrap();
+    store::ensure_range(&pool, "111", day, today).await.unwrap();
+    assert_eq!(
+        starts_between(&pool, day, today).await,
+        weekly(start, today)
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn replenish_fills_from_the_previous_generated_until(pool: PgPool) {
+    let start = create_weekly_started_before(&pool, 60).await;
+    let now = discalendar_api::models::now_jst();
+    let today = now.date().and_hms_opt(0, 0, 0).unwrap();
+    // 日次補充が止まっていた状態: 補充済みは 20 日前まで。
+    let stale = today - chrono::Duration::days(20);
+    sqlx::query("DELETE FROM events WHERE guild_id='111' AND start_at>=$1")
+        .bind(stale)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE event_series SET generated_from=$1,generated_until=$1")
+        .bind(stale)
+        .execute(&pool)
+        .await
+        .unwrap();
+    store::replenish(&pool, now).await.unwrap();
+    let to = today + chrono::Duration::days(7);
+    let expected: Vec<_> = weekly(start, to)
+        .into_iter()
+        .filter(|at| *at >= stale)
+        .collect();
+    assert_eq!(starts_between(&pool, stale, to).await, expected);
+}

@@ -410,6 +410,13 @@ async fn rollback_purges_the_trash_before_dropping_the_columns(pool: PgPool) {
     let gone = create(&pool, "ゴミ箱の予定").await;
     assert!(trash(&pool, gone, "2026-10-02T09:00:00").await);
 
+    // 後から入ったマイグレーションは新しい順に戻す
+    sqlx::raw_sql(include_str!(
+        "../rollback/20261027000000_reset_generated_range.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::raw_sql(include_str!(
         "../rollback/20261026000000_revert_multi_monthly_recurrence.sql"
     ))
