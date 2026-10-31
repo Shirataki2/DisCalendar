@@ -101,6 +101,9 @@ pub async fn search(
         )
         .await?;
     let message_id = reply.message().await?.id;
+    // 最後に応答した操作。時間切れの編集はこのトークンで行う。最初のコマンドのトークンは 15 分で切れるため、
+    // 操作を続けた後の時間切れでは使えない (操作のトークンは、その操作から 15 分は有効)
+    let mut last_press: Option<serenity::ComponentInteraction> = None;
 
     loop {
         let press = serenity::ComponentInteractionCollector::new(ctx.serenity_context())
@@ -115,15 +118,28 @@ pub async fn search(
             .await;
         let Some(press) = press else {
             // 無操作タイムアウト: 内容は残してボタンとメニューだけ外す
-            if let Err(error) = reply
-                .edit(
-                    ctx,
-                    poise::CreateReply::default()
-                        .embed(shown)
-                        .components(Vec::new()),
-                )
-                .await
-            {
+            let removed = match &last_press {
+                Some(press) => press
+                    .edit_response(
+                        ctx.http(),
+                        serenity::EditInteractionResponse::new()
+                            .embed(shown)
+                            .components(Vec::new()),
+                    )
+                    .await
+                    .map(|_| ()),
+                None => {
+                    reply
+                        .edit(
+                            ctx,
+                            poise::CreateReply::default()
+                                .embed(shown)
+                                .components(Vec::new()),
+                        )
+                        .await
+                }
+            };
+            if let Err(error) = removed {
                 tracing::warn!(%error, "failed to remove search components");
             }
             return Ok(());
@@ -191,6 +207,7 @@ pub async fn search(
             )
             .await?;
         shown = embed;
+        last_press = Some(press);
         if finished {
             return Ok(());
         }
