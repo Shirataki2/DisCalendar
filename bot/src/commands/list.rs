@@ -75,16 +75,7 @@ pub async fn list(
 
 /// 一覧の 1 件分の本文
 pub(crate) fn describe_localized(event: &Event, locale: crate::i18n::Locale) -> String {
-    let notifications = event.notifications();
-    let notifications = if notifications.is_empty() {
-        crate::messages::message(locale, "なし").to_owned()
-    } else {
-        notifications
-            .iter()
-            .map(|n| n.localized(locale))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
+    let notifications = notifications_text(event, locale);
     crate::tr!(
         locale,
         "`開始時刻`: {}\n`終了時刻`: {}{}\n`　通知　`: {}",
@@ -102,6 +93,20 @@ pub(crate) fn describe_localized(event: &Event, locale: crate::i18n::Locale) -> 
             .unwrap_or_default(),
         notifications
     )
+}
+
+/// 事前通知の表示 (`30分前, 1日前`。なければ「なし」)
+pub(crate) fn notifications_text(event: &Event, locale: crate::i18n::Locale) -> String {
+    let notifications = event.notifications();
+    if notifications.is_empty() {
+        crate::messages::message(locale, "なし").to_owned()
+    } else {
+        notifications
+            .iter()
+            .map(|n| n.localized(locale))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, poise::ChoiceParameter)]

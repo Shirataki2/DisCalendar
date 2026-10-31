@@ -9,6 +9,7 @@ __**🌟 Commands 🌟**__
 Use `/list` to show past, future, all, today, this week, or the next event. Dates use JST and weeks start on Monday.
 Use `/quick name:Meeting date:tomorrow time:21:00` to create an event. Times use Japan time (JST). Duration defaults to 60 minutes; set `duration` to change it. Confirm the date/time before saving.
 Right-click a message (long-press on mobile), then select Apps → Create event. Review the title, date, time, and duration, and fill any blank fields. Replies are private; the event keeps a link to the source message.
+Use `/search keyword:Meeting` to find events by title or description and view the selected event's details and calendar link (only visible to you).
 Use `/create` for more options and `/invite` to invite the bot to another server.
 Personal replies use your Discord language. Channel notifications and poll posts use the server language, which server managers can change on the website. Unsupported languages fall back to Japanese.
 

@@ -11,6 +11,7 @@ pub mod init;
 pub mod invite;
 pub mod list;
 pub mod register;
+pub mod search;
 pub mod settings;
 
 pub use crate::datetime::format_datetime;
@@ -28,6 +29,7 @@ pub fn all() -> Vec<poise::Command<Data, BotError>> {
         create::quick(),
         create::from_message::from_message(),
         list::list(),
+        search::search(),
         init::init(),
         settings::settings(),
         invite::invite(),
@@ -92,7 +94,7 @@ mod tests {
         let commands = all();
         let definitions = register::definitions(&commands);
         let json = serde_json::to_value(definitions).unwrap();
-        assert_eq!(json.as_array().unwrap().len(), 8);
+        assert_eq!(json.as_array().unwrap().len(), 9);
         for command in &commands {
             if command.slash_action.is_none() {
                 continue;
@@ -133,7 +135,7 @@ mod tests {
         assert_eq!(
             slash.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
             [
-                "help", "create", "quick", "list", "init", "settings", "invite"
+                "help", "create", "quick", "list", "search", "init", "settings", "invite"
             ]
         );
         for command in &slash {
@@ -182,10 +184,10 @@ mod tests {
                 );
             }
         }
-        // Discord に送る定義が組み立てられる (slash 7 つ + メッセージコマンド)
+        // Discord に送る定義が組み立てられる (slash 8 つ + メッセージコマンド)
         assert_eq!(
             poise::builtins::create_application_commands(&commands).len(),
-            8
+            9
         );
         let message = commands.iter().find(|c| c.name == "from_message").unwrap();
         assert_eq!(message.context_menu_name.as_deref(), Some("予定にする"));
@@ -236,7 +238,7 @@ mod tests {
                 "notify_4",
             ]
         );
-        for guild_only in ["quick", "list", "init"] {
+        for guild_only in ["quick", "list", "search", "init"] {
             assert!(
                 commands
                     .iter()

@@ -214,3 +214,112 @@ pub async fn purge_expired_trash(pool: &PgPool, now: NaiveDateTime) -> sqlx::Res
     .await?;
     Ok(result.rows_affected())
 }
+
+/// `/search` が返す件数の上限。超えた分は案内してキーワードの絞り込みを促す
+pub const SEARCH_LIMIT: i64 = 100;
+
+/// `/search` の範囲。対象の判定は `/list` の過去・未来・全て ([`list_past`] / [`list_future`] / [`list_all`]) と同じ
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchScope {
+    Past,
+    Future,
+    All,
+}
+
+/// LIKE の特殊文字 (`\` `%` `_`) をエスケープし、部分一致のパターンにする
+pub fn like_pattern(keyword: &str) -> String {
+    let mut pattern = String::with_capacity(keyword.len() + 2);
+    pattern.push('%');
+    for c in keyword.chars() {
+        if matches!(c, '\\' | '%' | '_') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    pattern.push('%');
+    pattern
+}
+
+/// タイトル・説明にキーワードを含む予定 (大文字・小文字を区別しない部分一致)。
+/// 過去は新しい順、それ以外は開始日時順で、最大 `limit` 件
+pub async fn search(
+    pool: &PgPool,
+    guild_id: &str,
+    keyword: &str,
+    scope: SearchScope,
+    now: NaiveDateTime,
+    limit: i64,
+) -> sqlx::Result<Vec<Event>> {
+    let pattern = like_pattern(keyword);
+    match scope {
+        SearchScope::Past => {
+            sqlx::query_as!(
+                Event,
+                r#"
+                SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+                FROM events WHERE guild_id = $1 AND deleted_at IS NULL
+                  AND (name ILIKE $2 ESCAPE '\' OR description ILIKE $2 ESCAPE '\')
+                  AND start_at <= $3 AND (series_id IS NULL OR end_at >= $3::timestamp - INTERVAL '366 days')
+                ORDER BY start_at DESC, id DESC LIMIT $4
+                "#,
+                guild_id,
+                pattern,
+                now,
+                limit
+            )
+            .fetch_all(pool)
+            .await
+        }
+        SearchScope::Future => {
+            sqlx::query_as!(
+                Event,
+                r#"
+                SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+                FROM events WHERE guild_id = $1 AND deleted_at IS NULL
+                  AND (name ILIKE $2 ESCAPE '\' OR description ILIKE $2 ESCAPE '\')
+                  AND start_at >= $3 AND (series_id IS NULL OR start_at < $3::timestamp + INTERVAL '730 days')
+                ORDER BY start_at, id LIMIT $4
+                "#,
+                guild_id,
+                pattern,
+                now,
+                limit
+            )
+            .fetch_all(pool)
+            .await
+        }
+        SearchScope::All => {
+            sqlx::query_as!(
+                Event,
+                r#"
+                SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+                FROM events WHERE guild_id = $1 AND deleted_at IS NULL
+                  AND (name ILIKE $2 ESCAPE '\' OR description ILIKE $2 ESCAPE '\')
+                  AND (series_id IS NULL OR (start_at < $3::timestamp + INTERVAL '730 days' AND end_at >= $3::timestamp - INTERVAL '366 days'))
+                ORDER BY start_at, id LIMIT $4
+                "#,
+                guild_id,
+                pattern,
+                now,
+                limit
+            )
+            .fetch_all(pool)
+            .await
+        }
+    }
+}
+
+/// ギルド内の予定を 1 件取得する。他のギルドの予定・ゴミ箱の予定は返さない
+pub async fn find(pool: &PgPool, guild_id: &str, id: i32) -> sqlx::Result<Option<Event>> {
+    sqlx::query_as!(
+        Event,
+        r#"
+        SELECT id, guild_id, name, description, location, notifications, notification_mentions, color, is_all_day, start_at, end_at, created_at, created_by, updated_by, updated_at
+        FROM events WHERE guild_id = $1 AND id = $2 AND deleted_at IS NULL
+        "#,
+        guild_id,
+        id
+    )
+    .fetch_optional(pool)
+    .await
+}

@@ -3,7 +3,7 @@
 
 use chrono::NaiveDateTime;
 use discalendar_bot::models::{
-    events::{self, NewEvent},
+    events::{self, NewEvent, SearchScope},
     notifications::{Notification, NotificationUnit},
 };
 use sqlx::PgPool;
@@ -483,4 +483,221 @@ async fn expired_trash_is_purged(pool: PgPool) {
         .unwrap();
     assert_eq!(remaining, [ids[1], ids[2]]);
     assert_eq!(events::purge_expired_trash(&pool, now).await.unwrap(), 0);
+}
+
+/// `/search` (#206): タイトル・説明の部分一致。サーバーの境界を越えず、範囲の判定は `/list` と同じ
+#[sqlx::test(migrations = "../api/migrations")]
+async fn search_matches_title_and_description_within_the_guild(pool: PgPool) {
+    let at = dt("2026-08-15T12:00:00");
+    let create = |guild: &'static str, name: &'static str, description, start, end| {
+        let pool = pool.clone();
+        async move {
+            events::create(
+                &pool,
+                &NewEvent {
+                    description,
+                    ..new_event(guild, name, start, end)
+                },
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let past = create(
+        GUILD,
+        "週次定例",
+        None,
+        "2026-08-01T10:00:00",
+        "2026-08-01T11:00:00",
+    )
+    .await;
+    let older = create(
+        GUILD,
+        "週次定例",
+        None,
+        "2026-07-01T10:00:00",
+        "2026-07-01T11:00:00",
+    )
+    .await;
+    let now = create(
+        GUILD,
+        "Sprint Review",
+        Some("定例の振り返り"),
+        "2026-08-15T12:00:00",
+        "2026-08-15T13:00:00",
+    )
+    .await;
+    let future = create(
+        GUILD,
+        "週次定例",
+        None,
+        "2026-08-30T10:00:00",
+        "2026-08-30T11:00:00",
+    )
+    .await;
+    let _unrelated = create(
+        GUILD,
+        "飲み会",
+        Some("自由参加"),
+        "2026-08-30T19:00:00",
+        "2026-08-30T21:00:00",
+    )
+    .await;
+    let _other = create(
+        OTHER_GUILD,
+        "週次定例",
+        None,
+        "2026-08-30T10:00:00",
+        "2026-08-30T11:00:00",
+    )
+    .await;
+
+    let search = |keyword: &'static str, scope| {
+        let pool = pool.clone();
+        async move {
+            events::search(&pool, GUILD, keyword, scope, at, events::SEARCH_LIMIT)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|e| e.id)
+                .collect::<Vec<_>>()
+        }
+    };
+    // 既定の未来は start_at >= now (`/list` の未来と同じ)。説明の一致も対象
+    assert_eq!(
+        search("定例", SearchScope::Future).await,
+        [now.id, future.id]
+    );
+    // 過去は start_at <= now で、新しい順
+    assert_eq!(
+        search("定例", SearchScope::Past).await,
+        [now.id, past.id, older.id]
+    );
+    assert_eq!(
+        search("定例", SearchScope::All).await,
+        [older.id, past.id, now.id, future.id]
+    );
+    // 英字は大文字・小文字を区別しない
+    assert_eq!(search("sprint", SearchScope::All).await, [now.id]);
+    assert_eq!(
+        search("存在しない", SearchScope::All).await,
+        Vec::<i32>::new()
+    );
+    // 他のサーバーからは見えない
+    assert_eq!(
+        events::search(&pool, OTHER_GUILD, "Sprint", SearchScope::All, at, 100)
+            .await
+            .unwrap(),
+        vec![]
+    );
+    // 件数の上限
+    assert_eq!(
+        events::search(&pool, GUILD, "定例", SearchScope::All, at, 2)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+
+    // 範囲の判定は `/list` の過去・未来・全てと一致する
+    let ids = |events: Vec<events::Event>| -> Vec<i32> {
+        events
+            .into_iter()
+            .filter(|e| {
+                e.name.contains("定例")
+                    || e.description.as_deref().is_some_and(|d| d.contains("定例"))
+            })
+            .map(|e| e.id)
+            .collect()
+    };
+    assert_eq!(
+        ids(events::list_future(&pool, GUILD, at).await.unwrap()),
+        search("定例", SearchScope::Future).await
+    );
+    let mut past_ids = ids(events::list_past(&pool, GUILD, at).await.unwrap());
+    past_ids.reverse();
+    assert_eq!(past_ids, search("定例", SearchScope::Past).await);
+    assert_eq!(
+        ids(events::list_all(&pool, GUILD).await.unwrap()),
+        search("定例", SearchScope::All).await
+    );
+}
+
+#[sqlx::test(migrations = "../api/migrations")]
+async fn search_treats_like_wildcards_literally(pool: PgPool) {
+    let at = dt("2026-08-01T00:00:00");
+    for name in ["100%達成", "1000達成", "a_b", "axb", r"c\d"] {
+        events::create(
+            &pool,
+            &new_event(GUILD, name, "2026-08-23T10:00:00", "2026-08-23T11:00:00"),
+        )
+        .await
+        .unwrap();
+    }
+    let names = |keyword: &'static str| {
+        let pool = pool.clone();
+        async move {
+            events::search(&pool, GUILD, keyword, SearchScope::All, at, 100)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|e| e.name)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(names("0%").await, ["100%達成"]);
+    assert_eq!(names("a_b").await, ["a_b"]);
+    assert_eq!(names(r"c\d").await, [r"c\d"]);
+    assert_eq!(names("%").await, ["100%達成"]);
+}
+
+#[sqlx::test(migrations = "../api/migrations")]
+async fn search_and_find_skip_trash_and_other_guilds(pool: PgPool) {
+    let at = dt("2026-08-01T00:00:00");
+    let kept = events::create(
+        &pool,
+        &new_event(GUILD, "定例", "2026-08-23T10:00:00", "2026-08-23T11:00:00"),
+    )
+    .await
+    .unwrap();
+    let gone = events::create(
+        &pool,
+        &new_event(GUILD, "定例", "2026-08-24T10:00:00", "2026-08-24T11:00:00"),
+    )
+    .await
+    .unwrap();
+    let other = events::create(
+        &pool,
+        &new_event(
+            OTHER_GUILD,
+            "定例",
+            "2026-08-23T10:00:00",
+            "2026-08-23T11:00:00",
+        ),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE events SET deleted_at = '2026-08-20 09:00:00', deleted_by = '444' WHERE id = $1",
+    )
+    .bind(gone.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let found = events::search(&pool, GUILD, "定例", SearchScope::All, at, 100)
+        .await
+        .unwrap();
+    assert_eq!(found, vec![kept.clone()]);
+    assert_eq!(
+        events::find(&pool, GUILD, kept.id).await.unwrap(),
+        Some(kept)
+    );
+    // 選択前にゴミ箱へ移された予定・他のサーバーの予定は取得できない
+    assert_eq!(events::find(&pool, GUILD, gone.id).await.unwrap(), None);
+    assert_eq!(events::find(&pool, GUILD, other.id).await.unwrap(), None);
+    assert_eq!(
+        events::find(&pool, OTHER_GUILD, other.id).await.unwrap(),
+        Some(other)
+    );
 }

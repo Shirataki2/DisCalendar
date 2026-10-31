@@ -108,6 +108,13 @@ pub fn message(locale: Locale, ja: &str) -> &str {
             "Create an event with fewer inputs and confirm its date before saving"
         }
         "予定の一覧を表示します" => "List events",
+        "予定をキーワードで検索します" => "Search events by keyword",
+        "検索するキーワード (タイトル・説明の部分一致)" => {
+            "Keyword to find in event titles and descriptions"
+        }
+        "検索する予定の範囲 (省略時は未来)" => {
+            "Event range to search (future by default)"
+        }
         "このBotの通知の送信先チャンネルを設定します" => {
             "Set the notification channel for this bot"
         }
