@@ -9,6 +9,7 @@ import {
   Section,
   TrendStat,
 } from "@/components/admin-chart";
+import { RetentionTable } from "@/components/admin-retention";
 import {
   formatMonthDay,
   formatPercent,
@@ -422,6 +423,18 @@ export default async function AdminAnalyticsPage() {
         </Section>
 
         <Section
+          title="導入からの定着"
+          description={`Bot を導入した月ごとに、導入後に予定が作られたかと、今も使われているかを見る (#375)。7 日・30 日の割合は、導入からその日数が経ったサーバーだけを分母にしている。退出したサーバーは数えられないため、導入数は「今も参加しているサーバー」で、割合は実際より高めに出る。2026-08-30 (#125) より前の導入日は運営ログからの推定値なので、古い月は参考値として見る`}
+        >
+          <Card>
+            <RetentionTable
+              retention={analytics.retention}
+              recentDays={analytics.recent_days}
+            />
+          </Card>
+        </Section>
+
+        <Section
           title="予定と設定の内訳"
           description="今 DB にあるデータの内訳。推移ではなく現時点のスナップショット"
         >
@@ -514,8 +527,9 @@ export default async function AdminAnalyticsPage() {
               はまだ期間の途中なので、棒を薄くしてある。完成した期間と比べない
             </li>
             <li>
-              ギルドの参加・退出の日時は DB
-              に無いため、サーバー数の推移は出せない
+              ギルドの退出の日時は DB
+              に無く、退出したギルドは行ごと消えるため、サーバー数の推移は出せない
+              (導入からの定着も「今も参加しているサーバー」だけで数えている)
             </li>
             <li>
               日付の区切りはすべて JST。月別は暦月 (1 日 0:00 〜 翌月 1 日 0:00)

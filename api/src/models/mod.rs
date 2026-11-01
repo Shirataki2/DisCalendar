@@ -18,6 +18,7 @@ pub mod event_history;
 pub mod event_links;
 pub mod events;
 pub mod feed_tokens;
+pub mod guild_retention;
 pub mod guilds;
 pub mod notification_mentions;
 pub mod notifications;

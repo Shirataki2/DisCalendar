@@ -744,6 +744,32 @@ export interface AdminGuildActivity {
   top_guilds: AdminTopGuild[];
 }
 
+/** 導入月 1 つぶんの定着状況 (#375)。定義は api/src/models/guild_retention.rs */
+export interface AdminRetentionCohort {
+  /** 導入月 (JST の月初、`2026-10-01`) */
+  month: string;
+  /** その月に導入し、今も参加しているサーバーの数 */
+  guilds: number;
+  /** 導入から 7 日が経ったサーバーの数 (7 日以内の割合の分母) */
+  week_eligible: number;
+  /** そのうち導入から 7 日以内に予定が作られた数 */
+  week_created: number;
+  /** 導入から 30 日が経ったサーバーの数 (30 日以内の割合の分母) */
+  month_eligible: number;
+  /** そのうち導入から 30 日以内に予定が作られた数 */
+  month_created: number;
+  /** 直近 N 日にも予定が作られている数 (分母は guilds) */
+  active: number;
+}
+
+export interface AdminGuildRetention {
+  /** 導入月の新しい順 */
+  cohorts: AdminRetentionCohort[];
+  /** 導入日 (joined_at) が分からない参加中のサーバーの数 */
+  unknown_joined: number;
+  unknown_joined_active: number;
+}
+
 /** GET /admin/analytics */
 export interface AdminAnalytics {
   /** 集計の基準にした日 (JST、`2026-08-25`)。推移の右端で、その日はまだ途中 */
@@ -758,6 +784,8 @@ export interface AdminAnalytics {
   measured_active_users: AdminMeasuredActiveUsers;
   event_creation: AdminEventCreation;
   breakdown: AdminAnalyticsBreakdown;
+  /** 導入月ごとの定着状況 (#375) */
+  retention: AdminGuildRetention;
   guilds: AdminGuildActivity;
   /** 古い順 */
   daily: AdminDailyPoint[];

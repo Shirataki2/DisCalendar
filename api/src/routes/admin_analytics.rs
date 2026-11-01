@@ -18,6 +18,7 @@ use crate::{
             self, ActiveUsers, Breakdown, DAILY_DAYS, DailyPoint, EventCreation, GuildActivity,
             MONTHLY_MONTHS, MeasuredActiveUsers, MonthlyPoint, RECENT_DAYS,
         },
+        guild_retention::{self, GuildRetention},
         now_jst,
     },
     state::AppState,
@@ -44,6 +45,8 @@ pub struct AdminAnalytics {
     pub measured_active_users: MeasuredActiveUsers,
     pub event_creation: EventCreation,
     pub breakdown: Breakdown,
+    /// 導入月ごとの定着状況 (#375)
+    pub retention: GuildRetention,
     pub guilds: GuildActivity,
     /// 日別の推移 (古い順、[`AdminAnalytics::daily_days`] 件)。末尾は今日 (集計時点まで)
     pub daily: Vec<DailyPoint>,
@@ -97,6 +100,7 @@ pub async fn analytics(
     let top_guilds = admin_analytics::top_guilds(&mut *tx, recent_since, now).await?;
     let (guilds_with_channel, restricted_guilds) =
         admin_analytics::guild_settings(&mut *tx).await?;
+    let retention = guild_retention::guild_retention(&mut *tx, now, RECENT_DAYS).await?;
     // 読むだけなので commit / rollback のどちらでもよいが、スナップショットは早く手放す
     tx.rollback().await?;
 
@@ -121,6 +125,7 @@ pub async fn analytics(
             guilds_with_channel,
             restricted_guilds,
         },
+        retention,
         guilds: GuildActivity {
             active_guilds,
             active_left_guilds,
