@@ -19,6 +19,7 @@ use crate::{
             MONTHLY_MONTHS, MeasuredActiveUsers, MonthlyPoint, RECENT_DAYS,
         },
         guild_retention::{self, GuildRetention},
+        invite_clicks::{self, InviteClicks},
         now_jst,
     },
     state::AppState,
@@ -48,6 +49,8 @@ pub struct AdminAnalytics {
     /// 導入月ごとの定着状況 (#375)
     pub retention: GuildRetention,
     pub guilds: GuildActivity,
+    /// 招待リンクの導入元ごとのクリック数 (`invite_clicks`、#374)
+    pub invite_clicks: InviteClicks,
     /// 日別の推移 (古い順、[`AdminAnalytics::daily_days`] 件)。末尾は今日 (集計時点まで)
     pub daily: Vec<DailyPoint>,
     /// 月別の推移 (古い順、[`AdminAnalytics::monthly_months`] 件)。末尾は当月 (途中まで)
@@ -98,6 +101,7 @@ pub async fn analytics(
     let (active_guilds, active_left_guilds, joined_guilds) =
         admin_analytics::guild_counts(&mut *tx, recent_since, now).await?;
     let top_guilds = admin_analytics::top_guilds(&mut *tx, recent_since, now).await?;
+    let invite_clicks = invite_clicks::summary(&mut *tx, now.date(), RECENT_DAYS).await?;
     let (guilds_with_channel, restricted_guilds) =
         admin_analytics::guild_settings(&mut *tx).await?;
     let retention = guild_retention::guild_retention(&mut *tx, now, RECENT_DAYS).await?;
@@ -132,6 +136,7 @@ pub async fn analytics(
             joined_guilds,
             top_guilds,
         },
+        invite_clicks,
         daily,
         monthly,
     }))

@@ -770,6 +770,25 @@ export interface AdminGuildRetention {
   unknown_joined_active: number;
 }
 
+/** 招待リンクの導入元ごとのクリック数 (#374) */
+export interface AdminInviteSourceClicks {
+  /** 導入元 (`lp-hero` / `topgg` / `direct` / `other` など。api/src/models/invite_clicks.rs) */
+  source: string;
+  /** 直近 N 日 (今日を含む) */
+  recent: number;
+  /** その前の N 日 */
+  previous: number;
+  /** 記録を始めてからの合計 */
+  total: number;
+}
+
+export interface AdminInviteClicks {
+  /** 記録が始まった日 (JST)。まだ 1 件も無ければ null */
+  since: string | null;
+  /** 直近 N 日の多い順 */
+  sources: AdminInviteSourceClicks[];
+}
+
 /** GET /admin/analytics */
 export interface AdminAnalytics {
   /** 集計の基準にした日 (JST、`2026-08-25`)。推移の右端で、その日はまだ途中 */
@@ -787,6 +806,8 @@ export interface AdminAnalytics {
   /** 導入月ごとの定着状況 (#375) */
   retention: AdminGuildRetention;
   guilds: AdminGuildActivity;
+  /** 招待リンクの導入元ごとのクリック数 (#374) */
+  invite_clicks: AdminInviteClicks;
   /** 古い順 */
   daily: AdminDailyPoint[];
   /** 古い順 */
