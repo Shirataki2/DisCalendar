@@ -93,6 +93,7 @@ web のカレンダーでその予定を開くリンク (`/dashboard/<サーバ�
 | 退出時 (`GuildDelete`) | 常に DELETE | Discord 側の障害 (`unavailable`) のときは消さない |
 | 停止中の退出 | 行が残ったまま | `Ready` のたびに `GET /users/@me/guilds` で参加一覧を取り直し、DB にだけ残っている行を消す |
 | `locale` | 常に `ja` で上書き | 新規行だけ既定値 `ja`。既存行の値は上書きしない |
+| 参加時の案内 (#376) | なし | 新しく参加したときだけ、システムチャンネル (投稿できなければ投稿できる最初のテキストチャンネル) に最初の使い方を送る。言語は保存済みのサーバー言語、無ければ Discord のサーバー言語。同じサーバーには 30 日に 1 回まで (`guild_welcome_messages`、退出では消さない) |
 | 参加・退出のログ通知 | コードに埋め込んだチャンネル ID に送信 | `BOT_LOG_CHANNEL_ID` のチャンネルに送信 (未設定なら送らない)。送信失敗は warn ログのみ |
 | Gateway インテント | `non_privileged` | 同じ (ギルドイベントには `GUILDS`、メンションでの `register` には `GUILD_MESSAGES` が必要で、どちらも含まれる) |
 | 終了処理 | なし | SIGINT / SIGTERM でシャードを閉じてから終了 (docker stop 向け) |
@@ -204,6 +205,7 @@ src/
   datetime.rs       通知・コマンドで共有する Discord 向けの日時表示
   error.rs          BotError (User = 本人に返す入力・権限エラー) と poise の on_error (日本語の返信)
   event.rs          Gateway イベント (Ready / ShardsReady / GuildCreate / GuildUpdate / GuildDelete)
+  welcome.rs        新しく参加したサーバーへの最初の案内 (#376)
   checks.rs         管理権限の判定 (api の can_manage_server と同じ)
   paginator.rs      /list のページ送り (ボタン付き埋め込み)
   commands/         スラッシュコマンド (help.txt は /help の本文)
