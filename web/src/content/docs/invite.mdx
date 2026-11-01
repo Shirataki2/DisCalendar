@@ -2,7 +2,7 @@ import { Callout } from "@/components/docs/callout";
 import { LinkButton } from "@/components/docs/link-button";
 import { Screenshot } from "@/components/docs/screenshot";
 import serverSelectShot from "@/assets/docs/serverselect.png";
-import { ROUTES } from "@/lib/site";
+import { inviteHref } from "@/lib/site";
 
 カレンダーの予定を Discord に通知したり、Discord から予定を操作したりするには、まずサーバーに DisCalendar の Bot を追加します。
 
@@ -14,7 +14,7 @@ Bot を追加できるのは、そのサーバーの「管理者」か「サー�
 
 下のボタン (トップページの「BOT を導入する」と同じリンク) を開き、Discord の画面でサーバーを選びます。
 
-<LinkButton href={ROUTES.invite} variant="primary" external>Bot を招待する</LinkButton>
+<LinkButton href={inviteHref("docs-invite")} variant="primary" external>Bot を招待する</LinkButton>
 
 ### 方法 2: サーバー一覧から追加する
 

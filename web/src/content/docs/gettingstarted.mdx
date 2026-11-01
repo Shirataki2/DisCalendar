@@ -1,6 +1,6 @@
 import { LinkButton } from "@/components/docs/link-button";
 import { Step, Steps } from "@/components/docs/steps";
-import { ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
+import { inviteHref, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
 
 DisCalendar は、Discord のサーバーごとに共有カレンダーを持てるサービスです。
 予定はブラウザのカレンダー画面から追加・編集でき、開始時刻や設定した事前通知のタイミングになると Bot が Discord のチャンネルへ通知を投稿します。
@@ -22,7 +22,7 @@ DisCalendar は、Discord のサーバーごとに共有カレンダーを持て
     通知を届けるために、まず DisCalendar の Bot を Discord のサーバーに追加します。
     追加できるのはそのサーバーの「管理者」か「サーバー管理」の権限を持っている人です。
 
-    <LinkButton href={ROUTES.invite} variant="primary" external>Bot を招待する</LinkButton>
+    <LinkButton href={inviteHref("docs-start")} variant="primary" external>Bot を招待する</LinkButton>
 
     くわしくは [Bot の招待](/docs/invite) を見てください。
   </Step>

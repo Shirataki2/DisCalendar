@@ -1,0 +1,57 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            source,\n            min(day) AS \"since!\",\n            COALESCE(sum(clicks) FILTER (WHERE day > $1::date - $2::int), 0)::bigint AS \"recent!\",\n            COALESCE(sum(clicks) FILTER (\n                WHERE day > $1::date - 2 * $2::int AND day <= $1::date - $2::int), 0)::bigint\n                AS \"previous!\",\n            sum(clicks)::bigint AS \"total!\"\n        FROM invite_clicks\n        WHERE day <= $1\n        GROUP BY source\n        ORDER BY 3 DESC, 5 DESC, source\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invite_clicks",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "since!",
+        "type_info": "Date",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "recent!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "previous!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "total!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "3e01ec7b4992dc9d4dc375f4f66232931ed033ea1d6014e446ff6f391f6f4b18"
+}

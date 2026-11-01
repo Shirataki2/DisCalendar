@@ -1,6 +1,6 @@
 import { LinkButton } from "@/components/docs/link-button";
 import { Step, Steps } from "@/components/docs/steps";
-import { ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
+import { inviteHref, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
 
 DisCalendar gives each Discord server a shared calendar. Add and edit events in your browser, and the bot posts reminders to a Discord channel at the start time and at your chosen advance reminder times.
 
@@ -18,7 +18,7 @@ End the guide at any time to explore freely. **Start over** resets the guide and
   <Step title="Invite the bot to your server">
     Add DisCalendar to your Discord server to receive reminders. You need Administrator or Manage Server permission.
 
-    <LinkButton href={ROUTES.invite} variant="primary" external>Invite the bot</LinkButton>
+    <LinkButton href={inviteHref("docs-start")} variant="primary" external>Invite the bot</LinkButton>
 
     See [Invite the bot](/docs/invite) for details.
   </Step>

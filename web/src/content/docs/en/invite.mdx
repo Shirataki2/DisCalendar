@@ -2,7 +2,7 @@ import { Callout } from "@/components/docs/callout";
 import { LinkButton } from "@/components/docs/link-button";
 import { Screenshot } from "@/components/docs/screenshot";
 import serverSelectShot from "@/assets/docs/serverselect.png";
-import { ROUTES } from "@/lib/site";
+import { inviteHref } from "@/lib/site";
 
 Add DisCalendar's bot to your server to receive Discord reminders and manage events from Discord.
 
@@ -14,7 +14,7 @@ You need Administrator or Manage Server permission in the server.
 
 Open the button below (the same as **Add the bot** on the homepage) and choose your server in Discord.
 
-<LinkButton href={ROUTES.invite} variant="primary" external>Invite the bot</LinkButton>
+<LinkButton href={inviteHref("docs-invite")} variant="primary" external>Invite the bot</LinkButton>
 
 ### Use the server list
 

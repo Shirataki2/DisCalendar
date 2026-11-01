@@ -13,7 +13,7 @@ import {
   describeNotification,
 } from "@/lib/calendar-events";
 import { DEFAULT_CALENDAR_SETTINGS } from "@/lib/calendar-settings";
-import { ROUTES } from "@/lib/site";
+import { inviteHref, ROUTES } from "@/lib/site";
 import {
   createTutorialEventsSource,
   TUTORIAL_GUILD_ID,
@@ -395,7 +395,7 @@ function TutorialNextSteps() {
       <div className="flex flex-col gap-2">
         <a
           className="rounded-md bg-[#5865F2] px-3 py-2 text-center font-medium text-white hover:bg-[#4752c4]"
-          href={ROUTES.invite}
+          href={inviteHref("tutorial")}
           target="_blank"
           rel="noreferrer"
         >
