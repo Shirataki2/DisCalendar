@@ -56,7 +56,7 @@
     "@tailwindcss/postcss": "^4",
     "@tanstack/react-query-devtools": "^5.104.1",
     "@types/mdx": "^2.0.14",
-    "@types/node": "^24",
+    "@types/node": "^25",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
