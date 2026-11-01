@@ -135,6 +135,23 @@ export async function deleteEventsNamed(
 }
 
 /**
+ * ギルドの予定 (単発・繰り返し。ゴミ箱も含む) を全部消す。予定が 1 件もない状態 (#377) を作るのに使う。
+ * テストは 1 ワーカーで順に動くので、他のテストが作った予定と取り合うことはない
+ */
+export async function deleteGuildEvents(
+  databaseUrl: string,
+  guildId: string,
+): Promise<void> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    await pool.query("DELETE FROM events WHERE guild_id = $1", [guildId]);
+    await pool.query("DELETE FROM event_series WHERE guild_id = $1", [guildId]);
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
  * iCal フィード (#95) のトークンを DB に直接入れる (管理者が発行した状態を作る)。
  * 一般メンバーのギルドでは API から発行できないので、閲覧側の表示を確かめるのに使う。
  * 使ったら deleteFeedToken で消す

@@ -472,6 +472,28 @@ pub async fn put_config(
     Ok(web::Json(config))
 }
 
+/// ギルドの予定の有無 (#377)
+#[derive(Serialize, ToSchema)]
+pub struct EventSummary {
+    /// 予定 (単発・繰り返し。ゴミ箱を含む) が 1 件でもあるか
+    pub has_events: bool,
+}
+
+/// ギルドに予定があるか。予定がまだ無いサーバーのカレンダーで最初の予定作りを案内するのに使う。
+/// 呼び出したユーザーがメンバーであることが条件 (予定一覧と同じ)
+#[utoipa::path(tag = "guilds", params(("guild_id" = String, Path)),
+    responses((status = 200, body = EventSummary),
+              (status = 401, body = ErrorBody), (status = 403, body = ErrorBody)))]
+#[get("/{guild_id}/event-summary")]
+pub async fn event_summary(
+    member: GuildMember,
+    state: web::Data<AppState>,
+) -> Result<web::Json<EventSummary>, ApiError> {
+    Ok(web::Json(EventSummary {
+        has_events: crate::models::events::guild_has_events(&state.pool, member.guild_id()).await?,
+    }))
+}
+
 /// まとめ投稿の設定。未保存なら毎日・毎週とも無効。
 #[utoipa::path(tag = "guilds", params(("guild_id" = String, Path)),
     responses((status = 200, body = crate::models::digest::DigestSettings),
