@@ -21,6 +21,7 @@ pub mod paginator;
 pub mod tasks;
 #[path = "../../shared/webhook_outbox.rs"]
 pub mod webhook_outbox;
+pub mod welcome;
 
 use anyhow::Context as _;
 use poise::serenity_prelude as serenity;

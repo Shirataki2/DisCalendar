@@ -80,6 +80,8 @@ pub async fn handle_event(
                     format!("{} ({})", guild.name, guild_id),
                 )
                 .await;
+                // 導入した人が次に何をすればよいか分かるよう、最初の使い方を案内する (#376)
+                crate::welcome::send(ctx, data, guild.id).await;
             } else {
                 tracing::debug!(guild_id, name = %guild.name, "registered guild");
             }

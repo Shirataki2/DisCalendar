@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM guild_welcome_messages WHERE guild_id = $1 AND sent_at = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5181eae8e7cd72eb8b278685a8ff113fb82abfb6680aeebd74c25bf908060e01"
+}
