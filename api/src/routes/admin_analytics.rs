@@ -18,6 +18,7 @@ use crate::{
             self, ActiveUsers, Breakdown, DAILY_DAYS, DailyPoint, EventCreation, GuildActivity,
             MONTHLY_MONTHS, MeasuredActiveUsers, MonthlyPoint, RECENT_DAYS,
         },
+        guild_retention::{self, GuildRetention},
         invite_clicks::{self, InviteClicks},
         now_jst,
     },
@@ -45,6 +46,8 @@ pub struct AdminAnalytics {
     pub measured_active_users: MeasuredActiveUsers,
     pub event_creation: EventCreation,
     pub breakdown: Breakdown,
+    /// 導入月ごとの定着状況 (#375)
+    pub retention: GuildRetention,
     pub guilds: GuildActivity,
     /// 招待リンクの導入元ごとのクリック数 (`invite_clicks`、#374)
     pub invite_clicks: InviteClicks,
@@ -101,6 +104,7 @@ pub async fn analytics(
     let invite_clicks = invite_clicks::summary(&mut *tx, now.date(), RECENT_DAYS).await?;
     let (guilds_with_channel, restricted_guilds) =
         admin_analytics::guild_settings(&mut *tx).await?;
+    let retention = guild_retention::guild_retention(&mut *tx, now, RECENT_DAYS).await?;
     // 読むだけなので commit / rollback のどちらでもよいが、スナップショットは早く手放す
     tx.rollback().await?;
 
@@ -125,6 +129,7 @@ pub async fn analytics(
             guilds_with_channel,
             restricted_guilds,
         },
+        retention,
         guilds: GuildActivity {
             active_guilds,
             active_left_guilds,
