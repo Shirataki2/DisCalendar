@@ -96,8 +96,11 @@ export const queryKeys = {
         ["events", guildId],
         ["events", "joined"],
       ],
-      // ギルド詳細の event_count を古いままにしない
-      onCountChanged: (guildId: string) => [["admin", "guild", guildId]],
+      // ギルド詳細の event_count と、通常画面の最初の予定の案内 (#377) を古いままにしない
+      onCountChanged: (guildId: string) => [
+        ["admin", "guild", guildId],
+        ["guild", guildId, "event-summary"],
+      ],
     },
   },
 };

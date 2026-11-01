@@ -282,7 +282,6 @@ pub fn validate_discord_flag(
     Ok(())
 }
 
-/// 期間 `[start, end)` に重なる予定 (途中から始まっている複数日の予定も含む)
 /// ギルドに予定が 1 件でもあるか (#377。予定がまだ無いサーバーで最初の予定作りを案内する判定)。
 ///
 /// 単発の予定と繰り返しのシリーズのどちらかがあれば true。ゴミ箱の予定も数える
@@ -300,6 +299,7 @@ pub async fn guild_has_events(pool: &PgPool, guild_id: &str) -> sqlx::Result<boo
     Ok(exists)
 }
 
+/// 期間 `[start, end)` に重なる予定 (途中から始まっている複数日の予定も含む)
 pub async fn list_between(
     pool: &PgPool,
     guild_id: &str,
