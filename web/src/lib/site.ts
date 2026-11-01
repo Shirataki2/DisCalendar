@@ -48,7 +48,7 @@ export const ROUTES = {
   adminUsers: "/admin/users",
   /** 管理コンソールの監査ログ */
   adminAuditLogs: "/admin/audit-logs",
-  /** Bot の招待 URL へリダイレクトする (app/invite/route.ts) */
+  /** Bot の招待 URL へリダイレクトする (app/invite/route.ts)。サイト内のリンクは inviteHref で導入元を付ける */
   invite: "/invite",
   /** 支援 (ドネーション) のお願いページ */
   donation: "/donation",
@@ -64,3 +64,20 @@ export const ROUTES = {
   /** 特定商取引法に基づく表記 (web/src/content/support/tokushoho.mdx) */
   tokushoho: "/support/tokushoho",
 } as const;
+
+/**
+ * サイト内の招待リンクの導入元 (#374)。`/invite?from=<導入元>` でクリック数を導入元ごとに数える。
+ * api が受け付ける値 (api/src/models/invite_clicks.rs の KNOWN_SOURCES) に無いものは other として数えられるので、
+ * 増やすときは api 側にも足す
+ */
+export type InviteSource =
+  | "lp-hero"
+  | "lp-footer"
+  | "docs-start"
+  | "docs-invite"
+  | "tutorial";
+
+/** 導入元を付けた招待リンク */
+export function inviteHref(source: InviteSource): string {
+  return `${ROUTES.invite}?from=${source}`;
+}

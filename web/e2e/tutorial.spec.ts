@@ -100,7 +100,7 @@ test.describe("公開チュートリアル", () => {
     await expect(eventOn(page, "練習のゲーム会・変更後")).toHaveCount(0);
     await expect(
       guide(page).getByRole("link", { name: "Botを招待する" }),
-    ).toHaveAttribute("href", "/invite");
+    ).toHaveAttribute("href", "/invite?from=tutorial");
     await guide(page).getByRole("button", { name: "前の説明へ" }).click();
     await guide(page).getByRole("button", { name: "次へ" }).click();
     await guide(page).getByRole("button", { name: "自由に試す" }).click();

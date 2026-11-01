@@ -178,6 +178,12 @@ async fn server_locale_requires_membership_and_management_permissions(pool: PgPo
     .await
     .unwrap();
     sqlx::raw_sql(include_str!(
+        "../rollback/20261101000000_drop_invite_clicks.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
         "../rollback/20261027000000_reset_generated_range.sql"
     ))
     .execute(&pool)

@@ -18,6 +18,21 @@ import { serverApi } from "@/lib/api/server";
 import type { AdminAnalytics } from "@/lib/api/types";
 import { ROUTES } from "@/lib/site";
 
+/** 招待リンクの導入元の表示名 (値は api/src/models/invite_clicks.rs の KNOWN_SOURCES) */
+const INVITE_SOURCE_LABELS: Record<string, string> = {
+  "lp-hero": "トップページ (先頭)",
+  "lp-footer": "トップページ (末尾)",
+  "docs-start": "使い方: はじめに",
+  "docs-invite": "使い方: Bot の招待",
+  tutorial: "チュートリアル",
+  topgg: "top.gg",
+  discordbotsgg: "discord.bots.gg",
+  x: "X",
+  bot: "Bot のコマンド",
+  direct: "導入元なし",
+  other: "その他 (知らない値)",
+};
+
 export const metadata: Metadata = {
   title: "分析情報 | 管理コンソール",
 };
@@ -56,9 +71,14 @@ export default async function AdminAnalyticsPage() {
     event_creation,
     breakdown,
     guilds,
+    invite_clicks: inviteClicks,
     daily,
     monthly,
   } = analytics;
+  const inviteMax = Math.max(
+    0,
+    ...inviteClicks.sources.map((source) => source.recent),
+  );
   const dailyLabel = (date: string) => formatMonthDay(date);
   const monthlyLabel = (month: string) => formatYearMonth(month);
   // 日別は週の区切り、月別は四半期の区切りでラベルを出す
@@ -419,6 +439,64 @@ export default async function AdminAnalyticsPage() {
               </Card>
             </li>
           </ul>
+        </Section>
+
+        <Section
+          title="招待リンクの導入元"
+          description={`/invite?from=<導入元> が開かれた回数 (#374)。招待画面を開いた回数で、実際に Bot が導入されたかは分からない。Discord の App Directory やダッシュボードの「サーバーに追加」など /invite を通らない導入は数えていない${inviteClicks.since ? `。${formatMonthDay(inviteClicks.since)} から記録` : ""}`}
+        >
+          <Card className="flex flex-col gap-2">
+            {inviteClicks.sources.length === 0 ? (
+              <p className="py-2 text-sm text-neutral-500">
+                まだ記録がありません
+              </p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="text-xs text-neutral-400">
+                  <tr>
+                    <th className="px-2 py-1 text-left font-normal">導入元</th>
+                    <th className="w-24 px-2 py-1 text-right font-normal">
+                      直近 {analytics.recent_days} 日
+                    </th>
+                    <th className="w-24 px-2 py-1 text-right font-normal">
+                      その前の {analytics.recent_days} 日
+                    </th>
+                    <th className="w-24 px-2 py-1 text-right font-normal">
+                      合計
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inviteClicks.sources.map((source) => (
+                    <tr key={source.source}>
+                      <td className="px-0 py-0.5">
+                        <RankedBar value={source.recent} max={inviteMax}>
+                          <span className="flex items-baseline gap-2 px-2 py-1">
+                            <span>
+                              {INVITE_SOURCE_LABELS[source.source] ??
+                                source.source}
+                            </span>
+                            <span className="font-mono text-[10px] text-neutral-500">
+                              {source.source}
+                            </span>
+                          </span>
+                        </RankedBar>
+                      </td>
+                      <td className="px-2 text-right tabular-nums">
+                        {source.recent.toLocaleString()}
+                      </td>
+                      <td className="px-2 text-right text-neutral-400 tabular-nums">
+                        {source.previous.toLocaleString()}
+                      </td>
+                      <td className="px-2 text-right text-neutral-400 tabular-nums">
+                        {source.total.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
         </Section>
 
         <Section
