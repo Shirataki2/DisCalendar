@@ -3,18 +3,25 @@
 
 export const SITE_NAME = "DisCalendar";
 
+/** 本番の公開 URL。これ以外 (staging など) では検索エンジンに載せない (app/robots.ts) */
+export const PRODUCTION_SITE_URL = "https://discalendar.app";
+
 /**
  * 公開 URL。OGP など絶対 URL が必要なメタ情報の基準 (旧 siteconfig.js の ogHost)。
  * トップページは静的に生成されるので metadata は next build 時に確定し、実行時の環境変数では変えられない。
  * staging のように別ドメインで出すときは NEXT_PUBLIC_SITE_URL を渡してビルドし直す
  * (web/Dockerfile の ARG。未設定なら本番の URL)
  */
-export const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ?? "https://discalendar.app";
+export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? PRODUCTION_SITE_URL;
 
+/** トップページの <title> (他のページは「<ページ名> | DisCalendar」)。探されそうな言葉を入れる */
+export const SITE_TITLE = `${SITE_NAME} | Discord で予定を共有・通知できるカレンダー Bot`;
+
+/** <meta name="description"> とマニフェストの説明。検索結果に出るので、何ができるかを先に書く */
 export const SITE_DESCRIPTION =
-  "DisCalendarはDiscord用のカレンダーアプリです。予定の作成から通知まで面倒なコマンド操作はほとんど必要ありません。" +
-  "使い慣れたブラウザから、どこでも予定の追加や編集をすることができます。";
+  "DisCalendar は Discord サーバーで予定を共有できるカレンダー Bot です。" +
+  "ブラウザのカレンダーから予定を作ると、開始時刻や事前のリマインダーを Discord のチャンネルに通知します。" +
+  "コマンドを覚えなくても、スマホや PC から予定の追加・編集ができます。";
 
 /**
  * ブランドカラー。ブラウザの UI (アドレスバーなど) とマニフェストの theme_color に使う

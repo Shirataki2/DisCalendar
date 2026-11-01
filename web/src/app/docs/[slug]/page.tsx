@@ -20,11 +20,12 @@ export async function generateMetadata({
   const { slug } = await params;
   const page = findDocPage(slug);
   if (!page) return {};
+  const title = page.metaTitle ?? page.title;
   return {
-    title: page.title,
+    title,
     description: page.description,
     openGraph: {
-      title: page.title,
+      title,
       description: page.description,
       url: docPath(page.slug),
     },

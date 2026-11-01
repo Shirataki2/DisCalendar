@@ -23,7 +23,7 @@ import {
 } from "@/lib/i18n";
 import { english } from "@/lib/i18n/messages";
 import { syncCurrentDeviceLanguage } from "@/lib/push";
-import { SITE_NAME } from "@/lib/site";
+import { SITE_NAME, SITE_TITLE } from "@/lib/site";
 
 const LanguageContext = createContext({
   language: "ja" as Language,
@@ -59,6 +59,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     document.documentElement.lang = language;
+    const docPage = DOC_PAGES.find((page) => pathname === `/docs/${page.slug}`);
     const title =
       pathname === "/dashboard"
         ? "サーバー選択"
@@ -71,23 +72,25 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
               : /^\/dashboard\/\d+\/polls\/\d+$/.test(pathname)
                 ? "日程調整への回答"
                 : pathname === "/tutorial"
-                  ? "操作を試す"
+                  ? "操作を試す (Discord カレンダー Bot の体験)"
                   : pathname === "/donation"
                     ? "支援"
-                    : (DOC_PAGES.find(
-                        (page) => pathname === `/docs/${page.slug}`,
-                      )?.title ?? null);
+                    : (docPage?.metaTitle ?? docPage?.title ?? null);
     const syncTitle = () => {
       // URLだけでは404を判別できない。公開予定の同名タイトルは翻訳しない。
       const pageTitle = document.querySelector('[data-error-code="404"]')
         ? "ページが見つかりません"
         : title;
-      const titleForms = pageTitle
-        ? [
-            `${pageTitle} | ${SITE_NAME}`,
-            `${translate("en", pageTitle)} | ${SITE_NAME}`,
-          ]
-        : [];
+      // トップページだけはテンプレート (「<ページ名> | DisCalendar」) を使わない SITE_TITLE そのもの
+      const titleForms =
+        pathname === "/"
+          ? [SITE_TITLE, translate("en", SITE_TITLE)]
+          : pageTitle
+            ? [
+                `${pageTitle} | ${SITE_NAME}`,
+                `${translate("en", pageTitle)} | ${SITE_NAME}`,
+              ]
+            : [];
       const localizedTitle = titleForms[language === "en" ? 1 : 0];
       if (
         titleForms.includes(document.title) &&

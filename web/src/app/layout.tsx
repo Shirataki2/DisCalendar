@@ -4,7 +4,13 @@ import { LanguageProvider } from "@/components/language-provider";
 import { ServiceWorkerProvider } from "@/components/service-worker-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/lib/query/provider";
-import { SITE_DESCRIPTION, SITE_NAME, SITE_URL, THEME_COLOR } from "@/lib/site";
+import {
+  SITE_DESCRIPTION,
+  SITE_NAME,
+  SITE_TITLE,
+  SITE_URL,
+  THEME_COLOR,
+} from "@/lib/site";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,16 +29,26 @@ export const metadata: Metadata = {
   // OGP など絶対 URL が必要な項目の基準。旧実装と同じく公開 URL を固定する (staging でも本番の URL になる)
   metadataBase: new URL(SITE_URL),
   title: {
-    default: SITE_NAME,
+    default: SITE_TITLE,
     template: `%s | ${SITE_NAME}`,
   },
   description: SITE_DESCRIPTION,
-  keywords: ["Discord", "Bot", "カレンダー", "予定管理", "スケジュール"],
+  keywords: [
+    "Discord",
+    "Bot",
+    "カレンダー",
+    "予定",
+    "予定共有",
+    "通知",
+    "リマインダー",
+    "日程調整",
+    "スケジュール",
+  ],
   openGraph: {
     type: "website",
     locale: "ja_JP",
     siteName: SITE_NAME,
-    title: SITE_NAME,
+    title: SITE_TITLE,
     description: SITE_DESCRIPTION,
     url: "/",
   },
