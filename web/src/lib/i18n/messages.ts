@@ -257,6 +257,7 @@ export const english: Readonly<
   "通知先チャンネル: 予定の開始時刻や事前通知を Discord のチャンネルに投稿します。":
     "Notification channel: the bot posts start times and reminders to a Discord channel.",
   通知先を設定する: "Set up notifications",
+  最初の予定の案内を閉じる: "Close the first event guide",
   "繰り返し予定: 毎週・毎月の予定は、作成画面の「繰り返しの設定」で一度に登録できます。":
     'Recurring events: add weekly or monthly events at once with "Repeat settings" in the event form.',
   "Discord のイベント連携: 作成画面で「Discord のイベントとしても作成する」を選ぶと、サーバーのイベント一覧にも表示されます。":

@@ -114,6 +114,7 @@ export function GuildDashboard({
           showFirstEventGuide
             ? ({ openCreate }) => (
                 <FirstEventGuide
+                  guildId={guildId}
                   canEdit={canEdit}
                   onCreate={openCreate}
                   onOpenSettings={() => setSettingsOpen(true)}
