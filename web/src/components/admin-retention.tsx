@@ -68,11 +68,20 @@ export function RetentionTable({
   retention: AdminGuildRetention;
   recentDays: number;
 }) {
+  const unknown = retention.unknown_joined > 0 && (
+    <p className="text-xs text-neutral-500">
+      {`導入日が分からない参加中のサーバーが ${retention.unknown_joined.toLocaleString()} 件あり、表には含めていない (うち直近 ${recentDays} 日に予定を作ったのは ${retention.unknown_joined_active.toLocaleString()} 件)`}
+    </p>
+  );
+  // 導入日がすべて不明 (backfill 前など) でも、不明の件数と直近の利用は出す
   if (retention.cohorts.length === 0) {
     return (
-      <p className="py-2 text-sm text-neutral-500">
-        導入日の分かる参加中のサーバーがありません
-      </p>
+      <div className="flex flex-col gap-2">
+        <p className="py-2 text-sm text-neutral-500">
+          導入日の分かる参加中のサーバーがありません
+        </p>
+        {unknown}
+      </div>
     );
   }
   const visible = retention.cohorts.slice(0, VISIBLE_MONTHS);
@@ -102,11 +111,7 @@ export function RetentionTable({
           </div>
         </details>
       )}
-      {retention.unknown_joined > 0 && (
-        <p className="text-xs text-neutral-500">
-          {`導入日が分からない参加中のサーバーが ${retention.unknown_joined.toLocaleString()} 件あり、表には含めていない (うち直近 ${recentDays} 日に予定を作ったのは ${retention.unknown_joined_active.toLocaleString()} 件)`}
-        </p>
-      )}
+      {unknown}
     </div>
   );
 }

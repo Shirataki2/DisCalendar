@@ -12,7 +12,8 @@
 //!   分割先・補充した回は除く) の `created_at`
 //! - 「導入から N 日以内」は `joined_at <= created_at <= joined_at + N 日`。**`joined_at` より前の予定は数えない**。
 //!   退出直後に再参加したギルドは `joined_at` が再参加の日時に更新される (bot の `upsert_guild`) ので、
-//!   前回の参加中に作った予定で「導入してすぐ使った」ことにしないため
+//!   前回の参加中に作った予定で「導入してすぐ使った」ことにしないため。
+//!   直近 N 日の利用 (`active`) も同じく `joined_at` 以降の予定だけで判定する
 //! - 7 日 / 30 日の割合の分母は、**導入から N 日が経ったギルドだけ** (`*_eligible`)。
 //!   導入したばかりのギルドを分母に入れると、まだ予定を作る時間が無いのに「作らなかった」側に数えてしまい、
 //!   直近の月ほど低く出る
@@ -93,8 +94,13 @@ pub async fn guild_retention<'e>(
               ON e.guild_id = j.guild_id AND e.created_at >= j.joined_at AND e.created_at <= $1
             GROUP BY j.guild_id
         ),
+        -- 直近の利用も、導入日が分かるギルドは導入 (再参加) 後の予定だけで判定する
         recent AS (
-            SELECT DISTINCT guild_id FROM event_creations WHERE created_at >= $2 AND created_at <= $1
+            SELECT DISTINCT j.guild_id
+            FROM joined j
+            JOIN event_creations e ON e.guild_id = j.guild_id
+            WHERE e.created_at >= $2 AND e.created_at <= $1
+              AND (j.joined_at IS NULL OR e.created_at >= j.joined_at)
         )
         SELECT
             date_trunc('month', j.joined_at)::date AS "month?",

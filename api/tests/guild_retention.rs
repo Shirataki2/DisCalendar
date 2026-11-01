@@ -26,6 +26,7 @@ fn month(s: &str) -> NaiveDate {
 /// | g7 | 09-05 | 12-01 | 基準時刻より後の予定は数えない |
 /// | g8 | NULL | 10-10 | 導入日不明として件数だけ数える |
 /// | g9 | 11-02 | - | 基準時刻より後の導入は数えない |
+/// | g10 | 10-25 09:00 | 10-20 | 再参加前の予定は直近の利用にも数えない |
 async fn seed(pool: &PgPool) {
     sqlx::raw_sql(
         r#"
@@ -38,7 +39,8 @@ async fn seed(pool: &PgPool) {
             ('6', 'g6', '2026-09-15T09:00:00'),
             ('7', 'g7', '2026-09-05T09:00:00'),
             ('8', 'g8', NULL),
-            ('9', 'g9', '2026-11-02T09:00:00');
+            ('9', 'g9', '2026-11-02T09:00:00'),
+            ('10', 'g10', '2026-10-25T09:00:00');
         INSERT INTO events (guild_id, name, notifications, is_all_day, start_at, end_at, created_at,
                             generated_from_series) VALUES
             ('1', 'a', '[]'::jsonb, false, '2026-11-10T10:00:00', '2026-11-10T11:00:00', '2026-10-26T09:00:00', false),
@@ -49,7 +51,8 @@ async fn seed(pool: &PgPool) {
             ('5', 'f', '[]'::jsonb, false, '2026-09-25T10:00:00', '2026-09-25T11:00:00', '2026-09-19T09:00:00', false),
             ('6', 'g', '[]'::jsonb, false, '2026-09-20T10:00:00', '2026-09-20T11:00:00', '2026-09-16T09:00:00', true),
             ('7', 'h', '[]'::jsonb, false, '2026-12-10T10:00:00', '2026-12-10T11:00:00', '2026-12-01T09:00:00', false),
-            ('8', 'i', '[]'::jsonb, false, '2026-10-20T10:00:00', '2026-10-20T11:00:00', '2026-10-10T09:00:00', false);
+            ('8', 'i', '[]'::jsonb, false, '2026-10-20T10:00:00', '2026-10-20T11:00:00', '2026-10-10T09:00:00', false),
+            ('10', 'j', '[]'::jsonb, false, '2026-10-21T10:00:00', '2026-10-21T11:00:00', '2026-10-20T09:00:00', false);
         "#,
     )
     .execute(pool)
@@ -70,8 +73,8 @@ async fn cohorts_count_first_events_after_joining(pool: PgPool) {
         vec![
             RetentionCohort {
                 month: month("2026-10-01"),
-                guilds: 2,
-                week_eligible: 1,
+                guilds: 3,
+                week_eligible: 2,
                 week_created: 1,
                 month_eligible: 0,
                 month_created: 0,
