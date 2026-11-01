@@ -134,6 +134,11 @@ interface Props {
     target?: "create" | number;
     date?: string;
   };
+  /**
+   * ツールバーの下に出す案内 (予定がまだ無いサーバーでの最初の予定作り、#377)。
+   * 作成ダイアログを開く関数を受け取り、案内のボタンから既定の値で作成を始められるようにする
+   */
+  notice?: (actions: { openCreate: () => void }) => ReactNode;
   /** ダイアログの「Discord のイベントとしても作成する」(#94)。未指定なら出さない */
   discordSync?: {
     botCreateEvents: boolean;
@@ -282,6 +287,7 @@ export function EventCalendar({
   eventsSource = dashboardEventsSource,
   settingsOverride,
   guide,
+  notice,
   discordSync,
 }: Props) {
   const { t, language } = useLanguage();
@@ -784,6 +790,7 @@ export function EventCalendar({
             </span>
           )}
         </div>
+        {notice?.({ openCreate: openCreateDefault })}
         {externalEnabled && (externalQuery.data?.length ?? 0) > 0 && (
           <ul
             aria-label={t("外部カレンダーの凡例")}

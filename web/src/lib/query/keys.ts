@@ -36,7 +36,11 @@ export const queryKeys = {
       ["admin", "events", guildId],
       ["events", "joined"],
     ],
-    onCountChanged: (guildId: string) => [["admin", "guild", guildId]],
+    onCountChanged: (guildId: string) => [
+      ["admin", "guild", guildId],
+      // 最初の予定作りの案内 (#377) を、予定を作った時点で消す
+      ["guild", guildId, "event-summary"],
+    ],
   },
   external: {
     all: (guildId: string) => ["external", guildId] as const,
@@ -67,6 +71,9 @@ export const queryKeys = {
     feed: (guildId: string) => ["guild", guildId, "feed"] as const,
     externalCalendars: (guildId: string) =>
       ["guild", guildId, "external-calendars"] as const,
+    /** 予定の有無 (#377)。予定の作成・削除・取り込みで変わる */
+    eventSummary: (guildId: string) =>
+      ["guild", guildId, "event-summary"] as const,
     /** 通知先に選べるチャンネル (#181) */
     channels: (guildId: string) => ["guild", guildId, "channels"] as const,
   },
@@ -89,8 +96,11 @@ export const queryKeys = {
         ["events", guildId],
         ["events", "joined"],
       ],
-      // ギルド詳細の event_count を古いままにしない
-      onCountChanged: (guildId: string) => [["admin", "guild", guildId]],
+      // ギルド詳細の event_count と、通常画面の最初の予定の案内 (#377) を古いままにしない
+      onCountChanged: (guildId: string) => [
+        ["admin", "guild", guildId],
+        ["guild", guildId, "event-summary"],
+      ],
     },
   },
 };

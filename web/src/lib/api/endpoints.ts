@@ -26,6 +26,7 @@ import type {
   GuildConfig,
   GuildConfigInput,
   GuildDigestSettings,
+  GuildEventSummary,
   GuildFeed,
   GuildRole,
   GuildWebhook,
@@ -346,6 +347,10 @@ export function createApi(request: ApiFetcher) {
         return request<Guild[]>(`/guilds/joined?${query}`);
       },
       get: (guildId: string) => request<Guild>(`/guilds/${guildId}`),
+      eventSummary: (guildId: string, signal?: AbortSignal) =>
+        request<GuildEventSummary>(`/guilds/${guildId}/event-summary`, {
+          signal,
+        }),
       digest: (guildId: string, signal?: AbortSignal) =>
         request<GuildDigestSettings>(`/guilds/${guildId}/digest`, { signal }),
       updateDigest: (guildId: string, input: GuildDigestSettings) =>

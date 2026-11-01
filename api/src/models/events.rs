@@ -282,6 +282,23 @@ pub fn validate_discord_flag(
     Ok(())
 }
 
+/// ギルドに予定が 1 件でもあるか (#377。予定がまだ無いサーバーで最初の予定作りを案内する判定)。
+///
+/// 単発の予定と繰り返しのシリーズのどちらかがあれば true。ゴミ箱の予定も数える
+/// (作ったことがあるサーバーに「最初の予定を作る」を出し直さないため。完全削除したものは数えられない)
+pub async fn guild_has_events(pool: &PgPool, guild_id: &str) -> sqlx::Result<bool> {
+    let exists = sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS (SELECT 1 FROM events WHERE guild_id = $1)
+            OR EXISTS (SELECT 1 FROM event_series WHERE guild_id = $1) AS "exists!"
+        "#,
+        guild_id,
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(exists)
+}
+
 /// 期間 `[start, end)` に重なる予定 (途中から始まっている複数日の予定も含む)
 pub async fn list_between(
     pool: &PgPool,

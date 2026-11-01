@@ -62,6 +62,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(guilds::get_config)
                 .service(guilds::put_config)
                 .service(guilds::get_digest)
+                // 予定の有無 (#377)
+                .service(guilds::event_summary)
                 .service(guilds::put_digest)
                 // iCal フィードの発行状況と発行・無効化 (#95)
                 .service(feeds::get_feed)

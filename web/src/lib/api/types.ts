@@ -210,6 +210,12 @@ export interface Guild {
   locale: string;
 }
 
+/** GET /guilds/{id}/event-summary (#377) */
+export interface GuildEventSummary {
+  /** 予定 (単発・繰り返し。ゴミ箱を含む) が 1 件でもあるか */
+  has_events: boolean;
+}
+
 export interface GuildRole {
   mentionable?: boolean;
   id: string;

@@ -27,6 +27,14 @@ export function useGuildConfigQuery(guildId: string) {
   });
 }
 
+/** ギルドに予定があるか (#377)。予定の作成・削除のたびに onCountChanged で取り直す */
+export function useGuildEventSummaryQuery(guildId: string) {
+  return useQuery({
+    queryKey: queryKeys.guild.eventSummary(guildId),
+    queryFn: ({ signal }) => api.guilds.eventSummary(guildId, signal),
+  });
+}
+
 /**
  * 自分のギルド内権限。API 側で Discord のメンバー情報を短時間キャッシュしているので、
  * Discord でロールを変えた直後に再取得しても反映まで少し遅れることがある

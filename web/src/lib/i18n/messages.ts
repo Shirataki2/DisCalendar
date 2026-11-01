@@ -247,6 +247,22 @@ export const english: Readonly<
     "Enable Settings → Advanced → Developer Mode in Discord, then use “Copy User ID” in the person's menu.",
   日付を指定して移動: "Jump to date",
   練習用カレンダーで操作を試す: "Try the practice calendar",
+  このサーバーにはまだ予定がありません:
+    "This server doesn't have any events yet",
+  "このサーバーでは管理権限または指定ロールを持つメンバーが予定を作成できます。予定を追加してほしいときは、サーバーの管理者に頼んでください。":
+    "In this server, members with management permissions or a designated role can create events. Ask a server admin if you'd like an event added.",
+  "最初の予定を作ると、このサーバーのメンバー全員がカレンダーで確認できます。":
+    "Once you create the first event, everyone in this server can see it on the calendar.",
+  あわせて設定しておくと便利です: "Also worth setting up",
+  "通知先チャンネル: 予定の開始時刻や事前通知を Discord のチャンネルに投稿します。":
+    "Notification channel: the bot posts start times and reminders to a Discord channel.",
+  通知先を設定する: "Set up notifications",
+  最初の予定の案内を閉じる: "Close the first event guide",
+  "繰り返し予定: 毎週・毎月の予定は、作成画面の「繰り返しの設定」で一度に登録できます。":
+    'Recurring events: add weekly or monthly events at once with "Repeat settings" in the event form.',
+  "Discord のイベント連携: 作成画面で「Discord のイベントとしても作成する」を選ぶと、サーバーのイベント一覧にも表示されます。":
+    'Discord events: choose "Also create a Discord event" in the event form to show it in the server\'s event list too.',
+  最初の予定を作る: "Create your first event",
   サーバー設定: "Server settings",
   サーバーを切り替え: "Switch server",
   サーバーの凡例: "Server legend",
