@@ -18,7 +18,7 @@ import { Logo } from "@/components/logo";
 import { SessionLink } from "@/components/session-link";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
+import { inviteHref, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
 
 // LP (トップページ)。静的生成される (セッションの有無は SessionLink がブラウザ側で判定し、
 // Bot の招待 URL は /invite が実行時に解決する)
@@ -64,7 +64,7 @@ function Hero() {
         </p>
         <div className="mt-10 flex w-full flex-col items-center gap-3 sm:w-auto">
           <a
-            href={ROUTES.invite}
+            href={inviteHref("lp-hero")}
             target="_blank"
             rel="noopener noreferrer"
             className={`${buttonBase} bg-indigo-500 text-white hover:bg-indigo-400 sm:px-12`}
@@ -315,7 +315,7 @@ function BottomCta() {
         </p>
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
           <a
-            href={ROUTES.invite}
+            href={inviteHref("lp-footer")}
             target="_blank"
             rel="noopener noreferrer"
             className={`${buttonBase} bg-indigo-500 text-white hover:bg-indigo-400 sm:px-12`}

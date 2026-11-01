@@ -15,6 +15,7 @@ mod feeds;
 mod guilds;
 mod health;
 mod imports;
+mod invite_clicks;
 mod member;
 mod members;
 mod polls;
@@ -81,6 +82,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
         // iCal フィードの配信 (#95)。認証なしのデータ取得ルート (トークンが URL に入る)
         .service(feeds::download_feed)
         .service(shares::public_share)
+        // 招待リンクの導入元ごとのクリック数 (#374)。web の `/invite` が呼ぶ認証なしのルート
+        .service(invite_clicks::record)
         .service(
             scope("/events")
                 .app_data(actix_web::web::PayloadConfig::new(
