@@ -28,6 +28,10 @@ describe("robots.txt", () => {
     // noindex を読ませたいページは拒否しない
     expect(disallow).not.toContain("/dashboard");
     expect(disallow).not.toContain("/share");
+    expect(disallow).toContain("/mcp$");
+    for (const page of ["/mcp", "/mcp/connections", "/mcp/login"]) {
+      expect(disallow).not.toContain(page);
+    }
   });
 
   it("staging など本番以外の URL では全体を拒否する", async () => {

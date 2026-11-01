@@ -18,7 +18,13 @@ export default function robots(): MetadataRoute.Robots {
       allow: "/",
       disallow: [
         "/api/",
-        "/mcp",
+        // MCP は本体 (/mcp) と HTML を返さないハンドラーだけ。接続管理・ログイン・同意の画面は noindex を読ませる
+        // ($ は URL の末尾。Google・Bing が対応している)
+        "/mcp$",
+        "/mcp/introspect",
+        "/mcp/login/start",
+        "/mcp/consent/submit",
+        "/mcp/connections/revoke",
         "/serwist/",
         ROUTES.invite,
         ROUTES.donationCheckout,
