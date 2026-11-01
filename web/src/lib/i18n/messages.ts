@@ -1071,16 +1071,16 @@ export const english: Readonly<
   "通知先は Web のサーバー設定から選べます。Botの招待・通知先の設定や、編集権限の付与ができない場合は、サーバーの管理者に相談してください。":
     "Choose the reminder channel in Server settings on the website. Ask a server administrator if you cannot invite the bot, configure reminders, or grant editing permissions.",
   基本的な使い方: "Getting started",
-  "DisCalendar を使い始めるまでの 3 ステップ (Bot の招待、通知先チャンネルの設定、ブラウザからの予定作成)。":
-    "Start in three steps: invite the bot, choose a reminder channel, and create events in your browser.",
+  "Discord サーバーで予定を共有・通知できる DisCalendar を使い始めるまでの 3 ステップ (Bot の招待、通知先チャンネルの設定、ブラウザからの予定作成)。":
+    "Share events and reminders on your Discord server with DisCalendar in three steps: invite the bot, choose a reminder channel, and create events in your browser.",
   "Discord アカウントで DisCalendar にログインする手順と、ログイン時に求められる権限について。":
     "How to sign in with Discord and understand the permissions requested at sign-in.",
   "Bot の招待": "Invite the bot",
   "DisCalendar の Bot を Discord サーバーに追加する手順と、Bot に必要な権限について。":
     "How to add DisCalendar to your Discord server and grant the permissions it needs.",
   初期設定: "Initial setup",
-  "Web のサーバー設定または /init コマンドで、予定の通知を受け取るチャンネルを設定する手順。":
-    "Choose a reminder channel in Server settings on the website or with the /init command.",
+  "Web のサーバー設定または /init コマンドで、予定の開始やリマインダー (事前通知) を受け取るチャンネルを設定する手順。":
+    "Choose the channel for event start notifications and reminders in Server settings on the website or with the /init command.",
   予定の追加と表示: "Create and view events",
   "ブラウザのカレンダー画面の見方、全サーバーの予定をまとめて見る「すべての予定」、予定ダイアログからの予定の作成 (日時・色・事前通知・説明) について。":
     "Explore the calendar, view events across servers with All events, and create events with dates, colors, reminders, and descriptions.",
@@ -1102,8 +1102,25 @@ export const english: Readonly<
   "CodexとのMCP接続で予定を確認・作成・編集する方法。権限の選択、接続解除と困ったときの対応。":
     "View, create, and edit events from Codex through MCP. Choose permissions, revoke connections, and troubleshoot problems.",
   利用可能なコマンド: "Available commands",
-  "Discord から使えるスラッシュコマンド (/help, /create, /list, /init, /invite) の一覧と使い方。":
-    "How to use Discord slash commands: /help, /create, /list, /init, and /invite.",
+  "DisCalendar | Discord で予定を共有・通知できるカレンダー Bot":
+    "DisCalendar | Calendar bot for sharing events and reminders on Discord",
+  "Discord で予定を共有する基本的な使い方":
+    "Getting started with shared Discord events",
+  "Discord サーバーへの Bot の招待": "Invite the bot to your Discord server",
+  予定の通知先チャンネルの初期設定: "Set up the event reminder channel",
+  "ブラウザのカレンダーで予定を追加・表示する":
+    "Create and view events in the browser calendar",
+  "Discord の中でカレンダーを開く": "Open the calendar inside Discord",
+  "Discord で候補日の回答を集める日程調整":
+    "Schedule polls: collect date votes on Discord",
+  "Discord の予定の編集と削除": "Edit and delete Discord events",
+  "Google カレンダー・iPhone などの外部カレンダーで見る":
+    "View in Google Calendar, iPhone, and other calendars",
+  "Discord のスラッシュコマンド一覧": "Discord slash command list",
+  "操作を試す (Discord カレンダー Bot の体験)":
+    "Try it out (Discord calendar bot demo)",
+  "Discord から使えるスラッシュコマンド (/help, /create, /list, /search, /init, /invite) の一覧と使い方。":
+    "How to use Discord slash commands: /help, /create, /list, /search, /init, and /invite.",
   サーバー一覧の読み取り: "Read server list",
   予定の読み取り: "Read events",
   予定の作成: "Create events",

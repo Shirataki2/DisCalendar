@@ -7,7 +7,12 @@ export interface DocPage {
   slug: string;
   /** 見出しとナビに出すタイトル */
   title: string;
-  /** <meta name="description"> 用の要約 */
+  /**
+   * <title> と OGP のタイトル (省略時は title)。ナビの短い見出しだけでは何のページか検索結果で伝わらないとき、
+   * 探されそうな言葉 (Discord・カレンダー・通知など) を補う。画面には出さないので翻訳しない
+   */
+  metaTitle?: string;
+  /** <meta name="description"> 用の要約 (見出しの下にも出す) */
   description: string;
 }
 
@@ -16,8 +21,9 @@ export const DOC_PAGES: readonly DocPage[] = [
   {
     slug: "gettingstarted",
     title: "基本的な使い方",
+    metaTitle: "Discord で予定を共有する基本的な使い方",
     description:
-      "DisCalendar を使い始めるまでの 3 ステップ (Bot の招待、通知先チャンネルの設定、ブラウザからの予定作成)。",
+      "Discord サーバーで予定を共有・通知できる DisCalendar を使い始めるまでの 3 ステップ (Bot の招待、通知先チャンネルの設定、ブラウザからの予定作成)。",
   },
   {
     slug: "login",
@@ -28,41 +34,48 @@ export const DOC_PAGES: readonly DocPage[] = [
   {
     slug: "invite",
     title: "Bot の招待",
+    metaTitle: "Discord サーバーへの Bot の招待",
     description:
       "DisCalendar の Bot を Discord サーバーに追加する手順と、Bot に必要な権限について。",
   },
   {
     slug: "initialize",
     title: "初期設定",
+    metaTitle: "予定の通知先チャンネルの初期設定",
     description:
-      "Web のサーバー設定または /init コマンドで、予定の通知を受け取るチャンネルを設定する手順。",
+      "Web のサーバー設定または /init コマンドで、予定の開始やリマインダー (事前通知) を受け取るチャンネルを設定する手順。",
   },
   {
     slug: "calendar",
     title: "予定の追加と表示",
+    metaTitle: "ブラウザのカレンダーで予定を追加・表示する",
     description:
       "ブラウザのカレンダー画面の見方、全サーバーの予定をまとめて見る「すべての予定」、予定ダイアログからの予定の作成 (日時・色・事前通知・説明) について。",
   },
   {
     slug: "activity",
     title: "Discord の中で開く",
+    metaTitle: "Discord の中でカレンダーを開く",
     description:
       "Discord のアクティビティとして、ボイスチャンネルやテキストチャンネルからサーバーのカレンダーを開く方法。",
   },
   {
     slug: "polls",
     title: "日程調整",
+    metaTitle: "Discord で候補日の回答を集める日程調整",
     description: "候補日への回答を集め、選んだ日時で予定を作成する方法。",
   },
   {
     slug: "edit",
     title: "予定の編集と削除",
+    metaTitle: "Discord の予定の編集と削除",
     description:
       "作成した予定の編集・移動・削除の方法と、サーバー設定で編集できるユーザーを制限する方法。",
   },
   {
     slug: "subscribe",
     title: "外部カレンダーで見る",
+    metaTitle: "Google カレンダー・iPhone などの外部カレンダーで見る",
     description:
       "サーバーの予定を Google カレンダー・Apple カレンダー・Outlook などで購読する方法と、フィード URL の発行・再発行・無効化について。",
   },
@@ -81,8 +94,9 @@ export const DOC_PAGES: readonly DocPage[] = [
   {
     slug: "commands",
     title: "利用可能なコマンド",
+    metaTitle: "Discord のスラッシュコマンド一覧",
     description:
-      "Discord から使えるスラッシュコマンド (/help, /create, /list, /init, /invite) の一覧と使い方。",
+      "Discord から使えるスラッシュコマンド (/help, /create, /list, /search, /init, /invite) の一覧と使い方。",
   },
 ];
 

@@ -6,10 +6,14 @@ import { Logo } from "@/components/logo";
 import { Tutorial } from "@/components/tutorial";
 import { ROUTES } from "@/lib/site";
 
+const TITLE = "操作を試す (Discord カレンダー Bot の体験)";
+const DESCRIPTION =
+  "ログインもBotの導入も不要。Discord 用カレンダー Bot の DisCalendar を、練習用カレンダーで予定の作成・編集・通知・削除まで体験できます。";
+
 export const metadata: Metadata = {
-  title: "操作を試す",
-  description:
-    "ログインもBotの導入も不要。練習用カレンダーで予定の作成・編集・通知・削除を体験できます。",
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: { title: TITLE, description: DESCRIPTION, url: ROUTES.tutorial },
 };
 
 export default function TutorialPage() {

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { DashboardFooter } from "@/components/dashboard-footer";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -5,6 +6,11 @@ import { UserMenu } from "@/components/user-menu";
 import { getAdminMe } from "@/lib/admin";
 import { isSidebarOpen, SIDEBAR_COOKIE } from "@/lib/dashboard-sidebar";
 import { requireSession } from "@/lib/session";
+
+// ログインした人のサーバーごとの画面なので検索エンジンには載せない (app/sitemap.ts にも含めない)
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 /**
  * ダッシュボード (/dashboard, /dashboard/[id]) 共通のレイアウト。
