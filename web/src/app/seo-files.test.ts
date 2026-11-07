@@ -50,6 +50,8 @@ describe("sitemap.xml", () => {
         "https://discalendar.app/tutorial",
         "https://discalendar.app/docs/gettingstarted",
         "https://discalendar.app/docs/commands",
+        "https://discalendar.app/usecases/trpg",
+        "https://discalendar.app/usecases/clan",
         "https://discalendar.app/changelog",
         "https://discalendar.app/donation",
         "https://discalendar.app/support/privacy",
