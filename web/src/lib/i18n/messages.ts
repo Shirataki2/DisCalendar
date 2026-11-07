@@ -1252,7 +1252,6 @@ export const english: Readonly<
   "JSON を読み取れません: {detail}": "Cannot read JSON: {detail}",
   // 用途別の紹介ページ (lib/usecases.ts、#381)
   "{name}で使う": "For {name}",
-  "{name}での使い方": "DisCalendar for {name}",
   よくある困りごと: "Common problems",
   "DisCalendar なら": "How DisCalendar helps",
   ほかにもこんなことができます: "You can also",

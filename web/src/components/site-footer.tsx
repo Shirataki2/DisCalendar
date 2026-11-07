@@ -54,7 +54,7 @@ export function SiteFooter() {
                   href={link.href}
                   className="transition-colors hover:text-white"
                 >
-                  {t("{name}での使い方", { name: t(link.name) })}
+                  {t("{name}で使う", { name: t(link.name) })}
                 </Link>
               </li>
             ))}
