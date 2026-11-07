@@ -8,7 +8,7 @@ import { LocalizedEventRange } from "@/components/localized-date";
 import { getSharedEvent } from "@/lib/api/public-share";
 import { describeEventRange } from "@/lib/calendar-events";
 import { locationUrl } from "@/lib/event-location";
-import { SITE_URL } from "@/lib/site";
+import { pageOpenGraph, SITE_URL } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ token: string }> };
@@ -24,12 +24,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description,
     robots: { index: false, follow: false },
     referrer: "no-referrer",
-    openGraph: {
+    // 画像は同じセグメントの opengraph-image.tsx (予定ごとの画像) を使う
+    openGraph: pageOpenGraph({
       title: event.name,
       description,
       url: `/share/${token}`,
-      type: "website",
-    },
+      image: false,
+    }),
     twitter: { card: "summary_large_image", title: event.name, description },
   };
 }

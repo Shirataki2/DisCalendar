@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Content from "@/content/changelog.mdx";
-import { ROUTES } from "@/lib/site";
+import { pageOpenGraph, ROUTES } from "@/lib/site";
 
 // 更新履歴ページ。本文はリリース準備時に changelog.d から src/content/changelog.mdx へ集約する。
 
@@ -11,11 +11,11 @@ const DESCRIPTION =
 export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
-  openGraph: {
+  openGraph: pageOpenGraph({
     title: TITLE,
     description: DESCRIPTION,
     url: ROUTES.changelog,
-  },
+  }),
 };
 
 export default function ChangelogPage() {

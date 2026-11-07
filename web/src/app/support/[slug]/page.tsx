@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { pageOpenGraph } from "@/lib/site";
 import {
   findSupportPage,
   formatUpdatedAt,
@@ -26,11 +27,11 @@ export async function generateMetadata({
   return {
     title: page.title,
     description: page.description,
-    openGraph: {
+    openGraph: pageOpenGraph({
       title: page.title,
       description: page.description,
       url: supportPath(page.slug),
-    },
+    }),
   };
 }
 

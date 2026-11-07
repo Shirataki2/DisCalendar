@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Message } from "@/components/language-provider";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
+import { pageOpenGraph, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
 
 // 支援 (ドネーション) のお願いページ。静的に生成される
 // (Stripe Payment Links の URL は /donation/checkout が実行時に解決するので、ここには埋め込まない。/invite と同じ方式)
@@ -15,11 +15,11 @@ const DESCRIPTION =
 export const metadata: Metadata = {
   title: "支援",
   description: DESCRIPTION,
-  openGraph: {
+  openGraph: pageOpenGraph({
     title: "支援",
     description: DESCRIPTION,
     url: ROUTES.donation,
-  },
+  }),
 };
 
 /** 注意書き。支援ボタンの下に並べる */
