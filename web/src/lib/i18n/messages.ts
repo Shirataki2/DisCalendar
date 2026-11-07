@@ -833,8 +833,8 @@ export const english: Readonly<
     "Control who can edit (restricted mode)",
   "サーバー設定で restricted モードを有効にすると、「管理者」「サーバー管理」「ロールの管理」「メッセージの管理」のいずれかの権限、または編集を許可されたロールを持つメンバーが予定を追加・編集・削除できます。閲覧はメンバー全員ができます。":
     "Enable restricted mode so only members with Administrator, Manage Server, Manage Roles, or Manage Messages permissions, or an approved role, can create, edit, and delete events. All members can view events.",
-  "サーバー設定ダイアログ。通知・投稿の言語、編集制限と編集ロール、Discord への通知、今日・今週のまとめ投稿、配信用のフィード URL、重ね表示する外部カレンダーの登録、Webhook の設定がある":
-    "Server settings for notification and post language, editing permissions, roles, Discord reminders, daily and weekly summaries, feed URLs, external calendar overlays, and Webhooks (Japanese interface).",
+  "サーバー設定ダイアログ。通知・投稿の言語、編集制限と編集ロール、Discord への通知、今日・今週のまとめ投稿、配信用のフィード URL、重ね表示する外部カレンダーの登録、Webhook の設定、削除した予定の一覧がある":
+    "Server settings for notification and post language, editing permissions, roles, Discord reminders, daily and weekly summaries, feed URLs, external calendar overlays, Webhooks, and deleted events (Japanese interface).",
   "Discord へ自動で通知": "Automatic Discord reminders",
   "予定ごとに「30 分前」「1 日前」のような事前通知を最大 10 件まで設定できます。時刻になると Bot がサーバー設定で選んだチャンネルに埋め込みメッセージを投稿するので、リマインドの手間がありません。":
     "Set up to 10 advance reminders per event, such as 30 minutes or 1 day before. The bot posts an embed in your selected channel at the scheduled time.",
@@ -1250,4 +1250,77 @@ export const english: Readonly<
   "ICS ファイルを解析できません: {detail}":
     "Cannot parse the ICS file: {detail}",
   "JSON を読み取れません: {detail}": "Cannot read JSON: {detail}",
+  // 用途別の紹介ページ (lib/usecases.ts、#381)
+  "{name}で使う": "For {name}",
+  "{name}での使い方": "DisCalendar for {name}",
+  よくある困りごと: "Common problems",
+  "DisCalendar なら": "How DisCalendar helps",
+  ほかにもこんなことができます: "You can also",
+  くわしい使い方: "Read the guide",
+  "ほかの使い方:": "Other use cases:",
+  "無料で使えます。Bot を追加したら、Web にログインして通知先チャンネルを選ぶだけで使い始められます。":
+    "It's free. After adding the bot, sign in on the web and choose a notification channel to get started.",
+  こんな集まりで: "Made for groups like yours",
+  "予定を合わせることが多いコミュニティでの使い方を紹介しています。":
+    "See how communities that often coordinate schedules use DisCalendar.",
+  使い方の例を見る: "See how it works",
+  "TRPG・マーダーミステリー": "TRPG & murder mystery games",
+  "TRPG・マーダーミステリーのセッション日程を Discord で":
+    "Schedule TRPG and murder mystery sessions on Discord",
+  "候補日の回答集めから、決まったセッションの通知まで。卓のメンバーがいる Discord サーバーの中で完結します。":
+    "From collecting availability to reminding players about the session, everything happens in the Discord server your group already uses.",
+  "参加者に都合のよい日を聞いても、チャンネルの流れで返事が埋もれて集計が大変":
+    "You ask players which days work, but replies get buried in the channel and are hard to tally",
+  "決まったセッションの日時を忘れる人がいて、GM が毎回リマインドを送っている":
+    "Some players forget the session time, so the GM sends reminders every time",
+  "キャンペーンの次回や、サーバー内で並行している卓の予定がどこにも一覧になっていない":
+    "There is no single list of the next campaign session or the other tables running in the server",
+  "候補日を出して ○△× で回答を集める":
+    "Propose dates and collect ○ / △ / × answers",
+  "日程調整で候補を最大 5 件出すと、メンバーは「参加できる / 未定 / 参加できない」で回答できます。Bot が通知チャンネルに投稿する投票メッセージのボタンからも回答でき、○ が最も多い候補には印が付きます。選んだ候補はそのまま予定にできます。":
+    "Create a scheduling poll with up to 5 options, and members answer “Can attend / Maybe / Can't attend.” They can also answer with the buttons on the poll message the bot posts to the notification channel, and the option with the most ○ answers is marked. Turn the chosen option straight into an event.",
+  "セッション前に Bot が自動でリマインド":
+    "The bot reminds everyone before the session",
+  "「1 日前」「1 時間前」のような事前通知を予定ごとに最大 10 件まで設定でき、開始時刻にも通知が届きます。通知でプレイヤーのロールや参加者を指定してメンションできるので、手作業の声かけがいりません。":
+    "Set up to 10 reminders per event, such as “1 day before” or “1 hour before,” plus a notification at the start time. Reminders can mention a player role or specific members, so nobody has to ping people by hand.",
+  "Discord のイベントとしても作成": "Create a Discord event too",
+  "予定を作るときにチェックを入れると、Discord サーバーのスケジュールイベントも一緒に作られます。メンバーは Discord 上で「興味あり」を押して参加を表明できます。":
+    "Check one box when creating an event to also create a Discord scheduled event. Members can click “Interested” in Discord to show they're coming.",
+  "卓ごとに色分けして、ひとつのカレンダーで見る":
+    "Color-code each table on one calendar",
+  "サーバーの予定はメンバー全員で共有されます。卓やシナリオごとに色を変えておけば、月表示でも見分けがつきます。説明欄にシナリオの概要を、「場所 / URL」にオンラインセッションの URL を書いておくと、通知にも載ります。":
+    "Server events are shared with every member. Give each table or scenario its own color to tell them apart in month view. Put a scenario summary in the description and the online session URL in “Location / URL,” and they appear in notifications too.",
+  "ゲームのクラン・チーム": "Gaming clans & teams",
+  "ゲームのクラン・チームの練習日を Discord で共有":
+    "Share practice days for your gaming clan or team on Discord",
+  "毎週の練習から大会・スクリムの日程まで。決まった予定を Bot がチャンネルに知らせるので、集合の声かけを減らせます。":
+    "From weekly practice to tournaments and scrims, the bot announces scheduled events in your channel so you spend less time rounding people up.",
+  "毎週の練習日や大会・スクリムの日程が、メンバーにきちんと伝わっていない":
+    "Weekly practice days and tournament or scrim dates don't reach every member",
+  "練習の前に、毎回だれかが「今日は 21 時から」と呼びかけている":
+    "Before every practice, someone has to post “We start at 9 PM today”",
+  "予定をだれでも変えられてしまうのは困るが、メンバーには見てほしい":
+    "You want members to see the schedule, but not everyone should be able to change it",
+  毎週の練習は繰り返し予定で一度だけ登録:
+    "Add weekly practice once as a repeating event",
+  "毎日・毎週・隔週・毎月・毎年から繰り返しを選べます。週は「火曜と木曜」のように複数の曜日を、毎月は「第 2・第 4 土曜」のような指定もできます。終了日や回数を決めておくこともできます。":
+    "Repeat daily, weekly, every two weeks, monthly, or yearly. Pick several weekdays such as Tuesday and Thursday, or monthly patterns such as the 2nd and 4th Saturday. You can also set an end date or a number of occurrences.",
+  開始前にロールをメンションして通知: "Mention a role before the start",
+  "事前通知を予定ごとに最大 10 件まで設定でき、開始時刻にも通知が届きます。通知のメンション先にチームのロールを選べば、該当するメンバーにだけ呼びかけられます。":
+    "Set up to 10 reminders per event, plus a notification at the start time. Choose your team's role as the mention target to ping only the members who need it.",
+  "今日・今週の予定を Bot が自動で投稿":
+    "The bot posts today's and this week's events",
+  "サーバー設定で、その日の予定を毎日、7 日間の予定を毎週、通知先チャンネルにまとめて投稿できます。投稿する時刻と曜日は選べます。":
+    "In server settings, have the bot post the day's events every day and the next 7 days of events every week to the notification channel. You choose the time and the weekday.",
+  予定を変えられる人を管理者やロールに限定:
+    "Limit editing to admins or chosen roles",
+  "restricted モードを有効にすると、管理系の権限を持つメンバーか、編集を許可したロールのメンバーだけが予定を追加・編集・削除できます。閲覧はメンバー全員ができます。":
+    "Turn on restricted mode so only members with management permissions or an allowed role can add, edit, or delete events. Every member can still view them.",
+  普段のカレンダーアプリでも見られる: "See events in your usual calendar app",
+  "サーバーごとのフィード URL (iCal 形式) を Google カレンダーや Apple カレンダーに登録すると、DisCalendar の予定が自動で表示されます。":
+    "Add the server's feed URL (iCal format) to Google Calendar or Apple Calendar, and DisCalendar events show up there automatically.",
+  "スマホのブラウザや Discord からも操作できる":
+    "Use it from a phone browser or Discord",
+  "予定の追加・編集はスマホのブラウザからもでき、Discord の /create や /list コマンドでも同じカレンダーを扱えます。":
+    "Add and edit events from a phone browser, or use the /create and /list commands in Discord for the same calendar.",
 };

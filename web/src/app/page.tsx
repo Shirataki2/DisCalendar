@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowRightIcon,
   BellRingIcon,
   CalendarDaysIcon,
   ExternalLinkIcon,
@@ -19,6 +20,7 @@ import { SessionLink } from "@/components/session-link";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { inviteHref, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
+import { USECASE_PAGES, usecasePath } from "@/lib/usecases";
 
 // LP (トップページ)。静的生成される (セッションの有無は SessionLink がブラウザ側で判定し、
 // Bot の招待 URL は /invite が実行時に解決する)
@@ -34,6 +36,7 @@ export default function Home() {
       <main lang={language} className="flex-1">
         <Hero />
         <Features />
+        <Usecases />
         <Steps />
         <BottomCta />
       </main>
@@ -236,6 +239,53 @@ function Features() {
             ))}
           </ul>
         </div>
+      </div>
+    </section>
+  );
+}
+
+/** 用途別の紹介ページ (#381) への入口 */
+function Usecases() {
+  const { t } = useLanguage();
+  return (
+    <section
+      aria-labelledby="usecases-heading"
+      className="border-t border-white/10"
+    >
+      <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+        <h2
+          id="usecases-heading"
+          className="text-center text-2xl font-bold sm:text-3xl"
+        >
+          {t("こんな集まりで")}
+        </h2>
+        <p className="mx-auto mt-3 max-w-xl text-center text-sm leading-7 text-neutral-400">
+          {t(
+            "予定を合わせることが多いコミュニティでの使い方を紹介しています。",
+          )}
+        </p>
+        <ul className="mt-12 grid gap-6 sm:grid-cols-2">
+          {USECASE_PAGES.map((page) => (
+            <li key={page.slug}>
+              <Link
+                href={usecasePath(page.slug)}
+                className="group flex h-full flex-col gap-3 rounded-xl border border-white/10 bg-surface/40 p-6 transition-colors hover:border-indigo-300/40 hover:bg-indigo-500/10"
+              >
+                <h3 className="text-lg font-semibold">{t(page.name)}</h3>
+                <p className="flex-1 text-sm leading-7 text-neutral-300">
+                  {t(page.lead)}
+                </p>
+                <span className="inline-flex items-center gap-1 text-sm font-medium text-indigo-300">
+                  {t("使い方の例を見る")}
+                  <ArrowRightIcon
+                    className="size-4 transition-transform group-hover:translate-x-0.5"
+                    aria-hidden
+                  />
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
