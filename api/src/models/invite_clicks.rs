@@ -21,6 +21,9 @@ pub const KNOWN_SOURCES: &[&str] = &[
     "docs-start",
     "docs-invite",
     "tutorial",
+    // 用途別の紹介ページ (web/src/lib/usecases.ts、#381)
+    "usecase-trpg",
+    "usecase-clan",
     // サイト外 (Bot 掲載サイト・SNS・Bot のコマンドなど)
     "topgg",
     "discordbotsgg",

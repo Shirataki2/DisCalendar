@@ -26,6 +26,8 @@ const INVITE_SOURCE_LABELS: Record<string, string> = {
   "docs-start": "使い方: はじめに",
   "docs-invite": "使い方: Bot の招待",
   tutorial: "チュートリアル",
+  "usecase-trpg": "用途別: TRPG・マーダーミステリー",
+  "usecase-clan": "用途別: ゲームのクラン・チーム",
   topgg: "top.gg",
   discordbotsgg: "discord.bots.gg",
   x: "X",
