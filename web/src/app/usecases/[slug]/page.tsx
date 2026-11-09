@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { UsecaseContent } from "@/components/usecases/usecase-content";
-import { SITE_NAME } from "@/lib/site";
+import { pageOpenGraph } from "@/lib/site";
 import { findUsecasePage, USECASE_PAGES, usecasePath } from "@/lib/usecases";
 
 // 用途別の紹介ページ (#381)。中身は lib/usecases.ts の一覧にあり、その分だけビルド時に静的生成する
@@ -24,24 +24,11 @@ export async function generateMetadata({
   return {
     title: page.metaTitle,
     description: page.description,
-    // metadata は浅くマージされ、openGraph を書くと app/layout.tsx と app/opengraph-image.png の分が消えるので、
-    // SNS に貼られたときに必要な項目 (サイト名・画像) をここでも指定する
-    openGraph: {
-      type: "website",
-      locale: "ja_JP",
-      siteName: SITE_NAME,
+    openGraph: pageOpenGraph({
       title: page.metaTitle,
       description: page.description,
       url: usecasePath(page.slug),
-      images: [
-        {
-          url: "/opengraph-image.png",
-          width: 1200,
-          height: 630,
-          alt: "DisCalendar - Discord 用予定管理 Bot",
-        },
-      ],
-    },
+    }),
   };
 }
 
