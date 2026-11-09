@@ -1,6 +1,8 @@
 // サイト全体で使う定数 (旧実装の siteconfig.js 相当)。
 // メタ情報 (app/layout.tsx / app/manifest.ts) と LP・ヘッダ・フッタのリンク先をここに集める
 
+import type { Metadata } from "next";
+
 export const SITE_NAME = "DisCalendar";
 
 /** 本番の公開 URL。これ以外 (staging など) では検索エンジンに載せない (app/robots.ts) */
@@ -22,6 +24,53 @@ export const SITE_DESCRIPTION =
   "DisCalendar は Discord サーバーで予定を共有できるカレンダー Bot です。" +
   "ブラウザのカレンダーから予定を作ると、開始時刻や事前のリマインダーを Discord のチャンネルに通知します。" +
   "コマンドを覚えなくても、スマホや PC から予定の追加・編集ができます。";
+
+/** サイト共通の OGP 画像 (app/opengraph-image.png) の代替テキスト。app/opengraph-image.alt.txt と同じ文言にする */
+export const OG_IMAGE_ALT = "DisCalendar - Discord 用予定管理 Bot";
+
+type OpenGraph = NonNullable<Metadata["openGraph"]>;
+
+/** 全ページの OGP に共通する項目 (app/layout.tsx と pageOpenGraph が使う) */
+export const SITE_OPEN_GRAPH = {
+  type: "website",
+  locale: "ja_JP",
+  siteName: SITE_NAME,
+} satisfies OpenGraph;
+
+/**
+ * ページごとの OGP。metadata はセグメント間で浅くマージされ、子が openGraph を書くと app/layout.tsx の分も
+ * app/opengraph-image.png の画像も丸ごと消えるので、共通の項目とサイト共通の画像をここで付け直す。
+ * 同じセグメントに opengraph-image がある (共有ページなど) ときは `image: false` にしてその画像を使わせる
+ */
+export function pageOpenGraph({
+  title,
+  description,
+  url,
+  image = true,
+}: {
+  title: string;
+  description: string;
+  url: string;
+  image?: boolean;
+}): OpenGraph {
+  return {
+    ...SITE_OPEN_GRAPH,
+    title,
+    description,
+    url,
+    ...(image && {
+      images: [
+        {
+          url: "/opengraph-image.png",
+          width: 1200,
+          height: 630,
+          type: "image/png",
+          alt: OG_IMAGE_ALT,
+        },
+      ],
+    }),
+  };
+}
 
 /**
  * ブランドカラー。ブラウザの UI (アドレスバーなど) とマニフェストの theme_color に使う

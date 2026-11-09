@@ -7,6 +7,7 @@ import { QueryProvider } from "@/lib/query/provider";
 import {
   SITE_DESCRIPTION,
   SITE_NAME,
+  SITE_OPEN_GRAPH,
   SITE_TITLE,
   SITE_URL,
   THEME_COLOR,
@@ -44,10 +45,9 @@ export const metadata: Metadata = {
     "日程調整",
     "スケジュール",
   ],
+  // 画像は app/opengraph-image.png (ファイル規約) から付く。子ページは pageOpenGraph で同じ画像を付け直す
   openGraph: {
-    type: "website",
-    locale: "ja_JP",
-    siteName: SITE_NAME,
+    ...SITE_OPEN_GRAPH,
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
     url: "/",

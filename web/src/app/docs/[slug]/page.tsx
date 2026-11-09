@@ -4,6 +4,7 @@ import { DocsPager } from "@/components/docs/docs-pager";
 import { LocalizedContent } from "@/components/docs/localized-content";
 import { Message } from "@/components/language-provider";
 import { DOC_PAGES, docPath, findDocPage } from "@/lib/docs";
+import { pageOpenGraph } from "@/lib/site";
 
 // 使い方ページ。本文は src/content/docs/<slug>.mdx にあり、DOC_PAGES の分だけビルド時に静的生成する
 // (それ以外の slug は dynamicParams = false で 404)。URL は旧実装 (@nuxt/content) の /docs/<slug> のまま
@@ -24,11 +25,11 @@ export async function generateMetadata({
   return {
     title,
     description: page.description,
-    openGraph: {
+    openGraph: pageOpenGraph({
       title,
       description: page.description,
       url: docPath(page.slug),
-    },
+    }),
   };
 }
 

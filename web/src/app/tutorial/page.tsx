@@ -4,7 +4,7 @@ import { Message } from "@/components/language-provider";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { Logo } from "@/components/logo";
 import { Tutorial } from "@/components/tutorial";
-import { ROUTES } from "@/lib/site";
+import { pageOpenGraph, ROUTES } from "@/lib/site";
 
 const TITLE = "操作を試す (Discord カレンダー Bot の体験)";
 const DESCRIPTION =
@@ -13,7 +13,11 @@ const DESCRIPTION =
 export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
-  openGraph: { title: TITLE, description: DESCRIPTION, url: ROUTES.tutorial },
+  openGraph: pageOpenGraph({
+    title: TITLE,
+    description: DESCRIPTION,
+    url: ROUTES.tutorial,
+  }),
 };
 
 export default function TutorialPage() {
