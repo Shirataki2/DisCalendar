@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useLanguage } from "@/components/language-provider";
 import { Logo } from "@/components/logo";
 import { GITHUB_URL, ROUTES, SUPPORT_SERVER_URL } from "@/lib/site";
+import { USECASE_PAGES, usecasePath } from "@/lib/usecases";
 
 const INTERNAL_LINKS = [
   { href: ROUTES.docs, label: "使い方" },
@@ -13,6 +14,12 @@ const INTERNAL_LINKS = [
   { href: ROUTES.privacy, label: "プライバシーポリシー" },
   { href: ROUTES.tokushoho, label: "特定商取引法に基づく表記" },
 ] as const;
+
+/** 用途別の紹介ページ (#381)。LP からも辿れるが、使い方や規約のページからも行けるようにフッタに並べる */
+const USECASE_LINKS = USECASE_PAGES.map((page) => ({
+  href: usecasePath(page.slug),
+  name: page.name,
+}));
 
 const EXTERNAL_LINKS = [
   { href: SUPPORT_SERVER_URL, label: "サポートサーバー" },
@@ -38,6 +45,16 @@ export function SiteFooter() {
                   className="transition-colors hover:text-white"
                 >
                   {t(link.label)}
+                </Link>
+              </li>
+            ))}
+            {USECASE_LINKS.map((link) => (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  className="transition-colors hover:text-white"
+                >
+                  {t("{name}で使う", { name: t(link.name) })}
                 </Link>
               </li>
             ))}

@@ -13,6 +13,10 @@ fn date(s: &str) -> NaiveDate {
 fn normalize_keeps_known_sources_only() {
     assert_eq!(invite_clicks::normalize(Some("lp-hero")), "lp-hero");
     assert_eq!(invite_clicks::normalize(Some(" topgg ")), "topgg");
+    assert_eq!(
+        invite_clicks::normalize(Some("usecase-trpg")),
+        "usecase-trpg"
+    );
     assert_eq!(invite_clicks::normalize(None), "direct");
     assert_eq!(invite_clicks::normalize(Some("")), "direct");
     // 知らない値・大文字違い・長い文字列は記録しない

@@ -131,7 +131,10 @@ export type InviteSource =
   | "lp-footer"
   | "docs-start"
   | "docs-invite"
-  | "tutorial";
+  | "tutorial"
+  // 用途別の紹介ページ (lib/usecases.ts、#381)
+  | "usecase-trpg"
+  | "usecase-clan";
 
 /** 導入元を付けた招待リンク */
 export function inviteHref(source: InviteSource): string {
