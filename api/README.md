@@ -66,7 +66,7 @@ curl などからは cookie の値をそのまま `Authorization: Bearer <value>
 | POST | `/admin/sql` | 読み取り専用 SQL の実行 (`{ "sql": "..." }`)。権限を絞ったロール `discalendar_sql_console` (保護テーブルの権限なし・非 superuser) でログインした専用の接続 + `BEGIN READ ONLY` + 10 秒の締切 + 先頭 500 行 / 4 MiB / 1 セル 4,000 文字 (`truncated` で通知)。SELECT / WITH / VALUES / TABLE / EXPLAIN / SHOW の 1 文のみ。`account` / `session` / `verification` / `pg_statistic` (`pg_stats`) を読む文は `EXPLAIN` の計画を見て実行前に 400。Postgres のエラーも 400 でメッセージをそのまま返す。ロールが使えなければ 503。成功・失敗とも `admin_audit_logs` (`sql.select`) に残す (SQL は文字列リテラルとコメントを伏せて保存) |
 | GET | `/admin/sql/history` | SQL コンソールの実行履歴 (全管理者分、新しい順 20 件。監査ログから組み立てる) |
 | POST | `/admin/ops/delete-guild-events` | 指定ギルド (`{ "guild_id": "..." }`) の予定をすべて削除。削除した予定は監査ログ (`ops.delete_guild_events`) の `before.events` に先頭 200 件まで残す (`detail.deleted` に件数)。未知のギルドは 404 |
-| POST | `/admin/ops/purge-expired-sessions` | Better Auth の期限切れ `session` を削除 (`ops.purge_expired_sessions`) |
+| POST | `/admin/ops/purge-expired-sessions` | Better Auth の期限切れ `session` を削除 (`ops.purge_expired_sessions`)。普段は api の定期タスクが 1 時間おきに消すので、すぐ消したいとき用 |
 | GET | `/admin/stats` | 概要の件数 (ギルド / 退出済み / 予定 / ユーザー / セッション / 今日 (JST) 発火する通知の数) と、直近に登録されたギルド・退出済みでデータが残っているギルド。`guilds` に日時が無いので「直近」は id 順と残っている予定の作成日時から推測 |
 | GET | `/admin/status` | DB の疎通と PostgreSQL のバージョン・接続プール、`_sqlx_migrations` と実行ファイル内のマイグレーションの突き合わせ (未適用 / 失敗 / チェックサム不一致 / 未知の版)、ビルド情報 (`GIT_SHA` / `IMAGE_TAG` を `option_env!` で埋め込み) と起動時刻・稼働時間 |
 | GET | `/admin/guilds/sync-check` | Bot の参加ギルド (Discord `GET /users/@me/guilds`、60 秒キャッシュ) と `guilds` テーブルの差分 (DB にだけある / Discord にだけある / 名前が違う。一覧は種類ごとに 200 件まで、件数は全数)。`/admin/guilds/{guild_id}` より先に登録すること |
@@ -138,6 +138,7 @@ src/
   logging.rs        リクエスト完了ログ (ステータス・メソッド・ルート・所要時間を 1 行で出すミドルウェア)
   state.rs          AppState (pool / Discord client / auth 設定 / 管理者設定)
   auth.rs           AuthUser extractor (Better Auth の署名付き cookie を検証)
+  auth_cleanup.rs   Better Auth の期限切れ行 (session / verification) の定期削除 (起動直後 + 1 時間おき)
   admin.rs          AdminUser extractor (AuthUser + ADMIN_DISCORD_USER_IDS のホワイトリスト)
   build_info.rs     ビルド時に埋め込むコミット SHA / イメージタグ (build.rs + Dockerfile の ARG)
   discord/          Bot トークンでの Discord API 呼び出し + 権限計算 + キャッシュ

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM \"verification\" WHERE \"expiresAt\" < now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "95bbcec61e89bd6d805b472713b74e4c4398cc1b975be54bdaf94d5142afb03b"
+}

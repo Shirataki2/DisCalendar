@@ -92,3 +92,12 @@ pub async fn purge_expired_sessions<'e>(executor: impl PgExecutor<'e>) -> sqlx::
         .await?;
     Ok(result.rows_affected())
 }
+
+/// Better Auth の `verification` (OAuth の state などの一時的な値) のうち期限切れのものを消し、件数を返す。
+/// こちらは定期削除 (`auth_cleanup`) だけが使う
+pub async fn purge_expired_verifications<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<u64> {
+    let result = sqlx::query!(r#"DELETE FROM "verification" WHERE "expiresAt" < now()"#)
+        .execute(executor)
+        .await?;
+    Ok(result.rows_affected())
+}
