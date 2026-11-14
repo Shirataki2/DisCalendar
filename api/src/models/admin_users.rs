@@ -5,7 +5,7 @@
 //! `refreshToken`) は決して SELECT しない** (AGENTS.md の P0「秘密情報」)。
 //! 画面に必要なのは「誰の」「いつからの」「いつ切れる」セッションかだけで、値そのものは要らない。
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
 use sqlx::PgExecutor;
 use utoipa::ToSchema;
@@ -33,10 +33,10 @@ pub struct UserSummary {
     pub discord_user_id: Option<String>,
     /// 期限内のセッション数 (0 ならログインしていない)
     pub active_sessions: i64,
-    /// 期限切れを含むセッション数
-    pub sessions: i64,
-    /// 最後にセッションが作られた (ログインした) 日時
-    pub last_session_at: Option<DateTime<Utc>>,
+    /// 最後に使った日 (JST、`user_daily_activity`、#81)。記録の開始 (2026-08-28) 以降に使っていなければ null。
+    /// 期限切れのセッションは定期的に消える (#44) ので、最終ログインはセッションからは分からない
+    #[schema(example = "2026-11-14")]
+    pub last_active_on: Option<NaiveDate>,
 }
 
 /// セッション 1 件。**トークンは含めない**
@@ -69,18 +69,15 @@ pub async fn list<'e>(
             FROM "account" WHERE "providerId" = 'discord' GROUP BY "userId"
         ),
         sessions AS (
-            SELECT "userId" AS user_id,
-                   count(*) FILTER (WHERE "expiresAt" > now()) AS active,
-                   count(*) AS total,
-                   max("createdAt") AS last_created
-            FROM "session" GROUP BY "userId"
+            SELECT "userId" AS user_id, count(*) AS active
+            FROM "session" WHERE "expiresAt" > now() GROUP BY "userId"
         )
         SELECT u.id AS "id!", u.name AS "name!", u.email AS "email!", u.image AS "image?",
                u."createdAt" AS "created_at!",
                a.discord_user_id AS "discord_user_id?",
                COALESCE(s.active, 0) AS "active_sessions!",
-               COALESCE(s.total, 0) AS "sessions!",
-               s.last_created AS "last_session_at?"
+               (SELECT max(day) FROM user_daily_activity d WHERE d.user_id = u.id)
+                   AS "last_active_on?"
         FROM "user" u
         LEFT JOIN accounts a ON a.user_id = u.id
         LEFT JOIN sessions s ON s.user_id = u.id

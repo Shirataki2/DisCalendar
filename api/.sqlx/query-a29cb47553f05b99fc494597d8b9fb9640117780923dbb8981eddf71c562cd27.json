@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH months AS (\n            SELECT date_trunc('month', $1::timestamp) - make_interval(months => g) AS month_start\n            FROM generate_series($2::int - 1, 0, -1) AS g\n        ),\n        span AS (\n            SELECT min(month_start) AS lo FROM months\n        ),\n        -- 右端 (当月) は $1 (集計時刻) で切る。翌月頭まで読むと、スナップショット確定までに\n        -- 作られた行や未来日時の行が入り、同じ上限を持つ直近 30 日などの件数と食い違う\n        ev AS (\n            SELECT date_trunc('month', e.created_at) AS month_start, count(*) AS n\n            FROM event_creations e, span\n            WHERE e.created_at >= span.lo AND e.created_at <= $1\n            GROUP BY 1\n        ),\n        nu AS (\n            SELECT date_trunc('month', u.\"createdAt\" AT TIME ZONE 'Asia/Tokyo') AS month_start,\n                   count(*) AS n\n            FROM \"user\" u, span\n            WHERE u.\"createdAt\" >= span.lo AT TIME ZONE 'Asia/Tokyo'\n              AND u.\"createdAt\" <= $1 AT TIME ZONE 'Asia/Tokyo'\n            GROUP BY 1\n        ),\n        -- 右端は日付単位の記録なので、日別と同じく今日の日付そのもので切る\n        au AS (\n            SELECT date_trunc('month', a.day) AS month_start, count(DISTINCT a.user_id) AS n\n            FROM user_daily_activity a, span\n            WHERE a.day >= span.lo::date AND a.day <= $1::timestamp::date\n            GROUP BY 1\n        )\n        SELECT\n            m.month_start::date AS \"month!\",\n            COALESCE(au.n, 0) AS \"active_users!\",\n            COALESCE(nu.n, 0) AS \"new_users!\",\n            COALESCE(ev.n, 0) AS \"events!\"\n        FROM months m\n        LEFT JOIN au ON au.month_start = m.month_start\n        LEFT JOIN nu ON nu.month_start = m.month_start\n        LEFT JOIN ev ON ev.month_start = m.month_start\n        ORDER BY m.month_start\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "month!",
+        "type_info": "Date",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "active_users!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "new_users!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "events!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a29cb47553f05b99fc494597d8b9fb9640117780923dbb8981eddf71c562cd27"
+}

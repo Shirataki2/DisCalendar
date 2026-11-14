@@ -428,8 +428,8 @@ export interface AdminCounts {
   /** まだ終わっていない予定 */
   upcoming_events: number;
   users: number;
+  /** 期限内のセッション数 (期限切れは api が 1 時間おきに消す、#44) */
   active_sessions: number;
-  sessions: number;
 }
 
 /** 直近に guilds へ登録されたギルド */
@@ -556,9 +556,10 @@ export interface AdminUserSummary {
   created_at: string;
   /** 連携済み Discord アカウントのユーザー ID (Snowflake、文字列) */
   discord_user_id: string | null;
+  /** 期限内のセッション数 */
   active_sessions: number;
-  sessions: number;
-  last_session_at: string | null;
+  /** 最後に使った日 (JST、`2026-11-14`。利用の記録 #81 から)。記録が無ければ null */
+  last_active_on: string | null;
 }
 
 export interface AdminUserPage {
@@ -657,21 +658,11 @@ export interface AdminTrend {
   change_percent: number | null;
 }
 
-/** アクティブユーザー (セッションの生存期間がその期間に重なる利用者の数。推定) */
-export interface AdminActiveUsers {
-  /** 直近 1 日 (DAU) */
-  daily: AdminTrend;
-  /** 直近 7 日 (WAU) */
-  weekly: AdminTrend;
-  /** 直近 30 日 (MAU) */
-  monthly: AdminTrend;
-}
-
 /**
- * 実測のアクティブユーザー (#81)。利用の記録 (1 人 1 日 1 行) から数える。
- * 推定 (AdminActiveUsers) が「今」からの 24 時間刻みなのに対して、こちらは JST の日付で区切る
+ * アクティブユーザー (#81)。利用の記録 (1 人 1 日 1 行) から数え、JST の日付で区切る。
+ * セッションからの推定は期限切れセッションの定期削除 (#44) で使えなくなったので廃止した (#398)
  */
-export interface AdminMeasuredActiveUsers {
+export interface AdminActiveUsers {
   /** 記録が始まった日 (`2026-08-28`)。まだ 1 行も無ければ null */
   since: string | null;
   /** 今日 (まだ途中)。前は昨日 */
@@ -680,6 +671,11 @@ export interface AdminMeasuredActiveUsers {
   weekly: AdminTrend;
   /** 今日までの 30 日間。前はその前の 30 日間 */
   monthly: AdminTrend;
+  /**
+   * DAU/MAU 比 (0〜1)。昨日までの 30 日間の日ごとの利用者数の平均 ÷ 同じ期間の利用者数。
+   * 利用が無い、または記録の開始がその期間の途中なら null
+   */
+  stickiness: number | null;
 }
 
 /** 日別の 1 点。date は JST の日付 (`2026-08-25`) */
@@ -687,20 +683,48 @@ export interface AdminDailyPoint {
   date: string;
   events: number;
   new_users: number;
-  /** その日に作られたセッション (ログイン) の数 */
-  logins: number;
-  /** その日に使った利用者 (実測、#81)。記録開始前の日は 0 */
-  measured_active_users: number;
+  /** その日に使った利用者 (#81)。記録開始前の日は 0 */
+  active_users: number;
 }
 
 /** 月別の 1 点。month は JST の月初 (`2026-08-01`) */
 export interface AdminMonthlyPoint {
   month: string;
-  /** その月にセッションの生存期間が重なった利用者 (その月の MAU) */
+  /** その暦月に 1 回でも使った利用者 (#81)。記録開始前の月は 0、記録開始の月は途中から */
   active_users: number;
   new_users: number;
-  logins: number;
   events: number;
+}
+
+/** 予定の作成元ごとの件数 (event_history の create) */
+export interface AdminCreationSource {
+  /** `web` (iCalendar の取り込みを含む) / `bot` / `admin` / `mcp` */
+  source: string;
+  count: number;
+}
+
+/** 登録月 1 つぶんの新規ユーザーの定着 (#398)。定義は api/src/models/user_retention.rs */
+export interface AdminUserRetentionCohort {
+  /** 登録月 (JST の月初、`2026-10-01`) */
+  month: string;
+  users: number;
+  /** 登録から 7 日が過ぎ切った人の数 (分母) */
+  week_eligible: number;
+  /** そのうち登録の翌日〜7 日目に使った人 */
+  week_returned: number;
+  /** 登録から 30 日が過ぎ切った人の数 (分母) */
+  month_eligible: number;
+  /** そのうち登録の 8〜30 日目に使った人 */
+  month_returned: number;
+  /** 直近 N 日に使っている人 (分母は users) */
+  active: number;
+}
+
+export interface AdminUserRetention {
+  /** 利用の記録が始まった日。これより前に登録した人は数えない。記録が無ければ null */
+  since: string | null;
+  /** 登録月の新しい順 */
+  cohorts: AdminUserRetentionCohort[];
 }
 
 /** 予定の作成数 */
@@ -803,11 +827,13 @@ export interface AdminAnalytics {
   monthly_months: number;
   /** 「アクティブ」「直近」の基準にした日数 */
   recent_days: number;
-  /** セッションからの推定 (#79) */
+  /** 利用の記録から数えたアクティブユーザー (#81) */
   active_users: AdminActiveUsers;
-  /** 利用の記録から数えた実測 (#81) */
-  measured_active_users: AdminMeasuredActiveUsers;
   event_creation: AdminEventCreation;
+  /** 直近 N 日に作られた予定の作成元ごとの件数 (多い順) */
+  creation_sources: AdminCreationSource[];
+  /** 登録月ごとの新規ユーザーの定着 (#398) */
+  user_retention: AdminUserRetention;
   breakdown: AdminAnalyticsBreakdown;
   /** 導入月ごとの定着状況 (#375) */
   retention: AdminGuildRetention;

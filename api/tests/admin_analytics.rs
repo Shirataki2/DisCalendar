@@ -1,18 +1,16 @@
 //! 管理コンソールの分析情報 (#79) の DB テスト。
 //! `#[sqlx::test]` がテストごとに一時 DB を作って `migrations/` を適用する (Postgres が必要)。
-//! Better Auth のテーブル (`user` / `session`) はマイグレーションに含まれないのでここで作る。
+//! Better Auth のテーブル (`user`) はマイグレーションに含まれないのでここで作る。
 //!
 //! 集計の基準時刻は固定値を渡して、実行した日時に結果が左右されないようにしている
 //! (基準は JST の 2026-08-25 12:00 = UTC の 2026-08-25 03:00)。
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use discalendar_api::models::admin_analytics;
+use chrono::{NaiveDate, NaiveDateTime};
+use discalendar_api::models::{admin_analytics, user_retention};
 use sqlx::PgPool;
 
 /// 集計の基準時刻 (JST)。予定の `created_at` はタイムゾーンなしの JST なのでこちらで比べる
 const NOW_JST: &str = "2026-08-25T12:00:00";
-/// 同じ時刻を UTC で表したもの。`session` / `user` は TIMESTAMPTZ なのでこちらで比べる
-const NOW_UTC: &str = "2026-08-25T03:00:00Z";
 
 const GUILD_A: &str = "111111111111111111";
 const GUILD_B: &str = "222222222222222222";
@@ -25,10 +23,6 @@ fn now_jst() -> NaiveDateTime {
     NOW_JST.parse().unwrap()
 }
 
-fn now_utc() -> DateTime<Utc> {
-    NOW_UTC.parse().unwrap()
-}
-
 fn date(s: &str) -> NaiveDate {
     s.parse().unwrap()
 }
@@ -38,18 +32,8 @@ fn recent_since() -> NaiveDateTime {
     now_jst() - chrono::Duration::days(admin_analytics::RECENT_DAYS)
 }
 
-/// Better Auth のテーブルを本番と同じ列で用意し、利用者とセッションを入れる。
-///
-/// セッションの生存期間 `[createdAt, updatedAt]` が「その利用者が使っていた期間」になるように置く:
-///
-/// | | createdAt (UTC) | updatedAt (UTC) | 重なる期間 |
-/// |---|---|---|---|
-/// | s1 (u1) | 08-01 00:00 | 08-25 02:00 | 直近 1 日・その前・7 日・その前・30 日 |
-/// | s5 (u1) | 08-24 11:00 | 08-25 01:00 | 直近 1 日 (u1 の重複。DISTINCT の確認用) |
-/// | s2 (u2) | 08-24 10:00 | 08-24 10:00 | 直近 1 日・7 日・30 日 |
-/// | s4 (u4) | 08-20 00:00 | 08-23 12:00 | 直近 1 日の前・7 日・30 日 |
-/// | s3 (u3) | 07-01 00:00 | 07-10 00:00 | 30 日の前だけ |
-async fn seed_auth(pool: &PgPool) {
+/// Better Auth の `user` を本番と同じ列で用意する (`createdAt` は UTC)
+async fn create_user_table(pool: &PgPool) {
     sqlx::raw_sql(
         r#"
         CREATE TABLE "user" (
@@ -57,22 +41,23 @@ async fn seed_auth(pool: &PgPool) {
             "emailVerified" BOOLEAN NOT NULL DEFAULT false, image TEXT,
             "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
         );
-        CREATE TABLE "session" (
-            id TEXT PRIMARY KEY, "expiresAt" TIMESTAMPTZ NOT NULL, token TEXT NOT NULL,
-            "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-            "ipAddress" TEXT, "userAgent" TEXT, "userId" TEXT NOT NULL
-        );
+        "#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// 利用者を入れる (新規ユーザーの集計用)
+async fn seed_auth(pool: &PgPool) {
+    create_user_table(pool).await;
+    sqlx::raw_sql(
+        r#"
         INSERT INTO "user" (id, name, email, "createdAt") VALUES
             ('u1', 'Alice', 'alice@example.com', '2026-08-25T00:00:00Z'),
             ('u2', 'Bob',   'bob@example.com',   '2026-08-24T10:00:00Z'),
             ('u3', 'Carol', 'carol@example.com', '2026-07-01T00:00:00Z'),
             ('u4', 'Dave',  'dave@example.com',  '2026-08-20T00:00:00Z');
-        INSERT INTO "session" (id, "expiresAt", token, "userId", "createdAt", "updatedAt") VALUES
-            ('s1', '2026-09-01T00:00:00Z', 't1', 'u1', '2026-08-01T00:00:00Z', '2026-08-25T02:00:00Z'),
-            ('s2', '2026-09-01T00:00:00Z', 't2', 'u2', '2026-08-24T10:00:00Z', '2026-08-24T10:00:00Z'),
-            ('s3', '2026-07-17T00:00:00Z', 't3', 'u3', '2026-07-01T00:00:00Z', '2026-07-10T00:00:00Z'),
-            ('s4', '2026-08-30T00:00:00Z', 't4', 'u4', '2026-08-20T00:00:00Z', '2026-08-23T12:00:00Z'),
-            ('s5', '2026-09-01T00:00:00Z', 't5', 'u1', '2026-08-24T11:00:00Z', '2026-08-25T01:00:00Z');
         "#,
     )
     .execute(pool)
@@ -211,114 +196,44 @@ async fn seed_activity(pool: &PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn measured_active_users_count_recorded_days_in_each_window(pool: PgPool) {
+async fn active_users_count_recorded_days_in_each_window(pool: PgPool) {
     seed_activity(&pool).await;
 
-    let measured = admin_analytics::measured_active_users(&pool, date("2026-08-25"))
+    let active = admin_analytics::active_users(&pool, date("2026-08-25"))
         .await
         .unwrap();
 
     // 記録が始まった日は一番古い行。基準日より未来の行 (u5) はどの集計にも入らない
-    assert_eq!(measured.since, Some(date("2026-07-01")));
+    assert_eq!(active.since, Some(date("2026-07-01")));
     // 今日は u1 / u2、昨日は u1 だけ
-    assert_eq!(measured.daily.current, 2);
-    assert_eq!(measured.daily.previous, 1);
-    // 直近 7 日 (08-19〜08-25) は u1 / u2、その前の 7 日 (08-12〜08-18) は u3
-    assert_eq!(measured.weekly.current, 2);
-    assert_eq!(measured.weekly.previous, 1);
-    // 直近 30 日 (07-27〜08-25) は u1 / u2 / u3、その前の 30 日 (06-27〜07-26) は u4
-    assert_eq!(measured.monthly.current, 3);
-    assert_eq!(measured.monthly.previous, 1);
-    assert_eq!(measured.monthly.delta, 2);
-    assert_eq!(measured.monthly.change_percent, Some(200.0));
-}
-
-#[sqlx::test(migrations = "./migrations")]
-async fn measured_active_users_are_empty_before_any_record(pool: PgPool) {
-    let measured = admin_analytics::measured_active_users(&pool, date("2026-08-25"))
-        .await
-        .unwrap();
-
-    // 記録が始まる前は「実測なし」と分かる形で返す (0 と null。増減率も出さない)
-    assert_eq!(measured.since, None);
-    assert_eq!(measured.daily.current, 0);
-    assert_eq!(measured.monthly.current, 0);
-    assert_eq!(measured.monthly.change_percent, None);
-}
-
-#[sqlx::test(migrations = "./migrations")]
-async fn active_users_count_sessions_overlapping_each_window(pool: PgPool) {
-    seed_auth(&pool).await;
-
-    let active = admin_analytics::active_users(&pool, now_utc())
-        .await
-        .unwrap();
-
-    // 直近 1 日: u1 (s1 と s5 があるが DISTINCT で 1 人) と u2。その前は u1 と u4
     assert_eq!(active.daily.current, 2);
-    assert_eq!(active.daily.previous, 2);
-    assert_eq!(active.daily.delta, 0);
-    assert_eq!(active.daily.change_percent, Some(0.0));
-
-    // 直近 7 日: u1 / u2 / u4。その前は u1 だけ
-    assert_eq!(active.weekly.current, 3);
+    assert_eq!(active.daily.previous, 1);
+    // 直近 7 日 (08-19〜08-25) は u1 / u2、その前の 7 日 (08-12〜08-18) は u3
+    assert_eq!(active.weekly.current, 2);
     assert_eq!(active.weekly.previous, 1);
-
-    // 直近 30 日: u1 / u2 / u4。その前は u3 だけ (07-10 で使うのをやめた利用者)
+    // 直近 30 日 (07-27〜08-25) は u1 / u2 / u3、その前の 30 日 (06-27〜07-26) は u4
     assert_eq!(active.monthly.current, 3);
     assert_eq!(active.monthly.previous, 1);
     assert_eq!(active.monthly.delta, 2);
     assert_eq!(active.monthly.change_percent, Some(200.0));
+    // DAU/MAU 比は昨日までの 30 日 (07-26〜08-24) で取る。今日の u1 / u2 は入らない。
+    // その期間は u1 (08-24) と u3 (08-15) の延べ 2 人・日、利用者 2 人 → 2 / 30 / 2
+    let stickiness = active.stickiness.unwrap();
+    assert!((stickiness - 1.0 / 30.0).abs() < 1e-9, "{stickiness}");
 }
 
-/// 使い続けている利用者の行は `updatedAt` が最新に動くので、`updatedAt` が期間内にあるかどうかで
-/// 数えると過去の期間から消えてしまう。生存期間の重なりで数えていることを確かめる
 #[sqlx::test(migrations = "./migrations")]
-async fn active_users_keep_counting_a_session_that_is_still_in_use(pool: PgPool) {
-    sqlx::raw_sql(
-        r#"
-        CREATE TABLE "user" (
-            id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
-            "emailVerified" BOOLEAN NOT NULL DEFAULT false, image TEXT,
-            "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-        CREATE TABLE "session" (
-            id TEXT PRIMARY KEY, "expiresAt" TIMESTAMPTZ NOT NULL, token TEXT NOT NULL,
-            "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-            "ipAddress" TEXT, "userAgent" TEXT, "userId" TEXT NOT NULL
-        );
-        INSERT INTO "user" (id, name, email) VALUES ('u1', 'Alice', 'alice@example.com');
-        -- 半年前からずっと使い続けている 1 行 (updatedAt は今日まで延び続けている)
-        INSERT INTO "session" (id, "expiresAt", token, "userId", "createdAt", "updatedAt") VALUES
-            ('s1', '2026-09-01T00:00:00Z', 't1', 'u1', '2026-03-01T00:00:00Z', '2026-08-25T02:00:00Z');
-        "#,
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let active = admin_analytics::active_users(&pool, now_utc())
+async fn active_users_are_empty_before_any_record(pool: PgPool) {
+    let active = admin_analytics::active_users(&pool, date("2026-08-25"))
         .await
         .unwrap();
-    // 直近の期間だけでなく、その前の期間でもアクティブとして数える
-    assert_eq!(active.daily.current, 1);
-    assert_eq!(active.daily.previous, 1);
-    assert_eq!(active.monthly.current, 1);
-    assert_eq!(active.monthly.previous, 1);
 
-    let monthly = admin_analytics::monthly(&pool, now_jst()).await.unwrap();
-    // 3 月に作られて今も生きているので、4 月以降のどの月でもアクティブとして数える
-    let april = monthly
-        .iter()
-        .find(|m| m.month == date("2026-04-01"))
-        .unwrap();
-    assert_eq!(april.active_users, 1);
-    // 作られる前の月は数えない
-    let february = monthly
-        .iter()
-        .find(|m| m.month == date("2026-02-01"))
-        .unwrap();
-    assert_eq!(february.active_users, 0);
+    // 記録が始まる前は「記録なし」と分かる形で返す (0 と null。増減率も比も出さない)
+    assert_eq!(active.since, None);
+    assert_eq!(active.daily.current, 0);
+    assert_eq!(active.monthly.current, 0);
+    assert_eq!(active.monthly.change_percent, None);
+    assert_eq!(active.stickiness, None);
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -415,30 +330,25 @@ async fn daily_series_covers_every_day_including_empty_ones(pool: PgPool) {
     // 窓から外れた F (07-01) は含まれず、G (08-05) は含まれる
     assert_eq!(daily.iter().map(|p| p.events).sum::<i64>(), 6);
 
-    // 新規ユーザーとログインは JST の日付で分ける (u2 の 08-24 10:00Z は JST では 19:00)
+    // 新規ユーザーは JST の日付で分ける (u2 の 08-24 10:00Z は JST では 19:00)
     assert_eq!(on("2026-08-25").new_users, 1); // u1
     assert_eq!(on("2026-08-24").new_users, 1); // u2
     assert_eq!(on("2026-08-20").new_users, 1); // u4
-    // s2 (08-24 19:00 JST) と s5 (08-24 20:00 JST) の 2 回
-    assert_eq!(on("2026-08-24").logins, 2);
-    assert_eq!(daily.iter().map(|p| p.logins).sum::<i64>(), 4);
 
-    // 実測のアクティブユーザー (#81)。記録が無い日は 0 で、
+    // アクティブユーザー (#81)。記録が無い日は 0 で、
     // 窓から外れた u4 (07-01) と今日 (右端) より未来の u5 (08-26) は入らない
-    assert_eq!(on("2026-08-25").measured_active_users, 2); // u1 / u2
-    assert_eq!(on("2026-08-24").measured_active_users, 1); // u1
-    assert_eq!(on("2026-08-15").measured_active_users, 1); // u3
-    assert_eq!(on("2026-08-23").measured_active_users, 0);
-    assert_eq!(
-        daily.iter().map(|p| p.measured_active_users).sum::<i64>(),
-        4
-    );
+    assert_eq!(on("2026-08-25").active_users, 2); // u1 / u2
+    assert_eq!(on("2026-08-24").active_users, 1); // u1
+    assert_eq!(on("2026-08-15").active_users, 1); // u3
+    assert_eq!(on("2026-08-23").active_users, 0);
+    assert_eq!(daily.iter().map(|p| p.active_users).sum::<i64>(), 4);
 }
 
 #[sqlx::test(migrations = "./migrations")]
 async fn monthly_series_buckets_by_jst_month(pool: PgPool) {
     seed_auth(&pool).await;
     seed_guilds(&pool).await;
+    seed_activity(&pool).await;
 
     let monthly = admin_analytics::monthly(&pool, now_jst()).await.unwrap();
 
@@ -450,13 +360,124 @@ async fn monthly_series_buckets_by_jst_month(pool: PgPool) {
     let august = on("2026-08-01");
     assert_eq!(august.events, 6); // F 以外
     assert_eq!(august.new_users, 3); // u1 / u2 / u4
-    assert_eq!(august.logins, 4); // s1 / s2 / s4 / s5
-    assert_eq!(august.active_users, 3); // u1 / u2 / u4
+    // u1 は 2 日使っているが 1 人。今日より未来の u5 (08-26) は入らない
+    assert_eq!(august.active_users, 3); // u1 / u2 / u3
 
     let july = on("2026-07-01");
     assert_eq!(july.events, 1); // F
     assert_eq!(july.new_users, 1); // u3
-    assert_eq!(july.active_users, 1); // u3 (07-10 まで使っていた)
+    assert_eq!(july.active_users, 1); // u4
+    // 記録の無い月は 0
+    assert_eq!(on("2026-06-01").active_users, 0);
+}
+
+/// 予定の作成元は `event_history` の `create` だけを、期間で絞って数える
+#[sqlx::test(migrations = "./migrations")]
+async fn creation_sources_count_create_history_by_source(pool: PgPool) {
+    seed_guilds(&pool).await;
+    // 予定に履歴を付ける。created_at は TIMESTAMPTZ (JST の 08-25 12:00 = 03:00Z が基準)
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO event_history (event_id, guild_id, source, action, after, created_at)
+        SELECT e.id, e.guild_id, h.src, h.act, '{}'::jsonb, h.at::timestamptz
+        FROM events e
+        JOIN (VALUES
+            ('A', 'web', 'create', '2026-08-25T00:00:00Z'),
+            ('A', 'web', 'update', '2026-08-25T01:00:00Z'),
+            ('B', 'bot', 'create', '2026-08-24T00:00:00Z'),
+            ('C', 'bot', 'create', '2026-08-20T00:00:00Z'),
+            ('D', 'mcp', 'create', '2026-08-12T00:00:00Z'),
+            -- 30 日より前
+            ('F', 'admin', 'create', '2026-07-01T00:00:00Z'),
+            -- 基準時刻より後
+            ('G', 'web', 'create', '2026-08-25T04:00:00Z')
+        ) AS h(name, src, act, at) ON h.name = e.name;
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let sources = admin_analytics::creation_sources(&pool, recent_since(), now_jst())
+        .await
+        .unwrap();
+    let pairs: Vec<(&str, i64)> = sources
+        .iter()
+        .map(|s| (s.source.as_str(), s.count))
+        .collect();
+    // 多い順。更新・期間外・未来の行は数えない
+    assert_eq!(pairs, vec![("bot", 2), ("mcp", 1), ("web", 1)]);
+}
+
+/// 新規ユーザーの定着: 登録日当日の利用は数えず、期間が過ぎ切った人だけを分母にする
+#[sqlx::test(migrations = "./migrations")]
+async fn user_retention_counts_returns_after_registration(pool: PgPool) {
+    create_user_table(&pool).await;
+    // 基準日は JST の 2026-08-25。登録は JST の 0 時台 (UTC の前日 15 時台) に置く
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO "user" (id, name, email, "createdAt") VALUES
+            -- 記録開始 (07-01) より前の登録は数えない
+            ('old', 'Old', 'old@example.com', '2026-06-20T00:00:00Z'),
+            -- 7 月登録: 30 日が過ぎ切っている
+            ('a', 'A', 'a@example.com', '2026-07-01T15:30:00Z'), -- JST 07-02
+            ('b', 'B', 'b@example.com', '2026-07-09T15:30:00Z'), -- JST 07-10
+            -- 8 月登録: 08-17 は 7 日が過ぎ切っている (08-24 まで)、08-20 はまだ
+            ('c', 'C', 'c@example.com', '2026-08-16T15:30:00Z'), -- JST 08-17
+            ('d', 'D', 'd@example.com', '2026-08-19T15:30:00Z'); -- JST 08-20
+        INSERT INTO user_daily_activity (user_id, day) VALUES
+            ('old', '2026-07-01'),
+            -- a: 登録日だけでなく翌日にも使い、20 日目にも戻ってきた
+            ('a', '2026-07-02'), ('a', '2026-07-03'), ('a', '2026-07-21'),
+            -- b: 登録日にしか使っていない
+            ('b', '2026-07-10'),
+            -- c: 7 日目 (08-24) に使った。直近 30 日にも入る
+            ('c', '2026-08-17'), ('c', '2026-08-24'),
+            -- d: 3 日目に使ったが、まだ 7 日が過ぎ切っていないので分母にも分子にも入らない
+            ('d', '2026-08-22');
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    let retention =
+        user_retention::user_retention(&mut conn, now_jst(), admin_analytics::RECENT_DAYS)
+            .await
+            .unwrap();
+
+    assert_eq!(retention.since, Some(date("2026-07-01")));
+    let months: Vec<_> = retention.cohorts.iter().map(|c| c.month).collect();
+    assert_eq!(months, vec![date("2026-08-01"), date("2026-07-01")]);
+
+    let august = &retention.cohorts[0];
+    assert_eq!(august.users, 2);
+    assert_eq!(august.week_eligible, 1); // c
+    assert_eq!(august.week_returned, 1); // c (08-24)
+    assert_eq!(august.month_eligible, 0);
+    assert_eq!(august.active, 2); // c / d
+
+    let july = &retention.cohorts[1];
+    assert_eq!(july.users, 2); // a / b (old は記録開始前の登録なので入らない)
+    assert_eq!(july.week_eligible, 2);
+    assert_eq!(july.week_returned, 1); // a
+    assert_eq!(july.month_eligible, 2);
+    assert_eq!(july.month_returned, 1); // a (07-21)
+    // 直近 30 日 (07-27〜08-25) には使っていない
+    assert_eq!(july.active, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn user_retention_is_empty_before_any_record(pool: PgPool) {
+    seed_auth(&pool).await;
+    let mut conn = pool.acquire().await.unwrap();
+    let retention =
+        user_retention::user_retention(&mut conn, now_jst(), admin_analytics::RECENT_DAYS)
+            .await
+            .unwrap();
+    assert_eq!(retention.since, None);
+    assert!(retention.cohorts.is_empty());
 }
 
 /// 集計の基準時刻より後の `created_at` を持つ予定を、どの集計にも入れないこと。

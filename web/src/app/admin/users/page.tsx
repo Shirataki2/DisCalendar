@@ -70,7 +70,12 @@ export default async function AdminUsersPage({
               <th className="px-3 py-2 font-medium">ユーザー</th>
               <th className="px-3 py-2 font-medium">Discord ID</th>
               <th className="px-3 py-2 font-medium">登録</th>
-              <th className="px-3 py-2 font-medium">最終ログイン</th>
+              <th
+                className="px-3 py-2 font-medium"
+                title="利用の記録 (2026-08-28 から) で最後に使った日 (JST)"
+              >
+                最終利用日
+              </th>
               <th className="px-3 py-2 text-right font-medium">セッション</th>
             </tr>
           </thead>
@@ -150,16 +155,18 @@ function UserRow({
         {formatDateTime(user.created_at)}
       </td>
       <td className="px-3 py-2 text-xs whitespace-nowrap text-neutral-300">
-        {user.last_session_at ? (
-          formatDateTime(user.last_session_at)
+        {user.last_active_on ? (
+          <span className="tabular-nums">
+            {user.last_active_on.replaceAll("-", "/")}
+          </span>
         ) : (
-          <span className="text-neutral-500">なし</span>
+          <span className="text-neutral-500">記録なし</span>
         )}
       </td>
       <td className="px-3 py-2">
         <div className="flex items-center justify-end gap-2">
           <span className="text-xs text-neutral-400 tabular-nums">
-            有効 {user.active_sessions} / 全 {user.sessions}
+            有効 {user.active_sessions}
           </span>
           <AdminUserSessionsButton user={user} isSelf={isSelf} />
         </div>

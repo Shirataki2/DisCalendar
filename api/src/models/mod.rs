@@ -27,6 +27,7 @@ pub mod polls;
 pub mod push;
 pub mod shares;
 pub mod user_activity;
+pub mod user_retention;
 
 use chrono::{FixedOffset, NaiveDateTime, Utc};
 

@@ -6,7 +6,7 @@
 //! 指標の定義と精度の限界は [`crate::models::admin_analytics`] のモジュールコメントを参照。
 
 use actix_web::{get, web};
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -15,12 +15,13 @@ use crate::{
     error::{ApiError, ErrorBody},
     models::{
         admin_analytics::{
-            self, ActiveUsers, Breakdown, DAILY_DAYS, DailyPoint, EventCreation, GuildActivity,
-            MONTHLY_MONTHS, MeasuredActiveUsers, MonthlyPoint, RECENT_DAYS,
+            self, ActiveUsers, Breakdown, CreationSource, DAILY_DAYS, DailyPoint, EventCreation,
+            GuildActivity, MONTHLY_MONTHS, MonthlyPoint, RECENT_DAYS,
         },
         guild_retention::{self, GuildRetention},
         invite_clicks::{self, InviteClicks},
         now_jst,
+        user_retention::{self, UserRetention},
     },
     state::AppState,
 };
@@ -40,11 +41,13 @@ pub struct AdminAnalytics {
     /// 「アクティブ」「直近」の基準にした日数
     #[schema(example = 30)]
     pub recent_days: i64,
-    /// セッションからの推定のアクティブユーザー (#79)
+    /// 利用の記録 (`user_daily_activity`、#81) から数えたアクティブユーザー
     pub active_users: ActiveUsers,
-    /// 利用の記録 (`user_daily_activity`、#81) から数えた実測のアクティブユーザー
-    pub measured_active_users: MeasuredActiveUsers,
     pub event_creation: EventCreation,
+    /// 直近 [`AdminAnalytics::recent_days`] 日に作られた予定の作成元ごとの件数 (`event_history`、多い順)
+    pub creation_sources: Vec<CreationSource>,
+    /// 登録月ごとの新規ユーザーの定着 (#398)
+    pub user_retention: UserRetention,
     pub breakdown: Breakdown,
     /// 導入月ごとの定着状況 (#375)
     pub retention: GuildRetention,
@@ -80,7 +83,6 @@ pub async fn analytics(
     _admin: AdminUser,
     state: web::Data<AppState>,
 ) -> Result<web::Json<AdminAnalytics>, ApiError> {
-    let now_utc = Utc::now();
     let now = now_jst();
     let recent_since = now - Duration::days(RECENT_DAYS);
     // 集計中に予定が作られても数字が食い違わないよう、全部を同じスナップショットで読む。
@@ -90,9 +92,7 @@ pub async fn analytics(
         .begin_with("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
         .await?;
 
-    let active_users = admin_analytics::active_users(&mut *tx, now_utc).await?;
-    let measured_active_users =
-        admin_analytics::measured_active_users(&mut *tx, now.date()).await?;
+    let active_users = admin_analytics::active_users(&mut *tx, now.date()).await?;
     let daily = admin_analytics::daily(&mut *tx, now).await?;
     let monthly = admin_analytics::monthly(&mut *tx, now).await?;
     let (event_creation, all_day_events) = admin_analytics::event_creation(&mut *tx, now).await?;
@@ -101,10 +101,12 @@ pub async fn analytics(
     let (active_guilds, active_left_guilds, joined_guilds) =
         admin_analytics::guild_counts(&mut *tx, recent_since, now).await?;
     let top_guilds = admin_analytics::top_guilds(&mut *tx, recent_since, now).await?;
+    let creation_sources = admin_analytics::creation_sources(&mut *tx, recent_since, now).await?;
     let invite_clicks = invite_clicks::summary(&mut *tx, now.date(), RECENT_DAYS).await?;
     let (guilds_with_channel, restricted_guilds) =
         admin_analytics::guild_settings(&mut *tx).await?;
     let retention = guild_retention::guild_retention(&mut *tx, now, RECENT_DAYS).await?;
+    let user_retention = user_retention::user_retention(&mut tx, now, RECENT_DAYS).await?;
     // 読むだけなので commit / rollback のどちらでもよいが、スナップショットは早く手放す
     tx.rollback().await?;
 
@@ -120,8 +122,9 @@ pub async fn analytics(
         monthly_months: MONTHLY_MONTHS,
         recent_days: RECENT_DAYS,
         active_users,
-        measured_active_users,
         event_creation,
+        creation_sources,
+        user_retention,
         breakdown: Breakdown {
             all_day_events,
             events_with_notifications,

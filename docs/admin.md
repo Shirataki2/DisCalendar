@@ -50,6 +50,10 @@ SQL の実行 (成功・失敗とも) と定型操作はすべて `admin_audit_l
 ビルド時に渡す (staging へのデプロイは自動で入れる。`cargo run` や引数なしの `docker compose build` では「不明」と表示される)。
 `/admin/guilds` の下部にある「差分を調べる」で Bot の参加ギルド (Discord API の `GET /users/@me/guilds`) と `guilds` テーブルを
 突き合わせられる (Bot の停止中に参加・退出があったときのずれの確認用)。
+`/admin/analytics` は時間軸の分析情報 (#79)。アクティブユーザー (DAU / WAU / MAU と DAU/MAU 比・月別 MAU) と新規ユーザーの定着は
+利用の記録 `user_daily_activity` (#81、2026-08-28 から) から、予定の作成数は `event_creations`、作成元の内訳は `event_history` から数える。
+セッションの行は最後の利用から約 7 日で消える (上記の定期削除) ので、分析には `session` を使わない (#398)。
+指標の定義と精度の限界は `api/src/models/admin_analytics.rs` / `user_retention.rs` / `guild_retention.rs` のモジュールコメントと画面の注記にある。
 `/admin/users` は Better Auth の `user` / `session` の一覧・検索と強制ログアウト (セッションの全削除。監査ログに残る)。
 **セッショントークンや Discord のアクセストークンは API のレスポンスにも画面にも出さない**。
 `/admin/audit-logs` で監査ログを操作の種類・実行者で絞り込みながら追える。

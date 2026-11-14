@@ -46,10 +46,8 @@ pub struct AdminCounts {
     pub upcoming_events: i64,
     /// Better Auth の `user` の行数
     pub users: i64,
-    /// 期限内の `session` の行数
+    /// 期限内の `session` の行数 (期限切れの行は定期タスクが 1 時間おきに消す、#44)
     pub active_sessions: i64,
-    /// 期限切れを含む `session` の行数
-    pub sessions: i64,
 }
 
 /// 直近に `guilds` に登録されたギルド
@@ -97,8 +95,7 @@ pub async fn counts<'e>(
                 END
             ) AS "upcoming_events!",
             (SELECT count(*) FROM "user") AS "users!",
-            (SELECT count(*) FROM "session" WHERE "expiresAt" > now()) AS "active_sessions!",
-            (SELECT count(*) FROM "session") AS "sessions!"
+            (SELECT count(*) FROM "session" WHERE "expiresAt" > now()) AS "active_sessions!"
         "#,
         now
     )
@@ -113,7 +110,6 @@ pub async fn counts<'e>(
         upcoming_events: row.upcoming_events,
         users: row.users,
         active_sessions: row.active_sessions,
-        sessions: row.sessions,
     })
 }
 

@@ -2,6 +2,7 @@ import { formatPercent, formatYearMonth } from "@/lib/admin-format";
 import type {
   AdminGuildRetention,
   AdminRetentionCohort,
+  AdminUserRetention,
 } from "@/lib/api/types";
 
 /** 表に最初から出す導入月の数。それより古い月は折りたたむ */
@@ -112,6 +113,76 @@ export function RetentionTable({
         </details>
       )}
       {unknown}
+    </div>
+  );
+}
+
+/**
+ * 登録月ごとの新規ユーザーの定着 (#398)。登録のあとまた使いに来たかを月ごとに並べる。
+ * 定義と精度の限界は api/src/models/user_retention.rs
+ */
+export function UserRetentionTable({
+  retention,
+  recentDays,
+}: {
+  retention: AdminUserRetention;
+  recentDays: number;
+}) {
+  if (retention.cohorts.length === 0) {
+    return (
+      <p className="py-2 text-sm text-neutral-500">
+        {retention.since
+          ? "利用の記録が始まってから登録した利用者はまだいません"
+          : "利用の記録がまだありません"}
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[32rem] text-sm">
+        <thead className="text-xs text-neutral-400">
+          <tr>
+            <th className="px-2 py-1 text-left font-normal">登録月</th>
+            <th className="px-2 py-1 text-right font-normal">登録</th>
+            <th className="px-2 py-1 text-right font-normal">
+              翌日〜7 日目に利用
+            </th>
+            <th className="px-2 py-1 text-right font-normal">
+              8〜30 日目に利用
+            </th>
+            <th className="px-2 py-1 text-right font-normal">
+              直近 {recentDays} 日も利用
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {retention.cohorts.map((cohort) => (
+            <tr key={cohort.month} className="border-t border-white/5">
+              <td className="px-2 py-1 tabular-nums">
+                {formatYearMonth(cohort.month)}
+              </td>
+              <td className="px-2 py-1 text-right tabular-nums">
+                {cohort.users.toLocaleString()}
+              </td>
+              <td className="px-2 py-1 text-right">
+                <Rate
+                  value={cohort.week_returned}
+                  total={cohort.week_eligible}
+                />
+              </td>
+              <td className="px-2 py-1 text-right">
+                <Rate
+                  value={cohort.month_returned}
+                  total={cohort.month_eligible}
+                />
+              </td>
+              <td className="px-2 py-1 text-right">
+                <Rate value={cohort.active} total={cohort.users} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
