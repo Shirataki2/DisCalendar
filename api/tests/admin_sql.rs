@@ -69,7 +69,10 @@ async fn create_auth_tables(pool: &PgPool) {
             id TEXT PRIMARY KEY, "accountId" TEXT NOT NULL, "providerId" TEXT NOT NULL, "userId" TEXT NOT NULL,
             "accessToken" TEXT, "refreshToken" TEXT
         );
-        CREATE TABLE "verification" (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL);
+        CREATE TABLE "verification" (
+            id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL,
+            "expiresAt" TIMESTAMPTZ NOT NULL DEFAULT now() + interval '10 minutes'
+        );
         "#,
     )
     .execute(pool)
@@ -823,4 +826,32 @@ async fn purge_expired_sessions_keeps_valid_ones(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(remaining, 201);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn purge_expired_verifications_keeps_valid_ones(pool: PgPool) {
+    let _serial = SERIAL.lock().await;
+    create_auth_tables(&pool).await;
+    sqlx::query(
+        r#"INSERT INTO "verification" (id, identifier, value, "expiresAt")
+           VALUES ('old1', 'a', 'x', now() - interval '1 minute'), ('old2', 'b', 'y', now() - interval '30 days')"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        admin_ops::purge_expired_verifications(&pool).await.unwrap(),
+        2
+    );
+    assert_eq!(
+        admin_ops::purge_expired_verifications(&pool).await.unwrap(),
+        0
+    );
+    // create_auth_tables が入れた期限内の 1 行は残る
+    let remaining: Vec<String> = sqlx::query_scalar(r#"SELECT id FROM "verification""#)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(remaining, ["v1"]);
 }

@@ -26,7 +26,7 @@ export const SUPPORT_PAGES: readonly SupportPage[] = [
     title: "プライバシーポリシー",
     description:
       "DisCalendar が取得する情報 (Discord アカウントの情報、サーバーと予定の情報) と、その利用目的・管理方法を定めたプライバシーポリシーです。",
-    updatedAt: "2026-08-23",
+    updatedAt: "2026-11-11",
   },
   {
     slug: "tokushoho",
