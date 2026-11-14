@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        WITH accounts AS (\n            SELECT \"userId\" AS user_id, min(\"accountId\") AS discord_user_id\n            FROM \"account\" WHERE \"providerId\" = 'discord' GROUP BY \"userId\"\n        ),\n        sessions AS (\n            SELECT \"userId\" AS user_id,\n                   count(*) FILTER (WHERE \"expiresAt\" > now()) AS active,\n                   count(*) AS total,\n                   max(\"createdAt\") AS last_created\n            FROM \"session\" GROUP BY \"userId\"\n        )\n        SELECT u.id AS \"id!\", u.name AS \"name!\", u.email AS \"email!\", u.image AS \"image?\",\n               u.\"createdAt\" AS \"created_at!\",\n               a.discord_user_id AS \"discord_user_id?\",\n               COALESCE(s.active, 0) AS \"active_sessions!\",\n               COALESCE(s.total, 0) AS \"sessions!\",\n               s.last_created AS \"last_session_at?\"\n        FROM \"user\" u\n        LEFT JOIN accounts a ON a.user_id = u.id\n        LEFT JOIN sessions s ON s.user_id = u.id\n        WHERE $1::text = ''\n           OR u.id = $1\n           OR a.discord_user_id = $1\n           OR u.name ILIKE $2\n           OR u.email ILIKE $2\n        ORDER BY u.\"createdAt\" DESC, u.id\n        LIMIT $3 OFFSET $4\n        ",
+  "query": "\n        WITH accounts AS (\n            SELECT \"userId\" AS user_id, min(\"accountId\") AS discord_user_id\n            FROM \"account\" WHERE \"providerId\" = 'discord' GROUP BY \"userId\"\n        ),\n        sessions AS (\n            SELECT \"userId\" AS user_id, count(*) AS active\n            FROM \"session\" WHERE \"expiresAt\" > now() GROUP BY \"userId\"\n        )\n        SELECT u.id AS \"id!\", u.name AS \"name!\", u.email AS \"email!\", u.image AS \"image?\",\n               u.\"createdAt\" AS \"created_at!\",\n               a.discord_user_id AS \"discord_user_id?\",\n               COALESCE(s.active, 0) AS \"active_sessions!\",\n               (SELECT max(day) FROM user_daily_activity d WHERE d.user_id = u.id)\n                   AS \"last_active_on?\"\n        FROM \"user\" u\n        LEFT JOIN accounts a ON a.user_id = u.id\n        LEFT JOIN sessions s ON s.user_id = u.id\n        WHERE $1::text = ''\n           OR u.id = $1\n           OR a.discord_user_id = $1\n           OR u.name ILIKE $2\n           OR u.email ILIKE $2\n        ORDER BY u.\"createdAt\" DESC, u.id\n        LIMIT $3 OFFSET $4\n        ",
   "describe": {
     "columns": [
       {
@@ -72,14 +72,8 @@
       },
       {
         "ordinal": 7,
-        "name": "sessions!",
-        "type_info": "Int8",
-        "origin": "Expression"
-      },
-      {
-        "ordinal": 8,
-        "name": "last_session_at?",
-        "type_info": "Timestamptz",
+        "name": "last_active_on?",
+        "type_info": "Date",
         "origin": "Expression"
       }
     ],
@@ -99,9 +93,8 @@
       false,
       null,
       null,
-      null,
       null
     ]
   },
-  "hash": "e954e2a2dc3e1812bbe3dabc8825d3ce12c53e483915b4f5670239c519dcd04e"
+  "hash": "9faa4af7d6ef5a1ec8f0fb7e32f4e15858c7b89dc25aca965ddc020d769b1641"
 }

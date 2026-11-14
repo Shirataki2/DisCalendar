@@ -1,38 +1,24 @@
 //! 管理コンソールの分析情報 (`GET /admin/analytics`、#79) の集計。
 //!
 //! 概要 (`admin_stats`) が「今この瞬間の件数」なのに対して、ここは**時間軸の指標**を出す。
-//! 集計は 2 系統ある:
-//!
-//! - **実測** (#81): `user_daily_activity` (認証済みリクエストを 1 人 1 日 1 行で積み上げた記録。
-//!   [`crate::models::user_activity`]) から数える正確なアクティブユーザー。記録を入れた日からしか無い
-//! - **推定** (#79): 既存のテーブルから読み取れる痕跡だけで出す従来の指標。実測が積み上がる前の
-//!   期間や、行動記録を持たない指標 (予定の作成数など) はこちらで見る
 //!
 //! # 何を「利用」とみなすか
 //!
-//! - **アクティブユーザー**: Better Auth の `session` を使う。セッションは既定で 7 日使われないと失効し、
-//!   使われている間は `updateAge` (既定 1 日) ごとに `expiresAt` が延長されて `updatedAt` が更新される。
-//!   つまり 1 行の生存期間 `[createdAt, updatedAt]` は「その利用者がログインしてから最後に使うまで」に相当する。
-//!   ある期間に**その区間が重なる**ユーザーを、その期間のアクティブユーザーとして数える
-//!   (`updatedAt` が期間内にあるかどうかで数えると、今も使い続けている利用者の行は最新の時刻に動いてしまい、
-//!   過去の期間が実際より少なく出る)
-//! - **ログイン**: `session` の行が作られた回数 (`createdAt`)
+//! - **アクティブユーザー**: `user_daily_activity` (api が認証したリクエストを 1 人 1 日 1 行で積み上げた記録、#81。
+//!   [`crate::models::user_activity`]) から数える。記録を入れた日 ([`MeasuredActiveUsers::since`]) からしか無い
 //! - **新規ユーザー**: `user.createdAt`
 //! - **予定の作成**: 単発の `events.created_at` と初期シリーズの `event_series.created_at` (JST)。分割先・補充した回は除外
+//! - **予定の作成元**: `event_history` の `create` の行の `source` ([`creation_sources`])
+//!
+//! かつては Better Auth の `session` の生存期間からアクティブユーザーとログイン回数を推定していたが、
+//! 期限切れセッションの定期削除 (#44) で行が最後の利用から約 7 日で消えるようになり、過去の期間が
+//! さかのぼって減るので使っていない (#398)。**分析に `session` を使わない**
 //!
 //! # 精度の限界 (画面にも注記する)
 //!
-//! - 削除された単発予定は数えられない。繰り返しは初回の削除後もシリーズから数えるが、シリーズ自体の全削除では減る
-//! - **`session` の行を消すと、過去のアクティブユーザーとログイン回数がさかのぼって減る**。
-//!   定型操作の `purge-expired-sessions` (#44) だけでなく、ユーザー管理の強制ログアウト
-//!   (`admin_users::delete_sessions`、期限内のものも消える) も同じ。
-//!   ログインの推移は保存された履歴ではなく、**今残っている `session` から計算し直す推定値**
-//! - **セッションの `updatedAt` を更新するのは Better Auth (web のページ表示) だけ**で、
-//!   api の認証 (`crate::auth`) は `session` を読むだけで更新しない。そのためダッシュボードを開いたまま
-//!   予定の作成・カレンダーの再取得だけを続けている利用者は、最初の表示から 24 時間を過ぎると
-//!   アクティブから漏れる。実測 (#81) にはこの問題がない (api の認証そのものを記録している)
+//! - 予定はゴミ箱 (#159) に入っている間は数え、30 日後に完全に消えると数えられなくなる。
+//!   繰り返しは初回の削除後もシリーズから数えるが、シリーズ自体の全削除では減る
 //! - `guilds` に参加・退出の日時が無いため、ギルド数の推移は出せない (`admin_stats` と同じ制約)
-//! - `updatedAt` の更新間隔は最短 1 日なので、日単位より細かい粒度は出せない
 //! - 推移の右端 (今日 / 当月) は期間の途中までしか含まない。画面ではその旨を注記する
 //!
 //! # 走査の回数について
@@ -44,10 +30,10 @@
 //! 順に実行する。既定 5 本のプールを占有して通常の API を待たせないためと、
 //! 集計の途中で予定が作られても数字どうしが食い違わない (割合が 100% を超えるなど) ようにするため。
 //!
-//! 日付の区切りはすべて JST。`session` / `user` は `TIMESTAMPTZ` なので SQL 側で
+//! 日付の区切りはすべて JST。`user` / `event_history` は `TIMESTAMPTZ` なので SQL 側で
 //! `AT TIME ZONE 'Asia/Tokyo'` を明示し、DB の `TimeZone` 設定に依存しないようにする。
 
-use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
+use chrono::{Duration, NaiveDate, NaiveDateTime};
 use futures_util::TryStreamExt;
 use serde::Serialize;
 use sqlx::PgExecutor;
@@ -100,23 +86,11 @@ fn percent_change(current: i64, previous: i64) -> Option<f64> {
     Some((current - previous) as f64 / previous as f64 * 100.0)
 }
 
-/// アクティブユーザー数 (DAU / WAU / MAU)
+/// アクティブユーザー数 (DAU / WAU / MAU)。`user_daily_activity` (#81) から数え、JST の日付で区切る
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ActiveUsers {
-    /// 直近 1 日 (DAU)
-    pub daily: Trend,
-    /// 直近 7 日 (WAU)
-    pub weekly: Trend,
-    /// 直近 30 日 (MAU)
-    pub monthly: Trend,
-}
-
-/// 実測のアクティブユーザー数 (#81)。`user_daily_activity` から数える。
-/// 推定 ([`ActiveUsers`]) が「今」からの 24 時間刻みなのに対して、こちらは JST の日付で区切る
-#[derive(Debug, Serialize, ToSchema)]
-pub struct MeasuredActiveUsers {
     /// 記録が始まった日 (一番古い行の日付)。まだ 1 行も無ければ null。
-    /// これより前の期間は実測では数えられない (推定で見る)
+    /// これより前の期間は数えられない
     #[schema(example = "2026-08-28")]
     pub since: Option<NaiveDate>,
     /// 今日 (JST。まだ途中)。前は昨日
@@ -125,6 +99,12 @@ pub struct MeasuredActiveUsers {
     pub weekly: Trend,
     /// 今日までの 30 日間。前はその前の 30 日間
     pub monthly: Trend,
+    /// DAU/MAU 比 (stickiness、0〜1)。**昨日までの [`RECENT_DAYS`] 日間** (今日は途中なので除く) の
+    /// 日ごとの利用者数の平均を、同じ期間に 1 回でも使った人数で割ったもの。
+    /// 1 に近いほど同じ人が毎日使っている。その期間に利用が無い、または記録の開始がその期間の途中で
+    /// 平均が薄まる場合は null
+    #[schema(example = 0.18)]
+    pub stickiness: Option<f64>,
 }
 
 /// 日別の 1 点 (JST の日付)
@@ -136,10 +116,8 @@ pub struct DailyPoint {
     pub events: i64,
     /// その日に登録された利用者
     pub new_users: i64,
-    /// その日に作られたセッション (ログイン)
-    pub logins: i64,
-    /// その日に使った利用者 (実測、#81)。記録開始 ([`MeasuredActiveUsers::since`]) 前の日は 0
-    pub measured_active_users: i64,
+    /// その日に使った利用者 (#81)。記録開始 ([`ActiveUsers::since`]) 前の日は 0
+    pub active_users: i64,
 }
 
 /// 月別の 1 点 (JST の月初)
@@ -147,11 +125,22 @@ pub struct DailyPoint {
 pub struct MonthlyPoint {
     #[schema(example = "2026-08-01")]
     pub month: NaiveDate,
-    /// その月にセッションの生存期間が重なった利用者 (その月の MAU)
+    /// その月 (暦月) に 1 回でも使った利用者 (#81)。記録開始 ([`ActiveUsers::since`]) より前の月は 0、
+    /// 記録開始の月は途中からの値
     pub active_users: i64,
     pub new_users: i64,
-    pub logins: i64,
     pub events: i64,
+}
+
+/// 予定の作成元ごとの件数 (`event_history` の `create`)
+#[derive(Debug, Serialize, ToSchema, sqlx::FromRow)]
+pub struct CreationSource {
+    /// `web` (画面・API。iCalendar の取り込みを含む) / `bot` (スラッシュコマンド) /
+    /// `admin` (管理コンソール) / `mcp` (AI アシスタント)
+    #[schema(example = "web")]
+    pub source: String,
+    /// 対象期間に作られた予定の数
+    pub count: i64,
 }
 
 /// 予定の作成数（補充した回は除外）
@@ -213,64 +202,14 @@ pub struct GuildActivity {
     pub top_guilds: Vec<TopGuild>,
 }
 
-/// DAU / WAU / MAU。`now` は集計の基準時刻 (UTC)。
-///
-/// 判定はモジュールの説明のとおり「セッションの生存期間が期間に重なるか」で行う。
-/// 期間 `[s, e)` に重なる = `createdAt < e AND updatedAt >= s`
-pub async fn active_users<'e>(
-    executor: impl PgExecutor<'e>,
-    now: DateTime<Utc>,
-) -> sqlx::Result<ActiveUsers> {
-    let day = now - Duration::days(1);
-    let day_prev = now - Duration::days(2);
-    let week = now - Duration::days(7);
-    let week_prev = now - Duration::days(14);
-    let month = now - Duration::days(30);
-    let month_prev = now - Duration::days(60);
-
-    let row = sqlx::query!(
-        r#"
-        SELECT
-            count(DISTINCT "userId") FILTER (
-                WHERE "createdAt" < $1 AND "updatedAt" >= $2) AS "day!",
-            count(DISTINCT "userId") FILTER (
-                WHERE "createdAt" < $2 AND "updatedAt" >= $3) AS "day_prev!",
-            count(DISTINCT "userId") FILTER (
-                WHERE "createdAt" < $1 AND "updatedAt" >= $4) AS "week!",
-            count(DISTINCT "userId") FILTER (
-                WHERE "createdAt" < $4 AND "updatedAt" >= $5) AS "week_prev!",
-            count(DISTINCT "userId") FILTER (
-                WHERE "createdAt" < $1 AND "updatedAt" >= $6) AS "month!",
-            count(DISTINCT "userId") FILTER (
-                WHERE "createdAt" < $6 AND "updatedAt" >= $7) AS "month_prev!"
-        FROM "session"
-        "#,
-        now,
-        day,
-        day_prev,
-        week,
-        week_prev,
-        month,
-        month_prev,
-    )
-    .fetch_one(executor)
-    .await?;
-
-    Ok(ActiveUsers {
-        daily: Trend::new(row.day, row.day_prev),
-        weekly: Trend::new(row.week, row.week_prev),
-        monthly: Trend::new(row.month, row.month_prev),
-    })
-}
-
-/// 実測の DAU / WAU / MAU (#81)。`today` は JST の今日 (今日はまだ途中)。
+/// DAU / WAU / MAU と DAU/MAU 比 (#81)。`today` は JST の今日 (今日はまだ途中)。
 ///
 /// 期間は JST の日付で区切る (記録が日単位なので)。`today` より未来の日付の行は、
 /// 他の集計と同じ考え方でどの期間にも入れない (時計のずれや手動投入で入りうる)
-pub async fn measured_active_users<'e>(
+pub async fn active_users<'e>(
     executor: impl PgExecutor<'e>,
     today: NaiveDate,
-) -> sqlx::Result<MeasuredActiveUsers> {
+) -> sqlx::Result<ActiveUsers> {
     let row = sqlx::query!(
         r#"
         SELECT
@@ -282,21 +221,45 @@ pub async fn measured_active_users<'e>(
                 WHERE day > $1::date - 14 AND day <= $1::date - 7) AS "week_prev!",
             count(DISTINCT user_id) FILTER (WHERE day > $1::date - 30) AS "month!",
             count(DISTINCT user_id) FILTER (
-                WHERE day > $1::date - 60 AND day <= $1::date - 30) AS "month_prev!"
+                WHERE day > $1::date - 60 AND day <= $1::date - 30) AS "month_prev!",
+            -- DAU/MAU 比の材料。昨日までの $2 日間。主キーが (user_id, day) なので
+            -- count(*) が「日ごとの利用者数の合計」になる
+            count(*) FILTER (
+                WHERE day >= $1::date - $2::int AND day < $1) AS "stickiness_days!",
+            count(DISTINCT user_id) FILTER (
+                WHERE day >= $1::date - $2::int AND day < $1) AS "stickiness_users!"
         FROM user_daily_activity
         WHERE day <= $1
         "#,
         today,
+        RECENT_DAYS as i32,
     )
     .fetch_one(executor)
     .await?;
 
-    Ok(MeasuredActiveUsers {
+    Ok(ActiveUsers {
         since: row.since,
         daily: Trend::new(row.day, row.day_prev),
         weekly: Trend::new(row.week, row.week_prev),
         monthly: Trend::new(row.month, row.month_prev),
+        stickiness: stickiness(row.since, today, row.stickiness_days, row.stickiness_users),
     })
+}
+
+/// DAU/MAU 比。`user_days` は昨日までの [`RECENT_DAYS`] 日間の (利用者, 日) の組の数、
+/// `users` は同じ期間の利用者数。記録の開始がその期間より後なら、記録の無い日が 0 人として
+/// 平均に入って低く出るので出さない
+fn stickiness(
+    since: Option<NaiveDate>,
+    today: NaiveDate,
+    user_days: i64,
+    users: i64,
+) -> Option<f64> {
+    let window_start = today - Duration::days(RECENT_DAYS);
+    if users == 0 || since.is_none_or(|since| since > window_start) {
+        return None;
+    }
+    Some(user_days as f64 / RECENT_DAYS as f64 / users as f64)
 }
 
 /// 日別の推移 ([`DAILY_DAYS`] 日ぶん、古い順)。`today` は JST の今日。
@@ -330,16 +293,9 @@ pub async fn daily<'e>(
               AND "createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
             GROUP BY 1
         ),
-        lg AS (
-            SELECT ("createdAt" AT TIME ZONE 'Asia/Tokyo')::date AS day, count(*) AS n
-            FROM "session"
-            WHERE "createdAt" >= ($1::timestamp::date - ($2::int - 1))::timestamp AT TIME ZONE 'Asia/Tokyo'
-              AND "createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
-            GROUP BY 1
-        ),
-        -- 実測のアクティブユーザー (#81)。主キーが (user_id, day) なので count(*) が人数になる。
+        -- アクティブユーザー (#81)。主キーが (user_id, day) なので count(*) が人数になる。
         -- 右端 (今日) は日付単位の記録なので、集計時刻ではなく日付そのもので切る
-        ma AS (
+        au AS (
             SELECT day, count(*) AS n
             FROM user_daily_activity
             WHERE day >= ($1::timestamp::date - ($2::int - 1))
@@ -350,13 +306,11 @@ pub async fn daily<'e>(
             d.day AS "date!",
             COALESCE(ev.n, 0) AS "events!",
             COALESCE(nu.n, 0) AS "new_users!",
-            COALESCE(lg.n, 0) AS "logins!",
-            COALESCE(ma.n, 0) AS "measured_active_users!"
+            COALESCE(au.n, 0) AS "active_users!"
         FROM days d
         LEFT JOIN ev ON ev.day = d.day
         LEFT JOIN nu ON nu.day = d.day
-        LEFT JOIN lg ON lg.day = d.day
-        LEFT JOIN ma ON ma.day = d.day
+        LEFT JOIN au ON au.day = d.day
         ORDER BY d.day
         "#,
         now,
@@ -366,12 +320,9 @@ pub async fn daily<'e>(
     .await
 }
 
-/// 月別の推移 ([`MONTHLY_MONTHS`] ヶ月ぶん、古い順)。`now` は集計の基準時刻 (UTC)。
+/// 月別の推移 ([`MONTHLY_MONTHS`] ヶ月ぶん、古い順)。`now` は集計の基準時刻 (JST)。
 ///
-/// 月の区切りは JST。`active_users` はその月にセッションの生存期間が重なった利用者の数で、
-/// 期限切れセッションを削除するとさかのぼって減る。
-/// 生存期間の重なりは月ごとの集計にできないので `months` との結合で数えるが、
-/// `session` の走査は 1 回で済ませる
+/// 月の区切りは JST。`active_users` はその暦月に 1 回でも使った利用者の数 (`user_daily_activity`)
 pub async fn monthly<'e>(
     executor: impl PgExecutor<'e>,
     now: NaiveDateTime,
@@ -402,33 +353,21 @@ pub async fn monthly<'e>(
               AND u."createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
             GROUP BY 1
         ),
-        lg AS (
-            SELECT date_trunc('month', s."createdAt" AT TIME ZONE 'Asia/Tokyo') AS month_start,
-                   count(*) AS n
-            FROM "session" s, span
-            WHERE s."createdAt" >= span.lo AT TIME ZONE 'Asia/Tokyo'
-              AND s."createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
-            GROUP BY 1
-        ),
+        -- 右端は日付単位の記録なので、日別と同じく今日の日付そのもので切る
         au AS (
-            SELECT m.month_start, count(DISTINCT s."userId") AS n
-            FROM months m
-            LEFT JOIN "session" s
-              ON s."createdAt" < (m.month_start + interval '1 month') AT TIME ZONE 'Asia/Tokyo'
-             AND s."createdAt" <= $1 AT TIME ZONE 'Asia/Tokyo'
-             AND s."updatedAt" >= m.month_start AT TIME ZONE 'Asia/Tokyo'
-            GROUP BY m.month_start
+            SELECT date_trunc('month', a.day) AS month_start, count(DISTINCT a.user_id) AS n
+            FROM user_daily_activity a, span
+            WHERE a.day >= span.lo::date AND a.day <= $1::timestamp::date
+            GROUP BY 1
         )
         SELECT
             m.month_start::date AS "month!",
             COALESCE(au.n, 0) AS "active_users!",
             COALESCE(nu.n, 0) AS "new_users!",
-            COALESCE(lg.n, 0) AS "logins!",
             COALESCE(ev.n, 0) AS "events!"
         FROM months m
         LEFT JOIN au ON au.month_start = m.month_start
         LEFT JOIN nu ON nu.month_start = m.month_start
-        LEFT JOIN lg ON lg.month_start = m.month_start
         LEFT JOIN ev ON ev.month_start = m.month_start
         ORDER BY m.month_start
         "#,
@@ -594,6 +533,39 @@ pub async fn top_guilds<'e>(
     .await
 }
 
+/// `since` より後に作られた予定を作成元 (`event_history.source`) ごとに数える。多い順。
+///
+/// 予定の作成は 1 件につき `create` の履歴が 1 行入る (繰り返しは最初の回にだけ入り、補充した回には入らない)
+/// ので、件数は [`EventCreation`] とおおむね揃う。ただし次の分だけずれる (画面にも注記する)
+///
+/// - 履歴は 180 日で消え、ゴミ箱から完全に消えた予定の履歴も一緒に消える (`ON DELETE CASCADE`)
+/// - 予定ごとの上限 (`event_history::MAX_PER_EVENT`) を超えて更新された予定は、古い `create` の行から消える
+/// - 履歴の記録 (#165) より前に作られた予定は数えられない
+///
+/// iCalendar の取り込み (`routes::imports`) は画面からの操作なので `web` に入る
+pub async fn creation_sources<'e>(
+    executor: impl PgExecutor<'e>,
+    since: NaiveDateTime,
+    now: NaiveDateTime,
+) -> sqlx::Result<Vec<CreationSource>> {
+    sqlx::query_as!(
+        CreationSource,
+        r#"
+        SELECT source AS "source!", count(*) AS "count!"
+        FROM event_history
+        WHERE action = 'create'
+          AND created_at >= $1::timestamp AT TIME ZONE 'Asia/Tokyo'
+          AND created_at <= $2::timestamp AT TIME ZONE 'Asia/Tokyo'
+        GROUP BY source
+        ORDER BY count(*) DESC, source
+        "#,
+        since,
+        now,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// 参加中のギルドの設定状況 (通知先チャンネルの ID が正しい形式の数, restricted の数)。
 ///
 /// 通知先は「行があること」ではなく `channel_id` が **Snowflake として正しい形式か** で数える
@@ -632,7 +604,9 @@ pub async fn guild_settings<'e>(executor: impl PgExecutor<'e>) -> sqlx::Result<(
 
 #[cfg(test)]
 mod tests {
-    use super::{Trend, percent_change};
+    use chrono::NaiveDate;
+
+    use super::{Trend, percent_change, stickiness};
 
     #[test]
     fn computes_the_change_against_the_previous_period() {
@@ -652,5 +626,29 @@ mod tests {
         assert_eq!(trend.delta, 1);
         assert_eq!(trend.change_percent, None);
         assert_eq!(percent_change(0, 0), None);
+    }
+
+    fn date(s: &str) -> NaiveDate {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn stickiness_is_the_average_dau_over_mau() {
+        // 30 日間に 10 人。延べ 60 (人・日) なら 1 日平均 2 人 = 0.2
+        let today = date("2026-11-15");
+        let ratio = stickiness(Some(date("2026-08-28")), today, 60, 10).unwrap();
+        assert!((ratio - 0.2).abs() < 1e-9);
+        // 記録開始がちょうど期間の初日なら出す
+        assert!(stickiness(Some(date("2026-10-16")), today, 60, 10).is_some());
+    }
+
+    #[test]
+    fn stickiness_is_unknown_without_a_full_window() {
+        let today = date("2026-11-15");
+        // 利用が無い
+        assert_eq!(stickiness(Some(date("2026-08-28")), today, 0, 0), None);
+        assert_eq!(stickiness(None, today, 0, 0), None);
+        // 記録の開始が期間の途中だと、記録の無い日が 0 人として平均を下げてしまう
+        assert_eq!(stickiness(Some(date("2026-10-17")), today, 60, 10), None);
     }
 }

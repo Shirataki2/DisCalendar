@@ -93,8 +93,8 @@ async fn stats_count_guilds_events_and_users(pool: PgPool) {
     // 2020 年の予定は終わっている
     assert_eq!(counts.upcoming_events, 2);
     assert_eq!(counts.users, 2);
+    // 期限切れのセッションは数えない
     assert_eq!(counts.active_sessions, 2);
-    assert_eq!(counts.sessions, 3);
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -287,8 +287,17 @@ async fn migration_status_is_clean_after_migrating(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn users_are_searchable_and_do_not_expose_tokens(pool: PgPool) {
     create_auth_tables(&pool).await;
+    // 最終利用日は利用の記録 (#81) の一番新しい日。期限切れのセッションは定期的に消えるので使わない
+    sqlx::raw_sql(
+        "INSERT INTO user_daily_activity (user_id, day) VALUES ('u1', '2026-08-20'), ('u1', '2026-08-24')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let all = admin_users::list(&pool, "", 1).await.unwrap();
+    // 記録の無い利用者は null
+    assert_eq!(all[0].last_active_on, None);
     assert_eq!(all.len(), 2);
     // 新規登録が新しい順
     assert_eq!(all[0].id, "u2");
@@ -302,9 +311,12 @@ async fn users_are_searchable_and_do_not_expose_tokens(pool: PgPool) {
         by_name[0].discord_user_id.as_deref(),
         Some("123456789012345678")
     );
+    // 期限切れのセッションは数えない
     assert_eq!(by_name[0].active_sessions, 1);
-    assert_eq!(by_name[0].sessions, 2);
-    assert!(by_name[0].last_session_at.is_some());
+    assert_eq!(
+        by_name[0].last_active_on,
+        Some("2026-08-24".parse().unwrap())
+    );
 
     // メールアドレスの部分一致と Discord ユーザー ID の完全一致でも引ける
     assert_eq!(admin_users::count(&pool, "bob@").await.unwrap(), 1);

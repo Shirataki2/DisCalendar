@@ -153,7 +153,7 @@ function StatsSection({ stats }: { stats: AdminStats }) {
           <Stat
             label="ユーザー"
             value={counts.users}
-            note={`ログイン中のセッション ${counts.active_sessions.toLocaleString()} (期限切れ含め ${counts.sessions.toLocaleString()})`}
+            note={`ログイン中のセッション ${counts.active_sessions.toLocaleString()}`}
             href={ROUTES.adminUsers}
           />
         </li>
