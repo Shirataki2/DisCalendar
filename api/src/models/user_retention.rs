@@ -9,7 +9,7 @@
 //!
 //! # 定義
 //!
-//! - 登録日当日の利用は数えない (登録した時点で必ず 1 回使っているので、定着の判定にならない)
+//! - 登録日当日の利用はどの列にも数えない (登録した時点で必ず 1 回使っているので、定着の判定にならない)
 //! - 7 日 / 30 日の割合の分母は、**その日数が今日より前に過ぎ切った人だけ** (`*_eligible`)。
 //!   今日はまだ途中なので、`登録日 + N < 今日` の人に限る。登録したばかりの人を分母に入れると、
 //!   まだ戻ってくる時間が無いのに「戻らなかった」側に数えてしまう
@@ -100,7 +100,8 @@ pub async fn user_retention(
             SELECT r.id,
                    bool_or(a.day > r.reg AND a.day <= r.reg + 7) AS week,
                    bool_or(a.day > r.reg + 7 AND a.day <= r.reg + 30) AS month,
-                   bool_or(a.day > $5::date) AS recent
+                   -- 直近の利用も登録日当日は除く (登録しただけの人が全員入ってしまう)
+                   bool_or(a.day > $5::date AND a.day > r.reg) AS recent
             FROM registered r
             JOIN user_daily_activity a ON a.user_id = r.id AND a.day <= $1::timestamp::date
             GROUP BY r.id

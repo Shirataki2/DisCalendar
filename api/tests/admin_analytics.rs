@@ -424,7 +424,8 @@ async fn user_retention_counts_returns_after_registration(pool: PgPool) {
             ('b', 'B', 'b@example.com', '2026-07-09T15:30:00Z'), -- JST 07-10
             -- 8 月登録: 08-17 は 7 日が過ぎ切っている (08-24 まで)、08-20 はまだ
             ('c', 'C', 'c@example.com', '2026-08-16T15:30:00Z'), -- JST 08-17
-            ('d', 'D', 'd@example.com', '2026-08-19T15:30:00Z'); -- JST 08-20
+            ('d', 'D', 'd@example.com', '2026-08-19T15:30:00Z'), -- JST 08-20
+            ('e', 'E', 'e@example.com', '2026-08-22T15:30:00Z'); -- JST 08-23
         INSERT INTO user_daily_activity (user_id, day) VALUES
             ('old', '2026-07-01'),
             -- a: 登録日だけでなく翌日にも使い、20 日目にも戻ってきた
@@ -434,7 +435,9 @@ async fn user_retention_counts_returns_after_registration(pool: PgPool) {
             -- c: 7 日目 (08-24) に使った。直近 30 日にも入る
             ('c', '2026-08-17'), ('c', '2026-08-24'),
             -- d: 3 日目に使ったが、まだ 7 日が過ぎ切っていないので分母にも分子にも入らない
-            ('d', '2026-08-22');
+            ('d', '2026-08-22'),
+            -- e: 登録日 (直近 30 日の中) にしか使っていない。直近の利用にも数えない
+            ('e', '2026-08-23');
         "#,
     )
     .execute(&pool)
@@ -452,11 +455,11 @@ async fn user_retention_counts_returns_after_registration(pool: PgPool) {
     assert_eq!(months, vec![date("2026-08-01"), date("2026-07-01")]);
 
     let august = &retention.cohorts[0];
-    assert_eq!(august.users, 2);
+    assert_eq!(august.users, 3);
     assert_eq!(august.week_eligible, 1); // c
     assert_eq!(august.week_returned, 1); // c (08-24)
     assert_eq!(august.month_eligible, 0);
-    assert_eq!(august.active, 2); // c / d
+    assert_eq!(august.active, 2); // c / d (e は登録日にしか使っていない)
 
     let july = &retention.cohorts[1];
     assert_eq!(july.users, 2); // a / b (old は記録開始前の登録なので入らない)
