@@ -16,6 +16,7 @@ import type {
   AttachmentReservation,
   AttachmentUrl,
   ChangeScope,
+  CoverResult,
   EventAttachment,
   EventHistoryEntry,
   ExternalCalendar,
@@ -248,6 +249,15 @@ export function createApi(request: ApiFetcher) {
         request<void>(`/events/${guildId}/${eventId}/attachments/${id}`, {
           method: "DELETE",
         }),
+      /** Discord イベントのカバーにする添付を指定する (`null` で外す。#403) */
+      setCover: (guildId: string, eventId: number, id: string | null) =>
+        request<CoverResult>(
+          `/events/${guildId}/${eventId}/attachments/cover`,
+          {
+            method: "PUT",
+            body: { attachment_id: id },
+          },
+        ),
     },
     push: {
       get: () => request<PushSettings>("/users/@me/push-subscriptions"),

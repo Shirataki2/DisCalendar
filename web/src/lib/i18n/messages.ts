@@ -403,6 +403,26 @@ export const english: Readonly<
       other:
         "Showing events from {count} servers. Create and edit events in each server’s calendar.",
     },
+  "Discordのイベントのカバーにできるのは JPEG・PNG・WebP の画像です":
+    "Only JPEG, PNG or WebP images can be used as the Discord event cover",
+  Discordのイベントのカバーにできる画像は8MiBまでです:
+    "Discord event cover images must be 8 MiB or smaller",
+  繰り返し予定にはDiscordのイベントのカバーを設定できません:
+    "Recurring events cannot have a Discord event cover",
+  "Discordのイベントが見つかりません。予定を保存し直すとイベントを作り直します":
+    "The Discord event was not found. Save the event again to recreate it",
+  "Discordがこの画像を受け付けませんでした。形式や大きさを見直してください":
+    "Discord did not accept this image. Check its format and size",
+  "Discord のカバー": "Discord cover",
+  "Discord のカバーにする": "Use as Discord cover",
+  カバーを外す: "Remove cover",
+  "画像の 1 枚を Discord のイベントのカバーにできます (JPEG・PNG・WebP / 8 MiB まで。推奨 800×320 の横長)":
+    "You can use one image as the Discord event cover (JPEG, PNG or WebP, up to 8 MiB; 800×320 landscape recommended)",
+  "カバーの指定は保存しましたが、Discord のイベントに反映できませんでした。":
+    "The cover was saved, but it could not be applied to the Discord event.",
+  "Discord への反映を再試行": "Retry applying to Discord",
+  "カバーを指定できませんでした。": "The cover could not be set.",
+  カバーの指定を再試行: "Retry setting the cover",
   "JPEG・PNG・WebP・PDFを選択してください":
     "Select a JPEG, PNG, WebP or PDF file",
   "JPEG・PNG・WebP・PDFを有効なファイル名で指定してください":

@@ -9,6 +9,12 @@ use crate::error::ApiError;
 pub const FILE_MAX_BYTES: i64 = 10 * 1024 * 1024;
 pub const EVENT_MAX_FILES: i64 = 10;
 pub const GUILD_MAX_BYTES: i64 = 1024 * 1024 * 1024;
+/// Discord スケジュールイベントのカバーにできる画像の上限 (#403)。
+/// Discord はリクエスト本文の大きさで画像を弾くことがあり、data URI (base64) にすると約 4/3 倍になるので、
+/// 添付の上限 (10MiB) より小さくしておく
+pub const COVER_MAX_BYTES: i64 = 8 * 1024 * 1024;
+/// Discord のカバーにできる形式
+pub const COVER_TYPES: [&str; 3] = ["image/jpeg", "image/png", "image/webp"];
 
 #[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
 pub struct Attachment {
@@ -17,6 +23,8 @@ pub struct Attachment {
     pub size: i64,
     pub content_type: String,
     pub created_at: DateTime<Utc>,
+    /// Discord スケジュールイベントのカバー画像にしている添付か (#403。1 予定 1 枚)
+    pub discord_cover: bool,
     #[serde(skip)]
     #[schema(ignore)]
     pub temporary_key: String,
@@ -163,4 +171,64 @@ pub fn detected_type(bytes: &[u8]) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Discord のカバーにできる添付か確かめる (#403)。理由は web にそのまま表示する
+pub fn validate_cover(row: &Attachment) -> Result<(), ApiError> {
+    if !row.ready {
+        return Err(ApiError::NotFound("attachment not found".into()));
+    }
+    if !COVER_TYPES.contains(&row.content_type.as_str()) {
+        return Err(ApiError::BadRequest(
+            "Discordのイベントのカバーにできるのは JPEG・PNG・WebP の画像です".into(),
+        ));
+    }
+    if row.size > COVER_MAX_BYTES {
+        return Err(ApiError::BadRequest(
+            "Discordのイベントのカバーにできる画像は8MiBまでです".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// 予定のカバーを `attachment_id` に付け替える (`None` で外す)。呼び出し側で `lock_event` 済みのこと
+pub async fn set_cover(
+    conn: &mut PgConnection,
+    guild_id: &str,
+    event_id: i32,
+    attachment_id: Option<&str>,
+) -> Result<(), ApiError> {
+    let target = match attachment_id {
+        Some(id) => {
+            let row = find(&mut *conn, guild_id, event_id, id).await?;
+            validate_cover(&row)?;
+            Some(row.id)
+        }
+        None => None,
+    };
+    // 一意制約 (1 予定 1 枚) に触れないよう、先に外してから付ける
+    sqlx::query("UPDATE event_attachments SET discord_cover=false WHERE guild_id=$1 AND event_id=$2 AND discord_cover AND id IS DISTINCT FROM $3")
+        .bind(guild_id).bind(event_id).bind(&target).execute(&mut *conn).await?;
+    if let Some(id) = target {
+        sqlx::query("UPDATE event_attachments SET discord_cover=true WHERE id=$1")
+            .bind(id)
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
+/// 予定のカバーにしている添付 (無ければ `None`)
+pub async fn find_cover(
+    pool: &PgPool,
+    guild_id: &str,
+    event_id: i32,
+) -> sqlx::Result<Option<Attachment>> {
+    sqlx::query_as(
+        "SELECT * FROM event_attachments WHERE guild_id=$1 AND event_id=$2 AND discord_cover AND ready",
+    )
+    .bind(guild_id)
+    .bind(event_id)
+    .fetch_optional(pool)
+    .await
 }

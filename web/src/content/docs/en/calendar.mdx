@@ -103,6 +103,16 @@ Use **Recheck permissions** after permissions change. Otherwise reopen the page 
 Changes made directly in Discord do not update the calendar. Editing the calendar later overwrites or recreates the Discord event.
 </Callout>
 
+<h4 id="discord-cover">Discord event cover</h4>
+
+When sync is enabled, images in **Files & sharing** show **Use as Discord cover**. The chosen image (one per event) becomes the cover of the Discord event. **Remove cover**, or deleting that attachment, also removes it in Discord.
+
+- Covers must be **JPEG, PNG, or WebP up to 8 MiB**. Other files show the reason.
+- Discord shows covers in landscape, so about **800×320 (5:2)** is recommended.
+- Repeating events cannot sync with Discord, so they cannot have a cover.
+- If applying the cover to Discord fails, the choice is still saved. Use **Retry applying to Discord**.
+- The chosen cover is kept after disabling sync and is used again when you re-enable it.
+
 ### Reminders
 
 The bot posts embeds at the start time and each configured advance reminder time to the channel set in Server settings or `/init`. Start-time reminders can still be sent with no advance reminders; disable them in Server settings if desired. Server defaults initially include 1 day and 1 hour before, unless personal defaults override them.

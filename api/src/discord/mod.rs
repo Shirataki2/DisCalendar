@@ -852,12 +852,27 @@ impl DiscordClient {
         path: &str,
         body: Option<&serde_json::Value>,
     ) -> Result<Option<String>, DiscordError> {
+        self.send_with_timeout(method, path, body, None).await
+    }
+
+    /// [`Self::send`] のタイムアウトを 1 リクエストだけ変える版。画像 (data URI) を載せると
+    /// 本文が数 MB になり、既定の 10 秒では送り切れないことがあるため (#403)
+    async fn send_with_timeout(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        timeout: Option<Duration>,
+    ) -> Result<Option<String>, DiscordError> {
         let url = format!("{}{path}", self.api_base);
         let mut retried = false;
         loop {
             let mut req = self.http.request(method.clone(), &url);
             if let Some(body) = body {
                 req = req.json(body);
+            }
+            if let Some(timeout) = timeout {
+                req = req.timeout(timeout);
             }
             let res = req.send().await?;
             let status = res.status();

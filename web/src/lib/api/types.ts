@@ -937,6 +937,17 @@ export interface EventAttachment {
   size: number;
   content_type: string;
   created_at: string;
+  /** Discord スケジュールイベントのカバー画像にしている添付か (#403。1 予定 1 枚) */
+  discord_cover: boolean;
+}
+/** カバー画像の指定結果 (#403)。カバーの保存は Discord への反映の成否に関わらず確定している */
+export interface CoverResult {
+  attachments: EventAttachment[];
+  discord: {
+    /** synced = 反映済み、not_linked = 連携していない (次に連携したときに使う)、failed = 反映に失敗 */
+    status: "synced" | "not_linked" | "failed";
+    error: ApiErrorBody | null;
+  };
 }
 export interface AttachmentLimits {
   enabled: boolean;

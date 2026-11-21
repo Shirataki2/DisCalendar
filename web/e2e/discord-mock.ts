@@ -30,6 +30,8 @@ import {
 // テストからは直接触れないので、HTTP で伝える):
 // - PUT / DELETE /_test/guilds/{id}              Bot の参加状況 (setBotJoined)
 // - PUT / DELETE /_test/guilds/{id}/permissions  「イベントの作成」権限 (setGuildEventPermissions、#122)
+// - GET /_test/scheduled-events/{sid}            届いたカバー画像 (scheduledEventImage、#403)
+// - PUT / DELETE /_test/scheduled-events/image-failure  画像付きの要求を 500 にする (setImageFailure、#403)
 
 /** Bot が参加しているギルド。テスト中に setBotJoined で増減する */
 const joinedGuilds = new Map<string, E2EGuild>(
@@ -99,6 +101,27 @@ export async function setGuildEventPermissions(
  * テスト中に Bot がギルドに参加した / 退出した状態にする (招待の再現)。
  * モックは globalSetup のプロセスで動いていてテストからは直接触れないので、HTTP で伝える
  */
+/** スケジュールイベントに届いているカバー画像 (data URI。無ければ null、イベントが無ければ undefined) */
+export async function scheduledEventImage(
+  scheduledEventId: string,
+): Promise<string | null | undefined> {
+  const res = await fetch(
+    `${DISCORD_MOCK_URL}/_test/scheduled-events/${scheduledEventId}`,
+  );
+  if (res.status === 404) return undefined;
+  if (!res.ok) throw new Error(`カバー画像の確認に失敗: ${res.status}`);
+  return ((await res.json()) as { image: string | null }).image;
+}
+
+/** 画像を含む要求 (作成・変更) を 500 で失敗させる (#403)。テストの後始末で false に戻す */
+export async function setImageFailure(fail: boolean) {
+  const res = await fetch(
+    `${DISCORD_MOCK_URL}/_test/scheduled-events/image-failure`,
+    { method: fail ? "PUT" : "DELETE" },
+  );
+  if (!res.ok) throw new Error(`画像の失敗設定に失敗: ${res.status}`);
+}
+
 export async function setBotJoined(
   guildId: string,
   botJoined: boolean,
@@ -243,11 +266,15 @@ function guildChannels(guild: E2EGuild) {
 
 /** Bot が作ったスケジュールイベント (scheduled_event_id → ギルド)。テスト実行中だけ持つ */
 const scheduledEvents = new Map<string, string>();
+/** スケジュールイベントのカバー画像 (#403)。キーの無い PATCH では変えない (Discord と同じ) */
+const scheduledImages = new Map<string, string | null>();
+let failImages = false;
 let nextScheduledEventId = 1;
 
 export function startDiscordMock(port: number): Promise<Server> {
   const server = createServer((req, res) => {
-    // リクエストボディは使わないので読み捨てる (未読のままだと接続の後始末で詰まることがある)
+    // ボディはスケジュールイベント (#403) と Activity のコード交換だけが読む。
+    // それ以外は読み捨てる (未読のままだと接続の後始末で詰まることがある)
     req.resume();
     const url = new URL(req.url ?? "/", "http://discord.local");
     const auth = req.headers.authorization ?? "";
@@ -316,6 +343,18 @@ export function startDiscordMock(port: number): Promise<Server> {
       return json(200, { id: "900000000000001001" });
     }
 
+    // テスト専用 (Discord には無い): カバー画像の確認と失敗の注入 (#403)
+    if (url.pathname === "/_test/scheduled-events/image-failure") {
+      failImages = req.method === "PUT";
+      return json(200, { fail: failImages });
+    }
+    const imageMatch = /^\/_test\/scheduled-events\/(\d+)$/.exec(url.pathname);
+    if (imageMatch && req.method === "GET") {
+      if (!scheduledEvents.has(imageMatch[1]))
+        return notFound("Unknown Guild Scheduled Event", 180000);
+      return json(200, { image: scheduledImages.get(imageMatch[1]) ?? null });
+    }
+
     // スケジュールイベント (#94)。Bot トークン + 「イベントの作成」権限が必要
     const scheduledMatch =
       /^\/guilds\/(\d+)\/scheduled-events(?:\/(\d+))?$/.exec(url.pathname);
@@ -331,26 +370,44 @@ export function startDiscordMock(port: number): Promise<Server> {
       if (!guild.botCreateEvents) {
         return json(403, { message: "Missing Permissions", code: 50013 });
       }
-      if (req.method === "POST" && scheduledEventId === undefined) {
-        const id = `900000000000000${String(nextScheduledEventId++).padStart(3, "0")}`;
-        scheduledEvents.set(id, guildId);
-        return json(200, { id, guild_id: guildId });
-      }
-      if (
-        (req.method === "PATCH" || req.method === "DELETE") &&
-        scheduledEventId !== undefined
-      ) {
-        if (scheduledEvents.get(scheduledEventId) !== guildId) {
-          return notFound("Unknown Guild Scheduled Event", 180000);
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        let body: { image?: string | null } = {};
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+        } catch {
+          return json(400, { message: "400: Bad Request", code: 50109 });
         }
-        if (req.method === "DELETE") {
-          scheduledEvents.delete(scheduledEventId);
-          res.writeHead(204);
-          return res.end();
+        if (failImages && typeof body.image === "string") {
+          return json(500, { message: "500: Internal Server Error", code: 0 });
         }
-        return json(200, { id: scheduledEventId, guild_id: guildId });
-      }
-      return json(405, { message: "Method Not Allowed", code: 0 });
+        if (req.method === "POST" && scheduledEventId === undefined) {
+          const id = `900000000000000${String(nextScheduledEventId++).padStart(3, "0")}`;
+          scheduledEvents.set(id, guildId);
+          scheduledImages.set(id, body.image ?? null);
+          return json(200, { id, guild_id: guildId });
+        }
+        if (
+          (req.method === "PATCH" || req.method === "DELETE") &&
+          scheduledEventId !== undefined
+        ) {
+          if (scheduledEvents.get(scheduledEventId) !== guildId) {
+            return notFound("Unknown Guild Scheduled Event", 180000);
+          }
+          if (req.method === "DELETE") {
+            scheduledEvents.delete(scheduledEventId);
+            scheduledImages.delete(scheduledEventId);
+            res.writeHead(204);
+            return res.end();
+          }
+          if ("image" in body)
+            scheduledImages.set(scheduledEventId, body.image ?? null);
+          return json(200, { id: scheduledEventId, guild_id: guildId });
+        }
+        return json(405, { message: "Method Not Allowed", code: 0 });
+      });
+      return;
     }
 
     // Discord の Activity (#350) のコード交換。E2E_ACTIVITY_CODE だけを受け付け、テストユーザーと同じアクセストークンを返す

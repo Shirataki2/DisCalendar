@@ -83,7 +83,7 @@ import {
   withCheckedDiscordEvent,
 } from "@/lib/event-form";
 import { formatDisplayDate } from "@/lib/i18n";
-import { useAttachmentQueue } from "@/lib/query/attachments";
+import { useAttachmentQueue, useSetCover } from "@/lib/query/attachments";
 import { describeRecurrence } from "@/lib/recurrence";
 
 export type EventDialogState =
@@ -317,6 +317,55 @@ function EventForm({
     target.scrollIntoView({ block: "nearest" });
   }, [errors, submitCount, previewDescription, tab]);
   const notifications = useWatch({ control, name: "notifications" });
+  // Discord イベントのカバー (#403)。連携がオンで、繰り返し予定でないときだけ選べる
+  // (繰り返し予定は Discord イベントと連携できない)
+  const discordEventChecked = useWatch({ control, name: "discordEvent" });
+  const coverSelectable =
+    !!mentionGuildId &&
+    !!discordSync &&
+    !!discordEventChecked &&
+    !recurrenceEnabled &&
+    !(state.mode === "edit" && state.event.recurrence);
+  const setCoverRequest = useSetCover(mentionGuildId);
+  // 送信前の添付から選んだカバー (選択時のキー)。保存・送信の後に指定する
+  const [pendingCoverKey, setPendingCoverKey] = useState<string | null>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
+  // 保存処理・閉じる判定は描画前の値を見るので、反映中か・失敗が残っているかを ref でも持つ
+  const coverBusyRef = useRef(false);
+  const coverFailedRef = useRef(false);
+  // 失敗したカバー指定。`saved` = カバーの保存はできて Discord への反映だけ失敗した。
+  // `target` を送り直すと再試行になる
+  const [coverFailure, setCoverFailure] = useState<{
+    error: unknown;
+    target: string | null;
+    saved: boolean;
+  } | null>(null);
+  async function applyCover(eventId: number, target: string | null) {
+    coverBusyRef.current = true;
+    setCoverBusy(true);
+    try {
+      const error = await setCoverRequest(eventId, target);
+      coverFailedRef.current = !!error;
+      setCoverFailure(error ? { error, target, saved: true } : null);
+      return !error;
+    } catch (error) {
+      coverFailedRef.current = true;
+      setCoverFailure({ error, target, saved: false });
+      return false;
+    } finally {
+      coverBusyRef.current = false;
+      setCoverBusy(false);
+    }
+  }
+  /** 送信できた添付から、選んであったカバーを指定する。指定できなければ false */
+  async function applyPendingCover(eventId: number) {
+    if (!pendingCoverKey || !coverSelectable) return true;
+    const id = uploads.uploadedId(pendingCoverKey);
+    // まだ送信できていない (送信の失敗は添付欄に出ている)。再試行で送れたら改めて指定する
+    if (!id) return false;
+    setPendingCoverKey(null);
+    return applyCover(eventId, id);
+  }
   const notificationSummary = notifications.length
     ? notifications
         .map((notification) => describeNotification(notification, language))
@@ -329,11 +378,13 @@ function EventForm({
     basic: Object.keys(errors).some(
       (key) => key !== "notifications" && key !== "notificationMentions",
     ),
-    files: !!savedEvent && uploads.items.length > 0,
+    files: (!!savedEvent && uploads.items.length > 0) || !!coverFailure,
   };
   // 次のキー入力より前に破棄判定を更新し、設定直後のEscapeでも入力を保護する。
   useLayoutEffect(() => {
     closeGuard.current = () => {
+      // カバーを Discord に反映している間は閉じない (結果と失敗の表示を失わない)
+      if (coverBusyRef.current) return false;
       if (
         isDirty ||
         recurrenceDirty ||
@@ -413,6 +464,8 @@ function EventForm({
   };
 
   const submit = handleSubmit(async (values) => {
+    // カバーの反映中は保存しない (ボタンは無効だが、Enter による送信もここで止める)
+    if (coverBusyRef.current) return;
     setSubmitError(null);
     const submittedValues = getValues();
     try {
@@ -433,11 +486,17 @@ function EventForm({
       setRecurrence(saved.recurrence?.rule ?? { frequency: "none" });
       // 添付だけ失敗した場合も、保存済みの入力は破棄確認の対象から外す。
       form.reset(submittedValues, { keepValues: true });
-      if (!mentionGuildId || (await uploads.upload(saved.id))) {
+      if (
+        !mentionGuildId ||
+        ((await uploads.upload(saved.id)) &&
+          (await applyPendingCover(saved.id)) &&
+          // 先に指定したカバーの反映に失敗したままなら、理由と再試行を見せるため閉じない
+          !coverFailedRef.current)
+      ) {
         closeGuard.current = null;
         onClose();
       } else {
-        // 添付の失敗理由と再送は「添付・共有」タブにしか出ないので、そちらを開く。
+        // 添付・カバーの失敗理由と再送は「添付・共有」タブにしか出ないので、そちらを開く。
         setTab("files");
       }
     } catch (error) {
@@ -915,6 +974,28 @@ function EventForm({
                         guildId={mentionGuildId}
                         eventId={attachmentEventId}
                         editable={!uploads.busy}
+                        cover={{
+                          selectable: coverSelectable,
+                          busy: coverBusy || isSubmitting,
+                          onChange: (id) => {
+                            setPendingCoverKey(null);
+                            void applyCover(attachmentEventId, id);
+                          },
+                          // 失敗したカバーの画像 (または外せなかった今のカバー) を消したら、
+                          // その失敗はもう解消できないので取り下げる。外す指定の失敗は、
+                          // 削除時に api が Discord 側の画像も外すので同じく取り下げてよい
+                          onRemoved: (file) => {
+                            if (
+                              coverFailure &&
+                              (coverFailure.target === file.id ||
+                                (coverFailure.target === null &&
+                                  file.discord_cover))
+                            ) {
+                              coverFailedRef.current = false;
+                              setCoverFailure(null);
+                            }
+                          },
+                        }}
                       />
                     )}
                     <AttachmentPicker
@@ -926,9 +1007,50 @@ function EventForm({
                       onRemove={uploads.discard}
                       onRetry={() => {
                         if (attachmentEventId)
-                          void uploads.upload(attachmentEventId);
+                          void uploads
+                            .upload(attachmentEventId)
+                            .then(
+                              (ok) =>
+                                ok && applyPendingCover(attachmentEventId),
+                            );
                       }}
+                      cover={{
+                        selectable: coverSelectable,
+                        onChange: setPendingCoverKey,
+                      }}
+                      coverKey={pendingCoverKey}
                     />
+                    {coverFailure && attachmentEventId && (
+                      <div role="alert" className="space-y-2 text-sm">
+                        <p className="text-destructive">
+                          {coverFailure.saved
+                            ? t(
+                                "カバーの指定は保存しましたが、Discord のイベントに反映できませんでした。",
+                              )
+                            : t("カバーを指定できませんでした。")}{" "}
+                          {coverFailure.error instanceof ApiError &&
+                          coverFailure.error.kind === "not_found"
+                            ? t(coverFailure.error.message)
+                            : describeApiError(coverFailure.error, language)}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={coverBusy}
+                          onClick={() =>
+                            void applyCover(
+                              attachmentEventId,
+                              coverFailure.target,
+                            )
+                          }
+                        >
+                          {coverFailure.saved
+                            ? t("Discord への反映を再試行")
+                            : t("カバーの指定を再試行")}
+                        </Button>
+                      </div>
+                    )}
                     {savedEvent && uploads.items.length > 0 && (
                       <p role="status" className="text-sm">
                         {t(
@@ -966,7 +1088,7 @@ function EventForm({
             <Button
               type="button"
               variant="destructive"
-              disabled={isSubmitting || uploads.busy}
+              disabled={isSubmitting || uploads.busy || coverBusy}
               onClick={() => onDelete(state.event)}
               className="mr-auto"
             >
@@ -976,7 +1098,7 @@ function EventForm({
           <Button
             type="button"
             variant="outline"
-            disabled={isSubmitting || uploads.busy}
+            disabled={isSubmitting || uploads.busy || coverBusy}
             onClick={onClose}
           >
             {t("キャンセル")}
@@ -984,7 +1106,7 @@ function EventForm({
           <Button
             type="submit"
             className="min-w-20"
-            disabled={isSubmitting || uploads.busy}
+            disabled={isSubmitting || uploads.busy || coverBusy}
           >
             {isSubmitting ? t("保存中…") : isEdit ? t("保存") : t("作成")}
           </Button>

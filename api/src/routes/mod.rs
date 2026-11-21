@@ -97,6 +97,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(attachments::complete)
                 .service(attachments::read_url)
                 .service(attachments::remove)
+                .service(attachments::set_cover)
                 .service(events::list_joined)
                 .service(events::history)
                 // ゴミ箱 (#159)
