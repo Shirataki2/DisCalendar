@@ -304,3 +304,108 @@ async fn expired_and_failed_deletions_retry_after_restart(pool: PgPool) {
     assert_eq!(count, 0);
     handle.stop(true).await;
 }
+
+/// Discord のカバー (#403): 1 予定 1 枚・画像だけ・確定済みだけ・添付の削除で外れる
+#[sqlx::test(migrations = "./migrations")]
+async fn discord_cover_is_one_ready_image_per_event(pool: PgPool) {
+    use attachments::COVER_MAX_BYTES;
+    let id = event(&pool, "111").await;
+    let other = event(&pool, "111").await;
+    let reserve = |filename: &'static str, content_type: &'static str, size: i64| {
+        let pool = pool.clone();
+        async move {
+            let row = attachments::reserve(
+                &pool,
+                "111",
+                id,
+                &UploadInput {
+                    filename: filename.into(),
+                    size,
+                    content_type: content_type.into(),
+                },
+            )
+            .await
+            .unwrap();
+            row.id
+        }
+    };
+    let ready = |attachment: String| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query("UPDATE event_attachments SET ready=true WHERE id=$1")
+                .bind(&attachment)
+                .execute(&pool)
+                .await
+                .unwrap();
+            attachment
+        }
+    };
+    let first = ready(reserve("a.png", "image/png", 10).await).await;
+    let second = ready(reserve("b.webp", "image/webp", COVER_MAX_BYTES).await).await;
+    let pdf = ready(reserve("c.pdf", "application/pdf", 10).await).await;
+    let large = ready(reserve("d.jpg", "image/jpeg", COVER_MAX_BYTES + 1).await).await;
+    let pending = reserve("e.png", "image/png", 10).await;
+
+    let set = |attachment: Option<String>, event_id: i32| {
+        let pool = pool.clone();
+        async move {
+            let mut tx = pool.begin().await.unwrap();
+            attachments::lock_event(&mut tx, "111", event_id).await?;
+            attachments::set_cover(&mut tx, "111", event_id, attachment.as_deref()).await?;
+            tx.commit().await.unwrap();
+            Ok::<_, discalendar_api::error::ApiError>(())
+        }
+    };
+    let cover = || async {
+        attachments::find_cover(&pool, "111", id)
+            .await
+            .unwrap()
+            .map(|row| row.id)
+    };
+
+    assert_eq!(cover().await, None);
+    set(Some(first.clone()), id).await.unwrap();
+    assert_eq!(cover().await, Some(first.clone()));
+    // 付け替えると前のカバーは外れる (一意制約に触れない)
+    set(Some(second.clone()), id).await.unwrap();
+    assert_eq!(cover().await, Some(second.clone()));
+    let flags: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT id, discord_cover FROM event_attachments WHERE event_id=$1 AND ready ORDER BY id",
+    )
+    .bind(id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(flags.iter().filter(|(_, cover)| *cover).count(), 1);
+    // 同じ添付をもう一度指定しても変わらない (再試行)
+    set(Some(second.clone()), id).await.unwrap();
+    assert_eq!(cover().await, Some(second.clone()));
+
+    // PDF・大きすぎる画像・送信待ち・別の予定の添付はカバーにできず、今のカバーも変わらない
+    for bad in [&pdf, &large, &pending] {
+        assert!(set(Some(bad.clone()), id).await.is_err(), "{bad}");
+        assert_eq!(cover().await, Some(second.clone()));
+    }
+    assert!(set(Some(first.clone()), other).await.is_err());
+    // DB の制約でも PDF をカバーにできない
+    assert!(
+        sqlx::query("UPDATE event_attachments SET discord_cover=true WHERE id=$1")
+            .bind(&pdf)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+
+    // 外す
+    set(None, id).await.unwrap();
+    assert_eq!(cover().await, None);
+
+    // 添付を消せばカバーも無くなる
+    set(Some(first.clone()), id).await.unwrap();
+    sqlx::query("DELETE FROM event_attachments WHERE id=$1")
+        .bind(&first)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(cover().await, None);
+}

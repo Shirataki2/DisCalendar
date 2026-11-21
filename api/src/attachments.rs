@@ -227,6 +227,45 @@ impl Store {
         result.map_err(|_| storage_error())?
     }
 
+    /// 確定済みの添付を丸ごと読み出す (Discord のカバー画像に使う #403)。
+    /// 上限は呼び出し前に `validate_cover` で確かめているが、オブジェクト側の大きさも見て
+    /// 想定外に大きいものをメモリに載せない
+    pub async fn read_object(&self, row: &Attachment, max_bytes: i64) -> Result<Vec<u8>, ApiError> {
+        let result = tokio::time::timeout(Duration::from_secs(30), async {
+            let object = self
+                .client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(&row.object_key)
+                .send()
+                .await
+                .map_err(|_| storage_error())?;
+            if object.content_length().is_none_or(|len| len > max_bytes) {
+                return Err(storage_error());
+            }
+            let bytes = object
+                .body
+                .collect()
+                .await
+                .map_err(|_| storage_error())?
+                .into_bytes();
+            Ok(bytes.to_vec())
+        })
+        .await;
+        result.map_err(|_| storage_error())?
+    }
+
+    /// 添付を Discord に送る画像 (`data:<type>;base64,...`) にする (#403)
+    pub async fn cover_data_uri(&self, row: &Attachment) -> Result<String, ApiError> {
+        use base64::Engine as _;
+        let bytes = self.read_object(row, attachments::COVER_MAX_BYTES).await?;
+        Ok(format!(
+            "data:{};base64,{}",
+            row.content_type,
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ))
+    }
+
     pub async fn delete(&self, key: &str) -> Result<(), ApiError> {
         self.client
             .delete_object()

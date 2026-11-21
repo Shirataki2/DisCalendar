@@ -2,7 +2,8 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
+import type { EventAttachment } from "@/lib/api/types";
 import { type PendingAttachment, uploadAttachment } from "@/lib/attachments";
 import { queryKeys } from "./keys";
 
@@ -21,6 +22,8 @@ export function useAttachmentQueue(guildId?: string) {
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const controller = useRef<AbortController | null>(null);
+  // 送信できた添付の ID (選択時のキー → ID)。送信後にカバーを指定するときに引く (#403)
+  const uploaded = useRef(new Map<string, string>());
   const mounted = useRef(true);
   const cancel = useCallback(() => {
     mounted.current = false;
@@ -67,9 +70,10 @@ export function useAttachmentQueue(guildId?: string) {
             abort.signal,
             (patch) => update(item.key, patch),
           );
+          uploaded.current.set(item.key, attachment.id);
           queryClient.setQueryData(
             queryKeys.attachments.event(guildId, eventId),
-            (old: import("@/lib/api/types").EventAttachment[] | undefined) => [
+            (old: EventAttachment[] | undefined) => [
               ...(old ?? []).filter((row) => row.id !== attachment.id),
               attachment,
             ],
@@ -108,5 +112,40 @@ export function useAttachmentQueue(guildId?: string) {
       }
     };
   }, [guildId]);
-  return { items, setItems, busy, upload, discard, cancel };
+  const uploadedId = useCallback(
+    (key: string) => uploaded.current.get(key),
+    [],
+  );
+  return { items, setItems, busy, upload, discard, cancel, uploadedId };
+}
+
+/**
+ * Discord イベントのカバーを指定する (#403)。カバーの保存に成功したら添付の一覧をサーバーの値で
+ * 置き換える。Discord への反映に失敗したときは、その理由を ApiError にして返す
+ * (保存自体の失敗は例外のまま投げる)
+ */
+export function useSetCover(guildId?: string) {
+  const queryClient = useQueryClient();
+  return useCallback(
+    async (eventId: number, attachmentId: string | null) => {
+      if (!guildId) return null;
+      const result = await api.attachments.setCover(
+        guildId,
+        eventId,
+        attachmentId,
+      );
+      queryClient.setQueryData<EventAttachment[]>(
+        queryKeys.attachments.event(guildId, eventId),
+        result.attachments,
+      );
+      if (result.discord.status !== "failed") return null;
+      const error = result.discord.error;
+      return new ApiError(
+        502,
+        error?.error ?? "discord_error",
+        error?.message ?? "",
+      );
+    },
+    [guildId, queryClient],
+  );
 }

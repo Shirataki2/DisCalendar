@@ -25,6 +25,27 @@ export function attachmentValidation(file: File): string | null {
   return null;
 }
 
+/** Discord イベントのカバーにできる画像の上限 (#403。api の COVER_MAX_BYTES と揃える) */
+export const COVER_MAX_BYTES = 8 * 1024 * 1024;
+export const COVER_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/** Discord イベントのカバーにできない理由 (できるなら null)。添付済み・送信前のどちらにも使う */
+export function coverValidation(file: {
+  content_type: string | undefined;
+  size: number;
+}): string | null {
+  if (!file.content_type || !COVER_TYPES.includes(file.content_type))
+    return "Discordのイベントのカバーにできるのは JPEG・PNG・WebP の画像です";
+  if (file.size > COVER_MAX_BYTES)
+    return "Discordのイベントのカバーにできる画像は8MiBまでです";
+  return null;
+}
+
+/** 画像の添付かどうか (カバーの選択肢を出す対象) */
+export function isImageType(contentType: string | undefined): boolean {
+  return !!contentType?.startsWith("image/");
+}
+
 export interface PendingAttachment {
   key: string;
   file: File;

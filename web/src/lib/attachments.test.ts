@@ -2,6 +2,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ApiError, api } from "@/lib/api";
 import {
   attachmentValidation,
+  COVER_MAX_BYTES,
+  coverValidation,
   type PendingAttachment,
   uploadAttachment,
 } from "./attachments";
@@ -70,6 +72,7 @@ test("完了応答を失った再試行では予定も予約も再作成せず�
     size: 8,
     content_type: "application/pdf",
     created_at: "",
+    discord_cover: false,
   });
   const result = await uploadAttachment(
     "111",
@@ -92,6 +95,7 @@ test("送信失敗後は同じ予約へ再送し、既存オブジェクトの41
       size: 8,
       content_type: "application/pdf",
       created_at: "",
+      discord_cover: false,
     });
   const fetch = vi.fn().mockResolvedValue({ ok: false, status: 412 });
   vi.stubGlobal("fetch", fetch);
@@ -117,6 +121,19 @@ test("形式・サイズ上限を選択時に検証する", () => {
   expect(
     attachmentValidation(new File([new Uint8Array(10485761)], "超過.pdf")),
   ).toBeTruthy();
+});
+
+test("Discord のカバーにできる画像を理由付きで判定する (#403)", () => {
+  for (const content_type of ["image/jpeg", "image/png", "image/webp"]) {
+    expect(coverValidation({ content_type, size: COVER_MAX_BYTES })).toBeNull();
+  }
+  expect(
+    coverValidation({ content_type: "application/pdf", size: 1 }),
+  ).toContain("JPEG・PNG・WebP");
+  expect(coverValidation({ content_type: undefined, size: 1 })).toBeTruthy();
+  expect(
+    coverValidation({ content_type: "image/png", size: COVER_MAX_BYTES + 1 }),
+  ).toContain("8MiB");
 });
 
 import { QueryClient } from "@tanstack/react-query";

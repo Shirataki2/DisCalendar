@@ -9,11 +9,13 @@ use utoipa::{IntoParams, ToSchema};
 
 use super::GuildMember;
 use crate::{
+    attachments::AttachmentStorage,
     auth::AuthUser,
     discord::{DiscordClient, DiscordError, is_snowflake, scheduled_events::ScheduledEventPayload},
     error::{ApiError, ErrorBody},
     event_history::{self, Action, Source},
     models::{
+        attachments,
         event_history::{self as history_model, EventHistoryEntry},
         event_links,
         events::{self, Event, EventInput, TrashCursor, TrashedEvent},
@@ -385,6 +387,7 @@ pub async fn update(
     path: web::Path<EventPath>,
     body: web::Json<EventInput>,
     state: web::Data<AppState>,
+    storage: web::Data<AttachmentStorage>,
 ) -> Result<web::Json<Event>, ApiError> {
     let _writer = event_links::lock_writer(&state.pool, member.guild_id()).await?;
     ensure_can_edit(&state.pool, &member).await?;
@@ -545,12 +548,12 @@ pub async fn update(
         let (desired, created_now): (Option<String>, Option<String>) =
             match (&old.discord_scheduled_event_id, discord_scheduled_event) {
                 (None, true) => {
+                    // 連携を外していた間もカバーの選択は残っているので、作るときに付ける (#403)
+                    let payload = payload_for(&state.site_base_url, guild_id, &body)
+                        .with_image(cover_image(&state, &storage, guild_id, path.event_id).await);
                     let id = state
                         .discord
-                        .create_scheduled_event(
-                            guild_id,
-                            &payload_for(&state.site_base_url, guild_id, &body),
-                        )
+                        .create_scheduled_event(guild_id, &payload)
                         .await
                         .map_err(|err| describe_create_error(guild_id, &body.name, err))?;
                     (Some(id.clone()), Some(id))
@@ -586,6 +589,9 @@ pub async fn update(
                         // 作り直しも Discord にイベントを作る操作なので、新規連携と同じ権限を要る
                         // (対応付けが残っているだけで権限チェックを免れると、Bot 経由で作れてしまう)
                         ensure_can_create_events(&member)?;
+                        let payload = payload.with_image(
+                            cover_image(&state, &storage, guild_id, path.event_id).await,
+                        );
                         let id = state
                             .discord
                             .create_scheduled_event(guild_id, &payload)
@@ -1053,11 +1059,38 @@ fn payload_for(site_base_url: &str, guild_id: &str, input: &EventInput) -> Sched
     )
 }
 
+/// 予定のカバー画像 (#403) を Discord に送る形で取り出す。Discord イベントを新しく作るときに使う。
+/// 読み出せなかったら画像なしで作る (カバーのために連携そのものを失敗させない。
+/// カバーは添付欄から設定し直せる)
+async fn cover_image(
+    state: &AppState,
+    storage: &AttachmentStorage,
+    guild_id: &str,
+    event_id: i32,
+) -> Option<String> {
+    let result = async {
+        let Some(row) = attachments::find_cover(&state.pool, guild_id, event_id).await? else {
+            return Ok(None);
+        };
+        storage.get()?.cover_data_uri(&row).await.map(Some)
+    }
+    .await;
+    result.unwrap_or_else(|err: ApiError| {
+        tracing::warn!(
+            guild_id,
+            event_id,
+            kind = err.kind(),
+            "creating a scheduled event without its cover image"
+        );
+        None
+    })
+}
+
 /// スケジュールイベント操作の Discord エラーを利用者に返せる形に変換する。
 /// 403 は Bot の「イベントの作成」権限の不足 (再招待で直る)、
 /// 400 は Discord 側が受け付けない内容 (開始済みイベントの日時変更など)。
 /// それ以外は既存の変換のまま (429 → 503、他 → 502)
-fn describe_scheduled_event_error(err: DiscordError) -> ApiError {
+pub(crate) fn describe_scheduled_event_error(err: DiscordError) -> ApiError {
     match &err {
         // Bot が退出・追放されている (#122)。直し方は権限不足と同じ「招待し直す」なので
         // 同じ種別で返す (web はこの種別で権限を取り直し、チェックボックスを無効にする)

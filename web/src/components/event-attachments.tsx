@@ -10,7 +10,10 @@ import {
   ATTACHMENT_ACCEPT,
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_MAX_FILES,
+  attachmentType,
   attachmentValidation,
+  coverValidation,
+  isImageType,
   type PendingAttachment,
 } from "@/lib/attachments";
 import { useAttachmentLimits } from "@/lib/query/attachments";
@@ -21,16 +24,27 @@ const sizeText = (size: number) =>
     ? `${Math.ceil(size / 1000)} KB`
     : `${(size / 1_000_000).toFixed(1)} MB`;
 
+/** Discord イベントのカバーの選択 (#403)。保存済みの添付では添付の ID、送信前ではキーを渡す */
+export interface CoverChoice {
+  /** 選択肢を出すか (Discord 連携がオンで、繰り返し予定でない) */
+  selectable: boolean;
+  /** カバーの保存中 */
+  busy?: boolean;
+  onChange: (value: string | null) => void;
+}
+
 export function EventAttachments({
   guildId,
   eventId,
   editable = false,
   active = true,
+  cover,
 }: {
   guildId: string;
   eventId: number;
   editable?: boolean;
   active?: boolean;
+  cover?: CoverChoice;
 }) {
   const { t, language } = useLanguage();
   const queryClient = useQueryClient();
@@ -120,10 +134,25 @@ export function EventAttachments({
                   file={file}
                 />
               )}
-            <p className="break-all">{file.filename}</p>
+            <p className="break-all">
+              {file.filename}
+              {file.discord_cover && (
+                <span className="ml-2 rounded-sm bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
+                  {t("Discord のカバー")}
+                </span>
+              )}
+            </p>
             <p className="text-xs text-muted-foreground">
               {sizeText(file.size)}
             </p>
+            {editable &&
+              cover?.selectable &&
+              isImageType(file.content_type) &&
+              coverValidation(file) && (
+                <p className="text-xs text-muted-foreground">
+                  {t(coverValidation(file) ?? "")}
+                </p>
+              )}
             <div className="flex flex-wrap gap-1">
               <Button
                 type="button"
@@ -134,6 +163,28 @@ export function EventAttachments({
               >
                 {t("ダウンロード")}
               </Button>
+              {editable &&
+                cover?.selectable &&
+                isImageType(file.content_type) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      working !== null ||
+                      !!cover.busy ||
+                      (!file.discord_cover && !!coverValidation(file))
+                    }
+                    aria-pressed={file.discord_cover}
+                    onClick={() =>
+                      cover.onChange(file.discord_cover ? null : file.id)
+                    }
+                  >
+                    {file.discord_cover
+                      ? t("カバーを外す")
+                      : t("Discord のカバーにする")}
+                  </Button>
+                )}
               {editable && (
                 <Button
                   type="button"
@@ -221,6 +272,8 @@ export function AttachmentPicker({
   busy,
   onRetry,
   onRemove,
+  cover,
+  coverKey = null,
 }: {
   guildId: string;
   eventId?: number;
@@ -229,6 +282,9 @@ export function AttachmentPicker({
   busy: boolean;
   onRetry: () => void;
   onRemove: (item: PendingAttachment) => Promise<void>;
+  /** 送信前の添付からカバーを選ぶ (#403)。`coverKey` は選んだ添付のキー */
+  cover?: CoverChoice;
+  coverKey?: string | null;
 }) {
   const { t, language } = useLanguage();
   const limits = useAttachmentLimits(guildId);
@@ -291,6 +347,13 @@ export function AttachmentPicker({
       <p className="text-xs text-muted-foreground">
         {t("JPEG・PNG・WebP・PDF / 1件 約10.5 MB、予定ごと10件まで")}
       </p>
+      {cover?.selectable && (
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "画像の 1 枚を Discord のイベントのカバーにできます (JPEG・PNG・WebP / 8 MiB まで。推奨 800×320 の横長)",
+          )}
+        </p>
+      )}
       {limits.data && !limits.data.enabled && (
         <p>{t("添付ファイルは現在利用できません")}</p>
       )}
@@ -324,6 +387,11 @@ export function AttachmentPicker({
           <li key={item.key} className="break-all rounded border p-2">
             {item.file.name} · {sizeText(item.file.size)} ·{" "}
             {status[item.status]}
+            {coverKey === item.key && (
+              <span className="ml-2 rounded-sm bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
+                {t("Discord のカバー")}
+              </span>
+            )}
             {!!item.error && (
               <p role="alert" className="text-destructive">
                 {typeof item.error === "string"
@@ -331,12 +399,39 @@ export function AttachmentPicker({
                   : describeApiError(item.error, language)}
               </p>
             )}
+            {cover?.selectable &&
+              isImageType(attachmentType(item.file.name)) &&
+              (() => {
+                const reason = coverValidation({
+                  content_type: attachmentType(item.file.name),
+                  size: item.file.size,
+                });
+                return reason ? (
+                  <p className="text-xs text-muted-foreground">{t(reason)}</p>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    aria-pressed={coverKey === item.key}
+                    onClick={() =>
+                      cover.onChange(coverKey === item.key ? null : item.key)
+                    }
+                  >
+                    {coverKey === item.key
+                      ? t("カバーを外す")
+                      : t("Discord のカバーにする")}
+                  </Button>
+                );
+              })()}
             <Button
               type="button"
               size="sm"
               variant="ghost"
               disabled={busy}
               onClick={() => {
+                if (coverKey === item.key) cover?.onChange(null);
                 void onRemove(item).catch((e) => setError(e));
               }}
             >

@@ -6,6 +6,8 @@
 //! ギルドのダッシュボード URL を入れる。
 //! <https://discord.com/developers/docs/resources/guild-scheduled-event>
 
+use std::time::Duration;
+
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +18,8 @@ const ENTITY_TYPE_EXTERNAL: u8 = 3;
 /// GUILD_ONLY。Discord は現状これ以外の値を受け付けない
 const PRIVACY_LEVEL_GUILD_ONLY: u8 = 2;
 const LOCATION_MAX_CHARS: usize = 100;
+/// カバー画像 (data URI) を載せたリクエストのタイムアウト (#403)
+const IMAGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// スケジュールイベントの作成・変更リクエストのボディ。
 /// 変更 (PATCH) でも全フィールドを送る (説明を消したいときは `description: null` を送る必要があるため、
@@ -29,6 +33,10 @@ pub struct ScheduledEventPayload {
     privacy_level: u8,
     entity_type: u8,
     entity_metadata: EntityMetadata,
+    /// カバー画像 (#403)。他のフィールドと違い、`None` ならキーごと省く
+    /// (PATCH で省けば Discord 側の画像はそのまま。`Some(None)` は `null` を送って外す)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image: Option<Option<String>>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -89,7 +97,22 @@ impl ScheduledEventPayload {
                     .map(|value| value.chars().take(LOCATION_MAX_CHARS).collect())
                     .unwrap_or_else(|| format!("{site_base_url}/dashboard/{guild_id}")),
             },
+            image: None,
         }
+    }
+
+    /// カバー画像 (`data:<type>;base64,...`) を付ける (#403)
+    pub fn with_image(mut self, image: Option<String>) -> Self {
+        self.image = image.map(Some);
+        self
+    }
+
+    fn has_image(&self) -> bool {
+        matches!(self.image, Some(Some(_)))
+    }
+
+    fn timeout(&self) -> Option<Duration> {
+        self.has_image().then_some(IMAGE_TIMEOUT)
     }
 
     fn to_json(&self) -> serde_json::Value {
@@ -116,10 +139,11 @@ impl DiscordClient {
         payload: &ScheduledEventPayload,
     ) -> Result<String, DiscordError> {
         let sent = self
-            .send(
+            .send_with_timeout(
                 reqwest::Method::POST,
                 &format!("/guilds/{}/scheduled-events", checked_id(guild_id)?),
                 Some(&payload.to_json()),
+                payload.timeout(),
             )
             .await;
         self.invalidate_on_forbidden(guild_id, &sent).await;
@@ -151,6 +175,30 @@ impl DiscordClient {
                     checked_id(scheduled_event_id)?
                 ),
                 Some(&payload.to_json()),
+            )
+            .await;
+        self.invalidate_on_forbidden(guild_id, &sent).await;
+        Ok(sent?.is_some())
+    }
+
+    /// スケジュールイベントのカバー画像だけを変える (#403)。`None` で外す。
+    /// Discord 側で既に削除されていたら `Ok(false)`
+    pub async fn set_scheduled_event_image(
+        &self,
+        guild_id: &str,
+        scheduled_event_id: &str,
+        image: Option<&str>,
+    ) -> Result<bool, DiscordError> {
+        let sent = self
+            .send_with_timeout(
+                reqwest::Method::PATCH,
+                &format!(
+                    "/guilds/{}/scheduled-events/{}",
+                    checked_id(guild_id)?,
+                    checked_id(scheduled_event_id)?
+                ),
+                Some(&serde_json::json!({ "image": image })),
+                image.map(|_| IMAGE_TIMEOUT),
             )
             .await;
         self.invalidate_on_forbidden(guild_id, &sent).await;
@@ -193,6 +241,35 @@ impl DiscordClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample() -> ScheduledEventPayload {
+        ScheduledEventPayload::new(
+            "https://discalendar.app",
+            "123",
+            "定例",
+            None,
+            false,
+            "2026-08-22T10:00:00".parse().unwrap(),
+            "2026-08-22T11:30:00".parse().unwrap(),
+            None,
+        )
+    }
+
+    #[test]
+    fn image_is_omitted_unless_set() {
+        // PATCH で画像のキーを省けば Discord 側のカバーはそのまま (#403)。説明と違い null にはしない
+        let json = sample().to_json();
+        assert!(json.get("image").is_none(), "{json}");
+        assert!(sample().timeout().is_none());
+        assert!(sample().with_image(None).to_json().get("image").is_none());
+
+        let with_image = sample().with_image(Some("data:image/png;base64,AAAA".into()));
+        assert_eq!(
+            with_image.to_json()["image"],
+            serde_json::json!("data:image/png;base64,AAAA")
+        );
+        assert_eq!(with_image.timeout(), Some(IMAGE_TIMEOUT));
+    }
 
     #[test]
     fn timed_event_gets_jst_offset() {

@@ -1,5 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
-import { addDays, calendarToday, dayCell, eventOn } from "./calendar";
+import {
+  addDays,
+  calendarToday,
+  dayCell,
+  eventOn,
+  openEventTab,
+} from "./calendar";
+import { scheduledEventImage, setImageFailure } from "./discord-mock";
 import { E2E_GUILDS } from "./fixtures";
 
 // 予定を Discord のスケジュールイベントとしても作成する (#94)。
@@ -253,4 +260,130 @@ test("自分に権限のないサーバーへの連携作成は API 側でも拒
       await page.request.delete(`/local/api/events/${guild}/${created.id}`)
     ).status(),
   ).toBe(204);
+});
+
+// 添付画像を Discord イベントのカバーにする (#403)
+test("添付した画像を Discord イベントのカバーにでき、解除・反映の失敗と再試行ができる", async ({
+  page,
+}) => {
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3l8AAAAASUVORK5CYII=",
+    "base64",
+  );
+  const title = `E2E カバー ${stamp}`;
+  await page.goto(`/dashboard/${guildId}`);
+  await expect(page.getByRole("grid")).toBeVisible();
+  const day = addDays(await calendarToday(page), 2);
+  await clickDayCell(page, day);
+  const dialog = page.getByRole("dialog", { name: "予定を作成" });
+  await dialog.getByLabel("タイトル").fill(title);
+
+  // 連携がオフのうちはカバーの選択肢を出さない
+  await openEventTab(dialog, "添付・共有");
+  await dialog.getByLabel("ファイルを添付", { exact: true }).setInputFiles([
+    { name: "告知.png", mimeType: "image/png", buffer: png },
+    {
+      name: "資料.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.7\n%%EOF"),
+    },
+  ]);
+  await expect(
+    dialog.getByRole("button", { name: "Discord のカバーにする" }),
+  ).toHaveCount(0);
+
+  await openEventTab(dialog, "基本");
+  await dialog
+    .getByRole("checkbox", { name: "Discord のイベントとしても作成する" })
+    .check();
+  await openEventTab(dialog, "添付・共有");
+  // 画像だけに選択肢が出る (PDF には出ない)
+  await expect(
+    dialog.getByRole("button", { name: "Discord のカバーにする" }),
+  ).toHaveCount(1);
+  await dialog.getByRole("button", { name: "Discord のカバーにする" }).click();
+  await expect(
+    dialog.getByText("Discord のカバー", { exact: true }),
+  ).toBeVisible();
+
+  const created = page.waitForResponse(
+    (res) => eventsApi.test(res.url()) && res.request().method() === "POST",
+  );
+  const covered = page.waitForResponse(
+    (res) =>
+      res.url().endsWith("/attachments/cover") &&
+      res.request().method() === "PUT",
+  );
+  await dialog.getByRole("button", { name: "作成" }).click();
+  const event = (await (await created).json()) as {
+    id: number;
+    discord_scheduled_event_id: string;
+  };
+  expect((await (await covered).json()).discord.status).toBe("synced");
+  await expect(dialog).toBeHidden();
+  expect(await scheduledEventImage(event.discord_scheduled_event_id)).toMatch(
+    /^data:image\/png;base64,/,
+  );
+
+  try {
+    // 編集ダイアログからカバーを外すと Discord 側の画像も外れる
+    await eventOn(dayCell(page, day), title).click();
+    await page
+      .getByRole("dialog")
+      .filter({ hasText: title })
+      .getByRole("button", { name: "編集" })
+      .click();
+    const edit = page.getByRole("dialog", { name: "予定を編集" });
+    await openEventTab(edit, "添付・共有");
+    await edit.getByRole("button", { name: "カバーを外す" }).click();
+    await expect(
+      edit.getByRole("button", { name: "Discord のカバーにする" }),
+    ).toBeVisible();
+    await expect
+      .poll(() => scheduledEventImage(event.discord_scheduled_event_id))
+      .toBeNull();
+
+    // Discord への反映に失敗してもカバーの指定は保存され、失敗が分かり、再試行できる
+    await setImageFailure(true);
+    await edit.getByRole("button", { name: "Discord のカバーにする" }).click();
+    await expect(
+      edit.getByText("Discord のイベントに反映できませんでした", {
+        exact: false,
+      }),
+    ).toBeVisible();
+    const saved = (await (
+      await page.request.get(
+        `/local/api/events/${guildId}/${event.id}/attachments`,
+      )
+    ).json()) as { filename: string; discord_cover: boolean }[];
+    expect(saved.find((a) => a.filename === "告知.png")?.discord_cover).toBe(
+      true,
+    );
+    expect(
+      await scheduledEventImage(event.discord_scheduled_event_id),
+    ).toBeNull();
+    await setImageFailure(false);
+    await edit
+      .getByRole("button", { name: "Discord への反映を再試行" })
+      .click();
+    await expect(
+      edit.getByText("Discord のイベントに反映できませんでした", {
+        exact: false,
+      }),
+    ).toBeHidden();
+    expect(await scheduledEventImage(event.discord_scheduled_event_id)).toMatch(
+      /^data:image\/png;base64,/,
+    );
+
+    // カバーの添付を消すと Discord 側の画像も外れる
+    page.once("dialog", (confirm) => confirm.accept());
+    await edit.getByRole("button", { name: "添付を削除" }).first().click();
+    await expect
+      .poll(() => scheduledEventImage(event.discord_scheduled_event_id))
+      .toBeNull();
+    await edit.getByRole("button", { name: "キャンセル" }).click();
+  } finally {
+    await setImageFailure(false);
+    await page.request.delete(`/local/api/events/${guildId}/${event.id}`);
+  }
 });
