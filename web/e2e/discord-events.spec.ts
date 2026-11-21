@@ -362,6 +362,12 @@ test("添付した画像を Discord イベントのカバーにでき、解除�
     expect(
       await scheduledEventImage(event.discord_scheduled_event_id),
     ).toBeNull();
+    // 反映の失敗が残ったまま保存しても閉じず、理由と再試行が残る
+    await edit.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(
+      edit.getByRole("button", { name: "Discord への反映を再試行" }),
+    ).toBeVisible();
+    await expect(edit).toBeVisible();
     await setImageFailure(false);
     await edit
       .getByRole("button", { name: "Discord への反映を再試行" })

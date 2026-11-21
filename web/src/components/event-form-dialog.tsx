@@ -330,6 +330,9 @@ function EventForm({
   // 送信前の添付から選んだカバー (選択時のキー)。保存・送信の後に指定する
   const [pendingCoverKey, setPendingCoverKey] = useState<string | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
+  // 保存処理・閉じる判定は描画前の値を見るので、反映中か・失敗が残っているかを ref でも持つ
+  const coverBusyRef = useRef(false);
+  const coverFailedRef = useRef(false);
   // 失敗したカバー指定。`saved` = カバーの保存はできて Discord への反映だけ失敗した。
   // `target` を送り直すと再試行になる
   const [coverFailure, setCoverFailure] = useState<{
@@ -338,15 +341,19 @@ function EventForm({
     saved: boolean;
   } | null>(null);
   async function applyCover(eventId: number, target: string | null) {
+    coverBusyRef.current = true;
     setCoverBusy(true);
     try {
       const error = await setCoverRequest(eventId, target);
+      coverFailedRef.current = !!error;
       setCoverFailure(error ? { error, target, saved: true } : null);
       return !error;
     } catch (error) {
+      coverFailedRef.current = true;
       setCoverFailure({ error, target, saved: false });
       return false;
     } finally {
+      coverBusyRef.current = false;
       setCoverBusy(false);
     }
   }
@@ -376,6 +383,8 @@ function EventForm({
   // 次のキー入力より前に破棄判定を更新し、設定直後のEscapeでも入力を保護する。
   useLayoutEffect(() => {
     closeGuard.current = () => {
+      // カバーを Discord に反映している間は閉じない (結果と失敗の表示を失わない)
+      if (coverBusyRef.current) return false;
       if (
         isDirty ||
         recurrenceDirty ||
@@ -455,6 +464,8 @@ function EventForm({
   };
 
   const submit = handleSubmit(async (values) => {
+    // カバーの反映中は保存しない (ボタンは無効だが、Enter による送信もここで止める)
+    if (coverBusyRef.current) return;
     setSubmitError(null);
     const submittedValues = getValues();
     try {
@@ -478,7 +489,9 @@ function EventForm({
       if (
         !mentionGuildId ||
         ((await uploads.upload(saved.id)) &&
-          (await applyPendingCover(saved.id)))
+          (await applyPendingCover(saved.id)) &&
+          // 先に指定したカバーの反映に失敗したままなら、理由と再試行を見せるため閉じない
+          !coverFailedRef.current)
       ) {
         closeGuard.current = null;
         onClose();
@@ -1061,7 +1074,7 @@ function EventForm({
             <Button
               type="button"
               variant="destructive"
-              disabled={isSubmitting || uploads.busy}
+              disabled={isSubmitting || uploads.busy || coverBusy}
               onClick={() => onDelete(state.event)}
               className="mr-auto"
             >
@@ -1071,7 +1084,7 @@ function EventForm({
           <Button
             type="button"
             variant="outline"
-            disabled={isSubmitting || uploads.busy}
+            disabled={isSubmitting || uploads.busy || coverBusy}
             onClick={onClose}
           >
             {t("キャンセル")}
@@ -1079,7 +1092,7 @@ function EventForm({
           <Button
             type="submit"
             className="min-w-20"
-            disabled={isSubmitting || uploads.busy}
+            disabled={isSubmitting || uploads.busy || coverBusy}
           >
             {isSubmitting ? t("保存中…") : isEdit ? t("保存") : t("作成")}
           </Button>
