@@ -387,7 +387,32 @@ test("添付した画像を Discord イベントのカバーにでき、解除�
     await expect
       .poll(() => scheduledEventImage(event.discord_scheduled_event_id))
       .toBeNull();
-    await edit.getByRole("button", { name: "キャンセル" }).click();
+
+    // 反映に失敗した画像を消すと失敗の表示も消え、保存で閉じられる
+    // (送信前の画像をカバーに選んで保存し、送信後のカバー指定を失敗させる)
+    await setImageFailure(true);
+    await edit
+      .getByLabel("ファイルを添付", { exact: true })
+      .setInputFiles([
+        { name: "差し替え.png", mimeType: "image/png", buffer: png },
+      ]);
+    await edit.getByRole("button", { name: "Discord のカバーにする" }).click();
+    await edit.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(
+      edit.getByRole("button", { name: "Discord への反映を再試行" }),
+    ).toBeVisible();
+    await setImageFailure(false);
+    page.once("dialog", (confirm) => confirm.accept());
+    await edit
+      .getByRole("listitem")
+      .filter({ hasText: "差し替え.png" })
+      .getByRole("button", { name: "添付を削除" })
+      .click();
+    await expect(
+      edit.getByRole("button", { name: "Discord への反映を再試行" }),
+    ).toBeHidden();
+    await edit.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(edit).toBeHidden();
   } finally {
     await setImageFailure(false);
     await page.request.delete(`/local/api/events/${guildId}/${event.id}`);

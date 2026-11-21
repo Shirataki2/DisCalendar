@@ -981,6 +981,20 @@ function EventForm({
                             setPendingCoverKey(null);
                             void applyCover(attachmentEventId, id);
                           },
+                          // 失敗したカバーの画像 (または外せなかった今のカバー) を消したら、
+                          // その失敗はもう解消できないので取り下げる。外す指定の失敗は、
+                          // 削除時に api が Discord 側の画像も外すので同じく取り下げてよい
+                          onRemoved: (file) => {
+                            if (
+                              coverFailure &&
+                              (coverFailure.target === file.id ||
+                                (coverFailure.target === null &&
+                                  file.discord_cover))
+                            ) {
+                              coverFailedRef.current = false;
+                              setCoverFailure(null);
+                            }
+                          },
                         }}
                       />
                     )}

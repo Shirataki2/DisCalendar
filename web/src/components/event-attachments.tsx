@@ -31,6 +31,8 @@ export interface CoverChoice {
   /** カバーの保存中 */
   busy?: boolean;
   onChange: (value: string | null) => void;
+  /** 添付を削除した (カバーの失敗表示を取り下げるのに使う) */
+  onRemoved?: (file: EventAttachment) => void;
 }
 
 export function EventAttachments({
@@ -67,6 +69,7 @@ export function EventAttachments({
     setWorking(file.id);
     try {
       await api.attachments.remove(guildId, eventId, file.id);
+      cover?.onRemoved?.(file);
       queryClient.setQueryData<EventAttachment[]>(
         queryKeys.attachments.event(guildId, eventId),
         (old) => old?.filter((row) => row.id !== file.id),
