@@ -1,5 +1,5 @@
 //! 開催回のID・個別変更・中止が、補充やシリーズ分割で失われないことを確認する。
-use chrono::NaiveDateTime;
+use chrono::{Datelike, NaiveDate, NaiveDateTime};
 use discalendar_api::{
     models::events::{self, EventInput},
     recurring::{self, ChangeScope, DeleteOptions},
@@ -884,9 +884,17 @@ async fn yearly_occurrences_keep_exceptions_when_shifted_and_deleted(pool: PgPoo
 
 #[sqlx::test(migrations = "./migrations")]
 async fn monthly_multiple_dates_shift_with_future_edit(pool: PgPool) {
+    // 「この回以降」の変更で作り直されるのは現在より先の回だけなので、日付は今日から組み立てる。
+    // 翌々月をbase月にすれば、確認するbase月とnext月 (その翌月) はすべて未来になる。
+    let today = discalendar_api::models::now_jst().date();
+    let base = today.with_day(1).unwrap() + chrono::Months::new(2);
+    let next = base + chrono::Months::new(1);
+    let after = next + chrono::Months::new(1);
+    let at =
+        |month: NaiveDate, day: u32| month.with_day(day).unwrap().and_hms_opt(19, 30, 0).unwrap();
     let mut body = input();
-    body.start_at = dt("2026-10-05T19:30:00");
-    body.end_at = dt("2026-10-05T21:00:00");
+    body.start_at = at(base, 5);
+    body.end_at = body.start_at + chrono::Duration::minutes(90);
     body.recurrence = Some(discalendar_api::recurrence::Rule::MonthlyDate {
         days: vec![25, 5, 15],
         end: discalendar_api::recurrence::Ending::Never,
@@ -899,18 +907,15 @@ async fn monthly_multiple_dates_shift_with_future_edit(pool: PgPool) {
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    store::ensure_range(
-        &pool,
-        "111",
-        dt("2026-10-01T00:00:00"),
-        dt("2026-12-01T00:00:00"),
-    )
-    .await
-    .unwrap();
-    // 作成時に現在から730日先まで補充されるので、確認は11月までに絞る。
+    let until = after.and_hms_opt(0, 0, 0).unwrap();
+    store::ensure_range(&pool, "111", base.and_hms_opt(0, 0, 0).unwrap(), until)
+        .await
+        .unwrap();
+    // 作成時に現在から730日先まで補充されるので、確認はbase月とその翌月に絞る。
     let all: Vec<i32> = sqlx::query_scalar(
-        "SELECT id FROM events WHERE guild_id='111' AND start_at < '2026-12-01' ORDER BY start_at",
+        "SELECT id FROM events WHERE guild_id='111' AND start_at < $1 ORDER BY start_at",
     )
+    .bind(until)
     .fetch_all(&pool)
     .await
     .unwrap();
@@ -920,20 +925,20 @@ async fn monthly_multiple_dates_shift_with_future_edit(pool: PgPool) {
     // 保存する条件は重複なしの昇順にそろえる。
     assert_eq!(info.rule["days"], serde_json::json!([5, 15, 25]));
 
-    // 11/25の回を12/2へ移すと、5日・15日が範囲外になるので自動では補正しない。
+    // next月25日の回をafter月2日へ移すと、5日・15日が範囲外になるので自動では補正しない。
     body.recurrence = None;
     body.scope = ChangeScope::Future;
     body.expected_series_version = Some(info.version);
-    body.start_at = dt("2026-12-02T19:30:00");
-    body.end_at = dt("2026-12-02T21:00:00");
+    body.start_at = at(after, 2);
+    body.end_at = body.start_at + chrono::Duration::minutes(90);
     assert!(matches!(
         recurring::update(&mut tx, "111", all[5], &body, "333").await,
         Err(discalendar_api::error::ApiError::BadRequest(_))
     ));
 
-    // 11/5の回を11/6へ移すと、以降は毎月6・16・26日になる。
-    body.start_at = dt("2026-11-06T19:30:00");
-    body.end_at = dt("2026-11-06T21:00:00");
+    // next月5日の回を6日へ移すと、以降は毎月6・16・26日になる。
+    body.start_at = at(next, 6);
+    body.end_at = body.start_at + chrono::Duration::minutes(90);
     recurring::update(&mut tx, "111", all[3], &body, "333")
         .await
         .unwrap();
@@ -942,22 +947,22 @@ async fn monthly_multiple_dates_shift_with_future_edit(pool: PgPool) {
     assert_eq!(info.rule["days"], serde_json::json!([6, 16, 26]));
     tx.commit().await.unwrap();
     let starts: Vec<NaiveDateTime> = sqlx::query_scalar(
-        "SELECT start_at FROM events WHERE guild_id='111' AND deleted_at IS NULL AND start_at < '2026-12-01' ORDER BY start_at",
+        "SELECT start_at FROM events WHERE guild_id='111' AND deleted_at IS NULL AND start_at < $1 ORDER BY start_at",
     )
+    .bind(until)
     .fetch_all(&pool)
     .await
     .unwrap();
     assert_eq!(
         starts,
         [
-            "2026-10-05T19:30:00",
-            "2026-10-15T19:30:00",
-            "2026-10-25T19:30:00",
-            "2026-11-06T19:30:00",
-            "2026-11-16T19:30:00",
-            "2026-11-26T19:30:00",
+            at(base, 5),
+            at(base, 15),
+            at(base, 25),
+            at(next, 6),
+            at(next, 16),
+            at(next, 26),
         ]
-        .map(dt)
     );
 }
 
