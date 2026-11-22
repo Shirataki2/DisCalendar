@@ -74,6 +74,9 @@ expect deny "コマンド置換の中の cat" "$(bash_json 'X=$(cat api/.env) ec
 expect deny "グロブ .env*" "$(bash_json 'cat .env*')"
 expect deny "空白なしの入力リダイレクト cat<" "$(bash_json 'cat<api/.env')"
 expect deny "空白なしの入力リダイレクト head<" "$(bash_json 'head<web/.env.local')"
+expect deny "sed -n で範囲表示" "$(bash_json "sed -n '1,200p' api/.env")"
+expect deny "awk '1' で全文表示" "$(bash_json "awk '1' api/.env")"
+expect pass "ひな形の sed" "$(bash_json "sed -n '1,20p' web/.env.example")"
 expect deny "command cat" "$(bash_json 'command cat api/.env')"
 expect deny "env で変数を付けた cat" "$(bash_json 'env -i FOO=1 cat api/.env')"
 expect deny "nice -n 10 head" "$(bash_json 'nice -n 10 head web/.env.local')"
@@ -107,6 +110,9 @@ expect deny "main 上のコマンド置換" "$(bash_json 'git push -u origin "$(
 expect deny "cd してから push" "$(bash_json "cd $tmp_repo && git push")"
 git -C "$tmp_repo" switch -q -c claude/issue-1-example
 expect pass "作業ブランチ上のコマンド置換" "$(bash_json 'git push -u origin "$(git rev-parse --abbrev-ref HEAD)"' "$tmp_repo")"
+expect deny "main に切り替えてから HEAD を push" "$(bash_json 'git switch main && git push origin HEAD' "$tmp_repo")"
+expect deny "checkout main してから引数なし push" "$(bash_json 'git checkout main; git push' "$tmp_repo")"
+expect pass "別ブランチへ切り替えて push" "$(bash_json 'git switch claude/other && git push origin HEAD' "$tmp_repo")"
 # ローカルに main がある状態で、全ブランチを送る push
 git -C "$tmp_repo" -c user.name=test -c user.email=test@example.invalid commit -q --allow-empty -m init
 git -C "$tmp_repo" branch -q main

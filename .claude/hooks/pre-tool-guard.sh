@@ -153,7 +153,20 @@ check_push() {
     esac
     i=$((i + 1))
   done
-  [ $i -lt "$n" ] && [ "$w" = "push" ] || return 0
+  [ $i -lt "$n" ] || return 0
+  # 同じコマンドの中で先に main へ切り替えていたら、後続の push は main 上で動くものとして判定する
+  if [ "$w" = "switch" ] || [ "$w" = "checkout" ]; then
+    for ((i = i + 1; i < n; i++)); do
+      w=$(unquote "${words[$i]}")
+      case "$w" in
+        --) break ;;
+        # git switch main / git checkout main / git switch -c main など (それ以外への切替は現在のブランチのまま判定する)
+        main | origin/main) switched_to_main=true ;;
+      esac
+    done
+    return 0
+  fi
+  [ "$w" = "push" ] || return 0
   local has_main=false
   git -C "$dir" show-ref --verify -q refs/heads/main 2>/dev/null && has_main=true
   for ((i = i + 1; i < n; i++)); do
@@ -207,6 +220,7 @@ check_push() {
   # (--tags だけで refspec が無いときはタグしか送らないので対象外)
   if { [ ${#refs[@]} -eq 0 ] && ! $tags_given; } || $dynamic; then
     branch=$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null || true)
+    $switched_to_main && branch=main
     if [ "$branch" = "main" ]; then
       deny "現在のブランチが main なので、この git push は main への直接 push になります。作業ブランチを作ってから push してください。"
     fi
@@ -218,6 +232,7 @@ check_bash() {
   cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
   [ -n "$cmd" ] || return 0
   dir=$cwd
+  switched_to_main=false
 
   # ; & | ( ) ` と改行で区切り、区切りごとに先頭のコマンドを見る ($(...) の中も 1 区切りになる)
   while IFS= read -r seg; do
@@ -261,7 +276,8 @@ check_bash() {
           *) dir="$dir/$t" ;;
         esac
         ;;
-      cat | less | more | head | tail | bat | nl | strings | xxd | od | hexdump | open | tac)
+      # sed / awk も範囲指定や '1' で丸ごと表示できるので対象にする (キーの取り出しは grep で行う)
+      cat | less | more | head | tail | bat | nl | strings | xxd | od | hexdump | open | tac | sed | awk | gawk | perl)
         # .env 系を丸ごと表示する (grep で特定のキーを取り出す使い方は止めない)。ひな形かどうかは引数ごとに見る
         for ((i = first + 1; i < n; i++)); do
           t=$(unquote "${words[$i]}")

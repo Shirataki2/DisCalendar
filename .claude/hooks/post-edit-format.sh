@@ -18,6 +18,8 @@ case "$path" in
   *) path="$cwd/$path" ;;
 esac
 [ -f "$path" ] || exit 0
+# ./web/... や ../ を含むパス、シンボリックリンク経由のパスも、git の show-toplevel と同じ実パスに揃える
+path="$(cd "$(dirname "$path")" 2>/dev/null && pwd -P)/$(basename "$path")" || exit 0
 # ファイルを含む checkout (worktree ならその worktree) のルートを基準にする
 root=$(git -C "$(dirname "$path")" rev-parse --show-toplevel 2>/dev/null) || exit 0
 
