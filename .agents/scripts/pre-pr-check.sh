@@ -184,9 +184,20 @@ database_url_for() {
     printf '%s' "$DATABASE_URL"
     return
   fi
+  local v
   for f in "$crate/.env" api/.env; do
-    if [ -f "$f" ] && grep -q '^DATABASE_URL=' "$f"; then
-      grep '^DATABASE_URL=' "$f" | head -1 | cut -d= -f2-
+    if [ -f "$f" ] && grep -Eq '^(export[[:space:]]+)?DATABASE_URL=' "$f"; then
+      # dotenv と同じく export 接頭辞・前後の引用符・行末の空白や CR を外す
+      v=$(grep -E '^(export[[:space:]]+)?DATABASE_URL=' "$f" | head -1 | cut -d= -f2- | sed -e 's/[[:space:]]*$//' | tr -d '\r')
+      case "$v" in
+        \"*\") v=${v#\"} v=${v%\"} ;;
+        \'*\') v=${v#\'} v=${v%\'} ;;
+        *)
+          v=${v%%[[:space:]]#*}
+          v=${v%"${v##*[![:space:]]}"}
+          ;;
+      esac
+      printf '%s' "$v"
       return
     fi
   done

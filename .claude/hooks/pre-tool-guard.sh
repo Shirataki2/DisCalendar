@@ -249,7 +249,9 @@ check_bash() {
     # command / env / exec などのラッパーは、そのオプションと VAR=value ごと読み飛ばして実際のコマンドを見る
     while [ $first -lt "$n" ]; do
       case "$base" in
-        command | builtin | exec | env | nohup | time | nice | sudo | doas) ;;
+        # if ...; then cat ...; fi の then のような予約語の後ろも、実際のコマンドとして見る
+        command | builtin | exec | env | nohup | time | nice | sudo | doas | \
+          if | then | else | elif | do | while | until | \! | \{) ;;
         *) break ;;
       esac
       first=$((first + 1))
