@@ -74,6 +74,11 @@ expect deny "コマンド置換の中の cat" "$(bash_json 'X=$(cat api/.env) ec
 expect deny "グロブ .env*" "$(bash_json 'cat .env*')"
 expect deny "空白なしの入力リダイレクト cat<" "$(bash_json 'cat<api/.env')"
 expect deny "空白なしの入力リダイレクト head<" "$(bash_json 'head<web/.env.local')"
+expect deny "command cat" "$(bash_json 'command cat api/.env')"
+expect deny "env で変数を付けた cat" "$(bash_json 'env -i FOO=1 cat api/.env')"
+expect deny "nice -n 10 head" "$(bash_json 'nice -n 10 head web/.env.local')"
+expect deny "env git push origin main" "$(bash_json 'env git push origin main')"
+expect pass "command -v cat" "$(bash_json 'command -v cat')"
 expect deny "空白ありの入力リダイレクト" "$(bash_json 'cat < api/.env')"
 expect pass "ひな形同士の cat" "$(bash_json 'cat web/.env.example api/.env.example')"
 

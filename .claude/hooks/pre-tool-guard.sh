@@ -231,6 +231,27 @@ check_bash() {
     done
     [ $first -lt "$n" ] || continue
     base=$(basename -- "$(unquote "${words[$first]}")")
+    # command / env / exec などのラッパーは、そのオプションと VAR=value ごと読み飛ばして実際のコマンドを見る
+    while [ $first -lt "$n" ]; do
+      case "$base" in
+        command | builtin | exec | env | nohup | time | nice | sudo | doas) ;;
+        *) break ;;
+      esac
+      first=$((first + 1))
+      while [ $first -lt "$n" ]; do
+        w=$(unquote "${words[$first]}")
+        case "$w" in
+          -u | -C | -n | -g | -S) first=$((first + 2)) ;;
+          -*) first=$((first + 1)) ;;
+          *)
+            [[ $w =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || break
+            first=$((first + 1))
+            ;;
+        esac
+      done
+      [ $first -lt "$n" ] || continue 2
+      base=$(basename -- "$(unquote "${words[$first]}")")
+    done
     case "$base" in
       cd)
         t=$(unquote "${words[$((first + 1))]:-}")
