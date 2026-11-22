@@ -120,6 +120,11 @@ check_file_tool() {
   esac
 }
 
+# ディレクトリを含む checkout のルート (git でなければディレクトリそのもの)
+repo_root_of() {
+  git -C "$1" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$1"
+}
+
 # 引用符を外す
 unquote() {
   local t=$1
@@ -182,7 +187,10 @@ check_push() {
           ;;
       esac
     done
-    [ -n "$target" ] && switched_branch=$target
+    if [ -n "$target" ]; then
+      switched_branch=$target
+      switched_root=$(repo_root_of "$dir")
+    fi
     return 0
   fi
   [ "$w" = "push" ] || return 0
@@ -239,7 +247,10 @@ check_push() {
   # (--tags だけで refspec が無いときはタグしか送らないので対象外)
   if { [ ${#refs[@]} -eq 0 ] && ! $tags_given; } || $dynamic; then
     branch=$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null || true)
-    [ -n "$switched_branch" ] && branch=$switched_branch
+    # 切替は同じ checkout への push にだけ反映する (git -C A switch ... && git -C B push は B の現在のブランチで見る)
+    if [ -n "$switched_branch" ] && [ "$(repo_root_of "$dir")" = "$switched_root" ]; then
+      branch=$switched_branch
+    fi
     if [ "$branch" = "main" ]; then
       deny "現在のブランチが main なので、この git push は main への直接 push になります。作業ブランチを作ってから push してください。"
     fi
@@ -276,7 +287,7 @@ check_bash() {
   cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
   [ -n "$cmd" ] || return 0
   dir=$cwd
-  switched_branch=""
+  switched_branch="" switched_root=""
 
   # ; & | ( ) ` と改行で区切り、区切りごとに先頭のコマンドを見る ($(...) の中も 1 区切りになる)。
   # 引用符の中の記号 (sed -n '1,20p;20q' の ; など) では区切らない

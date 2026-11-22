@@ -136,6 +136,10 @@ expect pass "main 上で新しいブランチを作って HEAD を push" "$(bash
 expect pass "開始点 origin/main つきの switch -c" "$(bash_json 'git switch -c claude/issue-2 origin/main && git push -u origin HEAD' "$tmp_repo")"
 expect pass "main 上で checkout -b してから引数なし push" "$(bash_json 'git checkout -b claude/issue-2 && git push' "$tmp_repo")"
 expect pass "main 上で既存の作業ブランチへ切り替えて push" "$(bash_json 'git switch claude/issue-1-example && git push origin HEAD' "$tmp_repo")"
+other_repo=$(mktemp -d)
+git -C "$other_repo" init -q -b claude/issue-3
+expect deny "別の checkout での切替は main の push に反映しない" "$(bash_json "git -C $other_repo switch -c claude/example && git -C $tmp_repo push origin HEAD" "$tmp_repo")"
+rm -rf "$other_repo"
 expect deny "main 上でファイルを checkout してから push" "$(bash_json 'git checkout README.md && git push' "$tmp_repo")"
 rm -rf "$tmp_repo"
 
