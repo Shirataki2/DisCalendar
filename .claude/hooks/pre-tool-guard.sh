@@ -133,7 +133,7 @@ check_push() {
   local dir=$1
   shift
   local words=("$@")
-  local i=0 n=${#words[@]} w positional=() branch
+  local i=0 n=${#words[@]} w positional=() branch repo_given=false
   # git [-C <path>] ... push
   while [ $i -lt "$n" ]; do
     w=$(unquote "${words[$i]}")
@@ -160,14 +160,18 @@ check_push() {
           deny "git push $w はローカルの main も送るので、main への直接 push になります。作業ブランチだけを指定して push してください。"
         fi
         ;;
-      -o | --push-option | --repo | --receive-pack | --exec) i=$((i + 1)) ;;
+      # --repo はリモートを指定するので、位置引数はすべて refspec になる
+      --repo) repo_given=true i=$((i + 1)) ;;
+      --repo=*) repo_given=true ;;
+      -o | --push-option | --receive-pack | --exec) i=$((i + 1)) ;;
       -*) ;;
       *) positional+=("$w") ;;
     esac
   done
-  # 1 つ目はリモート、2 つ目以降が refspec。宛先 (コロンの右、無ければそのもの) が main なら拒否
-  local ref dst dynamic=false refs=()
-  [ ${#positional[@]} -gt 1 ] && refs=("${positional[@]:1}")
+  # 1 つ目はリモート (--repo があれば無し)、残りが refspec。宛先 (コロンの右、無ければそのもの) が main なら拒否
+  local ref dst dynamic=false refs=() skip=1
+  $repo_given && skip=0
+  [ ${#positional[@]} -gt "$skip" ] && refs=("${positional[@]:$skip}")
   for ref in ${refs[@]+"${refs[@]}"}; do
     ref=${ref#+}
     dst=${ref##*:}
@@ -180,7 +184,7 @@ check_push() {
     esac
   done
   # refspec が無い・HEAD・コマンド置換のときは、現在のブランチが main なら main への push になる
-  if [ ${#positional[@]} -le 1 ] || $dynamic; then
+  if [ ${#refs[@]} -eq 0 ] || $dynamic; then
     branch=$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null || true)
     if [ "$branch" = "main" ]; then
       deny "現在のブランチが main なので、この git push は main への直接 push になります。作業ブランチを作ってから push してください。"
