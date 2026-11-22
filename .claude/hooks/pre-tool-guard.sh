@@ -254,7 +254,8 @@ check_bash() {
         check_push "$dir" "${words[@]:$((first + 1))}"
         ;;
     esac
-  done < <(printf '%s\n' "$cmd" | tr ';&|()`' '\n')
+  # cat<api/.env のような空白なしの入力リダイレクトも、< の前後に空白を入れてコマンド名と入力先に分ける
+  done < <(printf '%s\n' "$cmd" | tr ';&|()`' '\n' | sed 's/</ < /g')
 }
 
 case "$tool" in

@@ -72,6 +72,9 @@ expect deny "ひな形と並べた cat" "$(bash_json 'cat api/.env web/.env.exam
 expect deny "ひな形の後の cat" "$(bash_json 'cat web/.env.example && cat api/.env')"
 expect deny "コマンド置換の中の cat" "$(bash_json 'X=$(cat api/.env) echo ok')"
 expect deny "グロブ .env*" "$(bash_json 'cat .env*')"
+expect deny "空白なしの入力リダイレクト cat<" "$(bash_json 'cat<api/.env')"
+expect deny "空白なしの入力リダイレクト head<" "$(bash_json 'head<web/.env.local')"
+expect deny "空白ありの入力リダイレクト" "$(bash_json 'cat < api/.env')"
 expect pass "ひな形同士の cat" "$(bash_json 'cat web/.env.example api/.env.example')"
 
 # git push
