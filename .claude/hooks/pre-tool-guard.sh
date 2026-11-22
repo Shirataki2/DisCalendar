@@ -278,8 +278,15 @@ split_commands() {
         if (index(";&|()`", c) > 0) { out = out "\n"; continue }
         out = out c
       }
-      print out
-    }'
+      # 行末の \ (単一引用符の外) は行継続なので、次の行とつなげてから区切る (cat \<改行> api/.env)
+      if (q != sq && substr(out, length(out), 1) == "\\") {
+        pending = pending substr(out, 1, length(out) - 1) " "
+        next
+      }
+      print pending out
+      pending = ""
+    }
+    END { if (pending != "") print pending }'
 }
 
 check_bash() {
