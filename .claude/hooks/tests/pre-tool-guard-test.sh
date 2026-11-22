@@ -51,6 +51,11 @@ expect deny "形式の違う名前" "$(file_json Write "$root/api/migrations/add
 # CLAUDE_PROJECT_DIR が別の checkout を指していても、ファイルを含む checkout (worktree) で判定する
 CLAUDE_PROJECT_DIR=/ expect deny "別の checkout から見た既存マイグレーション" "$(file_json Edit "$root/$existing")"
 expect pass "rollback は対象外" "$(file_json Write "$root/api/rollback/${now}_drop_example.sql")"
+# . / .. を含むパスも同じファイルとして判定する
+expect deny "./ つきの相対パス" "$(file_json Edit "./$existing")"
+expect deny "途中に /./ を含む絶対パス" "$(file_json Edit "$root/./$existing")"
+expect deny "途中に /../ を含む絶対パス" "$(file_json Edit "$root/api/../$existing")"
+expect deny "./ つきの新規ファイル (古い版)" "$(file_json Write "./api/migrations/20200101123456_add_example.sql")"
 
 # .env 系
 expect deny ".env.local の Read" "$(file_json Read "$root/web/.env.local")"
@@ -89,6 +94,12 @@ expect deny "main 上のコマンド置換" "$(bash_json 'git push -u origin "$(
 expect deny "cd してから push" "$(bash_json "cd $tmp_repo && git push")"
 git -C "$tmp_repo" switch -q -c claude/issue-1-example
 expect pass "作業ブランチ上のコマンド置換" "$(bash_json 'git push -u origin "$(git rev-parse --abbrev-ref HEAD)"' "$tmp_repo")"
+# ローカルに main がある状態で、全ブランチを送る push
+git -C "$tmp_repo" -c user.name=test -c user.email=test@example.invalid commit -q --allow-empty -m init
+git -C "$tmp_repo" branch -q main
+expect deny "git push --all" "$(bash_json 'git push --all origin' "$tmp_repo")"
+expect deny "git push --mirror" "$(bash_json 'git push --mirror origin' "$tmp_repo")"
+expect pass "git push --tags" "$(bash_json 'git push --tags origin' "$tmp_repo")"
 rm -rf "$tmp_repo"
 
 # 判定できない入力は通す

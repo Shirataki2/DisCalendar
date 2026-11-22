@@ -30,6 +30,29 @@ checkout_root() {
   git -C "$dir" rev-parse --show-toplevel 2>/dev/null
 }
 
+# 絶対パスの . / .. を字句的に畳み、存在する部分はシンボリックリンクを解決した実パスにする
+# (git の show-toplevel は実パスを返すので、前方一致で比べられるように揃える。/tmp → /private/tmp など)
+normalize_path() {
+  local IFS=/ parts p out=() norm dir rest=""
+  read -r -a parts <<<"$1"
+  for p in "${parts[@]}"; do
+    case "$p" in
+      "" | .) ;;
+      ..) [ ${#out[@]} -gt 0 ] && unset 'out[${#out[@]}-1]' ;;
+      *) out+=("$p") ;;
+    esac
+  done
+  norm=$(printf '/%s' ${out[@]+"${out[@]}"})
+  [ -n "$norm" ] || norm=/
+  dir=$norm
+  while [ "$dir" != / ] && [ ! -d "$dir" ]; do
+    rest="/$(basename -- "$dir")$rest"
+    dir=$(dirname -- "$dir")
+  done
+  dir=$(cd "$dir" 2>/dev/null && pwd -P) || dir=${dir%/}
+  printf '%s%s' "${dir%/}" "$rest"
+}
+
 # .env 系の秘密ファイルか (.env.example などのひな形は除く。.env* のようなグロブも秘密として扱う)
 is_secret_env() {
   local base
@@ -73,6 +96,8 @@ check_file_tool() {
     /*) ;;
     *) path="$cwd/$path" ;;
   esac
+  # ./api/migrations/... や api/../api/migrations/... でも同じファイルとして判定する
+  path=$(normalize_path "$path")
 
   if is_secret_env "$path"; then
     deny ".env 系のファイル ($(basename "$path")) はエージェントから読み書きしない決まりです (AGENTS.md の P0: 秘密情報)。必要な値は .env.example を見るか、ユーザーに設定を依頼してください。"
@@ -129,6 +154,12 @@ check_push() {
   for ((i = i + 1; i < n; i++)); do
     w=$(unquote "${words[$i]}")
     case "$w" in
+      --all | --mirror | --branches)
+        # 全ブランチ / 全 ref を送る。ローカルに main があれば main も送られる
+        if git -C "$dir" show-ref --verify -q refs/heads/main 2>/dev/null; then
+          deny "git push $w はローカルの main も送るので、main への直接 push になります。作業ブランチだけを指定して push してください。"
+        fi
+        ;;
       -o | --push-option | --repo | --receive-pack | --exec) i=$((i + 1)) ;;
       -*) ;;
       *) positional+=("$w") ;;
