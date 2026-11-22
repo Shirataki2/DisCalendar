@@ -128,6 +128,11 @@ expect pass "main に一致しないワイルドカード" "$(bash_json "git pus
 git -C "$tmp_repo" switch -q main
 expect pass "main 上の git push --tags" "$(bash_json 'git push --tags origin' "$tmp_repo")"
 expect deny "main 上の --tags と main" "$(bash_json 'git push --tags origin main' "$tmp_repo")"
+expect pass "main 上で新しいブランチを作って HEAD を push" "$(bash_json 'git switch -c claude/issue-2 && git push -u origin HEAD' "$tmp_repo")"
+expect pass "開始点 origin/main つきの switch -c" "$(bash_json 'git switch -c claude/issue-2 origin/main && git push -u origin HEAD' "$tmp_repo")"
+expect pass "main 上で checkout -b してから引数なし push" "$(bash_json 'git checkout -b claude/issue-2 && git push' "$tmp_repo")"
+expect pass "main 上で既存の作業ブランチへ切り替えて push" "$(bash_json 'git switch claude/issue-1-example && git push origin HEAD' "$tmp_repo")"
+expect deny "main 上でファイルを checkout してから push" "$(bash_json 'git checkout README.md && git push' "$tmp_repo")"
 rm -rf "$tmp_repo"
 
 # 判定できない入力は通す

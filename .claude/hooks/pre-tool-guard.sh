@@ -154,16 +154,35 @@ check_push() {
     i=$((i + 1))
   done
   [ $i -lt "$n" ] || return 0
-  # 同じコマンドの中で先に main へ切り替えていたら、後続の push は main 上で動くものとして判定する
+  # 同じコマンドの中で先にブランチを切り替えていたら、後続の push は切替先のブランチで判定する
   if [ "$w" = "switch" ] || [ "$w" = "checkout" ]; then
+    local target=""
     for ((i = i + 1; i < n; i++)); do
       w=$(unquote "${words[$i]}")
       case "$w" in
         --) break ;;
-        # git switch main / git checkout main / git switch -c main など (それ以外への切替は現在のブランチのまま判定する)
-        main | origin/main) switched_to_main=true ;;
+        # 新しいブランチを作って切り替える: 直後が切替先、その後ろは開始点 (origin/main など) なので見ない
+        -c | -C | -b | -B | --create | --force-create | --orphan)
+          target=$(unquote "${words[$((i + 1))]:-}")
+          break
+          ;;
+        -*) ;;
+        *)
+          # 既存ブランチへの切替。checkout はファイル名も取るので、ブランチとして存在する名前だけを切替先にする
+          case "$w" in
+            main | origin/main) target=main ;;
+            *)
+              if git -C "$dir" show-ref -q --verify "refs/heads/$w" 2>/dev/null ||
+                git -C "$dir" show-ref -q --verify "refs/remotes/origin/$w" 2>/dev/null; then
+                target=$w
+              fi
+              ;;
+          esac
+          break
+          ;;
       esac
     done
+    [ -n "$target" ] && switched_branch=$target
     return 0
   fi
   [ "$w" = "push" ] || return 0
@@ -220,7 +239,7 @@ check_push() {
   # (--tags だけで refspec が無いときはタグしか送らないので対象外)
   if { [ ${#refs[@]} -eq 0 ] && ! $tags_given; } || $dynamic; then
     branch=$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null || true)
-    $switched_to_main && branch=main
+    [ -n "$switched_branch" ] && branch=$switched_branch
     if [ "$branch" = "main" ]; then
       deny "現在のブランチが main なので、この git push は main への直接 push になります。作業ブランチを作ってから push してください。"
     fi
@@ -232,7 +251,7 @@ check_bash() {
   cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
   [ -n "$cmd" ] || return 0
   dir=$cwd
-  switched_to_main=false
+  switched_branch=""
 
   # ; & | ( ) ` と改行で区切り、区切りごとに先頭のコマンドを見る ($(...) の中も 1 区切りになる)
   while IFS= read -r seg; do
