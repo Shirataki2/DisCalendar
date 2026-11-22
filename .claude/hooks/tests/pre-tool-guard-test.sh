@@ -85,6 +85,8 @@ expect deny "git -C で main を push" "$(bash_json 'git -C /tmp/x push origin m
 expect deny "--repo origin main" "$(bash_json 'git push --repo origin main')"
 expect deny "--repo=origin main" "$(bash_json 'git push --repo=origin main')"
 expect pass "--repo で作業ブランチ" "$(bash_json 'git push --repo origin claude/issue-1-example')"
+expect deny "git -c で設定を渡した push" "$(bash_json 'git -c push.default=current push origin main')"
+expect pass "コミットメッセージの中の push" "$(bash_json 'git commit -m "push origin main を拒否する"')"
 expect pass "作業ブランチの push" "$(bash_json 'git push -u origin claude/issue-1-example')"
 expect pass "main を含む別名のブランチ" "$(bash_json 'git push origin fix-main-layout')"
 
@@ -103,6 +105,12 @@ git -C "$tmp_repo" branch -q main
 expect deny "git push --all" "$(bash_json 'git push --all origin' "$tmp_repo")"
 expect deny "git push --mirror" "$(bash_json 'git push --mirror origin' "$tmp_repo")"
 expect pass "git push --tags" "$(bash_json 'git push --tags origin' "$tmp_repo")"
+expect deny "ワイルドカードの refspec" "$(bash_json "git push origin 'refs/heads/*:refs/heads/*'" "$tmp_repo")"
+expect deny "matching push (:)" "$(bash_json 'git push origin :' "$tmp_repo")"
+expect pass "main に一致しないワイルドカード" "$(bash_json "git push origin 'refs/heads/claude/*:refs/heads/claude/*'" "$tmp_repo")"
+git -C "$tmp_repo" switch -q main
+expect pass "main 上の git push --tags" "$(bash_json 'git push --tags origin' "$tmp_repo")"
+expect deny "main 上の --tags と main" "$(bash_json 'git push --tags origin main' "$tmp_repo")"
 rm -rf "$tmp_repo"
 
 # 判定できない入力は通す

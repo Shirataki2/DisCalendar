@@ -19,7 +19,8 @@ cd "$root" || exit 0
 git rev-parse --verify -q origin/main >/dev/null || exit 0
 
 out=$(bash .agents/scripts/pre-pr-check.sh --detect-only --no-changelog 2>/dev/null)
-findings=$(grep -E '^(警告|エラー): ' <<<"$out" || true)
+# 最初の警告・エラー以降を継続行 (上限値のずれの明細など) ごと残す。重複判定もこの全体で行う
+findings=$(awk '/^(警告|エラー): /{f=1} f' <<<"$out")
 [ -n "$findings" ] || exit 0
 
 session=$(jq -r '.session_id // "default"' <<<"$input")

@@ -39,10 +39,18 @@ $(printf '%s\n' "$out" | head -60)"
     ;;
   *.rs)
     command -v rustfmt >/dev/null 2>&1 || exit 0
-    if ! out=$(rustfmt --edition 2024 "$path" 2>&1); then
+    # ファイルを直接渡すと mod 宣言を辿って子モジュール (未編集のファイル) まで書き換えるので、
+    # 標準入力から整形して編集したファイルだけに書き戻す (設定ファイルはファイルのディレクトリから探させる)
+    tmp=$(mktemp) || exit 0
+    if ! out=$(cd "$(dirname "$path")" && rustfmt --edition 2024 --emit stdout <"$path" 2>&1 >"$tmp"); then
+      rm -f "$tmp"
       feedback "rustfmt が失敗しました ($(basename "$path"))。構文エラーの可能性があります:
 $(printf '%s\n' "$out" | head -40)"
     fi
+    if [ -s "$tmp" ] && ! cmp -s "$tmp" "$path"; then
+      cat "$tmp" >"$path"
+    fi
+    rm -f "$tmp"
     ;;
 esac
 exit 0

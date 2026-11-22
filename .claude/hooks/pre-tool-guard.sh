@@ -133,8 +133,9 @@ check_push() {
   local dir=$1
   shift
   local words=("$@")
-  local i=0 n=${#words[@]} w positional=() branch repo_given=false
-  # git [-C <path>] ... push
+  local i=0 n=${#words[@]} w positional=() branch repo_given=false tags_given=false
+  # git のグローバルオプション ([-C <path>] [-c k=v] ...) を読み飛ばし、最初のサブコマンドが push のときだけ調べる
+  # (git commit -m "push origin main" のような引数の中の push は見ない)
   while [ $i -lt "$n" ]; do
     w=$(unquote "${words[$i]}")
     case "$w" in
@@ -146,20 +147,26 @@ check_push() {
           *) dir="$dir/$w" ;;
         esac
         ;;
-      push) break ;;
+      -c | --git-dir | --work-tree | --namespace | --config-env | --exec-path | --super-prefix) i=$((i + 1)) ;;
+      -*) ;;
+      *) break ;;
     esac
     i=$((i + 1))
   done
-  [ $i -lt "$n" ] || return 0
+  [ $i -lt "$n" ] && [ "$w" = "push" ] || return 0
+  local has_main=false
+  git -C "$dir" show-ref --verify -q refs/heads/main 2>/dev/null && has_main=true
   for ((i = i + 1; i < n; i++)); do
     w=$(unquote "${words[$i]}")
     case "$w" in
       --all | --mirror | --branches)
         # 全ブランチ / 全 ref を送る。ローカルに main があれば main も送られる
-        if git -C "$dir" show-ref --verify -q refs/heads/main 2>/dev/null; then
+        if $has_main; then
           deny "git push $w はローカルの main も送るので、main への直接 push になります。作業ブランチだけを指定して push してください。"
         fi
         ;;
+      # タグだけを送る (refspec が無ければブランチは送らない)
+      --tags) tags_given=true ;;
       # --repo はリモートを指定するので、位置引数はすべて refspec になる
       --repo) repo_given=true i=$((i + 1)) ;;
       --repo=*) repo_given=true ;;
@@ -174,7 +181,20 @@ check_push() {
   [ ${#positional[@]} -gt "$skip" ] && refs=("${positional[@]:$skip}")
   for ref in ${refs[@]+"${refs[@]}"}; do
     ref=${ref#+}
+    # ":" だけ (両側にあるブランチをすべて送る matching push) は、ローカルに main があれば main も送る
+    if [ "$ref" = ":" ] && $has_main; then
+      deny "git push <remote> : は同名のブランチをすべて送るので、main も送られます。作業ブランチだけを指定して push してください。"
+    fi
     dst=${ref##*:}
+    # refs/heads/*:refs/heads/* のようなワイルドカードは、宛先のパターンが main に一致し、ローカルに main があれば拒否
+    case "$dst" in
+      *\**)
+        # shellcheck disable=SC2053 # 宛先はグロブとして比べる
+        if $has_main && { [[ refs/heads/main == $dst ]] || [[ main == $dst ]]; }; then
+          deny "ワイルドカードの refspec ($ref) は main も送るので、main への直接 push になります。作業ブランチだけを指定して push してください。"
+        fi
+        ;;
+    esac
     dst=${dst#refs/heads/}
     if [ "$dst" = "main" ]; then
       deny "main への直接 push は禁止です (ブランチ → PR → ci → squash マージ)。作業ブランチを push してください。"
@@ -184,7 +204,8 @@ check_push() {
     esac
   done
   # refspec が無い・HEAD・コマンド置換のときは、現在のブランチが main なら main への push になる
-  if [ ${#refs[@]} -eq 0 ] || $dynamic; then
+  # (--tags だけで refspec が無いときはタグしか送らないので対象外)
+  if { [ ${#refs[@]} -eq 0 ] && ! $tags_given; } || $dynamic; then
     branch=$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null || true)
     if [ "$branch" = "main" ]; then
       deny "現在のブランチが main なので、この git push は main への直接 push になります。作業ブランチを作ってから push してください。"

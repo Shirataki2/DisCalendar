@@ -71,6 +71,31 @@ fi
 
 # --- sqlx のオフラインデータ ---
 sqlx_pattern='query(_as|_scalar|_file|_file_as)?(_unchecked)?!|(^|[^A-Za-z_])(SELECT|INSERT INTO|UPDATE|DELETE FROM|RETURNING|ON CONFLICT|WHERE)([^A-Za-z_]|$)'
+
+# ファイル $1 の変更行 (削除だけの箇所は前後の行) が query! 系マクロの呼び出し (開き括弧から対応する閉じ括弧まで) に入るか
+macro_touched() {
+  local f=$1 lines
+  lines=$(git diff -U0 "$merge_base" -- "$f" | awk '/^@@/ {
+    split($3, a, ","); s = substr(a[1], 2) + 0; c = (a[2] == "") ? 1 : a[2] + 0
+    if (c == 0) { print s; print s + 1 } else for (i = 0; i < c; i++) print s + i
+  }' | tr '\n' ' ')
+  [ -n "$lines" ] || return 1
+  awk -v lines="$lines" '
+    BEGIN { n = split(lines, L, " "); for (i = 1; i <= n; i++) T[L[i]] = 1 }
+    {
+      rest = $0
+      if (!in_m && match($0, /query(_as|_scalar|_file|_file_as)?(_unchecked)?!/)) {
+        in_m = 1; depth = 0; opened = 0; hit = 0; rest = substr($0, RSTART)
+      }
+      if (!in_m) next
+      if (NR in T) hit = 1
+      t = rest; o = gsub(/\(/, "", t); t = rest; c = gsub(/\)/, "", t)
+      depth += o - c; if (o > 0) opened = 1
+      if (opened && depth <= 0) { if (hit) { found = 1; exit } in_m = 0 }
+    }
+    END { exit found ? 0 : 1 }
+  ' "$f"
+}
 for crate in api bot; do
   rs_files=$(grep -E "^$crate/(src|tests)/.*\.rs$" <<<"$changed" || true)
   [ -n "$rs_files" ] || continue
@@ -78,7 +103,13 @@ for crate in api bot; do
   # shellcheck disable=SC2086
   touched_sql=$(git diff -U0 "$merge_base" -- $rs_files | grep -E '^[+-][^+-]' | grep -E "$sqlx_pattern" || true)
   for f in $rs_files; do
-    if git ls-files --others --exclude-standard -- "$f" | grep -q . && grep -Eq "$sqlx_pattern" "$f"; then
+    [ -f "$f" ] || continue
+    if git ls-files --others --exclude-standard -- "$f" | grep -q .; then
+      grep -Eq "$sqlx_pattern" "$f" && touched_sql=yes
+      continue
+    fi
+    # 複数行の SQL の途中だけを変えた場合も拾うため、変更行 (新しい側の行番号) がクエリマクロの範囲に入るかを見る
+    if macro_touched "$f"; then
       touched_sql=yes
     fi
   done
@@ -173,8 +204,15 @@ if ! $detect_only; then
   fi
   if has_changes '^(api/|bot/|shared/|Cargo\.toml|Cargo\.lock)'; then
     run "rust: cargo fmt --check" cargo fmt --all --check
-    run "rust: cargo clippy" cargo clippy --workspace --all-targets -- -D warnings
-    run "rust: cargo test" cargo test --workspace
+    # bot/.env が無く api/.env だけある構成でも、bot の DB テストが接続先を得られるように渡す (値は表示しない)
+    workspace_url=$(database_url_for bot)
+    if [ -n "$workspace_url" ]; then
+      run "rust: cargo clippy" env DATABASE_URL="$workspace_url" cargo clippy --workspace --all-targets -- -D warnings
+      run "rust: cargo test" env DATABASE_URL="$workspace_url" cargo test --workspace
+    else
+      run "rust: cargo clippy" cargo clippy --workspace --all-targets -- -D warnings
+      run "rust: cargo test" cargo test --workspace
+    fi
     for crate in api bot; do
       has_changes "^$crate/(src|tests|\.sqlx)/" || continue
       url=$(database_url_for "$crate")
