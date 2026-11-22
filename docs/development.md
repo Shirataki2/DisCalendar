@@ -136,7 +136,7 @@ CI を一往復待たずに、エージェントが自分で気づいて直せ�
 
 | 仕組み | いつ動くか | 何をするか |
 |---|---|---|
-| `.claude/hooks/pre-tool-guard.sh` | ツールの実行前 (PreToolUse) | 既存の `api/migrations/*.sql` の編集、`.env` 系 (`*.example` を除く) の Read / Edit / Write と Bash での丸ごと表示、main への直接 `git push` を拒否する。新しいマイグレーションの名前 (形式・既存より新しい版か・`000001` のような連番でないか・1 日以上先でないか) も検査する |
+| `.claude/hooks/pre-tool-guard.sh` | ツールの実行前 (PreToolUse) | 既存の `api/migrations/*.sql` (origin/main にあるもの。作業中に足した未マージのファイルは対象外) の編集、`.env` 系 (`*.example` を除く) の Read / Edit / Write と Bash での丸ごと表示、main への直接 `git push` を拒否する。新しいマイグレーションの名前 (形式・既存より新しい版か・`000001` のような連番でないか・1 日以上先でないか) も検査する |
 | `.claude/hooks/post-edit-format.sh` | Edit / Write の後 (PostToolUse) | `web/` の TS / JS / JSON / CSS は `biome check --write`、`*.rs` は `rustfmt` を、そのファイルにだけかける。直しきれない lint の指摘はエージェントに返す |
 | `.claude/hooks/stop-precheck.sh` | 応答を終える前 (Stop) | 作業ブランチなら `pre-pr-check.sh --detect-only --no-changelog` を流し、見つかったものを 1 度だけエージェントに返す (同じ内容では止めない) |
 | `.agents/scripts/pre-pr-check.sh` | PR を作る前に手で実行 | `.sqlx/` の更新漏れ・更新履歴の有無と形式・rollback の有無・機能 PR でのバージョン変更・上限値のずれを検出し、変更したパスに応じて lint / 型 / テストを流す |

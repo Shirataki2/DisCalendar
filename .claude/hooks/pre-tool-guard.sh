@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook: AGENTS.md の P0 規則のうち、パスとコマンドの形で判定できるものをツール実行前に止める。
-#   - api/migrations/ の既存ファイル (git 管理下) の編集 → 拒否 (_sqlx_migrations のチェックサムと照合されるため)
+#   - api/migrations/ の既存ファイル (origin/main にあるもの) の編集 → 拒否 (_sqlx_migrations のチェックサムと照合されるため)
 #   - 新しいマイグレーションのファイル名 → 形式・順序・連番の時刻を検査 (`date` で取った実時刻を使う)
 #   - .env 系 (*.example などのひな形を除く) の Read / Edit / Write、Bash での丸ごと表示 → 拒否
 #   - main への直接 git push → 拒否 (サーバー側のルールセットでも拒否されるが、手前で止める)
@@ -110,7 +110,11 @@ check_file_tool() {
 
   case "$rel" in
     api/migrations/*.sql)
-      if git -C "$root" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+      # 保護するのは比較元 (origin/main、無ければ HEAD) に既にあるファイル。この作業で足した (ステージ済み・
+      # ブランチでコミット済み) 未マージのマイグレーションは、まだどこにも適用されていないので直してよい
+      local base=HEAD
+      git -C "$root" rev-parse --verify -q origin/main >/dev/null 2>&1 && base=origin/main
+      if git -C "$root" cat-file -e "$base:$rel" 2>/dev/null; then
         deny "適用済みのマイグレーション ($rel) は変更禁止です (_sqlx_migrations のチェックサムと照合され、本番の api が起動しなくなる)。スキーマの変更は新しいファイルで行ってください。データの持ち方が変わるなら api/rollback/ に戻し方も用意します。"
       fi
       if [ "$tool" = "Write" ] && [ ! -e "$path" ]; then

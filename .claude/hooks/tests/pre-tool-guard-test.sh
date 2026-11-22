@@ -50,6 +50,19 @@ expect deny "1 日以上先の版" "$(file_json Write "$root/api/migrations/2999
 expect deny "形式の違う名前" "$(file_json Write "$root/api/migrations/add_example.sql")"
 # CLAUDE_PROJECT_DIR が別の checkout を指していても、ファイルを含む checkout (worktree) で判定する
 CLAUDE_PROJECT_DIR=/ expect deny "別の checkout から見た既存マイグレーション" "$(file_json Edit "$root/$existing")"
+# この作業で追加しただけ (ステージ済み) のマイグレーションは直してよい
+mig_repo=$(mktemp -d)
+git -C "$mig_repo" init -q -b claude/issue-4
+mkdir -p "$mig_repo/api/migrations"
+git -C "$mig_repo" -c user.name=test -c user.email=test@example.invalid commit -q --allow-empty -m init
+printf 'SELECT 1;\n' >"$mig_repo/api/migrations/${now}_add_example.sql"
+git -C "$mig_repo" add api/migrations
+expect pass "ステージ済みの新規マイグレーションの Edit" "$(file_json Edit "$mig_repo/api/migrations/${now}_add_example.sql")"
+git -C "$mig_repo" -c user.name=test -c user.email=test@example.invalid commit -q -m add
+git -C "$mig_repo" branch -q main
+git -C "$mig_repo" update-ref refs/remotes/origin/main refs/heads/main
+expect deny "origin/main に入ったマイグレーションの Edit" "$(file_json Edit "$mig_repo/api/migrations/${now}_add_example.sql")"
+rm -rf "$mig_repo"
 expect pass "rollback は対象外" "$(file_json Write "$root/api/rollback/${now}_drop_example.sql")"
 # . / .. を含むパスも同じファイルとして判定する
 expect deny "./ つきの相対パス" "$(file_json Edit "./$existing")"
