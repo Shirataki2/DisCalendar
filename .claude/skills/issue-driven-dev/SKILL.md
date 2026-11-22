@@ -119,6 +119,14 @@ worktree 内で気をつけること:
 
 ### 3. コミット → push → PR
 
+先に PR 前チェックを流し、警告とエラーを片付ける (警告は「直す」か「直さない理由を PR 本文に書く」)。
+Claude Code ではサブエージェント `pr-reviewer` に差分のレビューを頼めば、P0 / P1 の観点で手元でも見られる。
+
+```bash
+bash .agents/scripts/pre-pr-check.sh                 # 検出 + 変更したパスの lint / 型 / テスト
+bash .agents/scripts/pre-pr-check.sh --detect-only   # 検出だけ (数秒)
+```
+
 ```bash
 git add -A && git commit -m "<日本語の要約>"
 git push -u origin "$(git rev-parse --abbrev-ref HEAD)"

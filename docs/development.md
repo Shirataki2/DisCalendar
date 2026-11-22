@@ -129,6 +129,25 @@ GitHub App の接続など Claude 固有の設定は [Configure cloud environmen
 PostgreSQL のマイグレーションと `pnpm install` が完了したことを確かめる。クラウドには実トークンを入れないため、Discord ログイン、
 Bot の実機確認、対話ブラウザでの見た目確認はローカルへ引き継ぐ。clone 内に追加の worktree は作らない。
 
+### エージェント向けのガードと検査
+
+AGENTS.md の規則のうち、パスやコマンドの形で判定できるものは hook とスクリプトで強制・検出する。
+CI を一往復待たずに、エージェントが自分で気づいて直せるようにするのが目的。
+
+| 仕組み | いつ動くか | 何をするか |
+|---|---|---|
+| `.claude/hooks/pre-tool-guard.sh` | ツールの実行前 (PreToolUse) | 既存の `api/migrations/*.sql` の編集、`.env` 系 (`*.example` を除く) の Read / Edit / Write と Bash での丸ごと表示、main への直接 `git push` を拒否する。新しいマイグレーションの名前 (形式・既存より新しい版か・`000001` のような連番でないか・1 日以上先でないか) も検査する |
+| `.claude/hooks/post-edit-format.sh` | Edit / Write の後 (PostToolUse) | `web/` の TS / JS / JSON / CSS は `biome check --write`、`*.rs` は `rustfmt` を、そのファイルにだけかける。直しきれない lint の指摘はエージェントに返す |
+| `.claude/hooks/stop-precheck.sh` | 応答を終える前 (Stop) | 作業ブランチなら `pre-pr-check.sh --detect-only --no-changelog` を流し、見つかったものを 1 度だけエージェントに返す (同じ内容では止めない) |
+| `.agents/scripts/pre-pr-check.sh` | PR を作る前に手で実行 | `.sqlx/` の更新漏れ・更新履歴の有無と形式・rollback の有無・機能 PR でのバージョン変更・上限値のずれを検出し、変更したパスに応じて lint / 型 / テストを流す |
+| `.github/scripts/check-limits.sh` | CI の version ジョブ / PR 前チェック | web と api / bot の上限値 (タイトル 32 文字など) の対応表を照合する。新しい上限値を両側に定義したら対応表に足す |
+| `.claude/agents/pr-reviewer.md` | 「PR 前にレビューして」などの依頼 | Code Review Rules (P0 / P1) を基準に差分をレビューするサブエージェント |
+
+- `.claude/settings.json` の hook を読むのは Claude Code だけ。Codex では hook が効かないので、`issue-driven-dev` の手順どおり PR 前に `pre-pr-check.sh` を実行する
+- hook は `jq` が無い・入力が読めないときは何もしない (誤検知で作業を止めないため)。整形ツール (`web/node_modules` の Biome、`rustfmt`) が無いときも同じ
+- ガードの判定を変えたら `bash .claude/hooks/tests/pre-tool-guard-test.sh` を流す。CI の version ジョブでも、このテストと `shellcheck` を実行している
+- 本当に既存のマイグレーションを触る必要がある場合 (ほぼ無い) は、hook を外すのではなく、ユーザーが手で編集する
+
 ### MCP OAuth の検証
 
 一般公開前のOAuth・接続管理の検証は、[MCP OAuth の検証環境](mcp-auth.md)を参照。
