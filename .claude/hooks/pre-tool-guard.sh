@@ -2,8 +2,9 @@
 # PreToolUse hook: AGENTS.md の P0 規則のうち、パスとコマンドの形で判定できるものをツール実行前に止める。
 #   - api/migrations/ の既存ファイル (git 管理下) の編集 → 拒否 (_sqlx_migrations のチェックサムと照合されるため)
 #   - 新しいマイグレーションのファイル名 → 形式・順序・連番の時刻を検査 (`date` で取った実時刻を使う)
-#   - .env 系 (*.example を除く) の Read / Edit / Write、Bash での丸ごと表示 → 拒否
+#   - .env 系 (*.example などのひな形を除く) の Read / Edit / Write、Bash での丸ごと表示 → 拒否
 #   - main への直接 git push → 拒否 (サーバー側のルールセットでも拒否されるが、手前で止める)
+# パスの判定は、そのファイルを含む checkout (worktree を含む) のルートを基準にする。
 # 判定できない入力 (jq が無い、JSON が壊れている) では何もしない (誤検知で作業を止めない)。
 set -u
 
@@ -12,40 +13,36 @@ input=$(cat)
 tool=$(jq -r '.tool_name // empty' <<<"$input" 2>/dev/null) || exit 0
 [ -n "$tool" ] || exit 0
 
-root=${CLAUDE_PROJECT_DIR:-$(jq -r '.cwd // empty' <<<"$input")}
-[ -n "$root" ] || root=$(pwd)
+cwd=$(jq -r '.cwd // empty' <<<"$input")
+[ -n "$cwd" ] || cwd=${CLAUDE_PROJECT_DIR:-$(pwd)}
 
 deny() {
   jq -n --arg r "$1" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
   exit 0
 }
 
-# リポジトリ相対のパスにする (リポジトリ外なら空)
-relpath() {
-  local p=$1
-  case "$p" in
-    /*) ;;
-    *) p="$root/$p" ;;
-  esac
-  case "$p" in
-    "$root"/*) printf '%s' "${p#"$root"/}" ;;
-    *) printf '' ;;
-  esac
+# パスを含む checkout のルート (worktree ならその worktree)。まだ無いファイルは、存在する親ディレクトリから求める
+checkout_root() {
+  local dir=$1
+  while [ -n "$dir" ] && [ ! -d "$dir" ]; do
+    dir=$(dirname "$dir")
+  done
+  git -C "$dir" rev-parse --show-toplevel 2>/dev/null
 }
 
-# .env 系の秘密ファイルか (.env.example などのひな形は除く)
+# .env 系の秘密ファイルか (.env.example などのひな形は除く。.env* のようなグロブも秘密として扱う)
 is_secret_env() {
   local base
-  base=$(basename "$1")
+  base=$(basename -- "$1")
   case "$base" in
     .env.example | .env.sample | .env.template) return 1 ;;
-    .env | .env.*) return 0 ;;
+    .env | .env.* | .env\**) return 0 ;;
   esac
   return 1
 }
 
 check_migration_name() {
-  local rel=$1 base stamp hms latest now_stamp
+  local root=$1 rel=$2 base stamp hms latest now_stamp
   base=$(basename "$rel")
   if ! [[ $base =~ ^([0-9]{14})_[a-z0-9_]+\.sql$ ]]; then
     deny "マイグレーションのファイル名は <yyyymmddHHMMSS>_<英小文字とアンダースコア>.sql にしてください (受け取った名前: $base)。時刻は \`date \"+%Y%m%d%H%M%S\"\` で取得した実時刻を使います。"
@@ -69,51 +66,139 @@ check_migration_name() {
 }
 
 check_file_tool() {
-  local path rel
+  local path root rel
   path=$(jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' <<<"$input")
   [ -n "$path" ] || return 0
-  rel=$(relpath "$path")
+  case "$path" in
+    /*) ;;
+    *) path="$cwd/$path" ;;
+  esac
 
   if is_secret_env "$path"; then
     deny ".env 系のファイル ($(basename "$path")) はエージェントから読み書きしない決まりです (AGENTS.md の P0: 秘密情報)。必要な値は .env.example を見るか、ユーザーに設定を依頼してください。"
   fi
 
   [ "$tool" = "Read" ] && return 0
-  [ -n "$rel" ] || return 0
+  root=$(checkout_root "$(dirname "$path")") || return 0
+  [ -n "$root" ] || return 0
+  rel=${path#"$root"/}
 
   case "$rel" in
     api/migrations/*.sql)
       if git -C "$root" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
         deny "適用済みのマイグレーション ($rel) は変更禁止です (_sqlx_migrations のチェックサムと照合され、本番の api が起動しなくなる)。スキーマの変更は新しいファイルで行ってください。データの持ち方が変わるなら api/rollback/ に戻し方も用意します。"
       fi
-      if [ "$tool" = "Write" ] && [ ! -e "$root/$rel" ]; then
-        check_migration_name "$rel"
+      if [ "$tool" = "Write" ] && [ ! -e "$path" ]; then
+        check_migration_name "$root" "$rel"
       fi
       ;;
   esac
 }
 
-check_bash() {
-  local cmd branch
-  cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
-  [ -n "$cmd" ] || return 0
+# 引用符を外す
+unquote() {
+  local t=$1
+  t=${t//\"/}
+  t=${t//\'/}
+  printf '%s' "$t"
+}
 
-  # .env 系を丸ごと表示するコマンド (grep で特定のキーを取り出す使い方は止めない)
-  if grep -Eq '(^|[;&|(`[:space:]])(cat|less|more|head|tail|bat|nl|strings|xxd|od|hexdump|open)([[:space:]]+-[^[:space:]]+([[:space:]]+[0-9]+)?)*[[:space:]]+([^;&|[:space:]]*/)?\.env(\.[A-Za-z0-9_-]+)?([[:space:];&|)]|$)' <<<"$cmd" &&
-    ! grep -Eq '\.env\.(example|sample|template)' <<<"$cmd"; then
-    deny ".env 系のファイルを丸ごと表示するコマンドは実行しない決まりです (AGENTS.md の P0: 秘密情報)。特定のキーが要るなら grep で取り出して変数に入れ、値を出力しないでください。"
-  fi
-
-  # main への直接 push
-  if grep -Eq '(^|[;&|[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+push([[:space:]]|$)' <<<"$cmd"; then
-    if grep -Eq 'push([[:space:]]+[^;&|]*)?[[:space:]](\+?(HEAD:)?(refs/heads/)?main)([[:space:];&|]|$)' <<<"$cmd"; then
+# git push の 1 区切り (git 以降の語) を調べる。$1 = 実行ディレクトリ、残り = 語
+check_push() {
+  local dir=$1
+  shift
+  local words=("$@")
+  local i=0 n=${#words[@]} w positional=() branch
+  # git [-C <path>] ... push
+  while [ $i -lt "$n" ]; do
+    w=$(unquote "${words[$i]}")
+    case "$w" in
+      -C)
+        i=$((i + 1))
+        w=$(unquote "${words[$i]:-}")
+        case "$w" in
+          /*) dir=$w ;;
+          *) dir="$dir/$w" ;;
+        esac
+        ;;
+      push) break ;;
+    esac
+    i=$((i + 1))
+  done
+  [ $i -lt "$n" ] || return 0
+  for ((i = i + 1; i < n; i++)); do
+    w=$(unquote "${words[$i]}")
+    case "$w" in
+      -o | --push-option | --repo | --receive-pack | --exec) i=$((i + 1)) ;;
+      -*) ;;
+      *) positional+=("$w") ;;
+    esac
+  done
+  # 1 つ目はリモート、2 つ目以降が refspec。宛先 (コロンの右、無ければそのもの) が main なら拒否
+  local ref dst dynamic=false refs=()
+  [ ${#positional[@]} -gt 1 ] && refs=("${positional[@]:1}")
+  for ref in ${refs[@]+"${refs[@]}"}; do
+    ref=${ref#+}
+    dst=${ref##*:}
+    dst=${dst#refs/heads/}
+    if [ "$dst" = "main" ]; then
       deny "main への直接 push は禁止です (ブランチ → PR → ci → squash マージ)。作業ブランチを push してください。"
     fi
-    branch=$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-    if [ "$branch" = "main" ] && grep -Eq 'git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+push([[:space:]]+(-u|--set-upstream|origin))*[[:space:]]*([;&|]|$)' <<<"$cmd"; then
+    case "$ref" in
+      HEAD | \$* | *:HEAD) dynamic=true ;;
+    esac
+  done
+  # refspec が無い・HEAD・コマンド置換のときは、現在のブランチが main なら main への push になる
+  if [ ${#positional[@]} -le 1 ] || $dynamic; then
+    branch=$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null || true)
+    if [ "$branch" = "main" ]; then
       deny "現在のブランチが main なので、この git push は main への直接 push になります。作業ブランチを作ってから push してください。"
     fi
   fi
+}
+
+check_bash() {
+  local cmd dir seg words w i n first base t
+  cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
+  [ -n "$cmd" ] || return 0
+  dir=$cwd
+
+  # ; & | ( ) ` と改行で区切り、区切りごとに先頭のコマンドを見る ($(...) の中も 1 区切りになる)
+  while IFS= read -r seg; do
+    read -r -a words <<<"$seg" || true
+    n=${#words[@]}
+    [ "$n" -gt 0 ] || continue
+    # 先頭の VAR=value は飛ばす
+    first=0
+    while [ $first -lt "$n" ] && [[ ${words[$first]} =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do
+      first=$((first + 1))
+    done
+    [ $first -lt "$n" ] || continue
+    base=$(basename -- "$(unquote "${words[$first]}")")
+    case "$base" in
+      cd)
+        t=$(unquote "${words[$((first + 1))]:-}")
+        case "$t" in
+          "") ;;
+          /*) dir=$t ;;
+          *) dir="$dir/$t" ;;
+        esac
+        ;;
+      cat | less | more | head | tail | bat | nl | strings | xxd | od | hexdump | open | tac)
+        # .env 系を丸ごと表示する (grep で特定のキーを取り出す使い方は止めない)。ひな形かどうかは引数ごとに見る
+        for ((i = first + 1; i < n; i++)); do
+          t=$(unquote "${words[$i]}")
+          t=${t#<}
+          if is_secret_env "$t"; then
+            deny ".env 系のファイル ($(basename -- "$t")) を丸ごと表示するコマンドは実行しない決まりです (AGENTS.md の P0: 秘密情報)。特定のキーが要るなら grep で取り出して変数に入れ、値を出力しないでください。"
+          fi
+        done
+        ;;
+      git)
+        check_push "$dir" "${words[@]:$((first + 1))}"
+        ;;
+    esac
+  done < <(printf '%s\n' "$cmd" | tr ';&|()`' '\n')
 }
 
 case "$tool" in

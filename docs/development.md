@@ -144,6 +144,8 @@ CI を一往復待たずに、エージェントが自分で気づいて直せ�
 | `.claude/agents/pr-reviewer.md` | 「PR 前にレビューして」などの依頼 | Code Review Rules (P0 / P1) を基準に差分をレビューするサブエージェント |
 
 - `.claude/settings.json` の hook を読むのは Claude Code だけ。Codex では hook が効かないので、`issue-driven-dev` の手順どおり PR 前に `pre-pr-check.sh` を実行する
+- hook はパスを、そのファイルを含む checkout のルートを基準にして判定する。Bash は hook に渡された `cwd` を基準にする (コマンド内の `cd` と `git -C` も追う)。
+  `.claude/worktrees/` の worktree を絶対パスで編集しても、メインの checkout と同じように効く
 - hook は `jq` が無い・入力が読めないときは何もしない (誤検知で作業を止めないため)。整形ツール (`web/node_modules` の Biome、`rustfmt`) が無いときも同じ
 - ガードの判定を変えたら `bash .claude/hooks/tests/pre-tool-guard-test.sh` を流す。CI の version ジョブでも、このテストと `shellcheck` を実行している
 - 本当に既存のマイグレーションを触る必要がある場合 (ほぼ無い) は、hook を外すのではなく、ユーザーが手で編集する

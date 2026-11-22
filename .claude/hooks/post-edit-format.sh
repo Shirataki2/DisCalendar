@@ -9,14 +9,17 @@ set -u
 command -v jq >/dev/null 2>&1 || exit 0
 input=$(cat)
 path=$(jq -r '.tool_input.file_path // empty' <<<"$input" 2>/dev/null) || exit 0
-[ -n "$path" ] && [ -f "$path" ] || exit 0
+[ -n "$path" ] || exit 0
 
-root=${CLAUDE_PROJECT_DIR:-$(jq -r '.cwd // empty' <<<"$input")}
-[ -n "$root" ] || exit 0
+cwd=$(jq -r '.cwd // empty' <<<"$input")
+[ -n "$cwd" ] || cwd=${CLAUDE_PROJECT_DIR:-$(pwd)}
 case "$path" in
   /*) ;;
-  *) path="$root/$path" ;;
+  *) path="$cwd/$path" ;;
 esac
+[ -f "$path" ] || exit 0
+# ファイルを含む checkout (worktree ならその worktree) のルートを基準にする
+root=$(git -C "$(dirname "$path")" rev-parse --show-toplevel 2>/dev/null) || exit 0
 
 feedback() {
   jq -n --arg c "$1" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $c}}'

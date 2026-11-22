@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# コマンド文字列は hook に渡す入力そのものなので、単一引用符の中の $(...) は展開しない
+# shellcheck disable=SC2016
 # pre-tool-guard.sh の判定を確かめる (CI の version ジョブと手元で実行する)。
 #   bash .claude/hooks/tests/pre-tool-guard-test.sh
 set -euo pipefail
@@ -32,7 +34,7 @@ expect() {
 }
 
 file_json() { jq -nc --arg t "$1" --arg p "$2" '{tool_name: $t, tool_input: {file_path: $p}}'; }
-bash_json() { jq -nc --arg c "$1" '{tool_name: "Bash", tool_input: {command: $c}}'; }
+bash_json() { jq -nc --arg c "$1" --arg d "${2:-$root}" '{tool_name: "Bash", cwd: $d, tool_input: {command: $c}}'; }
 
 existing=$(git -C "$root" ls-files 'api/migrations/*.sql' | head -1)
 today=$(date "+%Y%m%d")
@@ -46,6 +48,8 @@ expect deny "連番の時刻 (000001)" "$(file_json Write "$root/api/migrations/
 expect deny "既存より古い版" "$(file_json Write "$root/api/migrations/20200101123456_add_example.sql")"
 expect deny "1 日以上先の版" "$(file_json Write "$root/api/migrations/29991231123456_add_example.sql")"
 expect deny "形式の違う名前" "$(file_json Write "$root/api/migrations/add_example.sql")"
+# CLAUDE_PROJECT_DIR が別の checkout を指していても、ファイルを含む checkout (worktree) で判定する
+CLAUDE_PROJECT_DIR=/ expect deny "別の checkout から見た既存マイグレーション" "$(file_json Edit "$root/$existing")"
 expect pass "rollback は対象外" "$(file_json Write "$root/api/rollback/${now}_drop_example.sql")"
 
 # .env 系
@@ -57,13 +61,35 @@ expect deny "cat api/.env" "$(bash_json 'cat api/.env')"
 expect deny "head -n 5 web/.env.local" "$(bash_json 'cd web && head -n 5 .env.local')"
 expect pass "grep でキーを取り出す" "$(bash_json "DATABASE_URL=\$(grep '^DATABASE_URL=' api/.env | cut -d= -f2-) cargo test")"
 expect pass "cat .env.example" "$(bash_json 'cat web/.env.example')"
+expect deny "引用符つきの cat \"api/.env\"" "$(bash_json 'cat "api/.env"')"
+expect deny "引用符つきの cat '.env'" "$(bash_json "cat '.env'")"
+expect deny "ひな形と並べた cat" "$(bash_json 'cat api/.env web/.env.example')"
+expect deny "ひな形の後の cat" "$(bash_json 'cat web/.env.example && cat api/.env')"
+expect deny "コマンド置換の中の cat" "$(bash_json 'X=$(cat api/.env) echo ok')"
+expect deny "グロブ .env*" "$(bash_json 'cat .env*')"
+expect pass "ひな形同士の cat" "$(bash_json 'cat web/.env.example api/.env.example')"
 
 # git push
 expect deny "git push origin main" "$(bash_json 'git push origin main')"
 expect deny "git push origin HEAD:main" "$(bash_json 'git push origin HEAD:main')"
 expect deny "git push -f origin main" "$(bash_json 'git add -A && git push -f origin main')"
+expect deny "src:main の refspec" "$(bash_json 'git push origin feature:main')"
+expect deny "main:main の refspec" "$(bash_json 'git push origin main:main')"
+expect deny "refs/heads/main の宛先" "$(bash_json 'git push origin +claude/foo:refs/heads/main')"
+expect deny "git -C で main を push" "$(bash_json 'git -C /tmp/x push origin main')"
 expect pass "作業ブランチの push" "$(bash_json 'git push -u origin claude/issue-1-example')"
 expect pass "main を含む別名のブランチ" "$(bash_json 'git push origin fix-main-layout')"
+
+# main 上での引数なし / HEAD / コマンド置換の push (main にいる一時リポジトリで確かめる)
+tmp_repo=$(mktemp -d)
+git -C "$tmp_repo" init -q -b main
+expect deny "main 上の git push" "$(bash_json 'git push' "$tmp_repo")"
+expect deny "main 上の git push origin HEAD" "$(bash_json 'git push origin HEAD' "$tmp_repo")"
+expect deny "main 上のコマンド置換" "$(bash_json 'git push -u origin "$(git rev-parse --abbrev-ref HEAD)"' "$tmp_repo")"
+expect deny "cd してから push" "$(bash_json "cd $tmp_repo && git push")"
+git -C "$tmp_repo" switch -q -c claude/issue-1-example
+expect pass "作業ブランチ上のコマンド置換" "$(bash_json 'git push -u origin "$(git rev-parse --abbrev-ref HEAD)"' "$tmp_repo")"
+rm -rf "$tmp_repo"
 
 # 判定できない入力は通す
 expect pass "壊れた JSON" 'not json'

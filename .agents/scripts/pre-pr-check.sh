@@ -187,9 +187,10 @@ if ! $detect_only; then
     done
   fi
   if has_changes '^(\.claude/hooks/|\.agents/scripts/|\.github/scripts/|infra/backup/)'; then
-    if command -v shellcheck >/dev/null 2>&1; then
-      # shellcheck disable=SC2046
-      run "shellcheck" shellcheck $(grep -E '\.sh$' <<<"$changed" | while read -r f; do [ -f "$f" ] && echo "$f"; done)
+    sh_files=$(grep -E '\.sh$' <<<"$changed" | while read -r f; do [ -f "$f" ] && echo "$f"; done)
+    if [ -n "$sh_files" ] && command -v shellcheck >/dev/null 2>&1; then
+      # shellcheck disable=SC2086
+      run "shellcheck" shellcheck $sh_files
     fi
     [ -f .claude/hooks/tests/pre-tool-guard-test.sh ] && run "hook のテスト" bash .claude/hooks/tests/pre-tool-guard-test.sh
   fi

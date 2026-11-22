@@ -10,8 +10,11 @@ command -v jq >/dev/null 2>&1 || exit 0
 input=$(cat)
 [ "$(jq -r '.stop_hook_active // false' <<<"$input" 2>/dev/null)" = "true" ] && exit 0
 
-root=${CLAUDE_PROJECT_DIR:-$(jq -r '.cwd // empty' <<<"$input")}
-[ -n "$root" ] && cd "$root" 2>/dev/null || exit 0
+# セッションの作業ディレクトリ (worktree で作業していればその worktree) を見る
+dir=$(jq -r '.cwd // empty' <<<"$input")
+[ -n "$dir" ] || dir=${CLAUDE_PROJECT_DIR:-$(pwd)}
+root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$root" || exit 0
 [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" != "main" ] || exit 0
 git rev-parse --verify -q origin/main >/dev/null || exit 0
 
