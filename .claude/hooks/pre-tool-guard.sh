@@ -246,6 +246,31 @@ check_push() {
   fi
 }
 
+# 標準入力のコマンド文字列を、引用符の状態を見ながら区切りごとの行に分ける。
+#   - 単一引用符の中: 何も区切らない
+#   - 二重引用符の中: コマンド置換 ($(...) / `...`) の括弧と ` だけで区切る (; & | は文字列の一部)
+#   - 引用符の外: ; & | ( ) ` で区切る
+split_commands() {
+  awk -v sq="'" '
+    BEGIN { q = "" }
+    {
+      out = ""; n = length($0)
+      for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        if (q == sq) { if (c == sq) q = ""; out = out c; continue }
+        if (q == "\"") {
+          if (c == "\"") q = ""
+          if (c == "(" || c == ")" || c == "`") { out = out "\n"; continue }
+          out = out c; continue
+        }
+        if (c == sq || c == "\"") { q = c; out = out c; continue }
+        if (index(";&|()`", c) > 0) { out = out "\n"; continue }
+        out = out c
+      }
+      print out
+    }'
+}
+
 check_bash() {
   local cmd dir seg words w i n first base t
   cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
@@ -253,7 +278,8 @@ check_bash() {
   dir=$cwd
   switched_branch=""
 
-  # ; & | ( ) ` と改行で区切り、区切りごとに先頭のコマンドを見る ($(...) の中も 1 区切りになる)
+  # ; & | ( ) ` と改行で区切り、区切りごとに先頭のコマンドを見る ($(...) の中も 1 区切りになる)。
+  # 引用符の中の記号 (sed -n '1,20p;20q' の ; など) では区切らない
   while IFS= read -r seg; do
     read -r -a words <<<"$seg" || true
     n=${#words[@]}
@@ -313,7 +339,7 @@ check_bash() {
         ;;
     esac
   # cat<api/.env のような空白なしの入力リダイレクトも、< の前後に空白を入れてコマンド名と入力先に分ける
-  done < <(printf '%s\n' "$cmd" | tr ';&|()`' '\n' | sed 's/</ < /g')
+  done < <(printf '%s\n' "$cmd" | split_commands | sed 's/</ < /g')
 }
 
 case "$tool" in
