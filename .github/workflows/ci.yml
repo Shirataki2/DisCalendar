@@ -57,6 +57,14 @@ jobs:
         run: bash .github/scripts/test-changelog.sh
       - name: 未リリース記事の形式
         run: .github/scripts/release-notes.sh > /dev/null
+      # web と api / bot の上限値 (タイトル 32 文字など) がずれていないか。片方だけ変えると入力チェックと api の 400 が食い違う
+      - name: 上限値の整合
+        run: .github/scripts/check-limits.sh
+      # AI エージェント向けの hook とスクリプト (.claude/hooks/、.agents/scripts/)。壊れると P0 のガードが黙って効かなくなる
+      - name: エージェント用スクリプトの検査
+        run: |
+          shellcheck .claude/hooks/*.sh .claude/hooks/tests/*.sh .agents/scripts/pre-pr-check.sh .github/scripts/check-limits.sh
+          bash .claude/hooks/tests/pre-tool-guard-test.sh
 
   web:
     name: web

@@ -34,6 +34,9 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - **バージョン (v3.x.y) は web / api / bot で共通**。`web/package.json` / `api/Cargo.toml` / `bot/Cargo.toml` / `Cargo.lock` の 4 か所を揃えて
   リリースのたびに上げる (機能 PR では上げない)。CI の `version` ジョブが `.github/scripts/check-versions.sh` でずれを弾く。
   上げ幅の決め方・タグ (`v3.x.y`) の打ち方・本番デプロイは `.agents/skills/release/`
+- PR を作る前に `bash .agents/scripts/pre-pr-check.sh` を実行する (`.sqlx/` の更新漏れ・更新履歴・rollback・上限値のずれの検出と、変更したパスの lint / 型 / テスト)。
+  Claude Code では `.claude/settings.json` の hook が、既存マイグレーションの編集・`.env` 系の読み書き・main への push を拒否し、編集したファイルを整形する。
+  一覧は [エージェント向けのガードと検査](docs/development.md#エージェント向けのガードと検査)
 - Issue 着手から PR・レビュー対応までの手順は `.agents/skills/issue-driven-dev/`、worktree や `target/` の後片付けは `.agents/skills/cleanup-workspace/` にまとめてある。
   `.agents/skills/` は Codex のエントリポイントで、Claude Code と共有する詳細手順の正本は `.claude/skills/`
 
