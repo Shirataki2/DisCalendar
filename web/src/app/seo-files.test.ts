@@ -23,7 +23,13 @@ describe("robots.txt", () => {
     expect(result.rules).toMatchObject({ userAgent: "*", allow: "/" });
     const disallow = (result.rules as { disallow: string[] }).disallow;
     expect(disallow).toEqual(
-      expect.arrayContaining(["/api/", "/invite", "/donation/checkout"]),
+      expect.arrayContaining([
+        "/api/",
+        "/invite",
+        "/donation/checkout",
+        "/donation/monthly",
+        "/donation/portal",
+      ]),
     );
     // noindex を読ませたいページは拒否しない
     expect(disallow).not.toContain("/dashboard");

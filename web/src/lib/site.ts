@@ -108,8 +108,12 @@ export const ROUTES = {
   invite: "/invite",
   /** 支援 (ドネーション) のお願いページ */
   donation: "/donation",
-  /** Stripe Payment Links へリダイレクトする (app/donation/checkout/route.ts) */
+  /** 1 回だけの支援。Stripe Payment Links へリダイレクトする (app/donation/checkout/route.ts) */
   donationCheckout: "/donation/checkout",
+  /** 毎月の支援。継続課金の Stripe Payment Links へリダイレクトする (app/donation/monthly/route.ts) */
+  donationMonthly: "/donation/monthly",
+  /** 毎月の支援の解約・カード変更。Stripe カスタマーポータルへリダイレクトする (app/donation/portal/route.ts) */
+  donationPortal: "/donation/portal",
   docs: "/docs/gettingstarted",
   /** 更新履歴 (web/src/content/changelog.mdx) */
   changelog: "/changelog",

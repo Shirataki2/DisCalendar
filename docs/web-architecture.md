@@ -70,8 +70,17 @@
 ## サイト設定と外部リンク
 
 LP の「BOT を導入する」は `/invite` (Route Handler) が `DISCORD_BOT_INVITE_URL` (未設定なら `DISCORD_CLIENT_ID` から組み立て) へリダイレクトする。
-支援ページ (`/donation`) の「支援する」も同じ方式で、`/donation/checkout` (Route Handler) が
-`STRIPE_DONATION_PAYMENT_LINK_URL` (Stripe Payment Links の URL。未設定なら 503「準備中」) へリダイレクトする。
+支援ページ (`/donation`) のボタンも同じ方式で、Route Handler が実行時の環境変数の URL へリダイレクトする
+(未設定なら 503「準備中」。読み込みは `web/src/lib/donation.ts`)。
+
+| パス | ボタン | 環境変数 |
+|---|---|---|
+| `/donation/checkout` | 1 回だけ支援する | `STRIPE_DONATION_PAYMENT_LINK_URL` (単発の Stripe Payment Links) |
+| `/donation/monthly` | 毎月支援する | `STRIPE_MONTHLY_DONATION_PAYMENT_LINK_URL` (継続課金の Stripe Payment Links) |
+| `/donation/portal` | 支援の管理 (解約・カード変更) | `STRIPE_CUSTOMER_PORTAL_URL` (Stripe カスタマーポータルのログインリンク) |
+
+金額 (単発の任意額・毎月のコース) は Stripe の決済ページ側で設定・選択するので、コースを変えても web の変更は要らない。
+支払いの周期・解約方法を変えたら、特定商取引法に基づく表記 (`web/src/content/support/tokushoho.mdx`) も合わせて直す。
 サイト名・説明・公開 URL・外部リンクなどの定数は `web/src/lib/site.ts` にまとめてある。
 
 ## ルート構成 (web)
