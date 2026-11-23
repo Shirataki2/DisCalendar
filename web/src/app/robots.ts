@@ -28,6 +28,8 @@ export default function robots(): MetadataRoute.Robots {
         "/serwist/",
         ROUTES.invite,
         ROUTES.donationCheckout,
+        ROUTES.donationMonthly,
+        ROUTES.donationPortal,
       ],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,

@@ -778,16 +778,23 @@ export const english: Readonly<
     "Donations are optional and do not affect which features you can use.",
   "決済は Stripe 社の決済ページで行われます。カード情報が DisCalendar に伝わることはありません":
     "Payments are processed by Stripe. DisCalendar does not receive your card details.",
-  "支援の性質上、決済完了後の返金はできません":
-    "Donations cannot be refunded once payment is completed.",
+  "毎月の支援は、解約するまで毎月自動で決済されます。解約はいつでもでき、次回の決済日の前日までに解約すると次回以降は請求されません":
+    "Monthly donations renew automatically every month until you cancel. You can cancel at any time; cancel by the day before your next billing date to stop future charges.",
+  "支援の性質上、決済完了後の返金はできません (毎月の支援を解約しても、決済済みの月の分は返金されません)":
+    "Donations cannot be refunded once payment is completed (canceling a monthly donation does not refund months already paid).",
   寄付金控除など税制上の優遇の対象ではありません:
     "Donations are not eligible for tax benefits.",
   支援のお願い: "Support DisCalendar",
   "DisCalendar は無料で利用でき、今後も無料で提供し続ける予定です。一方で、サーバー代やドメイン代などの運用費は運営者が負担しています。":
     "DisCalendar is free and is intended to remain free. The operator covers hosting, domain, and other operating costs.",
-  "DisCalendar を気に入ってくださった方は、任意の支援 (ドネーション) で運営を応援していただけると励みになります。金額は決済ページで選べます。":
-    "If you enjoy DisCalendar, an optional donation helps support its operation. Choose an amount on the payment page.",
-  "DisCalendar を支援する": "Donate to DisCalendar",
+  "DisCalendar を気に入ってくださった方は、任意の支援 (ドネーション) で運営を応援していただけると励みになります。運用費は毎月かかるため、少額でも毎月の支援は特に助かります。金額は決済ページで選べます。":
+    "If you enjoy DisCalendar, an optional donation helps support its operation. Since operating costs recur every month, even a small monthly donation is especially helpful. Choose an amount on the payment page.",
+  毎月支援する: "Donate monthly",
+  "1 回だけ支援する": "Donate once",
+  毎月支援している方へ: "For monthly donors",
+  "解約・支払い方法の変更・領収書の確認は、Stripe の支援の管理ページで行えます。決済時に入力したメールアドレスでログインしてください。":
+    "You can cancel, change your payment method, or view receipts on the Stripe donation management page. Sign in with the email address you used at checkout.",
+  "支援の管理 (解約・カード変更)": "Manage donation (cancel or update card)",
   支援の決済に関する表記は: "For payment details, see",
   をご覧ください: ".",
   "不具合の報告や機能の提案も、大きな支援になります。":
