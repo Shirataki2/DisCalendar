@@ -99,3 +99,19 @@ export async function openEventTab(
 ) {
   await dialog.getByRole("tab", { name: new RegExp(`^${name}`) }).click();
 }
+
+/**
+ * 予定がないサーバーで右下に出る最初の予定の案内 (#377) を、閉じた扱いにしてから開く。
+ * 案内は画面の下に浮かぶカードなので、日付セルの下端をクリックするテストでは、
+ * 日付 (カレンダー上の位置) によってはカードに当たってクリックが届かない
+ */
+export async function dismissFirstEventGuide(page: Page, guildIds: string[]) {
+  await page.addInitScript((ids: string[]) => {
+    for (const id of ids) {
+      window.localStorage.setItem(
+        `discalendar-first-event-guide-dismissed:${id}`,
+        "1",
+      );
+    }
+  }, guildIds);
+}

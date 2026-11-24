@@ -16,5 +16,8 @@ Personal replies use your Discord language. Channel notifications and poll posts
 __**🌟 Support 🌟**__
 For feature requests or bugs, visit the [support server](https://discord.gg/MyaZRuze23).
 
+__**🌟 Support development 🌟**__
+DisCalendar is free to use. If you enjoy it, you can optionally support its running costs on the [donation page]({site}/donation).
+
 __**🌟 Invite to another server 🌟**__
 [Invite DisCalendar]({invite})

@@ -258,6 +258,12 @@ export const english: Readonly<
     "Notification channel: the bot posts start times and reminders to a Discord channel.",
   通知先を設定する: "Set up notifications",
   最初の予定の案内を閉じる: "Close the first event guide",
+  "いつも DisCalendar をご利用いただきありがとうございます":
+    "Thank you for using DisCalendar",
+  "DisCalendar は無料で使えます。気に入っていただけたら、任意の支援で運営を応援していただけると励みになります。このお知らせは一度だけ表示します。":
+    "DisCalendar is free to use. If you enjoy it, an optional donation helps keep it running. This message is shown only once.",
+  支援ページを見る: "View donation page",
+  支援のお知らせを閉じる: "Close the donation message",
   "繰り返し予定: 毎週・毎月の予定は、作成画面の「繰り返しの設定」で一度に登録できます。":
     'Recurring events: add weekly or monthly events at once with "Repeat settings" in the event form.',
   "Discord のイベント連携: 作成画面で「Discord のイベントとしても作成する」を選ぶと、サーバーのイベント一覧にも表示されます。":

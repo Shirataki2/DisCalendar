@@ -16,6 +16,7 @@ import type {
   ImportEventInput,
   MyPermissions,
 } from "@/lib/api/types";
+import { recordEventCreated } from "@/lib/donation-notice";
 import { revalidateAdminPagesQuietly } from "./admin-cache";
 import { type EventsQueryKeys, queryKeys } from "./keys";
 
@@ -262,7 +263,11 @@ export function useCreateEvent(
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: ApiEventInput) => source.client.create(guildId, input),
-    onSuccess: () => invalidateEvents(queryClient, source, guildId, true),
+    onSuccess: () => {
+      // 支援のお知らせ (#371) の表示条件。練習用カレンダーでの作成は数えない
+      if (source === dashboardEventsSource) recordEventCreated();
+      return invalidateEvents(queryClient, source, guildId, true);
+    },
     onError: (error) =>
       refetchPermissionsOnBotError(queryClient, guildId, error),
   });
