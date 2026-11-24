@@ -3,6 +3,7 @@
 import { CheckIcon, ChevronsUpDownIcon, SettingsIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { DonationNotice } from "@/components/donation-notice";
 import { EventCalendar } from "@/components/event-calendar";
 import { FirstEventGuide } from "@/components/first-event-guide";
 import { GuildSettingsDialog } from "@/components/guild-settings-dialog";
@@ -120,7 +121,11 @@ export function GuildDashboard({
                   onOpenSettings={() => setSettingsOpen(true)}
                 />
               )
-            : undefined
+            : // 最初の予定の案内と重ならないよう、出さないときだけ支援のお知らせの候補にする (#371)。
+              // 予定の有無を取得できるまでは出さない
+              eventSummaryQuery.data?.has_events
+              ? () => <DonationNotice />
+              : undefined
         }
         // 権限を取得できるまでは無効 (disabled + 案内) 側に倒す
         discordSync={{
