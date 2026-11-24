@@ -3,6 +3,7 @@ import {
   addDays,
   calendarToday,
   dayCell,
+  dismissFirstEventGuide,
   eventOn,
   openEventTab,
 } from "./calendar";
@@ -20,6 +21,15 @@ const guildId = E2E_GUILDS.admin.id;
 const eventsApi = new RegExp(`/local/api/events/${guildId}(/|\\?|$)`);
 
 test.describe.configure({ mode: "serial" });
+
+// 日付セルの下端をクリックするので、右下の最初の予定の案内に当たらないよう閉じておく
+test.beforeEach(async ({ page }) => {
+  await dismissFirstEventGuide(page, [
+    E2E_GUILDS.admin.id,
+    E2E_GUILDS.noEventsPerm.id,
+    E2E_GUILDS.noUserEventsPerm.id,
+  ]);
+});
 
 const stamp = Date.now().toString(36);
 const linkedTitle = `E2E Discord 連携 ${stamp}`;

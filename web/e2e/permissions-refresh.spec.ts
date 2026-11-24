@@ -1,5 +1,10 @@
 import { expect, type Page, test } from "@playwright/test";
-import { addDays, calendarToday, dayCell } from "./calendar";
+import {
+  addDays,
+  calendarToday,
+  dayCell,
+  dismissFirstEventGuide,
+} from "./calendar";
 import { setGuildEventPermissions } from "./discord-mock";
 import { E2E_GUILDS } from "./fixtures";
 
@@ -11,6 +16,14 @@ import { E2E_GUILDS } from "./fixtures";
 // (他のテストと共有すると、そちらの前提が崩れる)
 
 test.describe.configure({ mode: "serial" });
+
+// 日付セルの下端をクリックするので、右下の最初の予定の案内に当たらないよう閉じておく
+test.beforeEach(async ({ page }) => {
+  await dismissFirstEventGuide(page, [
+    E2E_GUILDS.reinvited.id,
+    E2E_GUILDS.noUserEventsPerm.id,
+  ]);
+});
 
 /** 明日のセルから詳細作成ダイアログを開く (終日予定になり、開始が未来なので連携できる) */
 async function openCreateDialog(page: Page) {
