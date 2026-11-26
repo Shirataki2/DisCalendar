@@ -545,12 +545,16 @@ pub async fn purge_expired(
     )
     .fetch_all(&mut *tx)
     .await?;
+    // 発言はスレッドの purged_at と切り離し、解決から保存期間が経ったスレッドの「まだ消していない発言」をすべて消す。
+    // 消し終えた解決済みのスレッドに (解決済みのまま) スタッフが返信した分も、ここで拾う
     let thread_messages = sqlx::query!(
         r#"
-        UPDATE support_messages SET content = NULL, attachments = NULL, purged_at = $2
-        WHERE thread_id = ANY($1) AND purged_at IS NULL
+        UPDATE support_messages m SET content = NULL, attachments = NULL, purged_at = $2
+        FROM support_threads t
+        WHERE m.thread_id = t.thread_id AND m.purged_at IS NULL
+            AND t.status = 'resolved' AND t.resolved_at <= $1
         "#,
-        &threads,
+        cutoff,
         now,
     )
     .execute(&mut *tx)

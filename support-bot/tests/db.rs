@@ -533,3 +533,54 @@ async fn purges_again_after_reopen_and_resolve(pool: PgPool) {
     .unwrap();
     assert_eq!(remaining, 0);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn purges_staff_replies_to_already_purged_threads(pool: PgPool) {
+    let retention = Duration::days(180);
+    let now = Utc::now();
+    thread(&pool, THREAD).await;
+    db::record_message(
+        &pool,
+        &message(1, Some(THREAD), false, now - Duration::days(400)),
+    )
+    .await
+    .unwrap();
+    db::set_status(&pool, THREAD, Some(Status::Resolved))
+        .await
+        .unwrap();
+    let resolved_at = now - Duration::days(390);
+    sqlx::query!(
+        "UPDATE support_threads SET resolved_at = $1 WHERE thread_id = $2",
+        resolved_at,
+        THREAD
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    db::purge_expired(&pool, now - Duration::days(200), retention)
+        .await
+        .unwrap();
+
+    // 消したあと、解決済みのままスタッフが返信した (状態も resolved_at も変わらない)
+    db::record_message(
+        &pool,
+        &message(2, Some(THREAD), true, now - Duration::days(10)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status(&pool, THREAD).await, Status::Resolved);
+
+    let purged = db::purge_expired(&pool, now, retention).await.unwrap();
+    assert_eq!(
+        purged,
+        Purged {
+            threads: 0,
+            messages: 1
+        }
+    );
+    let content = sqlx::query_scalar!("SELECT content FROM support_messages WHERE message_id = 2")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(content, None);
+}
