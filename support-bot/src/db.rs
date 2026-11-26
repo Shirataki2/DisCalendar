@@ -679,6 +679,61 @@ pub async fn mark_daily_task_done(
     Ok(())
 }
 
+/// 更新を告知済み (または告知しないと決めた) 版の一覧 (#430)
+pub async fn announced_versions(pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar!("SELECT version FROM support_release_announcements")
+        .fetch_all(pool)
+        .await
+}
+
+/// 版の告知を始める前に記録を取る。既に記録があれば false (二重に告知しない)。
+/// 投稿に失敗したら [`release_announcement_claim`] で取り消して、次の起動で告知し直せるようにする
+pub async fn claim_release_announcement(pool: &PgPool, version: &str) -> Result<bool, sqlx::Error> {
+    let inserted = sqlx::query!(
+        r#"
+        INSERT INTO support_release_announcements (version) VALUES ($1)
+        ON CONFLICT (version) DO NOTHING
+        "#,
+        version,
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(inserted == 1)
+}
+
+/// 告知したメッセージを記録に残す
+pub async fn set_release_announcement_message(
+    pool: &PgPool,
+    version: &str,
+    channel_id: i64,
+    message_id: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        UPDATE support_release_announcements SET channel_id = $2, message_id = $3, announced_at = now()
+        WHERE version = $1
+        "#,
+        version,
+        channel_id,
+        message_id,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// 投稿に失敗した版の記録を取り消す (投稿済みの記録は消さない)
+pub async fn release_announcement_claim(pool: &PgPool, version: &str) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "DELETE FROM support_release_announcements WHERE version = $1 AND message_id IS NULL",
+        version,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// 保存期間を過ぎた本文を消した件数
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Purged {

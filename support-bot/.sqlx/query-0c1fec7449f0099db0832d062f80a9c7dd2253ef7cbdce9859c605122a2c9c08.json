@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO support_release_announcements (version) VALUES ($1)\n        ON CONFLICT (version) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0c1fec7449f0099db0832d062f80a9c7dd2253ef7cbdce9859c605122a2c9c08"
+}

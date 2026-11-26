@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE support_release_announcements SET channel_id = $2, message_id = $3, announced_at = now()\n        WHERE version = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "71b67036c11c7585eb129c798ce93ebfd76d751819caa42924834e65f5f5d6cd"
+}

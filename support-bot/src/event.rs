@@ -3,7 +3,7 @@
 use poise::serenity_prelude::{self as serenity, FullEvent};
 
 use crate::{
-    backfill,
+    announce, backfill,
     data::Data,
     db,
     error::BotError,
@@ -26,6 +26,8 @@ pub async fn handle_event(
                 "shard ready"
             );
             if data.mark_tasks_started() {
+                // 本番デプロイで新しい版が起動したら、その版の更新内容を一度だけ告知する (記録・定期タスクとは独立)
+                tokio::spawn(announce::run(ctx.clone(), data.clone()));
                 // 定期タスクは補完が終わってから始める。先に始めると、停止中の発言や解決を反映する前の DB で
                 // 毎朝のまとめを送ってその日を実行済みにしたり、解決済みのチケットを未返信として通知したりする
                 let (ctx, data) = (ctx.clone(), data.clone());
