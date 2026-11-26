@@ -846,3 +846,42 @@ async fn reconcile_skips_threads_changed_after_startup(pool: PgPool) {
             .is_some()
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn release_announcements_are_claimed_once(pool: PgPool) {
+    assert!(db::announced_versions(&pool).await.unwrap().is_empty());
+    // 再起動・デプロイの再実行で同じ版の記録をもう一度取れない (二重に告知しない)
+    assert!(
+        db::claim_release_announcement(&pool, "3.31.0")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !db::claim_release_announcement(&pool, "3.31.0")
+            .await
+            .unwrap()
+    );
+
+    // 投稿に失敗したら記録を取り消し、次の起動で告知し直せる
+    db::release_announcement_claim(&pool, "3.31.0")
+        .await
+        .unwrap();
+    assert!(db::announced_versions(&pool).await.unwrap().is_empty());
+    assert!(
+        db::claim_release_announcement(&pool, "3.31.0")
+            .await
+            .unwrap()
+    );
+
+    // 投稿済みの記録は取り消しで消えない
+    db::set_release_announcement_message(&pool, "3.31.0", 10, 20)
+        .await
+        .unwrap();
+    db::release_announcement_claim(&pool, "3.31.0")
+        .await
+        .unwrap();
+    assert_eq!(
+        db::announced_versions(&pool).await.unwrap(),
+        vec!["3.31.0".to_owned()]
+    );
+}

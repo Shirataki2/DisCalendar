@@ -109,6 +109,11 @@ curl -fsS https://discalendar.app/ > /dev/null && echo ok
 - `/admin` の「稼働状況」で **api のバージョンが 3.1.0** になっていること (イメージタグは `sha-xxxxxxx` のままでよい)
 - ダッシュボードのフッタ、Bot の `/help` の脚注も新しい版になっていること
 - 変更した機能を実際に触る (Discord ログインが要るので、クラウドセッションからは確認できない。ユーザーに引き継ぐ)
+- サポートサーバーの「更新通知」チャンネルに、この版の更新内容が投稿されていること (#430)。**告知は自動**で、
+  support-bot が新しい版で起動したときに更新履歴のその版の節を 1 回だけ投稿する (アナウンスチャンネルなら公開も)。
+  手で投稿しない。更新履歴に節が無い版 (利用者に見える変更が無いリリース) は投稿されないのが正しい。
+  出ていなければ `docker compose logs support-bot | grep -i announce` を見て、投稿の失敗なら `docker compose restart support-bot` で告知し直す
+  (詳細は [support-bot/README.md「更新の告知」](../../../support-bot/README.md#更新の告知-430))
 
 ### 5. ロールバック
 
@@ -119,6 +124,9 @@ curl -fsS https://discalendar.app/ > /dev/null && echo ok
   読めないうえ、`sqlx::migrate!` は既定で「自分の `migrations/` に無いバージョンが `_sqlx_migrations` にある」だけで
   起動に失敗する。戻す SQL は `api/rollback/<version>_*.sql` にあり (自動実行はされない)、手順はファイル冒頭に書いてある。
   流れは「api / bot を止める → ダンプを取る → SQL を流す → 前の版のタグでデプロイ」。詳細は [マイグレーションが入った版から戻す](../../../docs/operations.md#マイグレーションが入った版から戻す)
+- 前の版へ戻しても更新の告知は出ない (告知済みの版より古い版は告知しない)。support-bot のマイグレーションが入った版から
+  戻すときは `support-bot/rollback/<version>_*.sql` も流す (v3.31.0 未満へ戻すなら `20261127030215_release_announcements.sql`。
+  告知の記録は消さないので、もう一度進めても同じ版は告知し直さない)
 - イメージのロールバックで直らないもの (データの問題など) は、[DB のバックアップと復元](../../../docs/operations.md#db-のバックアップと復元)を見る
 
 ## 落とし穴
@@ -135,6 +143,8 @@ curl -fsS https://discalendar.app/ > /dev/null && echo ok
 - **`v*` タグの作成はルールセットで制限しておく** (Settings → Rules → Rulesets → Tag ruleset で `v*` に "Restrict creations")。
   タグから起動するワークフローは**そのタグのコミットにある `release.yml`** が動くので、main に入っていない改変版を
   タグ付きで push されると write 権限のトークンで Release / GHCR を操作できてしまう。main のブランチ保護では塞げない
+- **プレリリース (`v3.1.0-rc.1`) は本番に出しても告知されない**。告知は正式版だけ。告知したくない正式版があれば、
+  デプロイ前に support-bot/README.md「更新の告知」の手順で記録を先に入れておく
 - 本番と staging は同じホストにいる。`.env` の `COMPOSE_PROJECT_NAME` / `WEB_PORT` を混同しない ([デプロイと運用](../../../docs/operations.md))
 
 ## 関連

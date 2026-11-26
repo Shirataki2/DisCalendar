@@ -152,6 +152,20 @@ git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
 (Environment `production` の承認を通す運用をそのまま残すため)。ロールバックも同じ画面で前の版のタグを指定する。
 `/admin` の「api のバージョン」はこの版が出るが、「イメージタグ」は実行ファイルに焼き込まれた `sha-xxxxxxx` のまま (#37)。
 
+**更新の告知 (#430)**: 本番に反映されて support-bot が新しい版で起動すると、更新履歴のその版の節をサポートサーバーの
+「更新通知」チャンネル (`.env` の `SUPPORT_RELEASE_CHANNEL_ID`) に 1 回だけ投稿し、アナウンスチャンネルなら公開 (crosspost) する。
+タグを打った時点では投稿しない (本番に出ていないため)。告知済みの版はサポート用 DB に持つので、デプロイの再実行・再起動・
+前の版へのロールバック・プレリリースでは投稿しない。Webhook URL やトークンは使わない (投稿は support-bot のトークンで行う)。
+
+- **有効にする手順**: サポートサーバーに「更新通知」チャンネルを作ってアナウンスチャンネルにし、support-bot に
+  チャンネルを見る・メッセージを送信・埋め込みリンクの権限を与える。本番の `.env` に `SUPPORT_RELEASE_CHANNEL_ID=<チャンネル ID>` を入れて
+  `docker compose up -d support-bot`。**そのとき動いている版がまだ告知されていなければ、その場で告知する**
+  (告知したくなければ、先に記録を入れる。support-bot/README.md「更新の告知」)
+- 投稿されなかったら `docker compose logs support-bot | grep -i announce` を見る。投稿の失敗 (権限不足など) なら記録は取り消してあるので、
+  直してから `docker compose restart support-bot` で告知し直す
+- 本文は support-bot のイメージにビルド時に埋め込んだ更新履歴から作る。版を上げるリリース準備 PR で `bump-version.sh` が
+  その版の節も作るので、新しい版のイメージには必ずその版の節が入っている (節が無いのは利用者に見える変更が無い版だけ)
+
 - `latest` は**最新の正式リリース**を指す (`compose.yaml` の `IMAGE_TAG` 既定値)。`release` ジョブの後に動く `latest` ジョブが、
   公開済みの GitHub Release のうち一番新しいものを見て**そのリリースのイメージ**に向ける (自分のタグが最新でなくても
   そこに収束する)。プレリリースと下書きは候補に入らないので、古いタグの再実行や打ち間違えたタグが残っていても
@@ -283,6 +297,8 @@ docker compose exec -T db psql -U discalendar -d discalendar -c "SELECT count(*)
   JSONB のままだと予定のクエリが失敗し続ける)
 - `sqlx::migrate!` は既定 (`ignore_missing = false`) なので、**自分の `migrations/` に無いバージョンが
   `_sqlx_migrations` にあるだけで api の起動が失敗する**
+
+support-bot (サポート用 DB) のマイグレーションは `support-bot/rollback/` に同じ形で置いてある (流す先は `-d discalendar_support`)。
 
 戻すための SQL は `api/rollback/<マイグレーションと同じ version>_*.sql` に置いてある (`migrations/` ではないので自動実行はされない)。
 ファイル冒頭に手順があり、要点は「api / bot を止める → ダンプを取る → SQL を流す → 前の版のタグでデプロイ」。

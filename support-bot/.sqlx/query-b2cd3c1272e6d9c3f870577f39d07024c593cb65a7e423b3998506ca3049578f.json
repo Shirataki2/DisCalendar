@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM support_release_announcements WHERE version = $1 AND message_id IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b2cd3c1272e6d9c3f870577f39d07024c593cb65a7e423b3998506ca3049578f"
+}

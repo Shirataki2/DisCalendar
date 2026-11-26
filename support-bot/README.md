@@ -24,6 +24,7 @@ DisCalendar のサポートサーバーにだけ入る Discord Bot (Rust / poise
 | `/ticket status <状態>` | チケットの状態を変える |
 | 毎朝のまとめ | 毎朝 9:00 (JST) に未解決のチケットの一覧をスタッフ用チャンネルに投稿する (0 件の日は投稿しない) |
 | 保存期間 | 本文・添付・投稿のタイトルは、解決から 180 日 (テキストチャンネルは投稿から 180 日) で消す。投稿者 ID・日時・状態は残す。変えるときはプライバシーポリシー (`web/src/content/support/privacy.mdx`) も直す |
+| 更新の告知 | 本番に新しい版が出たら (デプロイ後の起動時に)、更新履歴のその版の節を「更新通知」チャンネルへ 1 回だけ投稿する。アナウンスチャンネルなら公開 (crosspost) もする。下の「更新の告知」 |
 | 取りこぼしの補完 | 起動時に、停止中の発言を記録済みの続きから最大 100 件ずつ取り直す (アクティブな投稿と、一度でも記録したテキストチャンネル) |
 
 コマンドはどちらもスタッフ (`SUPPORT_STAFF_ROLE_IDS` のロールを持つ人) だけが使え、チケットのスレッドの中で実行する。
@@ -51,6 +52,8 @@ DisCalendar のサポートサーバーにだけ入る Discord Bot (Rust / poise
    - フォーラム「質問・不具合報告」と、タグ「不具合 / 質問 / 要望 / 解決済み」
    - スタッフだけが見えるチャンネル (通知の投稿先)。Bot に送信と埋め込みの権限を与える
    - スタッフのロール
+   - 「更新通知」チャンネル (更新の告知を使うとき)。**アナウンスチャンネル**にすると、告知を公開して、フォローしているサーバーにも届く。
+     Bot にチャンネルを見る・メッセージを送信・埋め込みリンクの権限を与える (自分の投稿の公開には追加の権限は要らない)
 4. ID (開発者モードで右クリック > ID をコピー) を環境変数に入れる
 
 ## 環境変数
@@ -63,11 +66,30 @@ DisCalendar のサポートサーバーにだけ入る Discord Bot (Rust / poise
 | `SUPPORT_RECORD_CHANNEL_IDS` | ○ | 記録するフォーラム・テキストチャンネルの ID (カンマ区切り) |
 | `SUPPORT_STAFF_ROLE_IDS` | ○ | スタッフのロールの ID (カンマ区切り) |
 | `SUPPORT_STAFF_CHANNEL_ID` | ○ | 通知・リマインド・毎朝のまとめの投稿先 |
+| `SUPPORT_RELEASE_CHANNEL_ID` | | 更新の告知の投稿先 (「更新通知」チャンネル)。未設定なら告知しない |
 | `DATABASE_MAX_CONNECTIONS` | | 既定 5 (compose は 3) |
 | `RUST_LOG` / `LOG_FORMAT` | | ログ。`LOG_FORMAT=json` で 1 行 1 JSON (Loki 用) |
 | `SUPPORT_BOT_SENTRY_DSN` / `SENTRY_ENVIRONMENT` / `SENTRY_SAMPLE_RATE` | | エラー監視 (`SENTRY_DSN` でも渡せ、そちらが優先)。未設定なら何も送らない |
 
 ギルド ID などはリポジトリに書かない (公開リポジトリのため)。
+
+## 更新の告知 (#430)
+
+本番デプロイ (Actions の "Deploy production") で support-bot が新しい版に入れ替わって起動したとき、自分の版 (`CARGO_PKG_VERSION`) を見て告知する。
+タグを打っただけではまだ本番に出ていないので、デプロイ後の起動を合図にしている。
+
+- 本文は更新履歴 (`web/src/content/changelog.mdx`) の `## vX.Y.Z (日付)` の節。**ビルド時にイメージへ埋め込む**ので、
+  リリース準備の PR (`bump-version.sh` が節を作る) がマージされたあとのイメージなら中身が入っている
+- 埋め込み 1 件で投稿する。タイトルは版と日付、本文は節の中身 (`###` は太字、`####` (Web / Bot の区分) は下線、
+  サイト内のリンクは URL に直し、MDX のコメントやコンポーネントは落とす)。4096 文字を超える分は行の切れ目で切り、続きは更新履歴へ案内する。
+  メンションは飛ばさない
+- 告知済みの版はサポート用 DB の `support_release_announcements` に持ち、**そこにある版より新しい正式版のときだけ**告知する。
+  同じ版の再起動・デプロイの再実行、前の版へのロールバック、プレリリース (`3.x.y-rc.1`) では投稿しない
+- 更新履歴に節が無い版 (利用者に見える変更が無いリリース) は投稿せず、告知済みとして記録だけ残す
+- 投稿に失敗したら 1 分おきに 3 回まで試し、それでもだめなら記録を取り消してエラーを残す (Sentry)。
+  `docker compose restart support-bot` で告知し直せる。公開 (crosspost) だけ失敗したときは警告を残すので、Discord で手で「公開」を押す
+- 告知したくない版を出すときは、デプロイの前に記録を入れておく:
+  `docker compose exec -T db psql -U discalendar -d discalendar_support -c "INSERT INTO support_release_announcements (version) VALUES ('3.x.y')"`
 
 ## Claude から記録を読む (MCP、#425)
 
@@ -191,7 +213,9 @@ docker compose --profile support-bot up -d support-bot
 
 ## 戻し方
 
-本体の DB のスキーマには触れないので、`api/rollback/` は要らない。MCP 用のロールを消すときは
+本体の DB のスキーマには触れないので、`api/rollback/` は要らない。サポート用 DB のマイグレーションが入った版から、
+それより前の版へ戻すときは、先に `support-bot/rollback/<version>_*.sql` を流す (古い support-bot は自分の知らない
+マイグレーションの記録があると起動できない。手順はファイル冒頭)。MCP 用のロールを消すときは
 [docs/operations.md](../docs/operations.md#サポート記録を-claude-から読む-mcp) の手順で `DROP ROLE` する。止めるときは本番の `COMPOSE_PROFILES` から `support-bot` を外して
 `docker compose up -d --remove-orphans`。記録ごと消すなら、止めてから `DROP DATABASE discalendar_support` (R2 のバックアップは残る)。
 
@@ -208,12 +232,14 @@ src/
   db.rs             DB の読み書き (Discord へは送らない)
   commands.rs       /ticket status, /remind
   backfill.rs       起動時の取りこぼし補完
+  announce.rs       本番に出た版の更新内容の告知 (更新履歴の節の抜き出しと整形)
   tasks/            未返信の通知・リマインド・毎朝のまとめ・保存期間の削除
   mcp/              読み取り専用の MCP サーバー (JSON-RPC の処理・ツール・読み取りのクエリ)
   bin/discalendar-support-mcp.rs  MCP サーバーの起動 (stdio)
 sql/                MCP 用の読み取り専用ロールを作る SQL
 scripts/            本番の DB へのトンネル (mcp-tunnel.sh)
 migrations/         サポート用データベースのスキーマ (api/migrations とは別系統)
+rollback/           前の版へ戻すときに手で流す SQL
 ```
 
 ## 今後 (別 Issue)

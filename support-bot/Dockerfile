@@ -11,6 +11,8 @@ COPY api ./api
 COPY bot ./bot
 COPY support-bot ./support-bot
 COPY shared ./shared
+# 更新の告知 (#430) で更新履歴の本文をビルド時に埋め込む (src/announce.rs の include_str!)
+COPY web/src/content/changelog.mdx ./web/src/content/changelog.mdx
 ENV SQLX_OFFLINE=true
 RUN cargo build --release -p discalendar-support-bot --bin discalendar-support-bot
 

@@ -26,6 +26,9 @@ pub struct Settings {
     pub staff_role_ids: HashSet<RoleId>,
     /// 未返信の通知・リマインド・日次まとめの投稿先
     pub staff_channel_id: ChannelId,
+    /// 本番に出た版の更新内容を告知するチャンネル (#430)。アナウンスチャンネルなら公開 (crosspost) もする。
+    /// 未設定なら告知しない (`SUPPORT_RELEASE_CHANNEL_ID`)
+    pub release_channel_id: Option<ChannelId>,
 }
 
 impl Config {
@@ -56,6 +59,10 @@ impl Config {
                     "SUPPORT_STAFF_CHANNEL_ID",
                     &required("SUPPORT_STAFF_CHANNEL_ID")?,
                 )?),
+                release_channel_id: optional("SUPPORT_RELEASE_CHANNEL_ID")
+                    .map(|v| snowflake("SUPPORT_RELEASE_CHANNEL_ID", &v))
+                    .transpose()?
+                    .map(ChannelId::from),
             },
         })
     }
