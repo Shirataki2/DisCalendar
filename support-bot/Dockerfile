@@ -12,7 +12,7 @@ COPY bot ./bot
 COPY support-bot ./support-bot
 COPY shared ./shared
 ENV SQLX_OFFLINE=true
-RUN cargo build --release -p discalendar-support-bot
+RUN cargo build --release -p discalendar-support-bot --bin discalendar-support-bot
 
 FROM debian:bookworm-slim
 RUN apt-get update \

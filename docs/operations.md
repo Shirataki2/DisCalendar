@@ -44,6 +44,33 @@ docker compose logs -f web api
   本番デプロイのワークフローはイメージが無いと警告を出す
 - 記録をやめて消すときは、support-bot を止めてから `docker compose exec -T db psql -U discalendar -d postgres -c 'DROP DATABASE discalendar_support'`
 
+### サポート記録を Claude から読む (MCP)
+
+サポート用 Bot の記録は、手元の Claude Code から読み取り専用の MCP サーバー (`discalendar-support-mcp`、#425) で読む。
+ツールの中身・Claude Code への登録・信頼できない本文の扱いは [support-bot/README.md](../support-bot/README.md#claude-から記録を読む-mcp425)。
+本番ホストには常駐させず、使うときだけ Tailscale SSH のトンネルで db に繋ぐ (db のポートは公開しない)。
+
+**読み取り専用のロール** `discalendar_support_mcp` は 1 つで両方の DB を読む。見せるのはサポート用 DB の
+`support_threads` / `support_messages` / `support_reminders` と、本体 DB の `guilds` / `guild_config` / `event_settings` だけ
+(予定の中身・ログインのセッション・Webhook の URL などは見せない)。作り方 (本番ホストの compose ディレクトリで。何度流しても同じ結果になる):
+
+```sh
+# 1. ロールと権限を作る (SQL は support-bot/sql/mcp-readonly-role.sql。本番ホストに無ければ手元から標準入力で流す)
+docker compose exec -T db psql -U discalendar -d postgres \
+  -v support_db=discalendar_support -v main_db=discalendar -f - < support-bot/sql/mcp-readonly-role.sql
+# 2. パスワードを設定する (対話で 2 回入力。値はパスワードマネージャーに保存し、リポジトリ・Issue・シェルの履歴に残さない)
+docker compose exec db psql -U discalendar -d postgres -c '\password discalendar_support_mcp'
+```
+
+- 手元からは `support-bot/scripts/mcp-tunnel.sh <ssh 先> /opt/discalendar 15432` でトンネルを張り、
+  `postgres://discalendar_support_mcp:<パスワード>@127.0.0.1:15432/<DB 名>` で繋ぐ
+- ロール自体にも `default_transaction_read_only = on`・`statement_timeout = 10s`・`CONNECTION LIMIT 4` を付けている
+- DB を `pg_restore --no-privileges` で戻すと権限が消えるので、復元したら 1. を流し直す。サポート用 DB を作り直したとき
+  (support-bot の初回起動前に流すと `discalendar_support` が無くて失敗する) も同じ
+- 見せる表を増やすときは SQL に足して流し直す (`ALL TABLES` や `DEFAULT PRIVILEGES` は使っていないので、新しい表は自動では見えない)
+- パスワードが漏れた疑いがあれば 2. で変えるか、`ALTER ROLE discalendar_support_mcp NOLOGIN` で止める。消すときは両方の DB で
+  `DROP OWNED BY discalendar_support_mcp` (権限の取り消し) を実行してから `DROP ROLE discalendar_support_mcp`
+
 ## staging への自動デプロイ
 
 `main` にマージされると `.github/workflows/deploy-staging.yml` が web / api / bot のイメージを GHCR

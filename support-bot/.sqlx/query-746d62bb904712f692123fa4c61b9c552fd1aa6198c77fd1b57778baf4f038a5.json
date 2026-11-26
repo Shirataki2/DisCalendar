@@ -1,0 +1,187 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.thread_id, t.parent_channel_id, t.author_id,\n            CASE WHEN t.deleted_at IS NULL THEN t.title END AS title,\n            t.status, t.tags, t.archived, t.last_user_msg_at, t.last_staff_msg_at, t.resolved_at,\n            t.github_issue, t.purged_at, t.deleted_at, t.created_at,\n            (SELECT count(*) FROM support_messages m WHERE m.thread_id = t.thread_id) AS \"message_count!\"\n        FROM support_threads t\n        WHERE t.status = ANY($1) AND t.deleted_at IS NULL\n        ORDER BY t.last_user_msg_at NULLS LAST, t.thread_id\n        LIMIT $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "thread_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "thread_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "parent_channel_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "parent_channel_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "author_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "author_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "tags",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "tags"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "archived",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "archived"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "last_user_msg_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "last_user_msg_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "last_staff_msg_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "last_staff_msg_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "resolved_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "resolved_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "github_issue",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "github_issue"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "purged_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "purged_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "deleted_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "deleted_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "message_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "746d62bb904712f692123fa4c61b9c552fd1aa6198c77fd1b57778baf4f038a5"
+}

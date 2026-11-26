@@ -6,6 +6,7 @@
 //! - 記録: 許可リストのチャンネル (フォーラムの投稿 = チケット、テキストチャンネル) の発言・編集・削除と、投稿の状態
 //! - 定期タスク: 未返信の通知、`/remind` のリマインド、毎朝の未解決まとめ、保存期間を過ぎた本文の削除
 //! - コマンド: `/ticket status`、`/remind` (スタッフのみ)
+//! - MCP: サポートの記録を Claude から読む読み取り専用のサーバー (`mcp`、別バイナリ `discalendar-support-mcp`)
 //! - DB は本体とは別のデータベース。マイグレーション (`support-bot/migrations/`) は起動時にこの Bot が当てる
 
 pub mod backfill;
@@ -15,6 +16,7 @@ pub mod data;
 pub mod db;
 pub mod error;
 pub mod event;
+pub mod mcp;
 pub mod record;
 pub mod tasks;
 pub mod ticket;

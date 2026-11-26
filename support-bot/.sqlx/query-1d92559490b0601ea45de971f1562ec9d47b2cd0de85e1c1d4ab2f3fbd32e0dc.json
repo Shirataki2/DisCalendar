@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT remind_at, created_by, note\n        FROM support_reminders\n        WHERE thread_id = $1 AND sent_at IS NULL\n        ORDER BY remind_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "remind_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_reminders",
+            "name": "remind_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "created_by",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_reminders",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "note",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_reminders",
+            "name": "note"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "1d92559490b0601ea45de971f1562ec9d47b2cd0de85e1c1d4ab2f3fbd32e0dc"
+}
