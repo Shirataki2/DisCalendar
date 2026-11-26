@@ -15,6 +15,8 @@ pub struct Data {
     pub settings: Arc<Settings>,
     /// 定期タスクと取りこぼしの補完を起動済みかどうか (再接続で Ready が何度届いても一度だけ起動する)
     pub tasks_started: Arc<AtomicBool>,
+    /// 起動時 (Gateway に繋ぐ前) のチャンネルごとの記録済みの最後のメッセージ ID。取りこぼしの補完の起点
+    pub backfill_from: Arc<std::collections::HashMap<i64, i64>>,
 }
 
 impl Data {

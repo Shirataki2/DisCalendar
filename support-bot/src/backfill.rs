@@ -1,10 +1,13 @@
 //! 起動時の取りこぼし補完。Bot が止まっていた間の発言を、記録済みの最後のメッセージ以降から取り直す
 //! (取りこぼすと「利用者が書いたのに未返信の通知が出ない」状態になるため)。
 //!
-//! - フォーラム: アクティブな投稿ごとに、記録済みの続きから最大 100 件 (未登録の投稿は直近 100 件)
+//! - フォーラム: アクティブな投稿ごとに、記録済みの続きから最大 100 件 (未登録の投稿は直近 100 件)。
+//!   停止中に付け外しされた「解決済み」タグも状態に反映する
 //! - テキストチャンネル: 記録済みの続きから最大 100 件。一度も記録していないチャンネルは、導入前の
 //!   発言まで取り込まないよう補完しない
 //!
+//! 起点は Gateway に繋ぐ前に DB から読んだ値 (`Data::backfill_from`) を使う。補完と並行して届く新着を
+//! 記録すると DB の最大 ID が進み、それを起点にすると停止中の発言を飛ばしてしまうため。
 //! 100 件を超えて取りこぼした分は諦める (長時間止めたときの負荷と、Discord の rate limit を避けるため)。
 
 use std::collections::HashMap;
@@ -13,8 +16,9 @@ use poise::serenity_prelude::{self as serenity, ChannelType, GetMessages, Messag
 
 use crate::{
     data::Data,
-    db,
+    db::{self, ThreadInput},
     record::{self, Scope, snowflake},
+    ticket::{self, Status},
 };
 
 const LIMIT: u8 = 100;
@@ -46,7 +50,7 @@ async fn channels(
         if kind == ChannelType::Forum {
             continue;
         }
-        let Some(last) = db::last_message_id(&data.pool, snowflake(channel_id)).await? else {
+        let Some(&last) = data.backfill_from.get(&snowflake(channel_id)) else {
             continue;
         };
         let count = fetch_and_record(
@@ -80,7 +84,8 @@ async fn threads(
             continue;
         };
         db::upsert_thread(&data.pool, &input).await?;
-        let last = db::last_message_id(&data.pool, input.thread_id).await?;
+        reconcile_resolved_tag(data, &input).await?;
+        let last = data.backfill_from.get(&input.thread_id).copied();
         let count = fetch_and_record(
             ctx,
             data,
@@ -97,6 +102,28 @@ async fn threads(
                 "backfilled thread messages"
             );
         }
+    }
+    Ok(())
+}
+
+/// 停止中に「解決済み」タグが付け外しされていたら、DB の状態を合わせる (ThreadUpdate を受け取れなかった分)。
+/// 発言の補完より先に行う。停止中の利用者の発言はそのあとの補完で再オープンにするので、
+/// タグと発言の前後が分からなくても、対応漏れ (解決済みのまま利用者が待っている) にはならない
+async fn reconcile_resolved_tag(data: &Data, input: &ThreadInput) -> anyhow::Result<()> {
+    let has_tag = input.tags.iter().any(|name| name == ticket::RESOLVED_TAG);
+    let target = match db::thread_status(&data.pool, input.thread_id).await? {
+        Some(status) if has_tag && status != Status::Resolved => Some(Status::Resolved),
+        // タグが 5 個付いていて Bot が「解決済み」を足せなかったスレッドは、外されたとはみなさない
+        Some(Status::Resolved) if !has_tag && input.tags.len() < 5 => None,
+        _ => return Ok(()),
+    };
+    if let Some(transition) = db::set_status(&data.pool, input.thread_id, target).await? {
+        tracing::info!(
+            thread_id = input.thread_id,
+            before = transition.before.as_db(),
+            after = transition.after.as_db(),
+            "ticket status reconciled with forum tags"
+        );
     }
     Ok(())
 }

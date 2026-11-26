@@ -114,8 +114,10 @@ pub async fn scope_of(
     if data.is_record_channel(channel_id) {
         return Ok(Some(Scope::Channel));
     }
-    if db::thread_exists(&data.pool, snowflake(channel_id)).await? {
-        return Ok(Some(Scope::Thread));
+    // 記録済みのスレッドでも、親フォーラムを許可リストから外していれば記録しない
+    if let Some(parent) = db::thread_parent(&data.pool, snowflake(channel_id)).await? {
+        let allowed = data.is_record_channel(serenity::ChannelId::new(parent.cast_unsigned()));
+        return Ok(allowed.then_some(Scope::Thread));
     }
     let channel = match channel_id.to_channel(ctx).await {
         Ok(channel) => channel,

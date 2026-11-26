@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO support_threads (thread_id, parent_channel_id, author_id, title, tags, archived)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        ON CONFLICT (thread_id) DO UPDATE SET\n            title = CASE\n                WHEN support_threads.status = 'resolved'\n                    AND support_threads.purged_at >= support_threads.resolved_at THEN NULL\n                ELSE EXCLUDED.title\n            END,\n            tags = EXCLUDED.tags,\n            archived = EXCLUDED.archived,\n            author_id = COALESCE(support_threads.author_id, EXCLUDED.author_id),\n            updated_at = now()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Text",
+        "TextArray",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e39eb4f02060878d029c4020f965ddd313572ea339bcb646fdf4560d270b4a75"
+}

@@ -39,16 +39,18 @@ async fn tick(ctx: &serenity::Context, data: &Data) -> anyhow::Result<()> {
             )
         })
         .collect();
+    let (description, shown) = super::join_lines_counted(&lines, 4000);
     let embed = CreateEmbed::new()
         .title(format!(
             "⏳ 24 時間以上返信していないチケット ({} 件)",
             threads.len()
         ))
-        .description(super::join_lines(&lines, 4000))
+        .description(description)
         .colour(0xf0b232);
     super::post_to_staff(ctx, data, None, embed, Vec::new()).await?;
-    // 投稿できたものだけ通知済みにする (失敗したら次の周期でもう一度送る)
-    let ids: Vec<i64> = threads.iter().map(|t| t.thread_id).collect();
+    // 投稿できて、本文に載せたものだけ通知済みにする。投稿に失敗したときや、文字数の上限で
+    // 「ほか N 件」に省いたものは、次の周期 (古い順なので省いた分が先頭に来る) でもう一度送る
+    let ids: Vec<i64> = threads[..shown].iter().map(|t| t.thread_id).collect();
     db::mark_reminded(&data.pool, &ids, now).await?;
     tracing::info!(count = ids.len(), "notified unreplied tickets");
     Ok(())

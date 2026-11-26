@@ -25,7 +25,13 @@ async fn staff_only(ctx: Context<'_>) -> Result<bool, BotError> {
 /// 実行したスレッドがチケットとして記録されているか確かめる
 async fn current_ticket(ctx: Context<'_>) -> Result<i64, BotError> {
     let thread_id = snowflake(ctx.channel_id());
-    if db::thread_exists(&ctx.data().pool, thread_id).await? {
+    let parent = db::thread_parent(&ctx.data().pool, thread_id).await?;
+    if parent.is_some_and(|parent| {
+        ctx.data()
+            .is_record_channel(poise::serenity_prelude::ChannelId::new(
+                parent.cast_unsigned(),
+            ))
+    }) {
         Ok(thread_id)
     } else {
         Err(BotError::user(

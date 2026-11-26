@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT parent_channel_id FROM support_threads WHERE thread_id = $1 AND deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "parent_channel_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "parent_channel_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0b7417dbde09cc116ce32df3b1df8236d04c84d27060f9bfdaf01868194fad36"
+}

@@ -19,14 +19,19 @@ pub struct ThreadInput {
 
 /// スレッドを登録する。既にあればスレッド名・タグ・アーカイブ状態だけを更新する
 /// (状態は発言とタグの変化から別に決めるので、ここでは触らない)。
-/// 保存期間を過ぎて本文を消したスレッドには、スレッド名を書き戻さない
+/// 保存期間を過ぎて本文を消したまま解決済みのスレッドには、スレッド名を書き戻さない
+/// (再投稿で再オープンしたら書き戻し、次に解決してから保存期間が経ったら改めて消す)
 pub async fn upsert_thread(pool: &PgPool, thread: &ThreadInput) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
         INSERT INTO support_threads (thread_id, parent_channel_id, author_id, title, tags, archived)
         VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (thread_id) DO UPDATE SET
-            title = CASE WHEN support_threads.purged_at IS NULL THEN EXCLUDED.title END,
+            title = CASE
+                WHEN support_threads.status = 'resolved'
+                    AND support_threads.purged_at >= support_threads.resolved_at THEN NULL
+                ELSE EXCLUDED.title
+            END,
             tags = EXCLUDED.tags,
             archived = EXCLUDED.archived,
             author_id = COALESCE(support_threads.author_id, EXCLUDED.author_id),
@@ -50,6 +55,16 @@ pub async fn thread_exists(pool: &PgPool, thread_id: i64) -> Result<bool, sqlx::
         thread_id
     )
     .fetch_one(pool)
+    .await
+}
+
+/// 記録済みのスレッドの親フォーラム。記録対象から外したフォーラムかどうかの判定に使う
+pub async fn thread_parent(pool: &PgPool, thread_id: i64) -> Result<Option<i64>, sqlx::Error> {
+    sqlx::query_scalar!(
+        "SELECT parent_channel_id FROM support_threads WHERE thread_id = $1 AND deleted_at IS NULL",
+        thread_id
+    )
+    .fetch_optional(pool)
     .await
 }
 
@@ -313,14 +328,17 @@ pub async fn set_status(
     }))
 }
 
-/// チャンネル (スレッド) で記録済みの最後のメッセージ ID。起動時の取りこぼし補完の起点にする
-pub async fn last_message_id(pool: &PgPool, channel_id: i64) -> Result<Option<i64>, sqlx::Error> {
-    sqlx::query_scalar!(
-        "SELECT max(message_id) FROM support_messages WHERE channel_id = $1",
-        channel_id
+/// チャンネル (スレッド) ごとの記録済みの最後のメッセージ ID。起動時、Gateway に繋ぐ前に読んでおき、
+/// 取りこぼしの補完の起点にする (繋いだあとに届いた新着で起点が進むと、停止中の発言を飛ばしてしまう)
+pub async fn last_message_ids(
+    pool: &PgPool,
+) -> Result<std::collections::HashMap<i64, i64>, sqlx::Error> {
+    let rows = sqlx::query!(
+        r#"SELECT channel_id, max(message_id) AS "last!" FROM support_messages GROUP BY channel_id"#
     )
-    .fetch_one(pool)
-    .await
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.channel_id, r.last)).collect())
 }
 
 /// 未解決チケットの一覧 (未返信の通知と日次まとめに使う)
@@ -517,7 +535,9 @@ pub async fn purge_expired(
     let threads = sqlx::query_scalar!(
         r#"
         UPDATE support_threads SET title = NULL, purged_at = $2, updated_at = $2
-        WHERE status = 'resolved' AND resolved_at <= $1 AND purged_at IS NULL
+        WHERE status = 'resolved' AND resolved_at <= $1
+            -- 一度消したあとに再投稿・再解決されたスレッドも、新しい解決時刻から数えて消す
+            AND (purged_at IS NULL OR purged_at < resolved_at)
         RETURNING thread_id
         "#,
         cutoff,

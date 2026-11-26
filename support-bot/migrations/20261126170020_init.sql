@@ -37,7 +37,7 @@ CREATE TABLE support_threads (
 CREATE INDEX support_threads_unresolved ON support_threads (last_user_msg_at)
     WHERE status <> 'resolved' AND deleted_at IS NULL;
 CREATE INDEX support_threads_resolved_at ON support_threads (resolved_at)
-    WHERE purged_at IS NULL;
+    WHERE status = 'resolved';
 
 -- 記録したメッセージ。thread_id が NULL のものはテキストチャンネルへの投稿
 CREATE TABLE support_messages (

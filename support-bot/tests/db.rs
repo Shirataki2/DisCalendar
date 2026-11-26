@@ -166,11 +166,29 @@ async fn channel_messages_do_not_touch_threads(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(t, None);
-    assert_eq!(
-        db::last_message_id(&pool, FORUM + 1).await.unwrap(),
-        Some(1)
-    );
-    assert_eq!(db::last_message_id(&pool, 12_345).await.unwrap(), None);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn last_message_ids_by_channel(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    for (id, thread_id) in [(1, None), (5, None), (3, Some(THREAD)), (2, Some(THREAD))] {
+        db::record_message(&pool, &message(id, thread_id, false, at(id)))
+            .await
+            .unwrap();
+    }
+    let last = db::last_message_ids(&pool).await.unwrap();
+    assert_eq!(last.get(&(FORUM + 1)), Some(&5));
+    assert_eq!(last.get(&THREAD), Some(&3));
+    assert_eq!(last.get(&12_345), None);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn thread_parent_is_known_for_recorded_threads(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    assert_eq!(db::thread_parent(&pool, THREAD).await.unwrap(), Some(FORUM));
+    assert_eq!(db::thread_parent(&pool, 9_999).await.unwrap(), None);
+    db::mark_thread_deleted(&pool, THREAD).await.unwrap();
+    assert_eq!(db::thread_parent(&pool, THREAD).await.unwrap(), None);
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -435,4 +453,83 @@ async fn purges_expired_contents(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(title, None);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn purges_again_after_reopen_and_resolve(pool: PgPool) {
+    let retention = Duration::days(180);
+    let now = Utc::now();
+    thread(&pool, THREAD).await;
+    db::record_message(
+        &pool,
+        &message(1, Some(THREAD), false, now - Duration::days(401)),
+    )
+    .await
+    .unwrap();
+    db::set_status(&pool, THREAD, Some(Status::Resolved))
+        .await
+        .unwrap();
+    let old = now - Duration::days(400);
+    sqlx::query!(
+        "UPDATE support_threads SET resolved_at = $1 WHERE thread_id = $2",
+        old,
+        THREAD
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let first = now - Duration::days(200);
+    assert_eq!(
+        db::purge_expired(&pool, first, retention).await.unwrap(),
+        Purged {
+            threads: 1,
+            messages: 1
+        }
+    );
+
+    // 消したあとに利用者が再投稿 → 再オープンでスレッド名を書き戻し、本文も記録する
+    db::record_message(
+        &pool,
+        &message(2, Some(THREAD), false, now - Duration::days(199)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status(&pool, THREAD).await, Status::Open);
+    thread(&pool, THREAD).await;
+    let title = sqlx::query_scalar!(
+        "SELECT title FROM support_threads WHERE thread_id = $1",
+        THREAD
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(title.is_some());
+
+    // 再び解決して 180 日経ったら、新しい本文とスレッド名も消す
+    db::set_status(&pool, THREAD, Some(Status::Resolved))
+        .await
+        .unwrap();
+    let resolved_again = now - Duration::days(181);
+    sqlx::query!(
+        "UPDATE support_threads SET resolved_at = $1 WHERE thread_id = $2",
+        resolved_again,
+        THREAD
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        db::purge_expired(&pool, now, retention).await.unwrap(),
+        Purged {
+            threads: 1,
+            messages: 1
+        }
+    );
+    let remaining = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM support_messages WHERE content IS NOT NULL"#
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining, 0);
 }

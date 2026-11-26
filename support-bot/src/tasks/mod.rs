@@ -83,6 +83,11 @@ pub(crate) fn sanitize(text: &str, max_chars: usize) -> String {
 
 /// 埋め込みの説明文の上限 (4096 文字) に収まるよう、行を詰めて残りの件数を添える
 pub(crate) fn join_lines(lines: &[String], limit: usize) -> String {
+    join_lines_counted(lines, limit).0
+}
+
+/// `join_lines` と同じく詰め、本文に載せられた行数も返す (先頭から何行が載ったか)
+pub(crate) fn join_lines_counted(lines: &[String], limit: usize) -> (String, usize) {
     let tail = |rest: usize| format!("\n…ほか {rest} 件");
     let mut out = String::new();
     for (i, line) in lines.iter().enumerate() {
@@ -97,14 +102,14 @@ pub(crate) fn join_lines(lines: &[String], limit: usize) -> String {
         if out.chars().count() + separator + line.chars().count() + reserve > limit {
             // 1 つ前の行で tail(len - i) 分を空けてあるので必ず収まる
             out.push_str(&tail(lines.len() - i));
-            return out.trim_start().to_owned();
+            return (out.trim_start().to_owned(), i);
         }
         if separator == 1 {
             out.push('\n');
         }
         out.push_str(line);
     }
-    out
+    (out, lines.len())
 }
 
 #[cfg(test)]
@@ -129,5 +134,12 @@ mod tests {
         let joined = join_lines(&lines, 25);
         assert!(joined.chars().count() <= 25, "{joined}");
         assert!(joined.ends_with("件"), "{joined}");
+        let (text, shown) = join_lines_counted(&lines, 25);
+        assert_eq!(
+            text.lines().filter(|l| l.starts_with("line")).count(),
+            shown
+        );
+        assert!(shown < lines.len());
+        assert_eq!(join_lines_counted(&lines, 1000).1, lines.len());
     }
 }

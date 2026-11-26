@@ -46,6 +46,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .await
         .context("failed to run migrations")?;
     tracing::info!("connected to database and applied migrations");
+    // 補完の起点は Gateway に繋ぐ前に固定する (繋いだあとの新着を記録すると最大 ID が進み、停止中の発言を飛ばすため)
+    let backfill_from = std::sync::Arc::new(
+        db::last_message_ids(&pool)
+            .await
+            .context("failed to read the last recorded messages")?,
+    );
 
     let settings = std::sync::Arc::new(config.settings.clone());
     let guild_id = settings.guild_id;
@@ -72,6 +78,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                     pool,
                     settings,
                     tasks_started: Default::default(),
+                    backfill_from,
                 })
             })
         })

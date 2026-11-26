@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE support_threads SET title = NULL, purged_at = $2, updated_at = $2\n        WHERE status = 'resolved' AND resolved_at <= $1\n            -- 一度消したあとに再投稿・再解決されたスレッドも、新しい解決時刻から数えて消す\n            AND (purged_at IS NULL OR purged_at < resolved_at)\n        RETURNING thread_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "thread_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "thread_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "de155f4152a2cb35563fce60014182752edc7577d79169b559dafca76555144e"
+}
