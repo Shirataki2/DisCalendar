@@ -276,6 +276,8 @@ pub async fn update_message(
             attachments = COALESCE($3, attachments),
             edited_at = $4
         WHERE message_id = $1 AND deleted_at IS NULL AND purged_at IS NULL
+            -- 補完が新しい編集を保存したあとに、古い編集イベントが届いても巻き戻さない
+            AND (edited_at IS NULL OR edited_at <= $4)
         "#,
         message_id,
         content,

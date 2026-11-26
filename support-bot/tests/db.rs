@@ -726,3 +726,36 @@ async fn applies_edits_received_before_recording(pool: PgPool) {
         .unwrap();
     assert_eq!(pending, 0);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn older_edits_do_not_overwrite_newer_ones(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    let mut input = message(10, Some(THREAD), false, at(0));
+    input.content = "新しい本文".into();
+    input.edited_at = Some(at(2) + Duration::milliseconds(500));
+    db::record_message(&pool, &input).await.unwrap();
+
+    // 補完で新しい編集を保存したあとに、古い編集イベント (同じ秒の 0.3 秒前) が届いた
+    let applied = db::update_message(
+        &pool,
+        10,
+        Some("古い本文"),
+        None,
+        at(2) + Duration::milliseconds(200),
+    )
+    .await
+    .unwrap();
+    assert!(!applied);
+    let content = sqlx::query_scalar!("SELECT content FROM support_messages WHERE message_id = 10")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(content.as_deref(), Some("新しい本文"));
+
+    // それより新しい編集は反映する
+    assert!(
+        db::update_message(&pool, 10, Some("さらに新しい本文"), None, at(3))
+            .await
+            .unwrap()
+    );
+}

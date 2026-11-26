@@ -30,8 +30,9 @@ pub fn created_at(id: serenity::MessageId) -> DateTime<Utc> {
     DateTime::from_timestamp_millis(i64::try_from(ms).unwrap_or(i64::MAX)).unwrap_or_default()
 }
 
+/// Discord のタイムスタンプ (ミリ秒まで持つ) をそのまま使う。秒に丸めると、同じ秒の編集の前後が分からなくなる
 pub fn to_utc(timestamp: serenity::Timestamp) -> DateTime<Utc> {
-    DateTime::from_timestamp(timestamp.unix_timestamp(), 0).unwrap_or_default()
+    *timestamp
 }
 
 pub fn snowflake(id: impl Into<u64>) -> i64 {
@@ -215,5 +216,11 @@ mod tests {
             175_928_847_299_117_063 + (1 << 22),
         ));
         assert_eq!((later - at).num_milliseconds(), 1);
+    }
+
+    #[test]
+    fn to_utc_keeps_milliseconds() {
+        let ts = serenity::Timestamp::from_millis(1_462_015_105_796).unwrap();
+        assert_eq!(to_utc(ts).timestamp_millis(), 1_462_015_105_796);
     }
 }
