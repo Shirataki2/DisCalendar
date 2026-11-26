@@ -132,7 +132,9 @@ pub async fn record_message(
         r#"
         INSERT INTO support_messages
             (message_id, channel_id, thread_id, author_id, author_is_staff, content, attachments, created_at, edited_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        SELECT $1::bigint, $2::bigint, $3::bigint, $4::bigint, $5::boolean, $6::text, $7::jsonb, $8::timestamptz, $9::timestamptz
+        -- 取得してから保存するまでの間に削除されたメッセージは保存しない (support_message_tombstones)
+        WHERE NOT EXISTS (SELECT 1 FROM support_message_tombstones WHERE message_id = $1)
         ON CONFLICT (message_id) DO NOTHING
         "#,
         message.message_id,
@@ -244,14 +246,38 @@ pub async fn update_message(
     Ok(updated > 0)
 }
 
-/// 削除されたメッセージは、本文と添付をその場で消して削除時刻だけを残す
+/// 削除されたメッセージは、本文と添付をその場で消して削除時刻だけを残す。
+/// まだ記録していないメッセージ (補完が取得済みで保存前のものなど) も、あとから保存しないよう ID を覚えておく
 pub async fn mark_messages_deleted(pool: &PgPool, message_ids: &[i64]) -> Result<u64, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        r#"
+        INSERT INTO support_message_tombstones (message_id)
+        SELECT unnest($1::bigint[])
+        ON CONFLICT (message_id) DO NOTHING
+        "#,
+        message_ids,
+    )
+    .execute(&mut *tx)
+    .await?;
     let result = sqlx::query!(
         r#"
         UPDATE support_messages SET content = NULL, attachments = NULL, deleted_at = now()
         WHERE message_id = ANY($1) AND deleted_at IS NULL
         "#,
         message_ids,
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(result.rows_affected())
+}
+
+/// 1 日より前の削除の記録を消す (補完の取得と保存の間の食い違いを防ぐためだけに持っている)
+pub async fn prune_tombstones(pool: &PgPool, now: DateTime<Utc>) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query!(
+        "DELETE FROM support_message_tombstones WHERE deleted_at < $1",
+        now - chrono::Duration::days(1),
     )
     .execute(pool)
     .await?;

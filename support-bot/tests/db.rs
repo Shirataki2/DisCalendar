@@ -606,3 +606,27 @@ async fn orders_messages_within_the_same_second(pool: PgPool) {
     db::set_status(&pool, THREAD, None).await.unwrap();
     assert_eq!(status(&pool, THREAD).await, Status::Open);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn deleted_before_recording_is_not_saved(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    // 補完が取得したあと、保存する前に Discord で削除された
+    assert_eq!(db::mark_messages_deleted(&pool, &[7]).await.unwrap(), 0);
+    let t = db::record_message(&pool, &message(7, Some(THREAD), false, at(0)))
+        .await
+        .unwrap();
+    assert_eq!(t, None);
+    let rows = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM support_messages"#)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+
+    // 1 日経った削除の記録は消える
+    assert_eq!(
+        db::prune_tombstones(&pool, Utc::now() + Duration::days(2))
+            .await
+            .unwrap(),
+        1
+    );
+}

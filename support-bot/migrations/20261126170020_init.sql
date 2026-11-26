@@ -60,6 +60,14 @@ CREATE INDEX support_messages_channel ON support_messages (channel_id, message_i
 CREATE INDEX support_messages_unpurged_channel ON support_messages (created_at)
     WHERE thread_id IS NULL AND purged_at IS NULL;
 
+-- 削除されたメッセージの ID。起動時の補完が HTTP で取得してから保存するまでの間に Discord で削除されると、
+-- 削除イベントは記録前の行には効かず、取得済みの本文がそのあと保存されてしまうので、削除を覚えておいて保存を止める。
+-- 補完の取得と保存の間の短い食い違いを防ぐためだけのものなので、1 日で消す
+CREATE TABLE support_message_tombstones (
+    message_id BIGINT PRIMARY KEY,
+    deleted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- /remind で設定した手動のリマインド
 CREATE TABLE support_reminders (
     id BIGSERIAL PRIMARY KEY,

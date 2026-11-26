@@ -26,9 +26,14 @@ pub async fn handle_event(
                 "shard ready"
             );
             if data.mark_tasks_started() {
-                tracing::info!("starting periodic tasks");
-                tasks::spawn_all(ctx.clone(), data.clone());
-                tokio::spawn(backfill::run(ctx.clone(), data.clone()));
+                // 定期タスクは補完が終わってから始める。先に始めると、停止中の発言や解決を反映する前の DB で
+                // 毎朝のまとめを送ってその日を実行済みにしたり、解決済みのチケットを未返信として通知したりする
+                let (ctx, data) = (ctx.clone(), data.clone());
+                tokio::spawn(async move {
+                    backfill::run(ctx.clone(), data.clone()).await;
+                    tracing::info!("starting periodic tasks");
+                    tasks::spawn_all(ctx, data);
+                });
             }
         }
         // 起動時に参加済みの各ギルドと、新しく参加したときに届く。

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO support_messages\n            (message_id, channel_id, thread_id, author_id, author_is_staff, content, attachments, created_at, edited_at)\n        SELECT $1::bigint, $2::bigint, $3::bigint, $4::bigint, $5::boolean, $6::text, $7::jsonb, $8::timestamptz, $9::timestamptz\n        -- 取得してから保存するまでの間に削除されたメッセージは保存しない (support_message_tombstones)\n        WHERE NOT EXISTS (SELECT 1 FROM support_message_tombstones WHERE message_id = $1)\n        ON CONFLICT (message_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Text",
+        "Jsonb",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4e4b72aecdab29aafab42292d75123ffb151a4ee8fe2d899eb89edceb6a5e434"
+}

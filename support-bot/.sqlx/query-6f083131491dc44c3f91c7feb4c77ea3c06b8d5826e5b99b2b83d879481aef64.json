@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM support_message_tombstones WHERE deleted_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f083131491dc44c3f91c7feb4c77ea3c06b8d5826e5b99b2b83d879481aef64"
+}

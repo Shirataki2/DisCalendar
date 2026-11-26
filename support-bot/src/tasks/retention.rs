@@ -24,5 +24,8 @@ pub async fn run_loop(data: Data) {
             ),
             Err(e) => tracing::warn!(error = %e, "failed to purge expired support messages"),
         }
+        if let Err(e) = db::prune_tombstones(&data.pool, Utc::now()).await {
+            tracing::warn!(error = %e, "failed to prune message tombstones");
+        }
     }
 }

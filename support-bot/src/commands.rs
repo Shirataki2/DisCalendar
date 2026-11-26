@@ -52,6 +52,8 @@ pub async fn status(
     ctx: Context<'_>,
     #[description = "新しい状態"] status: Status,
 ) -> Result<(), BotError> {
+    // DB とタグの更新 (Discord API) を待つと初回応答の期限 (3 秒) を超えることがあるので、先に応答を保留する
+    ctx.defer_ephemeral().await?;
     let thread_id = current_ticket(ctx).await?;
     let transition = db::set_status(&ctx.data().pool, thread_id, Some(status))
         .await?
@@ -85,6 +87,8 @@ pub async fn remind(
     #[max_length = 200]
     note: Option<String>,
 ) -> Result<(), BotError> {
+    // DB とタグの更新 (Discord API) を待つと初回応答の期限 (3 秒) を超えることがあるので、先に応答を保留する
+    ctx.defer_ephemeral().await?;
     let thread_id = current_ticket(ctx).await?;
     let duration = parse_duration(&after).ok_or_else(|| {
         BotError::user("時間は 30m / 12h / 3d / 1w のように、数字と単位 (m / h / d / w) で指定してください (最大 90 日)")
