@@ -1,0 +1,135 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT m.message_id, m.channel_id, m.thread_id, m.author_id, m.author_is_staff,\n            CASE WHEN m.deleted_at IS NULL AND m.purged_at IS NULL AND t.deleted_at IS NULL\n                THEN m.content END AS content,\n            CASE WHEN m.deleted_at IS NULL AND m.purged_at IS NULL AND t.deleted_at IS NULL\n                THEN m.attachments END AS attachments,\n            m.created_at, m.edited_at,\n            -- スレッドごと削除されたら、発言も削除済みとして扱う\n            COALESCE(m.deleted_at, t.deleted_at) AS deleted_at,\n            m.purged_at\n        FROM support_messages m\n        JOIN support_threads t ON t.thread_id = m.thread_id\n        WHERE m.thread_id = $1\n        ORDER BY m.created_at, m.message_id\n        OFFSET $2 LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "message_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "message_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "channel_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "channel_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "thread_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "thread_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "author_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "author_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "author_is_staff",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "author_is_staff"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "content",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "attachments",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "edited_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "edited_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "deleted_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "purged_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "purged_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      null,
+      null,
+      false,
+      true,
+      null,
+      true
+    ]
+  },
+  "hash": "7bbd090ccdf9c23af4f2acc76737d4b8e3da9b5e2bba08ce088d0135abfbb19e"
+}

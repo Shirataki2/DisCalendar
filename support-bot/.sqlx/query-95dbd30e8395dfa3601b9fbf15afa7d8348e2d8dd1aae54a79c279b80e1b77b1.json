@@ -1,0 +1,162 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT m.message_id, m.channel_id, m.thread_id, m.author_id, m.author_is_staff,\n            m.content, m.attachments, m.created_at, m.edited_at, m.deleted_at, m.purged_at,\n            t.status AS \"thread_status?\"\n        FROM support_messages m\n        LEFT JOIN support_threads t ON t.thread_id = m.thread_id\n        WHERE m.deleted_at IS NULL AND m.purged_at IS NULL AND m.content IS NOT NULL\n            AND m.content ILIKE $1 ESCAPE '\\'\n            AND (m.thread_id IS NULL OR t.deleted_at IS NULL)\n            AND ($2 OR (m.thread_id IS NOT NULL AND t.status <> 'resolved'))\n        ORDER BY m.created_at DESC, m.message_id DESC\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "message_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "message_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "channel_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "channel_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "thread_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "thread_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "author_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "author_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "author_is_staff",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "author_is_staff"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "content",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "attachments",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "attachments"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "edited_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "edited_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "deleted_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "deleted_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "purged_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "purged_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "thread_status?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "95dbd30e8395dfa3601b9fbf15afa7d8348e2d8dd1aae54a79c279b80e1b77b1"
+}
