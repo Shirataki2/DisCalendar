@@ -687,3 +687,42 @@ async fn does_not_restore_titles_of_deleted_threads(pool: PgPool) {
     .unwrap();
     assert_eq!(title, None);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn applies_edits_received_before_recording(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    // 補完が取得したあと、保存する前に編集された
+    assert!(
+        !db::update_message(&pool, 9, Some("直した本文"), Some(&[]), at(1))
+            .await
+            .unwrap()
+    );
+    db::record_message(&pool, &message(9, Some(THREAD), false, at(0)))
+        .await
+        .unwrap();
+    let row = sqlx::query!(
+        "SELECT content, attachments, edited_at FROM support_messages WHERE message_id = 9"
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.content.as_deref(), Some("直した本文"));
+    assert_eq!(row.attachments, Some(serde_json::json!([])));
+    assert_eq!(row.edited_at, Some(at(1)));
+    let pending = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM support_pending_edits"#)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(pending, 0);
+
+    // 記録済みで削除したメッセージへの編集は覚えない
+    db::mark_messages_deleted(&pool, &[9]).await.unwrap();
+    db::update_message(&pool, 9, Some("復活"), None, at(2))
+        .await
+        .unwrap();
+    let pending = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM support_pending_edits"#)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(pending, 0);
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE support_messages m SET\n                content = COALESCE(p.content, m.content),\n                attachments = COALESCE(p.attachments, m.attachments),\n                edited_at = p.edited_at\n            FROM support_pending_edits p\n            WHERE m.message_id = $1 AND p.message_id = $1\n                AND p.edited_at > COALESCE(m.edited_at, '-infinity')\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b31c3287ed4b91009577c7dddbf775a1dabd69c4ab13adcbb5300cf00a06ef3c"
+}

@@ -169,6 +169,29 @@ pub async fn record_message(
     .await?
     .rows_affected()
         == 1;
+    if inserted {
+        // 取得してから保存するまでの間に届いた編集を当て直す (support_pending_edits)
+        sqlx::query!(
+            r#"
+            UPDATE support_messages m SET
+                content = COALESCE(p.content, m.content),
+                attachments = COALESCE(p.attachments, m.attachments),
+                edited_at = p.edited_at
+            FROM support_pending_edits p
+            WHERE m.message_id = $1 AND p.message_id = $1
+                AND p.edited_at > COALESCE(m.edited_at, '-infinity')
+            "#,
+            message.message_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM support_pending_edits WHERE message_id = $1",
+            message.message_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     let transition = match (inserted, message.thread_id) {
         (true, Some(thread_id)) => {
@@ -245,6 +268,7 @@ pub async fn update_message(
 ) -> Result<bool, sqlx::Error> {
     let attachments =
         attachments.map(|a| serde_json::to_value(a).expect("attachments are always serializable"));
+    let mut tx = pool.begin().await?;
     let updated = sqlx::query!(
         r#"
         UPDATE support_messages SET
@@ -258,9 +282,32 @@ pub async fn update_message(
         attachments,
         edited_at,
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?
     .rows_affected();
+    if updated == 0 {
+        // まだ記録していないメッセージなら、補完がこのあと古い本文を保存するかもしれないので覚えておく
+        // (record_message が保存時に当て直す)。記録済みで削除・保存期間切れのものは何もしない
+        sqlx::query!(
+            r#"
+            INSERT INTO support_pending_edits (message_id, content, attachments, edited_at)
+            SELECT $1, $2, $3, $4
+            WHERE NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id = $1)
+            ON CONFLICT (message_id) DO UPDATE SET
+                content = COALESCE(EXCLUDED.content, support_pending_edits.content),
+                attachments = COALESCE(EXCLUDED.attachments, support_pending_edits.attachments),
+                edited_at = GREATEST(EXCLUDED.edited_at, support_pending_edits.edited_at),
+                received_at = now()
+            "#,
+            message_id,
+            content,
+            attachments,
+            edited_at,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
     Ok(updated > 0)
 }
 
@@ -291,15 +338,24 @@ pub async fn mark_messages_deleted(pool: &PgPool, message_ids: &[i64]) -> Result
     Ok(result.rows_affected())
 }
 
-/// 1 日より前の削除の記録を消す (補完の取得と保存の間の食い違いを防ぐためだけに持っている)
+/// 1 日より前の削除の記録と、記録前に届いた編集を消す (補完の取得と保存の間の食い違いを防ぐためだけに持っている)
 pub async fn prune_tombstones(pool: &PgPool, now: DateTime<Utc>) -> Result<u64, sqlx::Error> {
-    let result = sqlx::query!(
+    let cutoff = now - chrono::Duration::days(1);
+    let tombstones = sqlx::query!(
         "DELETE FROM support_message_tombstones WHERE deleted_at < $1",
-        now - chrono::Duration::days(1),
+        cutoff,
     )
     .execute(pool)
-    .await?;
-    Ok(result.rows_affected())
+    .await?
+    .rows_affected();
+    let edits = sqlx::query!(
+        "DELETE FROM support_pending_edits WHERE received_at < $1",
+        cutoff,
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(tombstones + edits)
 }
 
 /// Discord でスレッドごと消されたら、スレッド名と配下の本文を消し、未送信のリマインドも取り消す

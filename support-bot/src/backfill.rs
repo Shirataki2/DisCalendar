@@ -39,36 +39,48 @@ async fn channels(
     staff: &mut StaffLookup,
 ) -> anyhow::Result<()> {
     for &channel_id in &data.settings.record_channel_ids {
-        let kind =
-            match record::cached_channel(ctx, data.settings.guild_id, channel_id).map(|c| c.kind) {
-                Some(kind) => kind,
-                None => match channel_id.to_channel(ctx).await?.guild() {
-                    Some(channel) => channel.kind,
-                    None => continue,
-                },
-            };
-        if kind == ChannelType::Forum {
-            continue;
+        if let Err(error) = backfill_channel(ctx, data, staff, channel_id).await {
+            tracing::warn!(%error, channel_id = channel_id.get(), "failed to backfill a channel");
         }
-        let Some(&last) = data.backfill_from.get(&snowflake(channel_id)) else {
-            continue;
-        };
-        let count = fetch_and_record(
-            ctx,
-            data,
-            staff,
-            channel_id,
-            Some(MessageId::new(last.cast_unsigned())),
-            Scope::Channel,
-        )
-        .await?;
-        if count > 0 {
-            tracing::info!(
-                channel_id = channel_id.get(),
-                count,
-                "backfilled channel messages"
-            );
-        }
+    }
+    Ok(())
+}
+
+async fn backfill_channel(
+    ctx: &serenity::Context,
+    data: &Data,
+    staff: &mut StaffLookup,
+    channel_id: serenity::ChannelId,
+) -> anyhow::Result<()> {
+    let kind = match record::cached_channel(ctx, data.settings.guild_id, channel_id).map(|c| c.kind)
+    {
+        Some(kind) => kind,
+        None => match channel_id.to_channel(ctx).await?.guild() {
+            Some(channel) => channel.kind,
+            None => return Ok(()),
+        },
+    };
+    if kind == ChannelType::Forum {
+        return Ok(());
+    }
+    let Some(&last) = data.backfill_from.get(&snowflake(channel_id)) else {
+        return Ok(());
+    };
+    let count = fetch_and_record(
+        ctx,
+        data,
+        staff,
+        channel_id,
+        Some(MessageId::new(last.cast_unsigned())),
+        Scope::Channel,
+    )
+    .await?;
+    if count > 0 {
+        tracing::info!(
+            channel_id = channel_id.get(),
+            count,
+            "backfilled channel messages"
+        );
     }
     Ok(())
 }
@@ -80,37 +92,50 @@ async fn threads(
 ) -> anyhow::Result<()> {
     let active = data.settings.guild_id.get_active_threads(ctx).await?;
     for thread in active.threads {
-        let Some(input) = record::ticket_thread(ctx, data, &thread).await else {
-            continue;
-        };
-        db::upsert_thread(&data.pool, &input).await?;
-        // フォーラムに「解決済み」タグが無ければ状態は DB だけで持つので、タグとは照合しない
-        let tag_defined = match thread.parent_id {
-            Some(parent) => ticket::forum_tags(ctx, thread.guild_id, parent)
-                .await
-                .is_some_and(|tags| tags.iter().any(|tag| tag.name == ticket::RESOLVED_TAG)),
-            None => false,
-        };
-        if tag_defined {
-            reconcile_resolved_tag(data, &input).await?;
+        // 1 つのスレッドの失敗 (取得後に削除された、一時的な通信エラーなど) で残りの補完を止めない
+        if let Err(error) = backfill_thread(ctx, data, staff, &thread).await {
+            tracing::warn!(%error, thread_id = thread.id.get(), "failed to backfill a thread");
         }
-        let last = data.backfill_from.get(&input.thread_id).copied();
-        let count = fetch_and_record(
-            ctx,
-            data,
-            staff,
-            thread.id,
-            last.map(|id| MessageId::new(id.cast_unsigned())),
-            Scope::Thread,
-        )
-        .await?;
-        if count > 0 {
-            tracing::info!(
-                thread_id = thread.id.get(),
-                count,
-                "backfilled thread messages"
-            );
-        }
+    }
+    Ok(())
+}
+
+async fn backfill_thread(
+    ctx: &serenity::Context,
+    data: &Data,
+    staff: &mut StaffLookup,
+    thread: &serenity::GuildChannel,
+) -> anyhow::Result<()> {
+    let Some(input) = record::ticket_thread(ctx, data, thread).await else {
+        return Ok(());
+    };
+    db::upsert_thread(&data.pool, &input).await?;
+    // フォーラムに「解決済み」タグが無ければ状態は DB だけで持つので、タグとは照合しない
+    let tag_defined = match thread.parent_id {
+        Some(parent) => ticket::forum_tags(ctx, thread.guild_id, parent)
+            .await
+            .is_some_and(|tags| tags.iter().any(|tag| tag.name == ticket::RESOLVED_TAG)),
+        None => false,
+    };
+    if tag_defined {
+        reconcile_resolved_tag(data, &input).await?;
+    }
+    let last = data.backfill_from.get(&input.thread_id).copied();
+    let count = fetch_and_record(
+        ctx,
+        data,
+        staff,
+        thread.id,
+        last.map(|id| MessageId::new(id.cast_unsigned())),
+        Scope::Thread,
+    )
+    .await?;
+    if count > 0 {
+        tracing::info!(
+            thread_id = thread.id.get(),
+            count,
+            "backfilled thread messages"
+        );
     }
     Ok(())
 }
@@ -155,7 +180,7 @@ async fn fetch_and_record(
     messages.sort_by_key(|m| m.id);
     let mut count = 0;
     for message in messages.iter().filter(|m| record::is_recordable(m)) {
-        let is_staff = staff.is_staff(ctx, data, message.author.id).await;
+        let is_staff = staff.is_staff(ctx, data, message.author.id).await?;
         record::record(ctx, data, message, scope, is_staff).await?;
         count += 1;
     }
@@ -167,19 +192,40 @@ async fn fetch_and_record(
 struct StaffLookup(HashMap<UserId, bool>);
 
 impl StaffLookup {
-    async fn is_staff(&mut self, ctx: &serenity::Context, data: &Data, user_id: UserId) -> bool {
+    /// サーバーを抜けた人 (メンバーが見つからない = 404) はスタッフではない扱いにする。
+    /// 通信エラーや Discord 側の障害で取れなかったときは、利用者の発言と決めつけずに数回やり直し、
+    /// それでも取れなければエラーにする (スタッフの返信を利用者の発言として記録すると、状態が巻き戻るため)
+    async fn is_staff(
+        &mut self,
+        ctx: &serenity::Context,
+        data: &Data,
+        user_id: UserId,
+    ) -> anyhow::Result<bool> {
         if let Some(&is_staff) = self.0.get(&user_id) {
-            return is_staff;
+            return Ok(is_staff);
         }
-        // サーバーを抜けた人はスタッフではない扱いにする
-        let is_staff = match data.settings.guild_id.member(ctx, user_id).await {
-            Ok(member) => data.is_staff(&member.roles),
-            Err(error) => {
-                tracing::debug!(%error, user_id = user_id.get(), "failed to fetch member");
-                false
+        let mut attempt = 0;
+        let is_staff = loop {
+            match data.settings.guild_id.member(ctx, user_id).await {
+                Ok(member) => break data.is_staff(&member.roles),
+                Err(serenity::Error::Http(error))
+                    if error.status_code().is_some_and(|code| code.as_u16() == 404) =>
+                {
+                    break false;
+                }
+                Err(error) if attempt < 2 => {
+                    attempt += 1;
+                    tracing::debug!(%error, user_id = user_id.get(), attempt, "failed to fetch member, retrying");
+                    tokio::time::sleep(std::time::Duration::from_secs(attempt)).await;
+                }
+                Err(error) => {
+                    return Err(
+                        anyhow::Error::new(error).context("failed to fetch the author's roles")
+                    );
+                }
             }
         };
         self.0.insert(user_id, is_staff);
-        is_staff
+        Ok(is_staff)
     }
 }

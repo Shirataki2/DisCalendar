@@ -68,6 +68,17 @@ CREATE TABLE support_message_tombstones (
     deleted_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- まだ記録していないメッセージに届いた編集。補完が HTTP で取得してから保存するまでの間に編集されると、
+-- 編集イベントは記録前の行には効かず、取得済みの古い本文がそのあと保存されてしまうので、保存時に当て直す。
+-- 削除の記録と同じく短い食い違いを防ぐためだけのものなので、1 日で消す
+CREATE TABLE support_pending_edits (
+    message_id BIGINT PRIMARY KEY,
+    content TEXT,
+    attachments JSONB,
+    edited_at TIMESTAMPTZ NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- /remind で設定した手動のリマインド
 CREATE TABLE support_reminders (
     id BIGSERIAL PRIMARY KEY,

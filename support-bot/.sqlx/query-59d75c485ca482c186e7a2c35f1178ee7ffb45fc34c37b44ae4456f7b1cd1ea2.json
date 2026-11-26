@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM support_pending_edits WHERE received_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "59d75c485ca482c186e7a2c35f1178ee7ffb45fc34c37b44ae4456f7b1cd1ea2"
+}
