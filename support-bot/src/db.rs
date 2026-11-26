@@ -126,6 +126,22 @@ pub async fn record_message(
     message: &MessageInput,
 ) -> Result<Option<Transition>, sqlx::Error> {
     let mut tx = pool.begin().await?;
+    // スレッドの発言なら、INSERT より先に親のスレッド行をロックする。
+    // - スレッドの削除 (mark_thread_deleted) と排他にし、削除済みのスレッドには保存しない
+    //   (補完が取得してから保存するまでの間にスレッドごと消された場合)
+    // - INSERT の外部キー検査で KEY SHARE を取ったあとに FOR UPDATE へ上げると、同じスレッドの発言を
+    //   並行して記録したときにデッドロックし得るので、先に FOR NO KEY UPDATE を取っておく
+    if let Some(thread_id) = message.thread_id {
+        let alive = sqlx::query_scalar!(
+            r#"SELECT deleted_at IS NULL AS "alive!" FROM support_threads WHERE thread_id = $1 FOR NO KEY UPDATE"#,
+            thread_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if alive != Some(true) {
+            return Ok(None);
+        }
+    }
     let attachments =
         serde_json::to_value(&message.attachments).expect("attachments are always serializable");
     let inserted = sqlx::query!(
@@ -182,7 +198,7 @@ async fn apply_message(
     let row = sqlx::query!(
         r#"
         WITH before AS (
-            SELECT status FROM support_threads WHERE thread_id = $1 FOR UPDATE
+            SELECT status FROM support_threads WHERE thread_id = $1 FOR NO KEY UPDATE
         ), latest AS (
             SELECT $3 >= COALESCE(GREATEST(last_user_msg_at, last_staff_msg_at), '-infinity') AS newest
             FROM support_threads WHERE thread_id = $1
@@ -327,7 +343,7 @@ pub async fn set_status(
     let row = sqlx::query!(
         r#"
         WITH before AS (
-            SELECT status FROM support_threads WHERE thread_id = $1 AND deleted_at IS NULL FOR UPDATE
+            SELECT status FROM support_threads WHERE thread_id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE
         )
         UPDATE support_threads SET
             status = COALESCE($2, CASE

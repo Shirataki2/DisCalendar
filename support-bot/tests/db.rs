@@ -630,3 +630,44 @@ async fn deleted_before_recording_is_not_saved(pool: PgPool) {
         1
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn messages_to_deleted_threads_are_not_saved(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    db::mark_thread_deleted(&pool, THREAD).await.unwrap();
+    // 補完が取得したあと、保存する前にスレッドごと削除された
+    let t = db::record_message(&pool, &message(8, Some(THREAD), false, at(0)))
+        .await
+        .unwrap();
+    assert_eq!(t, None);
+    let rows = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM support_messages"#)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn records_messages_of_one_thread_concurrently(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    // 補完と Gateway が同じスレッドの別の発言を同時に記録しても、デッドロックせずに両方残る
+    let mut tasks = tokio::task::JoinSet::new();
+    for id in 1..=20 {
+        let pool = pool.clone();
+        tasks.spawn(async move {
+            db::record_message(&pool, &message(id, Some(THREAD), id % 2 == 0, at(id)))
+                .await
+                .map(|_| ())
+        });
+    }
+    while let Some(result) = tasks.join_next().await {
+        result.unwrap().unwrap();
+    }
+    let rows = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM support_messages"#)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 20);
+    // 最後の発言 (20、スタッフ) に合わせて返信待ちになる
+    assert_eq!(status(&pool, THREAD).await, Status::WaitingUser);
+}
