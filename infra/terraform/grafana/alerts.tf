@@ -25,8 +25,8 @@ resource "grafana_contact_point" "discord" {
 
 locals {
   # 直近 5 分の ERROR を env / service ごとに数える。level ラベルは alloy が
-  # api / bot の JSON ログ (LOG_FORMAT=json) から起こしている
-  error_count_expr = "sum by (env, service) (count_over_time({service=~\"api|bot\", level=\"ERROR\"}[5m]))"
+  # api / bot / support-bot の JSON ログ (LOG_FORMAT=json) から起こしている
+  error_count_expr = "sum by (env, service) (count_over_time({service=~\"api|bot|support-bot\", level=\"ERROR\"}[5m]))"
 
   # 監視対象の環境から届いたログの数。0 件 (= 結果なし) が続く状態を no_data_state で拾う
   log_gap_expr = "sum(count_over_time({env=\"${var.log_gap_environment}\"}[${var.log_gap_minutes}m]))"

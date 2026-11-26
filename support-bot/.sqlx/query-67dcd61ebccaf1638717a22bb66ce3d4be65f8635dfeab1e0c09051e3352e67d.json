@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT content, attachments, deleted_at FROM support_messages WHERE message_id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "content",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "attachments",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "attachments"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "deleted_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "deleted_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "67dcd61ebccaf1638717a22bb66ce3d4be65f8635dfeab1e0c09051e3352e67d"
+}

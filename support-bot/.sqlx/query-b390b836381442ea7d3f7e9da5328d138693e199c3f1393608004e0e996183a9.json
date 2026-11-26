@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT content, attachments, edited_at FROM support_messages WHERE message_id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "content",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "attachments",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "attachments"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "edited_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_messages",
+            "name": "edited_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "b390b836381442ea7d3f7e9da5328d138693e199c3f1393608004e0e996183a9"
+}

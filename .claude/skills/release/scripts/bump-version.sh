@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# リリース準備: web / api / bot のバージョンを揃えて上げる (release スキルの手順 2)。
+# リリース準備: web / api / bot / support-bot のバージョンを揃えて上げる (release スキルの手順 2)。
 #   .claude/skills/release/scripts/bump-version.sh 3.1.0
 #   .claude/skills/release/scripts/bump-version.sh minor              # 今の版から major / minor / patch を 1 つ上げる
 #   .claude/skills/release/scripts/bump-version.sh 3.1.0 2026-08-30   # タグを打つ予定日を見出しの日付にする
-# 書き換えるのは web/package.json / api/Cargo.toml / bot/Cargo.toml / Cargo.lock の 4 か所と、
+# 書き換えるのは web/package.json / api/Cargo.toml / bot/Cargo.toml / support-bot/Cargo.toml / Cargo.lock の 5 か所と、
 # 更新履歴への個別ファイルの集約・削除とバージョン見出しの挿入 (正式版のみ)。
 # 見出しの日付 = 利用者に見えるリリース日なので、タグを打つ日が今日でないなら第 2 引数で渡す
 # (release.yml がタグの日とずれた見出しに警告を出す)。
@@ -131,7 +131,7 @@ awk -v v="$next" '!done && /"version"[[:space:]]*:/ { sub(/:[[:space:]]*"[^"]+"/
   web/package.json > "$tmp" && cp "$tmp" web/package.json
 
 # Cargo.toml: [package] セクションの version
-for manifest in api/Cargo.toml bot/Cargo.toml; do
+for manifest in api/Cargo.toml bot/Cargo.toml support-bot/Cargo.toml; do
   awk -v v="$next" '/^\[package\]/{p=1} p && !done && /^version[[:space:]]*=/{sub(/=.*/, "= \"" v "\""); done=1} {print}' \
     "$manifest" > "$tmp" && cp "$tmp" "$manifest"
 done
@@ -140,7 +140,7 @@ done
 if command -v cargo > /dev/null 2>&1 && cargo metadata --offline --format-version 1 > /dev/null 2>&1; then
   :
 else
-  for name in discalendar-api discalendar-bot; do
+  for name in discalendar-api discalendar-bot discalendar-support-bot; do
     awk -v n="name = \"$name\"" -v v="$next" \
       '{ if (prev == n && $0 ~ /^version[[:space:]]*=/) { sub(/=.*/, "= \"" v "\"") } prev = $0; print }' \
       Cargo.lock > "$tmp" && cp "$tmp" Cargo.lock

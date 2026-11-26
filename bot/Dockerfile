@@ -6,9 +6,10 @@
 FROM rust:1.98-bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
-# workspace の members をすべて置かないと cargo が manifest を読めないので api も入れる
+# workspace の members をすべて置かないと cargo が manifest を読めないので api / support-bot も入れる
 COPY api ./api
 COPY bot ./bot
+COPY support-bot ./support-bot
 COPY shared ./shared
 ENV SQLX_OFFLINE=true
 RUN cargo build --release -p discalendar-bot

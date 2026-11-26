@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT last_run_on FROM support_task_runs WHERE name = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last_run_on",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "support_task_runs",
+            "name": "last_run_on"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "230d7cff36c2df1dd11e3bd1d4249b34cfddd8cd4e10b80d7e62d534d84b9223"
+}

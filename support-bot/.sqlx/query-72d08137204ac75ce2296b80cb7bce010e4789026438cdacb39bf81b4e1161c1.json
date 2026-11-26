@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT thread_id, title, status, last_user_msg_at, last_staff_msg_at\n        FROM support_threads\n        WHERE status = 'open' AND deleted_at IS NULL\n            AND last_user_msg_at <= $1\n            AND (reminded_at IS NULL OR reminded_at < last_user_msg_at)\n        ORDER BY last_user_msg_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "thread_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "thread_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "last_user_msg_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "last_user_msg_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "last_staff_msg_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "last_staff_msg_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "72d08137204ac75ce2296b80cb7bce010e4789026438cdacb39bf81b4e1161c1"
+}

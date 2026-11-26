@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE support_messages SET content = NULL, attachments = NULL, deleted_at = now()\n        WHERE message_id = ANY($1) AND deleted_at IS NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f171069edab82bc5a6bcbd6513217ba2c15236a0aa291ce7497f8dc9b3687d0"
+}

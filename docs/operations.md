@@ -27,6 +27,23 @@ docker compose logs -f web api
   二重に届く**ので、ローカルではテスト用 Discord アプリのトークンを使うこと (旧 Bot との入れ替え手順は #12)
 - DB は compose 内のボリューム `db-data` に保存される。既存の DB を使う場合は各サービスの `DATABASE_URL` を override する
 
+## サポート用 Bot (support-bot)
+
+サポートサーバーにだけ入る別の Discord アプリ (#423)。問い合わせの記録・未返信の通知・毎朝のまとめを行う。
+機能と Discord 側の準備は [support-bot/README.md](../support-bot/README.md)。
+
+- compose の `support-bot` サービス (`--profile support-bot`)。**本番だけで有効にする** (staging でも同じトークンで動かすと二重に記録・通知する。
+  staging ではイメージを作るだけで起動しない)
+- DB は同じ Postgres の別データベース `discalendar_support`。初回起動時に support-bot が作り、`support-bot/migrations/` を自分で当てる
+  (api の起動や `_sqlx_migrations` とは独立)。api / bot とは同じボリュームに乗るので、バックアップも同じ timer で取る (下の「DB のバックアップと復元」)
+- **本番で有効にする手順**: `.env` に `SUPPORT_BOT_DISCORD_TOKEN` / `SUPPORT_GUILD_ID` / `SUPPORT_RECORD_CHANNEL_IDS` /
+  `SUPPORT_STAFF_ROLE_IDS` / `SUPPORT_STAFF_CHANNEL_ID` (任意で `SUPPORT_BOT_SENTRY_DSN`) を入れ、`COMPOSE_PROFILES` に `support-bot` を足して
+  `docker compose up -d`。GHCR の `discalendar-support-bot` パッケージは最初の push で作られるので、他のイメージと同じく public になっているか確かめる
+  (本番デプロイはログインせずに `docker manifest inspect` する)
+- **support-bot が無い版 (v3.29.0 以前) へ戻すとき**は、先に `COMPOSE_PROFILES` から `support-bot` を外す (その版のイメージが無いので pull に失敗する)。
+  本番デプロイのワークフローはイメージが無いと警告を出す
+- 記録をやめて消すときは、support-bot を止めてから `docker compose exec -T db psql -U discalendar -d postgres -c 'DROP DATABASE discalendar_support'`
+
 ## staging への自動デプロイ
 
 `main` にマージされると `.github/workflows/deploy-staging.yml` が web / api / bot のイメージを GHCR
@@ -125,7 +142,8 @@ git tag -a v3.1.0 -m "v3.1.0" && git push origin v3.1.0
 そこから溢れたログの横断検索と、ログベースの Discord 通知は下の「ログ集約 (Grafana Cloud)」が担う (#104)。
 DSN が未設定なら 3 サービスとも何も送らない (ローカル開発・CI・E2E はそのまま)。
 
-- **Sentry 側の準備**: プロジェクトを web (platform: Next.js) / api / bot (platform: Rust) の 3 つ作り、それぞれの DSN を控える。
+- **Sentry 側の準備**: プロジェクトを web (platform: Next.js) / api / bot (platform: Rust) の 3 つ作り、それぞれの DSN を控える
+  (サポート用 Bot を動かすなら support-bot (Rust) も作り、DSN を `.env` の `SUPPORT_BOT_SENTRY_DSN` に入れる)。
   通知は Sentry 側の設定だけで足りる (コードは不要)。**無料プラン (Developer) の通知はメールのみ**で、
   Discord などの third-party integrations は Team プラン以上でないと使えない (2026-08 時点。実際に確認済み)。
   Discord のチャンネルへ流したい場合は、Team プランにするか、下のログ側のアラート (Grafana Cloud は
@@ -156,15 +174,15 @@ DSN が未設定なら 3 サービスとも何も送らない (ローカル開�
 Grafana Cloud の Loki に送り、横断検索とログベースのアラート (Discord 通知) をそこで行う。
 Sentry が例外の中身を、こちらがログの流れと通知を受け持つ。
 
-- **ラベル**: `env` (production / staging)・`service` (compose のサービス名)・`level` (api / bot だけ)。
-  api / bot は `LOG_FORMAT=json` (compose の既定) で `tracing` を JSON 出力にしてあり、そこから `level` を起こす。
+- **ラベル**: `env` (production / staging)・`service` (compose のサービス名)・`level` (api / bot / support-bot だけ)。
+  api / bot / support-bot は `LOG_FORMAT=json` (compose の既定) で `tracing` を JSON 出力にしてあり、そこから `level` を起こす。
   ローカルで `docker compose logs` を人が読むときは `.env` に `LOG_FORMAT=text` を入れる
 - **ホスト側**: `.env` に `GRAFANA_CLOUD_LOKI_URL` / `_USER` / `_TOKEN` を入れ、`COMPOSE_PROFILES` に `logging` を足す。
   設定ファイル (`infra/alloy/config.alloy`) はデプロイのたびに compose.yaml と一緒に配られる
 - **リクエストごとの 1 行**: api はリクエストが終わるたびに `request completed` の行 (ステータス・メソッド・
   ルート・所要時間) を INFO で出す (#110)。リクエスト単位のエラー率とレイテンシはこれを `| json` で集計する。
   10 秒おきに叩かれる `/healthz` は DEBUG なので本番のログには出ない
-- **アラート**: 「api / bot の ERROR が 5 分で 10 件超」と「本番のログが 15 分途絶」の 2 本を Terraform
+- **アラート**: 「api / bot / support-bot の ERROR が 5 分で 10 件超」と「本番のログが 15 分途絶」の 2 本を Terraform
   (`infra/terraform/grafana/`) で管理し、Discord の Webhook に流す
 - 準備の手順 (スタック・トークン・Terraform の apply) と LogQL の例は [infra/README.md](../infra/README.md) にまとめてある
 
@@ -177,6 +195,8 @@ Cloudflare R2 (`s3://discalendar-backups/production/`) にアップロードす�
 ライフサイクルルールで自動削除され、直近 7 日ぶんはバケットロックで削除・上書きできない
 (アップロード用のキーが漏れても消せない)。設置・確認・一覧の手順は [infra/README.md](../infra/README.md)、
 バケットの定義は [infra/terraform/](../infra/terraform/)。
+サポート用 Bot のデータベース (`discalendar_support`) があれば、同じ timer で `discalendar_support-<時刻>.dump` として別ファイルに上げる
+(`backup.env` の `BACKUP_EXTRA_DB_NAMES`。スクリプトを更新したら本番ホストの `/opt/discalendar-backup/` に配り直す。手順は infra/README.md)。
 
 手でバックアップを取るときは、その環境の compose ディレクトリで実行する
 (本番は `.env` の `COMPOSE_PROJECT_NAME` が効くのでコマンドは共通):
@@ -205,6 +225,8 @@ docker compose exec -T db pg_restore -U discalendar -d discalendar --no-owner --
 docker compose up -d
 ```
 
+- サポート用 Bot のデータベースを戻すときは、support-bot を止めて同じ手順で `discalendar_support` を作り直し、
+  `discalendar_support-<時刻>.dump` を入れる (本体の DB とは独立しているので、片方だけ戻してよい)
 - 既存の DB に上書きで復元すると、マイグレーション履歴 (`_sqlx_migrations`) と実体が食い違って api が起動しなくなる。
   上のように DB を作り直してから入れる
 - 旧版 (postgres 13、オーナー `postgres`) からの移行では `--no-owner --no-privileges` が必須。旧 DB 側では

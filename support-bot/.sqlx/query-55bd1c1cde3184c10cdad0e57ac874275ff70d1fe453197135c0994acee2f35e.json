@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH before AS (\n            SELECT status FROM support_threads WHERE thread_id = $1 AND deleted_at IS NULL FOR UPDATE\n        )\n        UPDATE support_threads SET\n            status = COALESCE($2, CASE\n                WHEN last_staff_msg_at IS NOT NULL\n                    AND last_staff_msg_at >= COALESCE(last_user_msg_at, '-infinity') THEN 'waiting_user'\n                ELSE 'open'\n            END),\n            resolved_at = CASE\n                WHEN COALESCE($2, '') = 'resolved' THEN COALESCE(resolved_at, now())\n            END,\n            updated_at = now()\n        FROM before\n        WHERE support_threads.thread_id = $1\n        RETURNING before.status AS before, support_threads.status AS after\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "before",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "after",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "55bd1c1cde3184c10cdad0e57ac874275ff70d1fe453197135c0994acee2f35e"
+}

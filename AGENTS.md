@@ -9,6 +9,9 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - `bot/`: Rust (poise 0.6 + serenity 0.12 + sqlx 0.9)。ギルドの参加・退出・更新を `guilds` テーブルに反映し、
   スラッシュコマンド (help / create / list / init / invite、オーナー用 register) を提供する。定期タスク (#4) は移行中。
   予定の保存形式 (JST naive / 通知の JSONB / 終日予定の表現) は api と揃える。詳細は [bot/README.md](bot/README.md)
+- `support-bot/`: Rust (poise 0.6 + sqlx 0.9)。サポートサーバーにだけ入る別の Discord アプリ (MESSAGE_CONTENT あり)。
+  問い合わせの記録・未返信の通知・毎朝のまとめを行う。DB は本体と**別のデータベース**で、マイグレーション (`support-bot/migrations/`) も別系統
+  (起動時に自分で当てる。`api/migrations/` に足さない)。詳細は [support-bot/README.md](support-bot/README.md)
 - `infra/`: SaaS 側の設定 (Terraform。`terraform/` = Cloudflare (provider 5 系)、`terraform/grafana/` = Grafana Cloud の
   ログアラート (provider 4 系)。どちらもバージョン固定・state 別) と、本番ホストで動かす DB バックアップ
   (pg_dump → R2、systemd timer)・ログ集約の Alloy 設定 (`alloy/`)。
@@ -21,7 +24,7 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
   E2E は `pnpm e2e` (Playwright。api + Postgres + Next を自動で立てる。Discord はモック。手順は [開発・テスト環境](docs/development.md#テスト))
 - api / bot (ルートで実行): `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` (Postgres が必要)。
   `query!` を追加・変更したら該当クレートのディレクトリで `cargo sqlx prepare -- --all-targets` を実行し、
-  `api/.sqlx/` / `bot/.sqlx/` を更新する (CI は `SQLX_OFFLINE=true`)
+  `api/.sqlx/` / `bot/.sqlx/` / `support-bot/.sqlx/` を更新する (CI は `SQLX_OFFLINE=true`。support-bot は `support-bot/.env` のサポート用 DB に繋いで行う)
 - infra: `terraform fmt -check -recursive` (`infra/terraform/` で) と、ルートモジュールごとの
   `terraform init -backend=false` → `terraform validate` (`infra/terraform/` と `infra/terraform/grafana/` の両方)。
   `plan` / `apply` は認証情報が要るので手元だけ (CI は書式と構文のみ)。`infra/backup/*.sh` は `shellcheck`、
@@ -31,7 +34,7 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
   利用者に伝わる言葉で書く (技術的な変更はそれ自体を書かず、利用者から見える効果に言い換える)。書き方のルールは [changelog.d/README.md](changelog.d/README.md)。`web/src/content/changelog.mdx` への集約はリリース準備時に行う
 - LP と使い方に貼っているスクリーンショット (`web/src/assets/`) は `pnpm shot` で撮り直す。
   手順と確認観点は `.agents/skills/update-screenshots/` (正本は `.claude/skills/`)
-- **バージョン (v3.x.y) は web / api / bot で共通**。`web/package.json` / `api/Cargo.toml` / `bot/Cargo.toml` / `Cargo.lock` の 4 か所を揃えて
+- **バージョン (v3.x.y) は web / api / bot / support-bot で共通**。`web/package.json` / `api/Cargo.toml` / `bot/Cargo.toml` / `support-bot/Cargo.toml` / `Cargo.lock` の 5 か所を揃えて
   リリースのたびに上げる (機能 PR では上げない)。CI の `version` ジョブが `.github/scripts/check-versions.sh` でずれを弾く。
   上げ幅の決め方・タグ (`v3.x.y`) の打ち方・本番デプロイは `.agents/skills/release/`
 - PR を作る前に `bash .agents/scripts/pre-pr-check.sh` を実行する (`.sqlx/` の更新漏れ・更新履歴・rollback・上限値のずれの検出と、変更したパスの lint / 型 / テスト)。
