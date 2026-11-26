@@ -584,3 +584,25 @@ async fn purges_staff_replies_to_already_purged_threads(pool: PgPool) {
         .unwrap();
     assert_eq!(content, None);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn orders_messages_within_the_same_second(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    let staff_at = at(0) + Duration::milliseconds(100);
+    db::record_message(&pool, &message(1, Some(THREAD), true, staff_at))
+        .await
+        .unwrap();
+    db::record_message(
+        &pool,
+        &message(2, Some(THREAD), false, staff_at + Duration::milliseconds(1)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status(&pool, THREAD).await, Status::Open);
+    // 解決して「解決済み」を外すと、最後の発言 (利用者) に合わせて対応待ちに戻る
+    db::set_status(&pool, THREAD, Some(Status::Resolved))
+        .await
+        .unwrap();
+    db::set_status(&pool, THREAD, None).await.unwrap();
+    assert_eq!(status(&pool, THREAD).await, Status::Open);
+}

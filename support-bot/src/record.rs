@@ -22,6 +22,14 @@ pub enum Scope {
     Thread,
 }
 
+/// Discord の ID に埋め込まれた作成時刻 (ミリ秒)。発言の前後の判定に使う。
+/// メッセージの timestamp を秒に丸めると、同じ秒のスタッフと利用者の発言の順序が分からなくなるため
+pub fn created_at(id: serenity::MessageId) -> DateTime<Utc> {
+    const DISCORD_EPOCH_MS: u64 = 1_420_070_400_000;
+    let ms = (id.get() >> 22) + DISCORD_EPOCH_MS;
+    DateTime::from_timestamp_millis(i64::try_from(ms).unwrap_or(i64::MAX)).unwrap_or_default()
+}
+
 pub fn to_utc(timestamp: serenity::Timestamp) -> DateTime<Utc> {
     DateTime::from_timestamp(timestamp.unix_timestamp(), 0).unwrap_or_default()
 }
@@ -105,6 +113,22 @@ pub async fn ticket_thread(
     })
 }
 
+/// いまも記録対象のチャンネル (許可リストのチャンネルか、親フォーラムが許可リストにある記録済みのスレッド) か。
+/// Discord には問い合わせず DB と設定だけで判定する (編集イベントのように、記録済みのものだけを扱うとき用)
+pub async fn is_recorded_channel(
+    data: &Data,
+    channel_id: serenity::ChannelId,
+) -> Result<bool, crate::error::BotError> {
+    if data.is_record_channel(channel_id) {
+        return Ok(true);
+    }
+    Ok(db::thread_parent(&data.pool, snowflake(channel_id))
+        .await?
+        .is_some_and(|parent| {
+            data.is_record_channel(serenity::ChannelId::new(parent.cast_unsigned()))
+        }))
+}
+
 /// メッセージの置き場所を判定する。未登録のスレッドなら、ここで登録する (Bot の停止中に作られた投稿など)
 pub async fn scope_of(
     ctx: &serenity::Context,
@@ -148,7 +172,7 @@ pub fn message_input(message: &Message, scope: Scope, is_staff: bool) -> Message
         author_is_staff: is_staff,
         content: message.content.clone(),
         attachments: attachments(&message.attachments),
-        created_at: to_utc(message.timestamp),
+        created_at: created_at(message.id),
         edited_at: message.edited_timestamp.map(to_utc),
     }
 }
@@ -176,4 +200,20 @@ pub async fn record(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn created_at_keeps_milliseconds_from_snowflake() {
+        // Discord のドキュメントの例: 175928847299117063 → 2016-04-30 11:18:25.796 UTC
+        let at = created_at(serenity::MessageId::new(175_928_847_299_117_063));
+        assert_eq!(at.timestamp_millis(), 1_462_015_105_796);
+        let later = created_at(serenity::MessageId::new(
+            175_928_847_299_117_063 + (1 << 22),
+        ));
+        assert_eq!((later - at).num_milliseconds(), 1);
+    }
 }

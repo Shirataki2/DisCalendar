@@ -84,7 +84,16 @@ async fn threads(
             continue;
         };
         db::upsert_thread(&data.pool, &input).await?;
-        reconcile_resolved_tag(data, &input).await?;
+        // フォーラムに「解決済み」タグが無ければ状態は DB だけで持つので、タグとは照合しない
+        let tag_defined = match thread.parent_id {
+            Some(parent) => ticket::forum_tags(ctx, thread.guild_id, parent)
+                .await
+                .is_some_and(|tags| tags.iter().any(|tag| tag.name == ticket::RESOLVED_TAG)),
+            None => false,
+        };
+        if tag_defined {
+            reconcile_resolved_tag(data, &input).await?;
+        }
         let last = data.backfill_from.get(&input.thread_id).copied();
         let count = fetch_and_record(
             ctx,
@@ -107,6 +116,7 @@ async fn threads(
 }
 
 /// 停止中に「解決済み」タグが付け外しされていたら、DB の状態を合わせる (ThreadUpdate を受け取れなかった分)。
+/// フォーラムに「解決済み」タグが定義されているときだけ呼ぶ (無いフォーラムでは、タグが無いのは外されたからではない)。
 /// 発言の補完より先に行う。停止中の利用者の発言はそのあとの補完で再オープンにするので、
 /// タグと発言の前後が分からなくても、対応漏れ (解決済みのまま利用者が待っている) にはならない
 async fn reconcile_resolved_tag(data: &Data, input: &ThreadInput) -> anyhow::Result<()> {

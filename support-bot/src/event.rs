@@ -64,6 +64,10 @@ pub async fn handle_event(
             if event.content.is_none() && event.attachments.is_none() {
                 return Ok(());
             }
+            // 記録済みのメッセージでも、チャンネルや親フォーラムを許可リストから外していれば取り込まない
+            if !record::is_recorded_channel(data, event.channel_id).await? {
+                return Ok(());
+            }
             let attachments = event.attachments.as_deref().map(record::attachments);
             let edited_at = event
                 .edited_timestamp
