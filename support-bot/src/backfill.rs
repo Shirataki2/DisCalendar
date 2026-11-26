@@ -117,10 +117,15 @@ async fn backfill_thread(
             .is_some_and(|tags| tags.iter().any(|tag| tag.name == ticket::RESOLVED_TAG)),
         None => false,
     };
-    if tag_defined {
+    let last = data.backfill_from.get(&input.thread_id).copied();
+    // 記録済みのスレッドは、停止中の変化を取り込む: タグとの照合を先にし、停止中の利用者の発言でそのあと再オープンさせる。
+    // 初めて見るスレッド (導入前からある投稿や、DB を作り直した直後) は、取り込む発言がすべて過去の履歴なので、
+    // 先に照合すると解決より前の利用者の発言で再オープンし、付いている「解決済み」タグまで外してしまう。
+    // こちらは発言を記録してから、いまのタグに合わせる
+    let known = last.is_some();
+    if tag_defined && known {
         reconcile_resolved_tag(data, &input).await?;
     }
-    let last = data.backfill_from.get(&input.thread_id).copied();
     let count = fetch_and_record(
         ctx,
         data,
@@ -130,6 +135,9 @@ async fn backfill_thread(
         Scope::Thread,
     )
     .await?;
+    if tag_defined && !known {
+        reconcile_resolved_tag(data, &input).await?;
+    }
     if count > 0 {
         tracing::info!(
             thread_id = thread.id.get(),
@@ -142,8 +150,9 @@ async fn backfill_thread(
 
 /// 停止中に「解決済み」タグが付け外しされていたら、DB の状態を合わせる (ThreadUpdate を受け取れなかった分)。
 /// フォーラムに「解決済み」タグが定義されているときだけ呼ぶ (無いフォーラムでは、タグが無いのは外されたからではない)。
-/// 発言の補完より先に行う。停止中の利用者の発言はそのあとの補完で再オープンにするので、
-/// タグと発言の前後が分からなくても、対応漏れ (解決済みのまま利用者が待っている) にはならない
+/// 記録済みのスレッドでは発言の補完より先に行う。停止中の利用者の発言はそのあとの補完で再オープンにするので、
+/// タグと発言の前後が分からなくても、対応漏れ (解決済みのまま利用者が待っている) にはならない。
+/// 初めて見るスレッドでは発言を記録したあとに行う (backfill_thread のコメント)
 async fn reconcile_resolved_tag(data: &Data, input: &ThreadInput) -> anyhow::Result<()> {
     let has_tag = input.tags.iter().any(|name| name == ticket::RESOLVED_TAG);
     let target = match db::thread_status(&data.pool, input.thread_id).await? {
