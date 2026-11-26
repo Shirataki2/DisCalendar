@@ -759,3 +759,24 @@ async fn older_edits_do_not_overwrite_newer_ones(pool: PgPool) {
             .unwrap()
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn pending_edits_keep_the_newest(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    // 記録前に、新しい編集のあとで古い編集が届いた
+    db::update_message(&pool, 11, Some("新しい本文"), None, at(2))
+        .await
+        .unwrap();
+    db::update_message(&pool, 11, Some("古い本文"), None, at(1))
+        .await
+        .unwrap();
+    db::record_message(&pool, &message(11, Some(THREAD), false, at(0)))
+        .await
+        .unwrap();
+    let row = sqlx::query!("SELECT content, edited_at FROM support_messages WHERE message_id = 11")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(row.content.as_deref(), Some("新しい本文"));
+    assert_eq!(row.edited_at, Some(at(2)));
+}

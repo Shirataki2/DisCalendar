@@ -298,8 +298,10 @@ pub async fn update_message(
             ON CONFLICT (message_id) DO UPDATE SET
                 content = COALESCE(EXCLUDED.content, support_pending_edits.content),
                 attachments = COALESCE(EXCLUDED.attachments, support_pending_edits.attachments),
-                edited_at = GREATEST(EXCLUDED.edited_at, support_pending_edits.edited_at),
+                edited_at = EXCLUDED.edited_at,
                 received_at = now()
+            -- 逆順に届いた古い編集で、新しい編集の内容を上書きしない
+            WHERE support_pending_edits.edited_at <= EXCLUDED.edited_at
             "#,
             message_id,
             content,

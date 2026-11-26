@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO support_pending_edits (message_id, content, attachments, edited_at)\n            SELECT $1, $2, $3, $4\n            WHERE NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id = $1)\n            ON CONFLICT (message_id) DO UPDATE SET\n                content = COALESCE(EXCLUDED.content, support_pending_edits.content),\n                attachments = COALESCE(EXCLUDED.attachments, support_pending_edits.attachments),\n                edited_at = EXCLUDED.edited_at,\n                received_at = now()\n            -- 逆順に届いた古い編集で、新しい編集の内容を上書きしない\n            WHERE support_pending_edits.edited_at <= EXCLUDED.edited_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Jsonb",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e5a92dc2f43a2c06f2eee998f0ae404e33b76de38f7d69ff6d8a71772d3f5943"
+}
