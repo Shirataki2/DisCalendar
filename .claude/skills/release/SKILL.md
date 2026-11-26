@@ -5,7 +5,7 @@ description: DisCalendar のバージョン (v3.x.y) 決めと本番リリース
 
 # リリース (DisCalendar)
 
-**web / api / bot は 1 つのバージョンを共有する** (モノレポで同時にデプロイするため)。
+**web / api / bot / support-bot は 1 つのバージョンを共有する** (モノレポで同時にデプロイするため)。
 #12 の本番切替 (2026-08-27) を **v3.0.0** とし、それ以降は semver で上げていく。
 
 リリースの実体は **git のタグ `v3.x.y`**。タグを push すると [`.github/workflows/release.yml`](../../../.github/workflows/release.yml) が
@@ -31,7 +31,7 @@ GHCR のイメージに `v3.x.y` を付け直し、更新履歴から作った�
 
 ## バージョンを持つ場所 (4 か所)
 
-`web/package.json` / `api/Cargo.toml` / `bot/Cargo.toml` / `Cargo.lock` (ワークスペースメンバー 2 件)。
+`web/package.json` / `api/Cargo.toml` / `bot/Cargo.toml` / `support-bot/Cargo.toml` / `Cargo.lock` (ワークスペースメンバー 3 件)。
 **必ず全部同じ値**にする。CI の `version` ジョブ ([`.github/scripts/check-versions.sh`](../../../.github/scripts/check-versions.sh)) がずれを弾く。
 
 利用者から見えるのは: ダッシュボードのフッタ (`web/src/components/dashboard-footer.tsx`)、Bot の `/help` の脚注、

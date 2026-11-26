@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE support_threads SET title = NULL, deleted_at = now(), updated_at = now()\n        WHERE thread_id = $1 AND deleted_at IS NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2648e840491f6c940a15e6fa153b256f7ddb3b837ca5c79412a77f8adcaf3fbd"
+}

@@ -35,6 +35,7 @@ jobs:
             rust:
               - "api/**"
               - "bot/**"
+              - "support-bot/**"
               - "shared/**"
               - "Cargo.toml"
               - "Cargo.lock"
@@ -44,7 +45,7 @@ jobs:
               - "infra/**"
               - ".github/workflows/ci.yml"
 
-  # web / api / bot のバージョン (3 か所 + Cargo.lock) がずれていないか見る。
+  # web / api / bot / support-bot のバージョン (4 か所 + Cargo.lock) がずれていないか見る。
   # リリースのたびに揃えて上げる運用なので、途中でずれると v タグと中身が食い違う (.claude/skills/release/)
   version:
     name: version

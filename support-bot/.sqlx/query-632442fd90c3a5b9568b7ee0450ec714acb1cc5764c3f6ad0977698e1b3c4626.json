@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE support_threads SET reminded_at = $2 WHERE thread_id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "632442fd90c3a5b9568b7ee0450ec714acb1cc5764c3f6ad0977698e1b3c4626"
+}

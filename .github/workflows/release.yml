@@ -71,8 +71,8 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           SRC_TAG: ${{ steps.version.outputs.image_tag }}
         run: |
-          images=(web api bot)
-          # 先に 3 つとも揃っているか確かめる。1 つずつ確認しながらタグを付けると、
+          images=(web api bot support-bot)
+          # 先に全部揃っているか確かめる。1 つずつ確認しながらタグを付けると、
           # 途中で失敗したときに web だけ v3.x.y が付いた状態になり、compose で新旧が混ざる
           for image in "${images[@]}"; do
             repo="ghcr.io/shirataki2/discalendar-${image}"
@@ -146,7 +146,7 @@ jobs:
             if [ -n "$prev" ]; then
               echo "**変更点**: [\`${prev}...${TAG}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${prev}...${TAG})"
             fi
-            echo "**イメージ**: \`ghcr.io/shirataki2/discalendar-{web,api,bot}:${TAG}\` (\`${SRC_TAG}\` と同じ digest)"
+            echo "**イメージ**: \`ghcr.io/shirataki2/discalendar-{web,api,bot,support-bot}:${TAG}\` (\`${SRC_TAG}\` と同じ digest)"
             echo "**本番への反映**: Actions の \"Deploy production\" を \`image_tag: ${TAG}\` で実行する"
           } > release-notes.md
           cat release-notes.md
@@ -206,8 +206,13 @@ jobs:
           sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${newest}" --jq '.sha')
           src="sha-${sha:0:7}"
           echo "latest -> ${newest} (${src})"
-          for image in web api bot; do
+          for image in web api bot support-bot; do
             repo="ghcr.io/shirataki2/discalendar-${image}"
+            # support-bot (#423) は v3.30.0 から。それより前のリリースが最新のときは無いので飛ばす
+            if [ "$image" = support-bot ] && ! docker buildx imagetools inspect "${repo}:${src}" > /dev/null 2>&1; then
+              echo "::notice::${repo}:${src} が無いので latest は動かさない"
+              continue
+            fi
             docker buildx imagetools create -t "${repo}:latest" "${repo}:${src}"
             echo "tagged ${repo}:latest (from ${src})"
           done

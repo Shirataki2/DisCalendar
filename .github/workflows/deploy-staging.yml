@@ -63,6 +63,11 @@ jobs:
           - image: bot
             context: .
             dockerfile: ./bot/Dockerfile
+          # staging では起動しない (同じトークンで二重に動かさない) が、本番へは staging でビルドした
+          # sha-xxxxxxx を再タグして配るので、ここでイメージだけ作っておく
+          - image: support-bot
+            context: .
+            dockerfile: ./support-bot/Dockerfile
     steps:
       - uses: actions/checkout@v7
       # ランナーと違う CPU 向け (platforms) にビルドするときのために QEMU を入れる (buildx より前に置く)

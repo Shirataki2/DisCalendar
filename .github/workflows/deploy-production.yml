@@ -58,6 +58,10 @@ jobs:
             docker manifest inspect "ghcr.io/shirataki2/discalendar-${image}:${tag}" > /dev/null \
               || { echo "::error::ghcr.io/shirataki2/discalendar-${image}:${tag} not found"; exit 1; }
           done
+          # support-bot (#423) は v3.30.0 から。それより前の版へ戻すときは無いので、警告だけにする
+          # (本番の COMPOSE_PROFILES から support-bot を外してから戻すこと。docs/operations.md)
+          docker manifest inspect "ghcr.io/shirataki2/discalendar-support-bot:${tag}" > /dev/null \
+            || echo "::warning::ghcr.io/shirataki2/discalendar-support-bot:${tag} not found (support-bot profile を外して戻すこと)"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "image tag: $tag"
       - name: Tailnet に参加する

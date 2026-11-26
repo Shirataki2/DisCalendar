@@ -4,4 +4,5 @@
 web/.env.local
 api/.env
 bot/.env
+support-bot/.env
 

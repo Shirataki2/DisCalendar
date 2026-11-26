@@ -44,12 +44,12 @@ loki.source.docker "compose" {
 	forward_to = [loki.process.level.receiver]
 }
 
-// api / bot は LOG_FORMAT=json で 1 行 1 JSON を吐く (tracing)。レベルだけをラベルに起こして
+// api / bot / support-bot は LOG_FORMAT=json で 1 行 1 JSON を吐く (tracing)。レベルだけをラベルに起こして
 // {service="api", level="ERROR"} で絞れるようにする (アラートもこの形で数える。infra/terraform/grafana/)。
 // web (Next.js) と db (Postgres) はテキストログなので、そのまま送って全文検索で追う
 loki.process "level" {
 	stage.match {
-		selector = "{service=~\"api|bot\"}"
+		selector = "{service=~\"api|bot|support-bot\"}"
 
 		stage.json {
 			expressions = {level = "level"}

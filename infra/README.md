@@ -244,6 +244,9 @@ sum by (fields_error) (count_over_time(
   代わりにバケットロックで直近 7 日ぶんを削除・上書き不可にしてある。ホストが乗っ取られてキーが漏れても、
   直近のバックアップは消せない (ロックはライフサイクルより優先されるため、保持日数 30 日 > ロック 7 日 にしてある)
 - **保存期間**: 30 日 (`backup_retention_days`)。日次 1 世代なので常時 30 ファイル程度。R2 の無料枠は 10GB/月
+- **対象**: 本体の `discalendar` (`discalendar-<時刻>.dump`) と、サポート用 Bot (#423) の `discalendar_support`
+  (`discalendar_support-<時刻>.dump`。データベースがまだ無ければ飛ばす)。対象は `backup.env` の `BACKUP_EXTRA_DB_NAMES` で変えられる。
+  スクリプトを更新したら、下の「1. スクリプトを置く」をもう一度実行してホストに配り直す (デプロイでは配られない)
 
 ### ホストへの設置
 

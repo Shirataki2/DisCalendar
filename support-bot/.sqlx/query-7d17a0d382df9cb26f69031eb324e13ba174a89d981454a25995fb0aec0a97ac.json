@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO support_message_tombstones (message_id)\n        SELECT unnest($1::bigint[])\n        ON CONFLICT (message_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d17a0d382df9cb26f69031eb324e13ba174a89d981454a25995fb0aec0a97ac"
+}

@@ -96,7 +96,7 @@ macro_touched() {
     END { exit found ? 0 : 1 }
   ' "$f"
 }
-for crate in api bot; do
+for crate in api bot support-bot; do
   rs_files=$(grep -E "^$crate/(src|tests)/.*\.rs$" <<<"$changed" || true)
   [ -n "$rs_files" ] || continue
   # 変更行 (+/-) にクエリマクロか SQL が含まれるか
@@ -177,15 +177,21 @@ run() {
   fi
 }
 
-# DATABASE_URL を値を表示せずに用意する (クレートの .env → api/.env の順)
+# DATABASE_URL を値を表示せずに用意する (クレートの .env → api/.env の順)。
+# support-bot は本体と別のデータベースを使うので、support-bot/.env だけを見る
+# (環境変数の DATABASE_URL や api/.env は本体の DB を指していて、prepare --check が食い違うため)
 database_url_for() {
-  local crate=$1 f
-  if [ -n "${DATABASE_URL:-}" ]; then
+  local crate=$1 f candidates
+  if [ "$crate" = support-bot ]; then
+    candidates=(support-bot/.env)
+  elif [ -n "${DATABASE_URL:-}" ]; then
     printf '%s' "$DATABASE_URL"
     return
+  else
+    candidates=("$crate/.env" api/.env)
   fi
   local v
-  for f in "$crate/.env" api/.env; do
+  for f in "${candidates[@]}"; do
     if [ -f "$f" ] && grep -Eq '^(export[[:space:]]+)?DATABASE_URL=' "$f"; then
       # dotenv と同じく export 接頭辞・前後の引用符・行末の空白や CR を外す
       v=$(grep -E '^(export[[:space:]]+)?DATABASE_URL=' "$f" | head -1 | cut -d= -f2- | sed -e 's/[[:space:]]*$//' | tr -d '\r')
@@ -213,18 +219,21 @@ if ! $detect_only; then
       warn "web/node_modules が無いので web の検証を飛ばしました (pnpm -C web install --frozen-lockfile)。"
     fi
   fi
-  if has_changes '^(api/|bot/|shared/|Cargo\.toml|Cargo\.lock)'; then
+  if has_changes '^(api/|bot/|support-bot/|shared/|Cargo\.toml|Cargo\.lock)'; then
     run "rust: cargo fmt --check" cargo fmt --all --check
-    # bot/.env が無く api/.env だけある構成でも、bot の DB テストが接続先を得られるように渡す (値は表示しない)
+    # bot/.env が無く api/.env だけある構成でも、bot の DB テストが接続先を得られるように渡す (値は表示しない)。
+    # クエリのコンパイル時チェックは .sqlx/ で行う (SQLX_OFFLINE=true、CI と同じ)。DATABASE_URL を 1 つ渡すと
+    # 別のデータベースを使う support-bot のクエリまでその DB で検査されて落ちるため。.sqlx/ のずれは下の prepare --check で見る。
+    # #[sqlx::test] はこの DATABASE_URL に一時データベースを作るだけなので、どのクレートのテストにも使える
     workspace_url=$(database_url_for bot)
     if [ -n "$workspace_url" ]; then
-      run "rust: cargo clippy" env DATABASE_URL="$workspace_url" cargo clippy --workspace --all-targets -- -D warnings
-      run "rust: cargo test" env DATABASE_URL="$workspace_url" cargo test --workspace
+      run "rust: cargo clippy" env SQLX_OFFLINE=true DATABASE_URL="$workspace_url" cargo clippy --workspace --all-targets -- -D warnings
+      run "rust: cargo test" env SQLX_OFFLINE=true DATABASE_URL="$workspace_url" cargo test --workspace
     else
-      run "rust: cargo clippy" cargo clippy --workspace --all-targets -- -D warnings
-      run "rust: cargo test" cargo test --workspace
+      run "rust: cargo clippy" env SQLX_OFFLINE=true cargo clippy --workspace --all-targets -- -D warnings
+      run "rust: cargo test" env SQLX_OFFLINE=true cargo test --workspace
     fi
-    for crate in api bot; do
+    for crate in api bot support-bot; do
       has_changes "^$crate/(src|tests|\.sqlx)/" || continue
       url=$(database_url_for "$crate")
       if [ -n "$url" ] && cargo sqlx --version >/dev/null 2>&1; then

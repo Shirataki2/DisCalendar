@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE support_messages SET content = NULL, attachments = NULL, deleted_at = COALESCE(deleted_at, now())\n        WHERE thread_id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "55a1a55ab658864e00a9c5dcb2934464165375f6c254844350c63f4e8e9147a3"
+}

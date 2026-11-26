@@ -188,6 +188,36 @@ services:
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
       SENTRY_SAMPLE_RATE: ${SENTRY_SAMPLE_RATE:-1.0}
 
+  # サポートサーバー専用の Bot (#423)。本体とは別の Discord アプリで、問い合わせの記録・未返信の通知・毎朝のまとめを行う。
+  # DB は同じ Postgres の別データベース (discalendar_support)。無ければ起動時に作り、マイグレーションも自分で当てる。
+  # 同じトークンで 2 か所 (本番と staging など) 動かすと二重に記録・通知するので、本番だけで有効にする。
+  # 既定では起動せず、--profile support-bot (または .env の COMPOSE_PROFILES) を付けたときだけ起動する。
+  # 下の SUPPORT_* が空なら起動時にエラーで止まる (`:?` にすると profile を付けない環境でも compose 全体が失敗するため `:-` にしている)
+  support-bot:
+    image: ghcr.io/shirataki2/discalendar-support-bot:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: support-bot/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: ["support-bot"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://discalendar:${POSTGRES_PASSWORD}@db:5432/discalendar_support
+      DATABASE_MAX_CONNECTIONS: ${SUPPORT_BOT_DATABASE_MAX_CONNECTIONS:-3}
+      SUPPORT_BOT_DISCORD_TOKEN: ${SUPPORT_BOT_DISCORD_TOKEN:-}
+      SUPPORT_GUILD_ID: ${SUPPORT_GUILD_ID:-}
+      SUPPORT_RECORD_CHANNEL_IDS: ${SUPPORT_RECORD_CHANNEL_IDS:-}
+      SUPPORT_STAFF_ROLE_IDS: ${SUPPORT_STAFF_ROLE_IDS:-}
+      SUPPORT_STAFF_CHANNEL_ID: ${SUPPORT_STAFF_CHANNEL_ID:-}
+      RUST_LOG: ${SUPPORT_BOT_RUST_LOG:-info,discalendar_support_bot=info,sqlx=warn}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      SUPPORT_BOT_SENTRY_DSN: ${SUPPORT_BOT_SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_SAMPLE_RATE: ${SENTRY_SAMPLE_RATE:-1.0}
+
   # Cloudflare Tunnel でホストのポートを開けずに公開する (staging.discalendar.app など)。
   # Cloudflare Zero Trust で Tunnel を作り、Public Hostname の Service を http://web:3000 に向け、
   # トークンを .env の TUNNEL_TOKEN に入れる。--profile tunnel (または .env の COMPOSE_PROFILES) で起動する

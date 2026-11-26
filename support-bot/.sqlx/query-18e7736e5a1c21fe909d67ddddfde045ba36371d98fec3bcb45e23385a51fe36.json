@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE support_messages SET\n            content = COALESCE($2, content),\n            attachments = COALESCE($3, attachments),\n            edited_at = $4\n        WHERE message_id = $1 AND deleted_at IS NULL AND purged_at IS NULL\n            -- 補完が新しい編集を保存したあとに、古い編集イベントが届いても巻き戻さない\n            AND (edited_at IS NULL OR edited_at <= $4)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Jsonb",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "18e7736e5a1c21fe909d67ddddfde045ba36371d98fec3bcb45e23385a51fe36"
+}

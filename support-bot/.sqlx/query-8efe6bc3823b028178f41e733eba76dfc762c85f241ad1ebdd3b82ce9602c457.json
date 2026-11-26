@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH before AS (\n            SELECT status FROM support_threads WHERE thread_id = $1 FOR NO KEY UPDATE\n        ), latest AS (\n            SELECT $3 >= COALESCE(GREATEST(last_user_msg_at, last_staff_msg_at), '-infinity') AS newest\n            FROM support_threads WHERE thread_id = $1\n        )\n        UPDATE support_threads SET\n            last_user_msg_at = CASE WHEN $2 THEN last_user_msg_at ELSE GREATEST(last_user_msg_at, $3) END,\n            last_staff_msg_at = CASE WHEN $2 THEN GREATEST(last_staff_msg_at, $3) ELSE last_staff_msg_at END,\n            status = CASE\n                WHEN NOT latest.newest THEN support_threads.status\n                WHEN $2 AND support_threads.status = 'resolved' THEN 'resolved'\n                WHEN $2 THEN 'waiting_user'\n                ELSE 'open'\n            END,\n            resolved_at = CASE\n                WHEN latest.newest AND NOT $2 THEN NULL\n                ELSE support_threads.resolved_at\n            END,\n            updated_at = now()\n        FROM before, latest\n        WHERE support_threads.thread_id = $1\n        RETURNING before.status AS before, support_threads.status AS after\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "before",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "after",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "8efe6bc3823b028178f41e733eba76dfc762c85f241ad1ebdd3b82ce9602c457"
+}

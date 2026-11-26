@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE support_threads SET resolved_at = $1 WHERE thread_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "636beb0487f4b47d6df005a13b6c88d6927523f50b8b19f0f1378418b44d388c"
+}

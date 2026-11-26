@@ -12,9 +12,10 @@ Discord 用の共有カレンダー。ブラウザで予定を作成・編集し
 | [web/](web/) | Web アプリ: Next.js 16 / React 19 / FullCalendar / Better Auth |
 | [api/](api/README.md) | API: Rust / actix-web / sqlx |
 | [bot/](bot/README.md) | Discord Bot: Rust / poise / serenity |
+| [support-bot/](support-bot/README.md) | サポートサーバー専用の Bot (問い合わせの記録・未返信の通知): Rust / poise / serenity |
 | [infra/](infra/README.md) | Terraform、DB バックアップ、ログ集約 |
 
-api / bot はルートの Cargo workspace で管理し、Rust toolchain は `rust-toolchain.toml` で固定する。
+api / bot / support-bot はルートの Cargo workspace で管理し、Rust toolchain は `rust-toolchain.toml` で固定する。
 
 ## ローカルで起動する
 

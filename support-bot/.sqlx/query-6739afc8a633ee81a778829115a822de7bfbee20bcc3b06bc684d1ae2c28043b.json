@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE support_messages m SET content = NULL, attachments = NULL, purged_at = $2\n        FROM support_threads t\n        WHERE m.thread_id = t.thread_id AND m.purged_at IS NULL\n            AND t.status = 'resolved' AND t.resolved_at <= $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6739afc8a633ee81a778829115a822de7bfbee20bcc3b06bc684d1ae2c28043b"
+}

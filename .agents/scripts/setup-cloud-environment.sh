@@ -27,6 +27,8 @@ source "$repo_root/.agents/scripts/lib/cloud-tools.sh"
 
 log() { echo "[agent-setup] $*"; }
 db_url="postgres://postgres:postgres@127.0.0.1:5432/discalendar_dev"
+# support-bot (#423) は本体と別のデータベースを使う
+support_db_url="postgres://postgres:postgres@127.0.0.1:5432/discalendar_support_dev"
 
 run_privileged() {
   if [ "$(id -u)" = 0 ]; then
@@ -99,6 +101,9 @@ if command -v pg_isready >/dev/null 2>&1 && command -v psql >/dev/null 2>&1; the
     if ! as_postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'discalendar_dev'" 2>/dev/null | grep -q 1; then
       as_postgres createdb discalendar_dev >/dev/null 2>&1 || pg_note="${pg_note} discalendar_dev の作成に失敗;"
     fi
+    if ! as_postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'discalendar_support_dev'" 2>/dev/null | grep -q 1; then
+      as_postgres createdb discalendar_support_dev >/dev/null 2>&1 || pg_note="${pg_note} discalendar_support_dev の作成に失敗;"
+    fi
     if psql "$db_url" -tAc "SELECT 1" >/dev/null 2>&1; then
       pg_ready=1
     else
@@ -117,6 +122,9 @@ if [ "$pg_ready" = 1 ] && command -v sqlx >/dev/null 2>&1; then
   else
     log "PostgreSQL: 接続済みですが api/migrations の適用に失敗しました"
   fi
+  if ! sqlx migrate run --source support-bot/migrations --database-url "$support_db_url" >/dev/null 2>&1; then
+    log "PostgreSQL: support-bot/migrations の適用に失敗しました"
+  fi
 elif [ "$pg_ready" = 1 ]; then
   log "PostgreSQL: 接続済みですが sqlx-cli がないためマイグレーション未適用です"
 else
@@ -126,10 +134,11 @@ fi
 make_env() {
   example=$1
   output=$2
+  url=${3:-$db_url}
   [ -f "$example" ] || return 0
   [ -f "$output" ] && return 0
   sed \
-    -e "s#^DATABASE_URL=.*#DATABASE_URL=${db_url}#" \
+    -e "s#^DATABASE_URL=.*#DATABASE_URL=${url}#" \
     -e "s#^BETTER_AUTH_SECRET=.*#BETTER_AUTH_SECRET=cloud-dummy-secret-not-used-at-runtime#" \
     "$example" > "$output"
   log "$output をダミー値で作成しました"
@@ -138,6 +147,7 @@ make_env() {
 make_env web/.env.example web/.env.local
 make_env api/.env.example api/.env
 make_env bot/.env.example bot/.env
+make_env support-bot/.env.example support-bot/.env "$support_db_url"
 
 if [ "${SQLX_OFFLINE:-}" != "true" ]; then
   log "注意: クラウド環境の Environment variables に SQLX_OFFLINE=true を設定してください"

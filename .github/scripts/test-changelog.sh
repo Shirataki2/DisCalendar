@@ -4,14 +4,14 @@ set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
-mkdir -p "$fixture"/{.github/scripts,.agents/scripts/lib,.claude/skills/release/scripts,web/src/content,api,bot,changelog.d}
+mkdir -p "$fixture"/{.github/scripts,.agents/scripts/lib,.claude/skills/release/scripts,web/src/content,api,bot,support-bot,changelog.d}
 cp "$root"/.github/scripts/*.sh "$fixture/.github/scripts/"
 cp "$root/.agents/scripts/lib/agent-context.sh" "$fixture/.agents/scripts/lib/"
 cp "$root/.claude/skills/release/scripts/bump-version.sh" "$fixture/.claude/skills/release/scripts/"
 cd "$fixture"
 git init -q
 printf '{\n  "version": "3.0.0"\n}\n' > web/package.json
-for crate in api bot; do
+for crate in api bot support-bot; do
   printf '[package]\nname = "discalendar-%s"\nversion = "3.0.0"\n' "$crate" > "$crate/Cargo.toml"
   printf '[[package]]\nname = "discalendar-%s"\nversion = "3.0.0"\n' "$crate" >> Cargo.lock
 done
