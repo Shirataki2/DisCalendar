@@ -18,7 +18,7 @@ use crate::{
     data::Data,
     db::{self, ThreadInput},
     record::{self, Scope, snowflake},
-    ticket::{self, Status},
+    ticket,
 };
 
 const LIMIT: u8 = 100;
@@ -66,7 +66,7 @@ async fn backfill_channel(
     let Some(&last) = data.backfill_from.get(&snowflake(channel_id)) else {
         return Ok(());
     };
-    let count = fetch_and_record(
+    let (count, _) = fetch_and_record(
         ctx,
         data,
         staff,
@@ -124,9 +124,9 @@ async fn backfill_thread(
     // こちらは発言を記録してから、いまのタグに合わせる
     let known = last.is_some();
     if tag_defined && known {
-        reconcile_resolved_tag(data, &input).await?;
+        reconcile_resolved_tag(data, &input, last).await?;
     }
-    let count = fetch_and_record(
+    let (count, newest) = fetch_and_record(
         ctx,
         data,
         staff,
@@ -136,7 +136,7 @@ async fn backfill_thread(
     )
     .await?;
     if tag_defined && !known {
-        reconcile_resolved_tag(data, &input).await?;
+        reconcile_resolved_tag(data, &input, newest).await?;
     }
     if count > 0 {
         tracing::info!(
@@ -153,15 +153,21 @@ async fn backfill_thread(
 /// 記録済みのスレッドでは発言の補完より先に行う。停止中の利用者の発言はそのあとの補完で再オープンにするので、
 /// タグと発言の前後が分からなくても、対応漏れ (解決済みのまま利用者が待っている) にはならない。
 /// 初めて見るスレッドでは発言を記録したあとに行う (backfill_thread のコメント)
-async fn reconcile_resolved_tag(data: &Data, input: &ThreadInput) -> anyhow::Result<()> {
+async fn reconcile_resolved_tag(
+    data: &Data,
+    input: &ThreadInput,
+    known_up_to: Option<i64>,
+) -> anyhow::Result<()> {
     let has_tag = input.tags.iter().any(|name| name == ticket::RESOLVED_TAG);
-    let target = match db::thread_status(&data.pool, input.thread_id).await? {
-        Some(status) if has_tag && status != Status::Resolved => Some(Status::Resolved),
-        // タグが 5 個付いていて Bot が「解決済み」を足せなかったスレッドは、外されたとはみなさない
-        Some(Status::Resolved) if !has_tag && input.tags.len() < 5 => None,
-        _ => return Ok(()),
-    };
-    if let Some(transition) = db::set_status(&data.pool, input.thread_id, target).await? {
+    if let Some(transition) = db::reconcile_with_tag(
+        &data.pool,
+        input.thread_id,
+        has_tag,
+        input.tags.len(),
+        known_up_to,
+    )
+    .await?
+    {
         tracing::info!(
             thread_id = input.thread_id,
             before = transition.before.as_db(),
@@ -179,7 +185,7 @@ async fn fetch_and_record(
     channel_id: serenity::ChannelId,
     after: Option<MessageId>,
     scope: Scope,
-) -> anyhow::Result<usize> {
+) -> anyhow::Result<(usize, Option<i64>)> {
     let mut builder = GetMessages::new().limit(LIMIT);
     if let Some(after) = after {
         builder = builder.after(after);
@@ -193,7 +199,9 @@ async fn fetch_and_record(
         record::record(ctx, data, message, scope, is_staff).await?;
         count += 1;
     }
-    Ok(count)
+    // 取得した中で最も新しい発言 (補完が把握している範囲の終わり)
+    let newest = messages.last().map(|m| snowflake(m.id));
+    Ok((count, newest))
 }
 
 /// HTTP で取ったメッセージにはメンバー情報が付かないので、送信者のロールを引いて覚えておく

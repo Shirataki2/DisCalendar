@@ -410,6 +410,15 @@ pub async fn set_status(
     thread_id: i64,
     status: Option<Status>,
 ) -> Result<Option<Transition>, sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    set_status_conn(&mut conn, thread_id, status).await
+}
+
+async fn set_status_conn(
+    conn: &mut sqlx::PgConnection,
+    thread_id: i64,
+    status: Option<Status>,
+) -> Result<Option<Transition>, sqlx::Error> {
     let status = status.map(Status::as_db);
     let row = sqlx::query!(
         r#"
@@ -433,12 +442,54 @@ pub async fn set_status(
         thread_id,
         status,
     )
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?;
     Ok(row.map(|row| Transition {
         before: Status::from_db(&row.before),
         after: Status::from_db(&row.after),
     }))
+}
+
+/// 起動時の補完で、スレッド一覧を取ったときの「解決済み」タグに状態を合わせる。
+/// 補完が把握している発言 (`known_up_to` まで) より新しい発言を Gateway がすでに記録していたら何もしない
+/// (一覧を取ったあとの利用者の発言で再オープンしたのを、古いタグで解決済みに戻さないため。新しい変化は Gateway 側で追う)。
+/// スレッド行をロックしてから確かめるので、Gateway の記録 (record_message も同じ行をロックする) とは前後が入れ替わらない
+pub async fn reconcile_with_tag(
+    pool: &PgPool,
+    thread_id: i64,
+    has_resolved_tag: bool,
+    tag_count: usize,
+    known_up_to: Option<i64>,
+) -> Result<Option<Transition>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let Some(current) = sqlx::query_scalar!(
+        "SELECT status FROM support_threads WHERE thread_id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE",
+        thread_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Ok(None);
+    };
+    let latest = sqlx::query_scalar!(
+        "SELECT max(message_id) FROM support_messages WHERE thread_id = $1",
+        thread_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if latest.unwrap_or(0) > known_up_to.unwrap_or(0) {
+        return Ok(None);
+    }
+    let current = Status::from_db(&current);
+    let target = match current {
+        status if has_resolved_tag && status != Status::Resolved => Some(Status::Resolved),
+        // タグが 5 個付いていて Bot が「解決済み」を足せなかったスレッドは、外されたとはみなさない
+        Status::Resolved if !has_resolved_tag && tag_count < 5 => None,
+        _ => return Ok(None),
+    };
+    let transition = set_status_conn(&mut tx, thread_id, target).await?;
+    tx.commit().await?;
+    Ok(transition)
 }
 
 /// チャンネル (スレッド) ごとの記録済みの最後のメッセージ ID。起動時、Gateway に繋ぐ前に読んでおき、

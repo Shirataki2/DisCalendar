@@ -803,3 +803,46 @@ async fn deleting_clears_pending_edits(pool: PgPool) {
         .unwrap();
     assert_eq!(pending(pool.clone()).await, 0);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn reconcile_skips_threads_changed_after_startup(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    db::record_message(&pool, &message(1, Some(THREAD), false, at(0)))
+        .await
+        .unwrap();
+    // 起動前の記録は 1 まで。起動後に Gateway が利用者の新着 (2) を記録した
+    db::record_message(&pool, &message(2, Some(THREAD), false, at(1)))
+        .await
+        .unwrap();
+    // 一覧を取ったときの古い「解決済み」タグでは、解決済みに戻さない
+    let t = db::reconcile_with_tag(&pool, THREAD, true, 1, Some(1))
+        .await
+        .unwrap();
+    assert_eq!(t, None);
+    assert_eq!(status(&pool, THREAD).await, Status::Open);
+
+    // 起動後に新しい発言が無ければ、タグに合わせる
+    let t = db::reconcile_with_tag(&pool, THREAD, true, 1, Some(2))
+        .await
+        .unwrap();
+    assert_eq!(
+        t,
+        Some(Transition {
+            before: Status::Open,
+            after: Status::Resolved
+        })
+    );
+    // タグが外れていれば再オープン (タグが 5 個のときは外されたとみなさない)
+    assert_eq!(
+        db::reconcile_with_tag(&pool, THREAD, false, 5, Some(2))
+            .await
+            .unwrap(),
+        None
+    );
+    assert!(
+        db::reconcile_with_tag(&pool, THREAD, false, 0, Some(2))
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
