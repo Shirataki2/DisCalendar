@@ -28,6 +28,8 @@ pub async fn upsert_thread(pool: &PgPool, thread: &ThreadInput) -> Result<(), sq
         VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (thread_id) DO UPDATE SET
             title = CASE
+                -- Discord で削除済みのスレッド (補完が削除前に取得した一覧から届いた) には書き戻さない
+                WHEN support_threads.deleted_at IS NOT NULL THEN NULL
                 WHEN support_threads.status = 'resolved'
                     AND support_threads.purged_at >= support_threads.resolved_at THEN NULL
                 ELSE EXCLUDED.title

@@ -86,6 +86,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                     settings,
                     tasks_started: Default::default(),
                     backfill_from,
+                    tag_sync: Default::default(),
                 })
             })
         })

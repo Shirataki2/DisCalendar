@@ -17,6 +17,9 @@ pub struct Data {
     pub tasks_started: Arc<AtomicBool>,
     /// 起動時 (Gateway に繋ぐ前) のチャンネルごとの記録済みの最後のメッセージ ID。取りこぼしの補完の起点
     pub backfill_from: Arc<std::collections::HashMap<i64, i64>>,
+    /// 「解決済み」タグの同期を直列にするロック。中身は Bot がタグを編集したスレッドと、付けたか (true) 外したか。
+    /// Bot 自身の編集も ThreadUpdate として届くので、利用者の操作と見分けて状態を巻き戻さないために覚えておく
+    pub tag_sync: Arc<tokio::sync::Mutex<std::collections::HashMap<ChannelId, bool>>>,
 }
 
 impl Data {

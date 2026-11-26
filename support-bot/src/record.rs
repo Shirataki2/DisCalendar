@@ -196,7 +196,7 @@ pub async fn record(
             "ticket status changed by a message"
         );
         if transition.resolved_changed() {
-            ticket::sync_tags(ctx, message.channel_id, transition.after).await;
+            ticket::sync_tags(ctx, data, message.channel_id).await;
         }
     }
     Ok(())

@@ -148,6 +148,13 @@ async fn sync_status_from_tags(
     if was == now {
         return Ok(());
     }
+    // タグの同期 (ticket::sync_tags) と直列にする。Bot 自身の編集が届いたのなら、状態は DB が正しいので何もしない
+    let mut edited = data.tag_sync.lock().await;
+    if edited.get(&new.id) == Some(&now) {
+        edited.remove(&new.id);
+        return Ok(());
+    }
+    edited.remove(&new.id);
     let thread_id = snowflake(new.id);
     let current = db::thread_status(&data.pool, thread_id).await?;
     let target = match (now, current) {

@@ -671,3 +671,19 @@ async fn records_messages_of_one_thread_concurrently(pool: PgPool) {
     // 最後の発言 (20、スタッフ) に合わせて返信待ちになる
     assert_eq!(status(&pool, THREAD).await, Status::WaitingUser);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn does_not_restore_titles_of_deleted_threads(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    db::mark_thread_deleted(&pool, THREAD).await.unwrap();
+    // 補完が削除前に取得した一覧から、もう一度登録しようとした
+    thread(&pool, THREAD).await;
+    let title = sqlx::query_scalar!(
+        "SELECT title FROM support_threads WHERE thread_id = $1",
+        THREAD
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(title, None);
+}

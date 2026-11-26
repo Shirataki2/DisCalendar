@@ -59,7 +59,7 @@ pub async fn status(
         .await?
         .ok_or_else(|| BotError::user("このチケットは見つかりませんでした"))?;
     if transition.resolved_changed() {
-        ticket::sync_tags(ctx.serenity_context(), ctx.channel_id(), transition.after).await;
+        ticket::sync_tags(ctx.serenity_context(), ctx.data(), ctx.channel_id()).await;
     }
     tracing::info!(
         thread_id,

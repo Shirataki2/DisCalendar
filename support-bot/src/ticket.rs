@@ -6,6 +6,8 @@
 
 use poise::serenity_prelude::{self as serenity, ForumTag, ForumTagId};
 
+use crate::{data::Data, db};
+
 /// 「解決済み」タグの名前。タグ ID はフォーラムごとに違うので、名前で引く
 pub const RESOLVED_TAG: &str = "解決済み";
 
@@ -94,7 +96,18 @@ pub fn desired_tags(
 }
 
 /// スレッドのタグを状態に合わせる。失敗しても DB の状態は正しいので、警告だけ残す
-pub async fn sync_tags(ctx: &serenity::Context, thread_id: serenity::ChannelId, status: Status) {
+/// 呼び出し元が知っている状態ではなく、ロックを取ってから DB の最新の状態を読んで合わせる
+/// (タグを編集する前に利用者が返信して再オープンしていたら、古い「解決済み」で上書きしないため)
+pub async fn sync_tags(ctx: &serenity::Context, data: &Data, thread_id: serenity::ChannelId) {
+    let mut edited = data.tag_sync.lock().await;
+    let status = match db::thread_status(&data.pool, crate::record::snowflake(thread_id)).await {
+        Ok(Some(status)) => status,
+        Ok(None) => return,
+        Err(error) => {
+            tracing::warn!(%error, thread_id = thread_id.get(), "failed to read ticket status for tag sync");
+            return;
+        }
+    };
     let thread = match thread_id.to_channel(ctx).await.map(|c| c.guild()) {
         Ok(Some(thread)) => thread,
         Ok(None) => return,
@@ -114,8 +127,14 @@ pub async fn sync_tags(ctx: &serenity::Context, thread_id: serenity::ChannelId, 
         return;
     };
     let edit = serenity::EditThread::new().applied_tags(tags);
-    if let Err(error) = thread_id.edit_thread(ctx, edit).await {
-        tracing::warn!(%error, thread_id = thread_id.get(), "failed to update forum tags");
+    match thread_id.edit_thread(ctx, edit).await {
+        // この編集で届く ThreadUpdate を、event::sync_status_from_tags が Bot 自身のものとして読み飛ばす
+        Ok(_) => {
+            edited.insert(thread_id, status == Status::Resolved);
+        }
+        Err(error) => {
+            tracing::warn!(%error, thread_id = thread_id.get(), "failed to update forum tags");
+        }
     }
 }
 
