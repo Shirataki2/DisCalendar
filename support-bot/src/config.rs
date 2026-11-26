@@ -6,7 +6,8 @@ use poise::serenity_prelude::{ChannelId, GuildId, RoleId};
 /// 環境変数から読む設定。開発時は `support-bot/.env` (dotenvy) から読み込まれる
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// サポート用 Bot のトークン (本体の Bot とは別のアプリ)
+    /// サポート用 Bot のトークン (本体の Bot とは別のアプリ)。`SUPPORT_BOT_DISCORD_TOKEN`
+    /// (compose のルートの .env と同じ名前)、無ければ `DISCORD_BOT_TOKEN` から読む
     pub discord_bot_token: String,
     /// サポート用のデータベース (本体の DB とは別。無ければ起動時に作る)
     pub database_url: String,
@@ -30,7 +31,10 @@ pub struct Settings {
 impl Config {
     pub fn from_env() -> Result<Self> {
         Ok(Self {
-            discord_bot_token: required("DISCORD_BOT_TOKEN")?,
+            // 本体の Bot のトークン (DISCORD_BOT_TOKEN) と取り違えないよう、専用の名前を先に見る
+            discord_bot_token: optional("SUPPORT_BOT_DISCORD_TOKEN")
+                .or_else(|| optional("DISCORD_BOT_TOKEN"))
+                .context("SUPPORT_BOT_DISCORD_TOKEN (or DISCORD_BOT_TOKEN) must be set")?,
             database_url: required("DATABASE_URL")?,
             max_db_connections: env_or("DATABASE_MAX_CONNECTIONS", "5")
                 .parse()

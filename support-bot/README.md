@@ -57,7 +57,7 @@ DisCalendar のサポートサーバーにだけ入る Discord Bot (Rust / poise
 
 | 環境変数 | 必須 | 内容 |
 |---|---|---|
-| `DISCORD_BOT_TOKEN` | ○ | サポート用 Bot のトークン (compose では `SUPPORT_BOT_DISCORD_TOKEN` から渡す) |
+| `SUPPORT_BOT_DISCORD_TOKEN` | ○ | サポート用 Bot のトークン (本体の `DISCORD_BOT_TOKEN` と取り違えないよう別の名前。`DISCORD_BOT_TOKEN` でも読むが、こちらが優先) |
 | `DATABASE_URL` | ○ | サポート用のデータベース。無ければ起動時に作る (接続ユーザーに CREATEDB 権限が要る。compose の `discalendar` ユーザーは持っている) |
 | `SUPPORT_GUILD_ID` | ○ | サポートサーバーの ID |
 | `SUPPORT_RECORD_CHANNEL_IDS` | ○ | 記録するフォーラム・テキストチャンネルの ID (カンマ区切り) |
@@ -65,7 +65,7 @@ DisCalendar のサポートサーバーにだけ入る Discord Bot (Rust / poise
 | `SUPPORT_STAFF_CHANNEL_ID` | ○ | 通知・リマインド・毎朝のまとめの投稿先 |
 | `DATABASE_MAX_CONNECTIONS` | | 既定 5 (compose は 3) |
 | `RUST_LOG` / `LOG_FORMAT` | | ログ。`LOG_FORMAT=json` で 1 行 1 JSON (Loki 用) |
-| `SENTRY_DSN` / `SENTRY_ENVIRONMENT` / `SENTRY_SAMPLE_RATE` | | エラー監視。compose では `SUPPORT_BOT_SENTRY_DSN` から渡す |
+| `SUPPORT_BOT_SENTRY_DSN` / `SENTRY_ENVIRONMENT` / `SENTRY_SAMPLE_RATE` | | エラー監視 (`SENTRY_DSN` でも渡せ、そちらが優先)。未設定なら何も送らない |
 
 ギルド ID などはリポジトリに書かない (公開リポジトリのため)。
 

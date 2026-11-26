@@ -58,6 +58,13 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let framework = poise::Framework::<Data, BotError>::builder()
         .options(poise::FrameworkOptions {
             commands: commands::all(),
+            // スラッシュコマンドだけを使う。MESSAGE_CONTENT があると poise は既定で Bot へのメンションを
+            // プレフィックスとして読み、「@Bot register」などに unknown command の警告を出すので止める
+            prefix_options: poise::PrefixFrameworkOptions {
+                prefix: None,
+                mention_as_prefix: false,
+                ..Default::default()
+            },
             event_handler: |ctx, event, framework, data| {
                 Box::pin(event::handle_event(ctx, event, framework, data))
             },

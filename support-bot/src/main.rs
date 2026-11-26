@@ -12,12 +12,17 @@ fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     // DSN と environment は sentry が環境変数 (SENTRY_DSN / SENTRY_ENVIRONMENT) から読む。
-    // SENTRY_DSN が未設定なら何も送らない
-    let _sentry = sentry::init(
-        sentry::ClientOptions::new()
-            .maybe_release(sentry::release_name!())
-            .sample_rate(sentry_sample_rate()),
-    );
+    // compose / .env.example と同じ SUPPORT_BOT_SENTRY_DSN でも渡せる (SENTRY_DSN があればそちらを優先)。
+    // どちらも未設定なら何も送らない
+    let mut options = sentry::ClientOptions::new()
+        .maybe_release(sentry::release_name!())
+        .sample_rate(sentry_sample_rate());
+    if std::env::var_os("SENTRY_DSN").is_none() {
+        options.dsn = std::env::var("SUPPORT_BOT_SENTRY_DSN")
+            .ok()
+            .and_then(|dsn| dsn.parse().ok());
+    }
+    let _sentry = sentry::init(options);
 
     tracing_subscriber::registry()
         .with(
