@@ -83,19 +83,26 @@ async fn announce(
             return Err(error);
         }
     };
-    db::set_release_announcement_message(
-        &data.pool,
-        CURRENT_VERSION,
-        snowflake(channel_id),
-        snowflake(message.id),
-    )
-    .await?;
     tracing::info!(
         version = CURRENT_VERSION,
         message_id = message.id.get(),
         "announced the release"
     );
+    // 投稿できたら、記録の保存より先に公開する。投稿前に取った記録で告知済みの扱いになっているので、
+    // 保存の失敗で戻ると再試行も再起動も告知を飛ばし、公開されないまま終わるため
     crosspost_if_announcement(ctx, channel_id, &message).await;
+    // メッセージ ID は後から辿るための付記。保存に失敗しても告知は済んでいるので、エラーを残すだけにする
+    // (Err を返すと投稿をやり直そうとするが、記録があるので何もしない)
+    if let Err(error) = db::set_release_announcement_message(
+        &data.pool,
+        CURRENT_VERSION,
+        snowflake(channel_id),
+        snowflake(message.id),
+    )
+    .await
+    {
+        tracing::error!(%error, version = CURRENT_VERSION, "failed to save the announced message");
+    }
     Ok(())
 }
 
