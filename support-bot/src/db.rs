@@ -295,6 +295,8 @@ pub async fn update_message(
             INSERT INTO support_pending_edits (message_id, content, attachments, edited_at)
             SELECT $1, $2, $3, $4
             WHERE NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id = $1)
+                -- 削除済みのメッセージへの編集は覚えない (削除のあとに届いた編集イベント)
+                AND NOT EXISTS (SELECT 1 FROM support_message_tombstones WHERE message_id = $1)
             ON CONFLICT (message_id) DO UPDATE SET
                 content = COALESCE(EXCLUDED.content, support_pending_edits.content),
                 attachments = COALESCE(EXCLUDED.attachments, support_pending_edits.attachments),
@@ -325,6 +327,13 @@ pub async fn mark_messages_deleted(pool: &PgPool, message_ids: &[i64]) -> Result
         SELECT unnest($1::bigint[])
         ON CONFLICT (message_id) DO NOTHING
         "#,
+        message_ids,
+    )
+    .execute(&mut *tx)
+    .await?;
+    // 記録前に届いていた編集 (本文・添付) も、削除と同時に消す
+    sqlx::query!(
+        "DELETE FROM support_pending_edits WHERE message_id = ANY($1)",
         message_ids,
     )
     .execute(&mut *tx)

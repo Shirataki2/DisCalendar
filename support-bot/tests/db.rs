@@ -780,3 +780,26 @@ async fn pending_edits_keep_the_newest(pool: PgPool) {
     assert_eq!(row.content.as_deref(), Some("新しい本文"));
     assert_eq!(row.edited_at, Some(at(2)));
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn deleting_clears_pending_edits(pool: PgPool) {
+    let pending = |pool: PgPool| async move {
+        sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM support_pending_edits"#)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    };
+    // 記録前に編集が届き、そのあと削除された
+    db::update_message(&pool, 12, Some("本文"), None, at(1))
+        .await
+        .unwrap();
+    assert_eq!(pending(pool.clone()).await, 1);
+    db::mark_messages_deleted(&pool, &[12]).await.unwrap();
+    assert_eq!(pending(pool.clone()).await, 0);
+
+    // 削除のあとに届いた編集も覚えない
+    db::update_message(&pool, 12, Some("本文"), None, at(2))
+        .await
+        .unwrap();
+    assert_eq!(pending(pool.clone()).await, 0);
+}
