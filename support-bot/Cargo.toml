@@ -1,6 +1,6 @@
 [package]
 name = "discalendar-support-bot"
-version = "3.29.0"
+version = "3.30.0"
 description = "DisCalendar サポートサーバー専用の Discord Bot (問い合わせの記録・未返信のリマインド・日次まとめ)"
 edition.workspace = true
 rust-version.workspace = true
