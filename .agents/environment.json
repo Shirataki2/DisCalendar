@@ -1,0 +1,3 @@
+{
+  "install": "sed -i '/case \\$- in/,/esac/d' ~/.bashrc 2>/dev/null || true; for line in 'export SQLX_OFFLINE=true' 'export DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/discalendar_dev' 'export BETTER_AUTH_SECRET=cloud-dummy-secret-not-used-at-runtime' 'export BETTER_AUTH_URL=http://localhost:3000'; do grep -qxF \"$line\" ~/.bashrc || echo \"$line\" >> ~/.bashrc; done; DEBIAN_FRONTEND=noninteractive SQLX_OFFLINE=true bash .agents/scripts/setup-cloud-environment.sh --install-tools"
+}
