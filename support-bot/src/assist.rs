@@ -688,22 +688,7 @@ fn template_draft(ticket: &TicketInput) -> claude::IssueDraft {
 ///
 /// 名前などは機械的には見分けられないので、最後はスタッフがモーダルで確かめる
 pub fn redact(text: &str) -> String {
-    let words: String = text
-        .split_inclusive(char::is_whitespace)
-        .map(|piece| {
-            let word = piece.trim_end_matches(char::is_whitespace);
-            let space = &piece[word.len()..];
-            let lower = word.to_ascii_lowercase();
-            if lower.contains("discord.gg/")
-                || lower.contains("discord.com/invite/")
-                || lower.contains("discordapp.com/invite/")
-            {
-                format!("[招待リンク]{space}")
-            } else {
-                piece.to_owned()
-            }
-        })
-        .collect();
+    let words = redact_invites(text);
     let words = redact_emails(&words);
     let mut out = String::with_capacity(words.len());
     let mut digits = String::new();
@@ -738,6 +723,50 @@ pub fn no_github_mentions(text: &str) -> String {
             out.push('\u{200B}');
         }
     }
+    out
+}
+
+/// Discord の招待リンクの部分だけを `[招待リンク]` に置き換える (前後に空白なしで続く本文は残す)
+fn redact_invites(text: &str) -> String {
+    const HOSTS: [&str; 3] = [
+        "discord.gg/",
+        "discord.com/invite/",
+        "discordapp.com/invite/",
+    ];
+    const SCHEMES: [&str; 2] = ["https://", "http://"];
+    // to_ascii_lowercase はバイト位置を変えないので、lower で見つけた位置をそのまま text に使える
+    let lower = text.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut rest = 0;
+    let mut search = 0;
+    while let Some((at, host)) = HOSTS
+        .iter()
+        .filter_map(|host| lower[search..].find(host).map(|i| (search + i, *host)))
+        .min_by_key(|(i, _)| *i)
+    {
+        // 前に付いた https:// と www. も含める
+        let mut start = at;
+        if lower[..start].ends_with("www.") {
+            start -= "www.".len();
+        }
+        if let Some(scheme) = SCHEMES.iter().find(|s| lower[..start].ends_with(*s)) {
+            start -= scheme.len();
+        }
+        // 招待コードは英数字と `-` (全角の括弧や句読点で止まる)
+        let code_start = at + host.len();
+        let code_len = text[code_start..]
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+            .unwrap_or(text.len() - code_start);
+        let end = code_start + code_len;
+        if start < rest {
+            start = rest;
+        }
+        out.push_str(&text[rest..start]);
+        out.push_str("[招待リンク]");
+        rest = end;
+        search = end.max(code_start);
+    }
+    out.push_str(&text[rest..]);
     out
 }
 
@@ -837,6 +866,15 @@ mod tests {
         );
         // 置き換えた範囲を次の `@` のローカル部として数え直さない (以前は UTF-8 の境界でパニックした)
         assert_eq!(redact("a@b.com@c.com"), "[メールアドレス]@c.com");
+        // 招待リンクの前後に空白なしで続く本文は残す
+        assert_eq!(
+            redact("招待リンク（https://discord.gg/abcdef）から参加すると表示されません。"),
+            "招待リンク（[招待リンク]）から参加すると表示されません。"
+        );
+        assert_eq!(
+            redact("HTTPS://www.Discord.com/invite/Ab-1、discord.gg/x"),
+            "[招待リンク]、[招待リンク]"
+        );
         assert_eq!(redact("あa@b.com@@x.jp"), "あ[メールアドレス]@@x.jp");
     }
 
