@@ -41,7 +41,7 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
   Claude Code では `.claude/settings.json` の hook が、既存マイグレーションの編集・`.env` 系の読み書き・main への push を拒否し、編集したファイルを整形する。
   一覧は [エージェント向けのガードと検査](docs/development.md#エージェント向けのガードと検査)
 - Issue 着手から PR・レビュー対応までの手順は `.agents/skills/issue-driven-dev/`、worktree や `target/` の後片付けは `.agents/skills/cleanup-workspace/` にまとめてある。
-  `.agents/skills/` は Codex のエントリポイントで、Claude Code と共有する詳細手順の正本は `.claude/skills/`
+  `.agents/skills/` は Codex / Antigravity / Gemini CLI のエントリポイントで、Claude Code と共有する詳細手順の正本は `.claude/skills/`
 
 ## コミットメッセージ
 
@@ -50,11 +50,13 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
 - AI と共著したコミットでは、概要の後に空行を挟み、最後の行に使用した AI に応じた以下の共著者情報を記載する。
   - Claude: `Co-Authored-By: Claude <noreply@anthropic.com>`
   - Codex: `Co-Authored-By: Codex <267193182+codex@users.noreply.github.com>`
+  - Gemini: `Co-Authored-By: Gemini <noreply@google.com>`
 
 ## AI エージェントのローカル / クラウド環境
 
+- Antigravity は `AGENTS.md` (`web/AGENTS.md` を含む) と `.agents/skills/` を直接読み込み、Gemini CLI は `.gemini/settings.json` を通じて同じく `AGENTS.md` と `.agents/skills/` を読み込む。Antigravity の managed worktree や手動 worktree では、着手前に `.claude/skills/issue-driven-dev/scripts/ensure-worktree-env.sh` で `.env` 系を補完し、必要に応じて `bash .agents/scripts/setup-worktree-environment.sh` で依存を準備する
 - Codex デスクトップアプリの managed worktree は `.worktreeinclude` に従って ignored な `.env` をコピーし、Local environment の
-  `bash .agents/scripts/setup-worktree-environment.sh` で依存を準備する。Claude Code から手動で worktree を作る場合は `issue-driven-dev` スキルのスクリプトを使う
+  `bash .agents/scripts/setup-worktree-environment.sh` で依存を準備する。Claude Code や CLI から手動で worktree を作る場合は `issue-driven-dev` スキルのスクリプトを使う
 - Codex cloud の Setup script は `bash .agents/scripts/setup-cloud-environment.sh --install-tools`、Maintenance script は
   `bash .agents/scripts/setup-cloud-environment.sh`。同じスクリプトを Claude Code の SessionStart hook からも呼ぶ
 

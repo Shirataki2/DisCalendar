@@ -5,7 +5,7 @@ description: DisCalendar の LP と使い方に掲載するスクリーンショ
 
 # Update screenshots compatibility entrypoint
 
-このリポジトリでは Claude Code と Codex が同じ手順を使えるよう、スキルの正本を
+このリポジトリでは Claude Code / Codex / Antigravity / Gemini CLI が同じ手順を使えるよう、スキルの正本を
 `.claude/skills/update-screenshots/` に置いている。
 
 作業を始める前に [`../../../.claude/skills/update-screenshots/SKILL.md`](../../../.claude/skills/update-screenshots/SKILL.md) を最後まで読み、

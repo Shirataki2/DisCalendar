@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PR を作る前のチェック (Claude Code / Codex 共通)。CI では落ちるのに忘れやすいものを手元でまとめて見る。
+# PR を作る前のチェック (Claude Code / Codex / Antigravity / Gemini CLI 共通)。CI では落ちるのに忘れやすいものを手元でまとめて見る。
 #
 #   bash .agents/scripts/pre-pr-check.sh                 # 検出 + 変更したパスに応じた検証 (lint / 型 / テスト)
 #   bash .agents/scripts/pre-pr-check.sh --detect-only   # 検出だけ (コマンドを流さないので数秒で終わる)

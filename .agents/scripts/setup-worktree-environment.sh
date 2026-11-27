@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Codex デスクトップアプリの Local environment から呼ぶ worktree 用セットアップ。
-# ignored な .env は .worktreeinclude がコピーするため、ここでは依存だけを準備する。
+# Codex デスクトップアプリの Local environment や、Antigravity / Gemini CLI の worktree 用セットアップ。
+# ignored な .env の補完には ensure-worktree-env.sh を使い、ここでは依存だけを準備する。
 set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)

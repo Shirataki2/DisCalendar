@@ -5,7 +5,7 @@ description: DisCalendar の共通バージョン決定、リリース準備、�
 
 # Release compatibility entrypoint
 
-このリポジトリでは Claude Code と Codex が同じ手順を使えるよう、スキルの正本を
+このリポジトリでは Claude Code / Codex / Antigravity / Gemini CLI が同じ手順を使えるよう、スキルの正本を
 `.claude/skills/release/` に置いている。
 
 作業を始める前に [`../../../.claude/skills/release/SKILL.md`](../../../.claude/skills/release/SKILL.md) を最後まで読み、
