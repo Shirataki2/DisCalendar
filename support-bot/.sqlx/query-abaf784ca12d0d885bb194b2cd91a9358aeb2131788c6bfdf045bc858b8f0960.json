@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE support_threads\n        SET github_issue = $2, github_issue_created_by = $3, github_issue_created_at = $4, updated_at = $4\n        WHERE thread_id = $1 AND github_issue IS NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "abaf784ca12d0d885bb194b2cd91a9358aeb2131788c6bfdf045bc858b8f0960"
+}

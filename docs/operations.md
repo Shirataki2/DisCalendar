@@ -42,6 +42,12 @@ docker compose logs -f web api
   (本番デプロイはログインせずに `docker manifest inspect` する)
 - **support-bot が無い版 (v3.29.0 以前) へ戻すとき**は、先に `COMPOSE_PROFILES` から `support-bot` を外す (その版のイメージが無いので pull に失敗する)。
   本番デプロイのワークフローはイメージが無いと警告を出す
+- **不具合対応の補助 (#426) を有効にする手順**: `.env` に `SUPPORT_ANTHROPIC_API_KEY` (Claude API のキー。Console で利用上限を設定する) と、
+  `SUPPORT_GITHUB_TOKEN` (対象リポジトリだけ・**Issues: Read and write だけ**の fine-grained トークン。期限つき) / `SUPPORT_GITHUB_REPO` (`Shirataki2/DisCalendar` の形) を入れて
+  `docker compose up -d support-bot`。片方だけでもよい (未設定の機能はボタンが無効になる)。モデルを変えるときは `SUPPORT_CLAUDE_MODEL`。
+  スタッフが押したときだけ送り、送った記録 (本文なし) は `support_ai_requests` に残る。キー・トークンが漏れたら Console / GitHub で失効させて入れ替える。
+  送信の件数は `docker compose exec -T db psql -U discalendar -d discalendar_support -c "SELECT date_trunc('day', created_at) AS day, kind, outcome, count(*), sum(input_tokens), sum(output_tokens) FROM support_ai_requests GROUP BY 1, 2, 3 ORDER BY 1 DESC"` で見る。
+  詳細は [support-bot/README.md](../support-bot/README.md#不具合対応の補助-426)
 - 記録をやめて消すときは、support-bot を止めてから `docker compose exec -T db psql -U discalendar -d postgres -c 'DROP DATABASE discalendar_support'`
 
 ### サポート記録を Claude から読む (MCP)

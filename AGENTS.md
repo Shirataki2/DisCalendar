@@ -10,7 +10,7 @@ Discord 用の共有カレンダー [DisCalendar](https://discalendar.app) を�
   スラッシュコマンド (help / create / list / init / invite、オーナー用 register) を提供する。定期タスク (#4) は移行中。
   予定の保存形式 (JST naive / 通知の JSONB / 終日予定の表現) は api と揃える。詳細は [bot/README.md](bot/README.md)
 - `support-bot/`: Rust (poise 0.6 + sqlx 0.9)。サポートサーバーにだけ入る別の Discord アプリ (MESSAGE_CONTENT あり)。
-  問い合わせの記録・未返信の通知・毎朝のまとめを行う。DB は本体と**別のデータベース**で、マイグレーション (`support-bot/migrations/`) も別系統
+  問い合わせの記録・未返信の通知・毎朝のまとめと、スタッフ向けの要約・返信案 (Claude API)・Issue 化を行う。DB は本体と**別のデータベース**で、マイグレーション (`support-bot/migrations/`) も別系統
   (起動時に自分で当てる。`api/migrations/` に足さない)。詳細は [support-bot/README.md](support-bot/README.md)
 - `infra/`: SaaS 側の設定 (Terraform。`terraform/` = Cloudflare (provider 5 系)、`terraform/grafana/` = Grafana Cloud の
   ログアラート (provider 4 系)。どちらもバージョン固定・state 別) と、本番ホストで動かす DB バックアップ

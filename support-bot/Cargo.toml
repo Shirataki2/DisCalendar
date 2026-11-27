@@ -31,3 +31,5 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 dotenvy.workspace = true
 sentry.workspace = true
+# Claude API と GitHub API の呼び出し (#426)
+reqwest.workspace = true
