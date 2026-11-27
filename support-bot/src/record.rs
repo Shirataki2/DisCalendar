@@ -22,11 +22,11 @@ pub enum Scope {
     Thread,
 }
 
-/// Discord の ID に埋め込まれた作成時刻 (ミリ秒)。発言の前後の判定に使う。
+/// Discord の ID に埋め込まれた作成時刻 (ミリ秒)。発言の前後の判定と、スレッドの作成時刻に使う。
 /// メッセージの timestamp を秒に丸めると、同じ秒のスタッフと利用者の発言の順序が分からなくなるため
-pub fn created_at(id: serenity::MessageId) -> DateTime<Utc> {
+pub fn created_at(id: impl Into<u64>) -> DateTime<Utc> {
     const DISCORD_EPOCH_MS: u64 = 1_420_070_400_000;
-    let ms = (id.get() >> 22) + DISCORD_EPOCH_MS;
+    let ms = (id.into() >> 22) + DISCORD_EPOCH_MS;
     DateTime::from_timestamp_millis(i64::try_from(ms).unwrap_or(i64::MAX)).unwrap_or_default()
 }
 
@@ -111,6 +111,7 @@ pub async fn ticket_thread(
         archived: thread
             .thread_metadata
             .is_some_and(|metadata| metadata.archived),
+        created_at: created_at(thread.id),
     })
 }
 

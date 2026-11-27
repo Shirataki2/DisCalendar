@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO support_threads (thread_id, parent_channel_id, author_id, title, tags, archived, created_at)\n        VALUES ($1, $2, $3, $4, $5, $6, $7)\n        ON CONFLICT (thread_id) DO UPDATE SET\n            title = CASE\n                -- Discord で削除済みのスレッド (補完が削除前に取得した一覧から届いた) には書き戻さない\n                WHEN support_threads.deleted_at IS NOT NULL THEN NULL\n                WHEN support_threads.status = 'resolved'\n                    AND support_threads.purged_at >= support_threads.resolved_at THEN NULL\n                ELSE EXCLUDED.title\n            END,\n            tags = EXCLUDED.tags,\n            archived = EXCLUDED.archived,\n            author_id = COALESCE(support_threads.author_id, EXCLUDED.author_id),\n            -- #433 より前は記録した時刻 (now()) が入っていた。次に更新を受け取ったときにスレッドの作成時刻へ直す\n            created_at = LEAST(support_threads.created_at, EXCLUDED.created_at),\n            updated_at = now()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Text",
+        "TextArray",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6503e3c9534aa1656fac60d7acca8016a48d1cf4df73e6c581e9ad8f2281158d"
+}
