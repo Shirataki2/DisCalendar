@@ -15,6 +15,8 @@ pub struct ThreadInput {
     pub title: String,
     pub tags: Vec<String>,
     pub archived: bool,
+    /// Discord でスレッドが立った時刻 (スレッド ID に埋め込まれた時刻)
+    pub created_at: DateTime<Utc>,
 }
 
 /// スレッドを登録する。既にあればスレッド名・タグ・アーカイブ状態だけを更新する
@@ -24,8 +26,8 @@ pub struct ThreadInput {
 pub async fn upsert_thread(pool: &PgPool, thread: &ThreadInput) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
-        INSERT INTO support_threads (thread_id, parent_channel_id, author_id, title, tags, archived)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO support_threads (thread_id, parent_channel_id, author_id, title, tags, archived, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (thread_id) DO UPDATE SET
             title = CASE
                 -- Discord で削除済みのスレッド (補完が削除前に取得した一覧から届いた) には書き戻さない
@@ -37,6 +39,8 @@ pub async fn upsert_thread(pool: &PgPool, thread: &ThreadInput) -> Result<(), sq
             tags = EXCLUDED.tags,
             archived = EXCLUDED.archived,
             author_id = COALESCE(support_threads.author_id, EXCLUDED.author_id),
+            -- #433 より前は記録した時刻 (now()) が入っていた。次に更新を受け取ったときにスレッドの作成時刻へ直す
+            created_at = LEAST(support_threads.created_at, EXCLUDED.created_at),
             updated_at = now()
         "#,
         thread.thread_id,
@@ -45,6 +49,7 @@ pub async fn upsert_thread(pool: &PgPool, thread: &ThreadInput) -> Result<(), sq
         thread.title,
         &thread.tags,
         thread.archived,
+        thread.created_at,
     )
     .execute(pool)
     .await?;

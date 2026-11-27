@@ -27,6 +27,7 @@ async fn thread(pool: &PgPool, thread_id: i64) {
             title: format!("投稿 {thread_id}"),
             tags: vec!["不具合".into()],
             archived: false,
+            created_at: at(-24),
         },
     )
     .await
@@ -884,4 +885,44 @@ async fn release_announcements_are_claimed_once(pool: PgPool) {
         db::announced_versions(&pool).await.unwrap(),
         vec!["3.31.0".to_owned()]
     );
+}
+
+async fn thread_created_at(pool: &PgPool, thread_id: i64) -> DateTime<Utc> {
+    sqlx::query_scalar("SELECT created_at FROM support_threads WHERE thread_id = $1")
+        .bind(thread_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// #433: チケットの作成日時はスレッドが立った時刻。記録した時刻 (now()) が入っていた行は、次の更新で早いほうへ直す
+#[sqlx::test(migrations = "./migrations")]
+async fn thread_created_at_is_the_thread_creation_time(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    assert_eq!(thread_created_at(&pool, THREAD).await, at(-24));
+
+    // #433 より前に記録した行 (created_at が記録した時刻) を再現する
+    sqlx::query("UPDATE support_threads SET created_at = now() WHERE thread_id = $1")
+        .bind(THREAD)
+        .execute(&pool)
+        .await
+        .unwrap();
+    thread(&pool, THREAD).await;
+    assert_eq!(thread_created_at(&pool, THREAD).await, at(-24));
+
+    // より遅い時刻が届いても戻さない
+    let mut later = ThreadInput {
+        thread_id: THREAD,
+        parent_channel_id: FORUM,
+        author_id: Some(USER),
+        title: "投稿".into(),
+        tags: vec![],
+        archived: false,
+        created_at: at(10),
+    };
+    db::upsert_thread(&pool, &later).await.unwrap();
+    assert_eq!(thread_created_at(&pool, THREAD).await, at(-24));
+    later.created_at = at(-48);
+    db::upsert_thread(&pool, &later).await.unwrap();
+    assert_eq!(thread_created_at(&pool, THREAD).await, at(-48));
 }
