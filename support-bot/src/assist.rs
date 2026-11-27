@@ -749,6 +749,8 @@ fn redact_emails(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
+    // 直前に置き換えた範囲の終わり。ローカル部はここより前に戻って探さない (置き換え済みの文字を取り消さないため)
+    let mut consumed = 0;
     while i < chars.len() {
         if chars[i] != '@' {
             out.push(chars[i]);
@@ -757,7 +759,7 @@ fn redact_emails(text: &str) -> String {
         }
         // ローカル部: 直前まで書き出した文字のうち、使える文字が続く範囲 (先頭の記号は除く)
         let mut start = i;
-        while start > 0 && local_char(chars[start - 1]) {
+        while start > consumed && local_char(chars[start - 1]) {
             start -= 1;
         }
         while start < i && !chars[start].is_ascii_alphanumeric() {
@@ -778,6 +780,7 @@ fn redact_emails(text: &str) -> String {
             out.truncate(out.len() - local_len);
             out.push_str("[メールアドレス]");
             i = end;
+            consumed = end;
         } else {
             out.push('@');
             i += 1;
@@ -827,6 +830,14 @@ mod tests {
             redact("改行\nfoo@example.com\n次"),
             "改行\n[メールアドレス]\n次"
         );
+        // 空白で区切られていなくても 1 件ずつ伏せる
+        assert_eq!(
+            redact("foo@example.com、bar@example.org。連絡先:baz@test.jp."),
+            "[メールアドレス]、[メールアドレス]。連絡先:[メールアドレス]."
+        );
+        // 置き換えた範囲を次の `@` のローカル部として数え直さない (以前は UTF-8 の境界でパニックした)
+        assert_eq!(redact("a@b.com@c.com"), "[メールアドレス]@c.com");
+        assert_eq!(redact("あa@b.com@@x.jp"), "あ[メールアドレス]@@x.jp");
     }
 
     #[test]
