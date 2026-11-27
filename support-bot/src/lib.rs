@@ -6,22 +6,28 @@
 //! - 記録: 許可リストのチャンネル (フォーラムの投稿 = チケット、テキストチャンネル) の発言・編集・削除と、投稿の状態
 //! - 定期タスク: 未返信の通知、`/remind` のリマインド、毎朝の未解決まとめ、保存期間を過ぎた本文の削除
 //! - 更新の告知: 本番に出た版の更新履歴を「更新通知」チャンネルへ一度だけ投稿する (`announce`)
-//! - コマンド: `/ticket status`、`/remind` (スタッフのみ)
+//! - コマンド: `/ticket status`、`/ticket assist`、`/remind` (スタッフのみ)
+//! - 不具合対応の補助: Claude API による要約・分類・返信案と、GitHub Issue の下書き → スタッフの確認 → 起票 (`assist`)。
+//!   結果はスタッフ本人にだけ見せ、Bot はチケットに返信しない
 //! - MCP: サポートの記録を Claude から読む読み取り専用のサーバー (`mcp`、別バイナリ `discalendar-support-mcp`)
 //! - DB は本体とは別のデータベース。マイグレーション (`support-bot/migrations/`) は起動時にこの Bot が当てる
 
 pub mod announce;
+pub mod assist;
 pub mod backfill;
+pub mod claude;
 pub mod commands;
 pub mod config;
 pub mod data;
 pub mod db;
 pub mod error;
 pub mod event;
+pub mod github;
 pub mod mcp;
 pub mod record;
 pub mod tasks;
 pub mod ticket;
+pub mod untrusted;
 
 use std::str::FromStr as _;
 
@@ -91,6 +97,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                     tasks_started: Default::default(),
                     backfill_from,
                     tag_sync: Default::default(),
+                    http: reqwest::Client::new(),
+                    drafts: Default::default(),
+                    issue_lock: Default::default(),
                 })
             })
         })

@@ -29,6 +29,47 @@ pub struct Settings {
     /// 本番に出た版の更新内容を告知するチャンネル (#430)。アナウンスチャンネルなら公開 (crosspost) もする。
     /// 未設定なら告知しない (`SUPPORT_RELEASE_CHANNEL_ID`)
     pub release_channel_id: Option<ChannelId>,
+    /// Claude API による要約・分類・返信案 (#426)。API キーが未設定なら None で、ボタンを無効にする
+    pub claude: Option<ClaudeSettings>,
+    /// チケットからの GitHub Issue の起票 (#426)。トークンが未設定なら None で、ボタンを無効にする
+    pub github: Option<GithubSettings>,
+}
+
+/// 既定のモデル。`SUPPORT_CLAUDE_MODEL` で変えられる
+pub const DEFAULT_CLAUDE_MODEL: &str = "claude-opus-5-5";
+
+#[derive(Debug, Clone)]
+pub struct ClaudeSettings {
+    pub api_key: Secret,
+    pub model: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GithubSettings {
+    /// issues:write だけの fine-grained トークン
+    pub token: Secret,
+    /// 起票先 (`owner/name`)
+    pub repo: String,
+}
+
+/// API キー・トークン。`Debug` (ログやパニックのメッセージ) に値が出ないよう包む
+#[derive(Clone)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(***)")
+    }
 }
 
 impl Config {
@@ -63,8 +104,42 @@ impl Config {
                     .map(|v| snowflake("SUPPORT_RELEASE_CHANNEL_ID", &v))
                     .transpose()?
                     .map(ChannelId::from),
+                claude: optional("SUPPORT_ANTHROPIC_API_KEY")
+                    .or_else(|| optional("ANTHROPIC_API_KEY"))
+                    .map(|api_key| ClaudeSettings {
+                        api_key: Secret::new(api_key),
+                        model: env_or("SUPPORT_CLAUDE_MODEL", DEFAULT_CLAUDE_MODEL),
+                    }),
+                github: optional("SUPPORT_GITHUB_TOKEN")
+                    .map(|token| -> Result<GithubSettings> {
+                        let repo = required("SUPPORT_GITHUB_REPO").context(
+                            "SUPPORT_GITHUB_REPO is required when SUPPORT_GITHUB_TOKEN is set",
+                        )?;
+                        Ok(GithubSettings {
+                            token: Secret::new(token),
+                            repo: parse_repo(&repo)?,
+                        })
+                    })
+                    .transpose()?,
             },
         })
+    }
+}
+
+/// `owner/name` の形か確かめる (URL に埋め込むので、英数字と `-` `_` `.` だけを許す)
+fn parse_repo(value: &str) -> Result<String> {
+    let value = value.trim();
+    let valid_part = |part: &str| {
+        !part.is_empty()
+            && part != "."
+            && part != ".."
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    match value.split_once('/') {
+        Some((owner, name)) if valid_part(owner) && valid_part(name) => Ok(value.to_owned()),
+        _ => anyhow::bail!("SUPPORT_GITHUB_REPO must be in the form owner/name"),
     }
 }
 
@@ -112,6 +187,27 @@ mod tests {
     fn parses_comma_separated_ids() {
         let ids = parse_snowflake_list("K", " 1, 2 ,,3 ").unwrap();
         assert_eq!(ids.iter().map(|v| v.get()).collect::<Vec<_>>(), [1, 2, 3]);
+    }
+
+    #[test]
+    fn validates_github_repo() {
+        assert_eq!(
+            parse_repo(" Shirataki2/DisCalendar ").unwrap(),
+            "Shirataki2/DisCalendar"
+        );
+        assert_eq!(parse_repo("a-b/c_d.e").unwrap(), "a-b/c_d.e");
+        for invalid in [
+            "", "owner", "owner/", "/name", "a/b/c", "a/..", "a/b?x=1", "a b/c",
+        ] {
+            assert!(parse_repo(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn secrets_are_hidden_from_debug() {
+        let secret = Secret::new("sk-ant-should-not-leak");
+        assert_eq!(format!("{secret:?}"), "Secret(***)");
+        assert_eq!(secret.expose(), "sk-ant-should-not-leak");
     }
 
     #[test]

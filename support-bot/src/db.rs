@@ -684,6 +684,78 @@ pub async fn mark_daily_task_done(
     Ok(())
 }
 
+/// Claude API に送った記録 (#426)。本文や生成結果は持たない
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiRequest<'a> {
+    pub thread_id: i64,
+    /// `assist` (要約・分類・返信案) / `issue_draft` (Issue の下書き)
+    pub kind: &'a str,
+    pub requested_by: i64,
+    pub model: &'a str,
+    pub message_count: i32,
+    pub input_tokens: Option<i32>,
+    pub output_tokens: Option<i32>,
+    /// `ok` / `refusal` / `error`
+    pub outcome: &'a str,
+}
+
+pub async fn insert_ai_request(pool: &PgPool, request: &AiRequest<'_>) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        INSERT INTO support_ai_requests
+            (thread_id, kind, requested_by, model, message_count, input_tokens, output_tokens, outcome)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+        request.thread_id,
+        request.kind,
+        request.requested_by,
+        request.model,
+        request.message_count,
+        request.input_tokens,
+        request.output_tokens,
+        request.outcome,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// チケットから起票した GitHub Issue の番号。まだ起票していなければ None (チケットが無いときも None)
+pub async fn github_issue(pool: &PgPool, thread_id: i64) -> Result<Option<i32>, sqlx::Error> {
+    let issue = sqlx::query_scalar!(
+        "SELECT github_issue FROM support_threads WHERE thread_id = $1",
+        thread_id
+    )
+    .fetch_optional(pool)
+    .await?;
+    Ok(issue.flatten())
+}
+
+/// 起票した Issue の番号を残す。既に番号があれば上書きせず false
+pub async fn set_github_issue(
+    pool: &PgPool,
+    thread_id: i64,
+    issue: i32,
+    created_by: i64,
+    now: DateTime<Utc>,
+) -> Result<bool, sqlx::Error> {
+    let updated = sqlx::query!(
+        r#"
+        UPDATE support_threads
+        SET github_issue = $2, github_issue_created_by = $3, github_issue_created_at = $4, updated_at = $4
+        WHERE thread_id = $1 AND github_issue IS NULL
+        "#,
+        thread_id,
+        issue,
+        created_by,
+        now,
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(updated == 1)
+}
+
 /// 更新を告知済み (または告知しないと決めた) 版の一覧 (#430)
 pub async fn announced_versions(pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
     sqlx::query_scalar!("SELECT version FROM support_release_announcements")

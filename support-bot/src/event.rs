@@ -3,7 +3,7 @@
 use poise::serenity_prelude::{self as serenity, FullEvent};
 
 use crate::{
-    announce, backfill,
+    announce, assist, backfill,
     data::Data,
     db,
     error::BotError,
@@ -120,6 +120,10 @@ pub async fn handle_event(
             };
             db::upsert_thread(&data.pool, &input).await?;
             sync_status_from_tags(ctx, data, old.as_ref(), new).await?;
+        }
+        // `/ticket assist` のパネルのボタンと、Issue の起票のモーダル (#426)
+        FullEvent::InteractionCreate { interaction } => {
+            assist::handle_interaction(ctx, data, interaction).await?;
         }
         FullEvent::ThreadDelete { thread, .. } if thread.guild_id == data.settings.guild_id => {
             let deleted = db::mark_thread_deleted(&data.pool, snowflake(thread.id)).await?;

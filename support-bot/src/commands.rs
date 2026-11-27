@@ -41,7 +41,7 @@ async fn current_ticket(ctx: Context<'_>) -> Result<i64, BotError> {
 }
 
 /// チケット (フォーラムの投稿) の操作
-#[poise::command(slash_command, guild_only, subcommands("status"))]
+#[poise::command(slash_command, guild_only, subcommands("status", "assist"))]
 pub async fn ticket(_ctx: Context<'_>) -> Result<(), BotError> {
     Ok(())
 }
@@ -73,6 +73,21 @@ pub async fn status(
             transition.before.label(),
             transition.after.label()
         ))
+        .ephemeral(true);
+    ctx.send(reply).await?;
+    Ok(())
+}
+
+/// このチケットの要約・分類・返信案と、GitHub Issue の下書きを作るパネルを開きます (あなたにだけ表示)
+#[poise::command(slash_command, guild_only, check = "staff_only")]
+pub async fn assist(ctx: Context<'_>) -> Result<(), BotError> {
+    ctx.defer_ephemeral().await?;
+    let thread_id = current_ticket(ctx).await?;
+    let github_issue = db::github_issue(&ctx.data().pool, thread_id).await?;
+    let (content, components) = crate::assist::panel(ctx.data(), github_issue);
+    let reply = poise::CreateReply::default()
+        .content(content)
+        .components(components)
         .ephemeral(true);
     ctx.send(reply).await?;
     Ok(())

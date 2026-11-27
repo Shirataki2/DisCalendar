@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT github_issue FROM support_threads WHERE thread_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "github_issue",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "support_threads",
+            "name": "github_issue"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "57982654525364f68ce644e5ec941338fa4c1918523d8b5c875f1221eb20e0a0"
+}

@@ -20,6 +20,12 @@ pub struct Data {
     /// 「解決済み」タグの同期を直列にするロック。中身は Bot がタグを編集したスレッドと、付けたか (true) 外したか。
     /// Bot 自身の編集も ThreadUpdate として届くので、利用者の操作と見分けて状態を巻き戻さないために覚えておく
     pub tag_sync: Arc<tokio::sync::Mutex<std::collections::HashMap<ChannelId, bool>>>,
+    /// Claude API と GitHub API を呼ぶ HTTP クライアント (#426)
+    pub http: reqwest::Client,
+    /// スタッフの確認を待っている Issue の下書き。キーは「Issue の下書き」を押した操作 (interaction) の ID
+    pub drafts: Arc<std::sync::Mutex<std::collections::HashMap<u64, crate::assist::PendingIssue>>>,
+    /// Issue の起票を直列にするロック (同じチケットから二重に起票しないため)
+    pub issue_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Data {

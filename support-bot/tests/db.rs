@@ -926,3 +926,86 @@ async fn thread_created_at_is_the_thread_creation_time(pool: PgPool) {
     db::upsert_thread(&pool, &later).await.unwrap();
     assert_eq!(thread_created_at(&pool, THREAD).await, at(-48));
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn github_issue_is_saved_only_once(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    assert_eq!(db::github_issue(&pool, THREAD).await.unwrap(), None);
+    assert_eq!(db::github_issue(&pool, 9_999).await.unwrap(), None);
+
+    assert!(
+        db::set_github_issue(&pool, THREAD, 426, STAFF, at(1))
+            .await
+            .unwrap()
+    );
+    assert_eq!(db::github_issue(&pool, THREAD).await.unwrap(), Some(426));
+    // 2 件目は上書きしない (二重起票の検出)
+    assert!(
+        !db::set_github_issue(&pool, THREAD, 427, STAFF, at(2))
+            .await
+            .unwrap()
+    );
+    assert_eq!(db::github_issue(&pool, THREAD).await.unwrap(), Some(426));
+
+    let (by, created_at): (Option<i64>, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT github_issue_created_by, github_issue_created_at FROM support_threads WHERE thread_id = $1",
+    )
+    .bind(THREAD)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(by, Some(STAFF));
+    assert_eq!(created_at, Some(at(1)));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn ai_requests_keep_only_metadata(pool: PgPool) {
+    thread(&pool, THREAD).await;
+    for (kind, outcome, tokens) in [("assist", "ok", Some(1200)), ("issue_draft", "error", None)] {
+        db::insert_ai_request(
+            &pool,
+            &db::AiRequest {
+                thread_id: THREAD,
+                kind,
+                requested_by: STAFF,
+                model: "claude-opus-5-5",
+                message_count: 3,
+                input_tokens: tokens,
+                output_tokens: tokens.map(|_| 300),
+                outcome,
+            },
+        )
+        .await
+        .unwrap();
+    }
+    let rows: Vec<(String, String, i32, Option<i32>)> = sqlx::query_as(
+        "SELECT kind, outcome, message_count, input_tokens FROM support_ai_requests WHERE thread_id = $1 ORDER BY id",
+    )
+    .bind(THREAD)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        [
+            ("assist".into(), "ok".into(), 3, Some(1200)),
+            ("issue_draft".into(), "error".into(), 3, None),
+        ]
+    );
+    // 知らない種類・結果は CHECK 制約で弾く
+    let bad = db::insert_ai_request(
+        &pool,
+        &db::AiRequest {
+            thread_id: THREAD,
+            kind: "auto_reply",
+            requested_by: STAFF,
+            model: "claude-opus-5-5",
+            message_count: 1,
+            input_tokens: None,
+            output_tokens: None,
+            outcome: "ok",
+        },
+    )
+    .await;
+    assert!(bad.is_err());
+}
