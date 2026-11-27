@@ -5,7 +5,7 @@ description: DisCalendar の GitHub Issue を起点に、ブランチまたは w
 
 # Issue-driven development compatibility entrypoint
 
-このリポジトリでは Claude Code と Codex が同じ手順を使えるよう、スキルの正本を
+このリポジトリでは Claude Code / Codex / Antigravity / Gemini CLI が同じ手順を使えるよう、スキルの正本を
 `.claude/skills/issue-driven-dev/` に置いている。
 
 作業を始める前に [`../../../.claude/skills/issue-driven-dev/SKILL.md`](../../../.claude/skills/issue-driven-dev/SKILL.md) を最後まで読み、

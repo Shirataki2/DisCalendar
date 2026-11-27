@@ -42,7 +42,8 @@ test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
 
 unset CODEX_HOME CODEX_THREAD_ID CODEX_SESSION_ID CODEX_CI
-assert_eq "claude" "$(agent_branch_prefix)" "Codex の印がない環境は claude を選ぶ"
+unset GEMINI_CLI GEMINI_SESSION_ID GEMINI_PROJECT_DIR ANTIGRAVITY_AGENT ANTIGRAVITY_CONVERSATION_ID
+assert_eq "claude" "$(agent_branch_prefix)" "Codex / Gemini の印がない環境は claude を選ぶ"
 
 CODEX_THREAD_ID=test-thread
 assert_eq "codex" "$(agent_branch_prefix)" "Codex Desktop の thread ID で codex を選ぶ"
@@ -58,7 +59,28 @@ unset CODEX_CI
 
 CODEX_HOME="$test_tmp/codex-home"
 assert_eq "codex" "$(agent_branch_prefix)" "従来の CODEX_HOME でも codex を選ぶ"
-unset CODEX_HOME
+
+GEMINI_CLI=1
+assert_eq "gemini" "$(agent_branch_prefix)" "CODEX_HOME が残っていても GEMINI_CLI があれば gemini を選ぶ"
+unset CODEX_HOME GEMINI_CLI
+
+GEMINI_SESSION_ID=test-gemini-session
+assert_eq "gemini" "$(agent_branch_prefix)" "Gemini CLI の session ID で gemini を選ぶ"
+unset GEMINI_SESSION_ID
+
+GEMINI_PROJECT_DIR="$test_tmp/project"
+assert_eq "gemini" "$(agent_branch_prefix)" "Gemini CLI の project dir で gemini を選ぶ"
+unset GEMINI_PROJECT_DIR
+
+ANTIGRAVITY_AGENT=1
+assert_eq "gemini" "$(agent_branch_prefix)" "Antigravity の agent 環境変数で gemini を選ぶ"
+CODEX_THREAD_ID=test-thread
+assert_eq "codex" "$(agent_branch_prefix)" "Antigravity 上でも Codex セッションなら codex を選ぶ"
+unset CODEX_THREAD_ID ANTIGRAVITY_AGENT
+
+ANTIGRAVITY_CONVERSATION_ID=test-conversation
+assert_eq "gemini" "$(agent_branch_prefix)" "Antigravity の conversation ID で gemini を選ぶ"
+unset ANTIGRAVITY_CONVERSATION_ID
 
 client_bin="$test_tmp/client-bin"
 mkdir -p "$client_bin"

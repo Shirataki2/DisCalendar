@@ -1,6 +1,6 @@
 ---
 name: cleanup-workspace
-description: DisCalendar リポジトリの後片付け。Claude Code / Codex が作った不要な git worktree と対応するローカルブランチの削除、Rust の target/ や web/node_modules・web/.next などビルド成果物の削除でディスクを空ける。「worktree を片付けて」「いらないブランチを消して」「target を消して」「ディスクが足りない / 容量を空けたい」「掃除して」「マージ済みのやつを消して」のような依頼のほか、PR がマージされた直後の後始末、ENOSPC や Docker ビルドの失敗、Mac の空き容量警告が出たときに使う。squash マージのため git だけではマージ済みか判定できず PR の状態を gh で見る必要があり、その手順と安全チェック付きスクリプトをここに集約している。
+description: DisCalendar リポジトリの後片付け。Claude Code / Codex / Antigravity / Gemini CLI が作った不要な git worktree と対応するローカルブランチの削除、Rust の target/ や web/node_modules・web/.next などビルド成果物の削除でディスクを空ける。「worktree を片付けて」「いらないブランチを消して」「target を消して」「ディスクが足りない / 容量を空けたい」「掃除して」「マージ済みのやつを消して」のような依頼のほか、PR がマージされた直後の後始末、ENOSPC や Docker ビルドの失敗、Mac の空き容量警告が出たときに使う。squash マージのため git だけではマージ済みか判定できず PR の状態を gh で見る必要があり、その手順と安全チェック付きスクリプトをここに集約している。
 ---
 
 # ワークスペースの後片付け (worktree / ブランチ / ビルド成果物)
@@ -12,10 +12,10 @@ Docker ビルドが ENOSPC で落ちたこともある。
 
 ## 前提知識
 
-- 手動作成した worktree は `.claude/worktrees/<name>`、Codex 管理の worktree は `$CODEX_HOME/worktrees` にある。ブランチ名は `claude/issue-N-<slug>` / `codex/issue-N-<slug>` など。Codex 管理 worktree はブランチ作成前なら detached HEAD
+- 手動作成した worktree は `.claude/worktrees/<name>`、Codex 管理の worktree は `$CODEX_HOME/worktrees`、Antigravity 管理の worktree は `~/.gemini/antigravity/worktrees` にある。ブランチ名は `claude/issue-N-<slug>` / `codex/issue-N-<slug>` / `gemini/issue-N-<slug>` など。Codex 管理 worktree はブランチ作成前なら detached HEAD
 - main は **squash マージ** → マージ後もブランチのコミットは `origin/main` に含まれない。`git branch --merged` / `merge-base` は使えない。
   マージ済みかは `gh pr list --head <branch> --state all` の `MERGED` で判定する。マージ後リモートブランチは自動削除されるので、`git fetch --prune` 後に `[gone]` になるのも手がかり
-- **メインの checkout のセッションから実行する**。自分のいる worktree は消せない。Claude Code は `ExitWorktree` (`keep`)、Codex は Handoff か Local タスクで戻る
+- **メインの checkout のセッションから実行する**。自分のいる worktree は消せない。Claude Code は `ExitWorktree` (`keep`)、Codex は Handoff か Local タスク、Antigravity はメイン checkout のワークスペースで戻る
 - `tmp/` (旧実装 `tmp/DisCalendarV2/`) は git 管理外で**復元できない**。掃除の対象にしない (worktree 内に `tmp/` があれば `remove-worktree.sh` は `--force` でも止まる。外へ移してから)
 - 他の AI エージェントのタスクやターミナル、dev サーバーが使っている worktree かもしれない (`lsof -a -d cwd -Fn | grep worktrees` で cwd にしているプロセスが分かる)。
   レポートと削除スクリプトはこれを検出して止まる。PR が OPEN のもの、最近更新されたものも消す前にユーザーに聞く

@@ -61,16 +61,29 @@ Discord モックのポートが 8191 になり (`revalidate` のキャッシュ
 
 ## AI エージェントの環境を整える
 
-### Claude Code のスキルを Codex でも使う
+### Claude Code のスキルを Codex / Antigravity / Gemini CLI でも使う
 
-スキルの詳細手順とスクリプトの正本は `.claude/skills/` に置き、Codex がリポジトリスキルとして検出する
+スキルの詳細手順とスクリプトの正本は `.claude/skills/` に置き、Codex・Antigravity・Gemini CLI がリポジトリスキルとして検出する
 `.agents/skills/` から正本を読む。片方だけを直して手順が分岐しない構成にしている。
 
 - Codex CLI / IDE では `/skills` または `$issue-driven-dev` のように指定する。依頼が description に合えば自動選択もされる
+- Antigravity と Gemini CLI は `.agents/skills/` を自動検出し、依頼が description に合えば自動で選択する
 - Claude Code では従来どおり `.claude/skills/` が使われる
 - 対応するスキルは `issue-driven-dev` / `cleanup-workspace` / `release` / `update-screenshots`
 
-Codex のスキル探索場所と形式は [Build skills](https://developers.openai.com/codex/skills) を参照。
+スキル探索場所と形式は [Build skills](https://developers.openai.com/codex/skills) や
+[Gemini CLI Agent Skills](https://geminicli.com/docs/cli/skills/) を参照。
+
+### Antigravity / Gemini CLI のローカル環境
+
+指示ファイルとスキルは `AGENTS.md` と `.agents/skills/` に一本化しており、別途 `GEMINI.md` を増やさない構成にしている (Antigravity は `AGENTS.md` と `GEMINI.md` を両方読むため、`@AGENTS.md` のような重複ファイルを置かない)。
+
+- **Antigravity**: リポジトリルートの `AGENTS.md`、`web/AGENTS.md`、`.agents/skills/` をそのまま認識する
+- **Gemini CLI**: `.gemini/settings.json` の `context.fileName` で `["AGENTS.md", "GEMINI.md"]` を指定しているため、`AGENTS.md` / `web/AGENTS.md` と `.agents/skills/` をそのまま利用できる
+- **worktree とブランチ**:
+  - `issue-driven-dev` スキルの `setup-worktree.sh` は、Gemini CLI (`GEMINI_CLI` 等) や Antigravity (`ANTIGRAVITY_AGENT` 等) の環境変数を検出して既定のブランチ prefix に `gemini/` (`gemini/issue-<N>-<slug>`) を使う
+  - Antigravity の管理 worktree (`~/.gemini/antigravity/worktrees`) などで作業を始めた場合は、着手前に `.claude/skills/issue-driven-dev/scripts/ensure-worktree-env.sh` でメイン checkout から `.env` 系を補完し、必要に応じて `bash .agents/scripts/setup-worktree-environment.sh` で依存 (`web/` の `pnpm install` と `cargo fetch`) を準備する
+  - マージ後の掃除はメイン checkout 側のセッションから `cleanup-workspace` スキルを使う (`remove-worktree.sh` は Antigravity 管理の worktree にも対応)
 
 ### Codex のローカル worktree
 
@@ -143,7 +156,7 @@ CI を一往復待たずに、エージェントが自分で気づいて直せ�
 | `.github/scripts/check-limits.sh` | CI の version ジョブ / PR 前チェック | web と api / bot の上限値 (タイトル 32 文字など) の対応表を照合する。新しい上限値を両側に定義したら対応表に足す |
 | `.claude/agents/pr-reviewer.md` | 「PR 前にレビューして」などの依頼 | Code Review Rules (P0 / P1) を基準に差分をレビューするサブエージェント |
 
-- `.claude/settings.json` の hook を読むのは Claude Code だけ。Codex では hook が効かないので、`issue-driven-dev` の手順どおり PR 前に `pre-pr-check.sh` を実行する
+- `.claude/settings.json` の hook を読むのは Claude Code だけ。Codex / Antigravity / Gemini CLI では hook が効かないので、`issue-driven-dev` の手順どおり PR 前に `pre-pr-check.sh` を実行する
 - hook はパスを、そのファイルを含む checkout のルートを基準にして判定する。Bash は hook に渡された `cwd` を基準にする (コマンド内の `cd` と `git -C` も追う)。
   `.claude/worktrees/` の worktree を絶対パスで編集しても、メインの checkout と同じように効く
 - hook は `jq` が無い・入力が読めないときは何もしない (誤検知で作業を止めないため)。整形ツール (`web/node_modules` の Biome、`rustfmt`) が無いときも同じ

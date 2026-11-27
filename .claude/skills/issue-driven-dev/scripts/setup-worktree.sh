@@ -6,7 +6,7 @@
 #   - --branch を指定すると、新規作成せずその既存ブランチ (ローカル or origin) を checkout する
 #   - --install を付けると web/ で pnpm install --frozen-lockfile も実行する
 #   - 既に同じ worktree があればそのまま使う (冪等)
-#   - prefix の既定は Codex なら codex、それ以外は claude
+#   - prefix の既定は Codex なら codex、Gemini CLI / Antigravity なら gemini、それ以外は claude
 # 終わったら表示されるパスを workdir / cwd にする。Claude Code では EnterWorktree も使える。
 set -euo pipefail
 

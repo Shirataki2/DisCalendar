@@ -54,7 +54,7 @@ git describe --tags --abbrev=0 --match 'v*'   # 前回のリリース (参考)
 ### 2. リリース準備 PR
 
 ```bash
-git switch -c codex/release-v3.1.0     # Claude Code では claude/release-v3.1.0
+git switch -c codex/release-v3.1.0     # Claude Code では claude/release-v3.1.0、Gemini CLI / Antigravity では gemini/release-v3.1.0
 .claude/skills/release/scripts/bump-version.sh minor    # または 3.1.0 のように直接指定
 git add -A && git commit -m "リリース準備: v3.1.0"
 git push -u origin "$(git branch --show-current)"

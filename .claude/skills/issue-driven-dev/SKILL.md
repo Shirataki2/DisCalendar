@@ -27,7 +27,7 @@ description: DisCalendar の GitHub Issue を起点にした開発フロー (Iss
 | 段階 | やること | 主な道具 |
 |---|---|---|
 | 0 | Issue を読む / 無ければ作る | `gh issue view` / `gh issue create` |
-| 1 | worktree とブランチを用意する | Codex の Worktree モード、または `scripts/setup-worktree.sh` |
+| 1 | worktree とブランチを用意する | Codex / Antigravity の Worktree 機能、または `scripts/setup-worktree.sh` |
 | 2 | 実装と検証 | AGENTS.md のコマンド、ブラウザ / Playwright |
 | 3 | コミット → push → PR | `gh pr create` |
 | 4 | CI とレビュー対応 | `gh pr checks` / `gh api .../comments` |
@@ -64,6 +64,9 @@ worktree を作り、`.worktreeinclude` に列挙したローカル設定をコ�
 (`bash .agents/scripts/setup-worktree-environment.sh`) を選ぶ。作業を残すときはアプリの **Create branch here** で `codex/issue-<N>-<slug>` を作るか、
 **Handoff** で Local に移す。
 
+Antigravity の管理 worktree (`~/.gemini/antigravity/worktrees`) で作業を始めた場合も、ブランチ名を `gemini/issue-<N>-<slug>` のように揃え、
+着手前に `.claude/skills/issue-driven-dev/scripts/ensure-worktree-env.sh` で `.env` 系を補完し、必要に応じて `bash .agents/scripts/setup-worktree-environment.sh` で依存を整える。
+
 **クラウドセッション (Codex cloud / claude.ai/code / `claude --cloud`) では、clone 済みのカレント checkout 内に追加の worktree を作らない。**
 セッション自体が隔離されているので、この節は飛ばしてカレントブランチのまま 2 以降へ進む。旧実装 `tmp/DisCalendarV2/` と
 実トークンは無く、Discord ログインや実機確認はできない (検証は CI 相当まで。AGENTS.md「クラウドセッションでの注意」)。
@@ -75,9 +78,9 @@ worktree を作り、`.worktreeinclude` に列挙したローカル設定をコ�
 ```
 
 スクリプトは `.claude/worktrees/issue-<N>-<slug>` に `origin/main` 起点のブランチを作る。既定の prefix は Codex なら `codex/`、
-Claude Code なら `claude/` で、`--prefix` でも指定できる。
+Gemini CLI / Antigravity なら `gemini/`、Claude Code なら `claude/` で、`--prefix` でも指定できる。
 git 管理外の `.env` 系 (`api/.env`, `web/.env.local` など) をメインの checkout からコピーする。
-Claude Code で `EnterWorktree` が使える場合は、終わったら `path` に表示されたパスを渡してセッションを移す。Codex やサブエージェントなど
+Claude Code で `EnterWorktree` が使える場合は、終わったら `path` に表示されたパスを渡してセッションを移す。Codex や Gemini CLI / Antigravity、サブエージェントなど
 セッションを移せない環境では、表示された絶対パスを workdir / cwd にして作業する。
 
 - サブエージェントなど cwd が固定された環境では、セッションを移さず worktree の絶対パスで作業する (`git -C <path>`, `pnpm -C <path>/web`, `cargo ... --manifest-path <path>/Cargo.toml` か `cd <path> && ...`)
@@ -155,6 +158,6 @@ gh pr create --title "<squash 後のコミットメッセージになる一文>"
 ### 5. マージ後
 
 - `Closes #N` で Issue は自動で閉じる。残作業があれば Issue を開け直さず、別 Issue かコメントに書く
-- メインの checkout を最新にする: (Claude Code は `ExitWorktree`、Codex は Handoff か Local タスクで戻ってから) `git switch main && git pull --ff-only`
+- メインの checkout を最新にする: (Claude Code は `ExitWorktree`、Codex は Handoff か Local タスク、Antigravity はメイン checkout のワークスペースで戻ってから) `git switch main && git pull --ff-only`
 - worktree・ローカルブランチ・`target/` の掃除は **`cleanup-workspace` スキル** で行う (PR の状態を見て安全に消す)
 - 移行で分かった非自明な挙動 (旧実装との差、ライブラリの罠) は、後続の作業でも参照できるドキュメントや Issue に残す
