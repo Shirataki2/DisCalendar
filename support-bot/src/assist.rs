@@ -699,13 +699,12 @@ pub fn redact(text: &str) -> String {
                 || lower.contains("discordapp.com/invite/")
             {
                 format!("[招待リンク]{space}")
-            } else if looks_like_email(word) {
-                format!("[メールアドレス]{space}")
             } else {
                 piece.to_owned()
             }
         })
         .collect();
+    let words = redact_emails(&words);
     let mut out = String::with_capacity(words.len());
     let mut digits = String::new();
     let flush = |digits: &mut String, out: &mut String| {
@@ -742,21 +741,49 @@ pub fn no_github_mentions(text: &str) -> String {
     out
 }
 
-fn looks_like_email(word: &str) -> bool {
-    let Some((local, domain)) = word.split_once('@') else {
-        return false;
-    };
-    let local = local.trim_start_matches(|c: char| !c.is_ascii_alphanumeric());
-    let domain = domain.trim_end_matches(|c: char| !c.is_ascii_alphanumeric());
-    !local.is_empty()
-        && local
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c))
-        && domain.contains('.')
-        && !domain.starts_with('.')
-        && domain
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c))
+/// 本文中のメールアドレスを `[メールアドレス]` に置き換える。空白で区切られていなくても (`a@x.jp、b@y.jp` など)、
+/// `@` の前後に続くメールアドレスに使える文字の範囲を 1 件ずつ見つけて置き換える
+fn redact_emails(text: &str) -> String {
+    let local_char = |c: char| c.is_ascii_alphanumeric() || "._%+-".contains(c);
+    let domain_char = |c: char| c.is_ascii_alphanumeric() || ".-".contains(c);
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '@' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        // ローカル部: 直前まで書き出した文字のうち、使える文字が続く範囲 (先頭の記号は除く)
+        let mut start = i;
+        while start > 0 && local_char(chars[start - 1]) {
+            start -= 1;
+        }
+        while start < i && !chars[start].is_ascii_alphanumeric() {
+            start += 1;
+        }
+        // ドメイン部: 後ろに続く範囲 (末尾の `.` `-` は文の区切りとして除く)
+        let mut end = i + 1;
+        while end < chars.len() && domain_char(chars[end]) {
+            end += 1;
+        }
+        while end > i + 1 && !chars[end - 1].is_ascii_alphanumeric() {
+            end -= 1;
+        }
+        let domain: String = chars[i + 1..end].iter().collect();
+        if start < i && domain.contains('.') && !domain.starts_with('.') && !domain.contains("..") {
+            // 書き出し済みのローカル部を取り消して置き換える
+            let local_len: usize = chars[start..i].iter().map(|c| c.len_utf8()).sum();
+            out.truncate(out.len() - local_len);
+            out.push_str("[メールアドレス]");
+            i = end;
+        } else {
+            out.push('@');
+            i += 1;
+        }
+    }
+    out
 }
 
 /// 埋め込みの上限に収める (省いたことが分かるようにする)
@@ -790,7 +817,7 @@ mod tests {
         );
         assert_eq!(
             redact("連絡先 (foo.bar+x@example.co.jp) まで"),
-            "連絡先 [メールアドレス] まで"
+            "連絡先 ([メールアドレス]) まで"
         );
         assert_eq!(
             redact("招待 https://discord.gg/abcdef です"),
