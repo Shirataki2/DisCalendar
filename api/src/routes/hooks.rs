@@ -327,6 +327,29 @@ fn webhook_actor_id(token: &AuthenticatedToken) -> String {
     format!("api_token:{}", token.id)
 }
 
+/// Discord スケジュールイベントの新規作成・再作成は、トークン発行者がサーバーに在籍し
+/// 「イベントの作成」(`CREATE_EVENTS`) 権限を委譲できる場合に限る。
+async fn ensure_issuer_can_create_events(
+    state: &AppState,
+    token: &AuthenticatedToken,
+) -> Result<(), ApiError> {
+    let access = state
+        .discord
+        .member_access(&token.guild_id, &token.created_by)
+        .await?
+        .ok_or_else(|| {
+            ApiError::Forbidden(
+                "the Create Events permission is required to link an event to Discord".into(),
+            )
+        })?;
+    if !access.permissions.create_events() {
+        return Err(ApiError::Forbidden(
+            "the Create Events permission is required to link an event to Discord".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn execute_create(
     state: &AppState,
     token: &AuthenticatedToken,
@@ -357,6 +380,9 @@ async fn execute_create(
 
     let discord_scheduled_event = body.discord_scheduled_event.unwrap_or(false);
     events::validate_discord_flag(body, discord_scheduled_event, now_jst())?;
+    if discord_scheduled_event {
+        ensure_issuer_can_create_events(state, token).await?;
+    }
 
     let guild_id = token.guild_id.as_str();
     let actor_id = webhook_actor_id(token);
@@ -554,6 +580,9 @@ async fn execute_update(
             .discord_scheduled_event
             .unwrap_or(old.discord_scheduled_event_id.is_some());
         events::validate_discord_flag(&body, discord_scheduled_event, now_jst())?;
+        if discord_scheduled_event && old.discord_scheduled_event_id.is_none() {
+            ensure_issuer_can_create_events(state, token).await?;
+        }
 
         if old.discord_scheduled_event_id.is_none() && !discord_scheduled_event {
             let mut tx = state.pool.begin().await?;
@@ -660,6 +689,7 @@ async fn execute_update(
                     if modified {
                         (Some(current.clone()), None)
                     } else {
+                        ensure_issuer_can_create_events(state, token).await?;
                         let mut payload = payload;
                         if let Some(storage) = storage {
                             payload = payload

@@ -132,6 +132,7 @@ pub struct AuthenticatedToken {
     pub guild_id: String,
     pub name: String,
     pub scope: ApiTokenScope,
+    pub created_by: String,
 }
 
 /// 保存済みの冪等操作
@@ -443,7 +444,7 @@ pub async fn authenticate(
     }
     let token_hash = hash_hex(raw_token.as_bytes());
     let row = sqlx::query(
-        "SELECT t.id, t.guild_id, t.name, t.scope
+        "SELECT t.id, t.guild_id, t.name, t.scope, t.created_by
          FROM guild_api_tokens t
          JOIN guilds g ON g.guild_id = t.guild_id
          WHERE t.token_hash = $1
@@ -465,6 +466,7 @@ pub async fn authenticate(
         guild_id: row.get("guild_id"),
         name: row.get("name"),
         scope: ApiTokenScope::from_db(&scope_raw)?,
+        created_by: row.get("created_by"),
     }))
 }
 

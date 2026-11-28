@@ -26,6 +26,7 @@ const GUILD: &str = "111111111111111111";
 const OTHER_GUILD: &str = "222222222222222222";
 const MANAGER_ID: &str = "333333333333333333";
 const MEMBER_ID: &str = "444444444444444444";
+const EVENT_CREATOR_ID: &str = "555555555555555555";
 
 async fn start_mock_discord() -> (String, actix_web::dev::ServerHandle) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -45,7 +46,8 @@ async fn start_mock_discord() -> (String, actix_web::dev::ServerHandle) {
                             "roles": [
                                 {"id": id, "permissions": "0", "name": "@everyone", "color": 0, "position": 0, "managed": false, "mentionable": false},
                                 {"id": "777777777777777777", "permissions": "0", "name": "NotifyRole", "color": 0, "position": 1, "managed": false, "mentionable": true},
-                                {"id": "888888888888888888", "permissions": "32", "name": "Manager", "color": 0, "position": 2, "managed": false, "mentionable": false}
+                                {"id": "888888888888888888", "permissions": "32", "name": "Manager", "color": 0, "position": 2, "managed": false, "mentionable": false},
+                                {"id": "666666666666666666", "permissions": "17592186044448", "name": "EventCreator", "color": 0, "position": 3, "managed": false, "mentionable": false}
                             ]
                         }))
                     } else {
@@ -58,11 +60,20 @@ async fn start_mock_discord() -> (String, actix_web::dev::ServerHandle) {
                 web::get().to(|path: web::Path<(String, String)>| async move {
                     let (_guild_id, user_id) = path.into_inner();
                     match user_id.as_str() {
-                        MANAGER_ID => HttpResponse::Ok().json(json!({"roles": ["888888888888888888"]})),
+                        MANAGER_ID => {
+                            HttpResponse::Ok().json(json!({"roles": ["888888888888888888"]}))
+                        }
+                        EVENT_CREATOR_ID => {
+                            HttpResponse::Ok().json(json!({"roles": ["666666666666666666"]}))
+                        }
                         MEMBER_ID => HttpResponse::Ok().json(json!({"roles": []})),
                         _ => HttpResponse::NotFound().finish(),
                     }
                 }),
+            )
+            .route(
+                "/guilds/{guild_id}/scheduled-events",
+                web::post().to(|| async { HttpResponse::Ok().json(json!({"id": "999000111"})) }),
             )
     })
     .workers(1)
@@ -583,6 +594,66 @@ async fn hooks_crud_idempotency_external_id_history_and_rate_limits(pool: PgPool
         after_web_delete["id"].as_i64().unwrap() as i32,
         recreated_id
     );
+
+    // Discord イベント連携: 発行者に CREATE_EVENTS 権限が無ければ作成・更新時の連携追加を 403 で拒否し、
+    // 権限がある発行者のトークンなら作成できる
+    let mut future_discord_event = json!({
+        "name": "Discord連携テスト",
+        "color": "#5865F2",
+        "is_all_day": false,
+        "start_at": "2099-12-01T21:00:00",
+        "end_at": "2099-12-01T22:00:00",
+        "notifications": [],
+        "discord_scheduled_event": true
+    });
+    let no_perm_create = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/hooks/guilds/{GUILD}/events"))
+            .insert_header((AUTHORIZATION, format!("Bearer {}", create_only.token)))
+            .set_json(&future_discord_event)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(no_perm_create.status(), StatusCode::FORBIDDEN);
+
+    let no_perm_update = test::call_service(
+        &app,
+        test::TestRequest::put()
+            .uri(&format!("/hooks/guilds/{GUILD}/events/{event_id}"))
+            .insert_header((AUTHORIZATION, format!("Bearer {}", writer.token)))
+            .set_json(&future_discord_event)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(no_perm_update.status(), StatusCode::FORBIDDEN);
+
+    let event_creator_token = api_tokens::create(
+        &pool,
+        GUILD,
+        "イベント連携用",
+        api_tokens::ApiTokenScope::Write,
+        None,
+        EVENT_CREATOR_ID,
+    )
+    .await
+    .unwrap();
+    future_discord_event["name"] = json!("Discord連携許可");
+    let permitted_create = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/hooks/guilds/{GUILD}/events"))
+            .insert_header((
+                AUTHORIZATION,
+                format!("Bearer {}", event_creator_token.token),
+            ))
+            .set_json(&future_discord_event)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(permitted_create.status(), StatusCode::CREATED);
+    let permitted_json: Value = test::read_body_json(permitted_create).await;
+    assert_eq!(permitted_json["discord_scheduled_event_id"], "999000111");
 
     // 24 時間経過した冪等キーは 409 になり、保持タスクで response_body が消える
     sqlx::query("UPDATE guild_api_token_operations SET created_at = now() - interval '25 hours'")
