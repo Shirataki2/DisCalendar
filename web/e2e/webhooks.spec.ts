@@ -1,6 +1,8 @@
 import { createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { expect, test } from "@playwright/test";
+import { Pool } from "pg";
+import { DATABASE_URL } from "./env";
 import { E2E_GUILDS, E2E_USER } from "./fixtures";
 import { openGuildSettings } from "./guild-settings";
 
@@ -154,5 +156,51 @@ test("Webhook の登録・署名付き配信・ログ・変更と削除・権限
       await page.request.delete(`/local/api/events/${guild}/${eventId}`);
     if (hookId) await page.request.delete(`${base}/${hookId}`);
     await new Promise<void>((resolve) => receiver.close(() => resolve()));
+  }
+});
+
+test("登録したメンバーごとの一覧は、予定を作っていない人や退出した人が登録した分も名前を解決する (#440)", async ({
+  page,
+}) => {
+  // 予定を作ったことがなく、サーバーにもいない (Discord モックが Unknown Member を返す) 登録者
+  const departed = "100000000000000099";
+  const tokenName = `退出した人のトークン ${Date.now().toString(36)}`;
+  const insert = (guildId: string) =>
+    `INSERT INTO guild_api_tokens (guild_id, name, token_prefix, token_hash, scope, created_by) VALUES ('${guildId}', '${tokenName}', 'dct_e2e00000', md5(random()::text) || md5(random()::text), 'create', '${departed}')`;
+  const pool = new Pool({ connectionString: DATABASE_URL });
+  const tokensApi = `/local/api/guilds/${E2E_GUILDS.admin.id}/api-tokens`;
+  let mine: string | undefined;
+  try {
+    await pool.query(insert(E2E_GUILDS.admin.id));
+    await pool.query(insert(E2E_GUILDS.member.id));
+    const issued = await page.request.post(tokensApi, {
+      data: { name: tokenName, scope: "create", expires_in_days: 30 },
+    });
+    expect(issued.status()).toBe(201);
+    mine = (await issued.json()).id;
+
+    // 退出した人がいても、同じ問い合わせに入る自分の名前まで取得できなくならない
+    await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+    const settings = await openGuildSettings(page, "Webhook・API トークン");
+    const byCreator = settings.getByRole("region", {
+      name: "登録したメンバーごとの一覧",
+    });
+    const groupOf = (text: string) =>
+      byCreator.getByRole("listitem").filter({ hasText: text }).first();
+    await expect(groupOf(E2E_USER.name)).toContainText(tokenName);
+    await expect(groupOf("退出したメンバー")).toContainText(tokenName);
+    await expect(
+      byCreator.getByText("メンバー情報を取得できません"),
+    ).toHaveCount(0);
+
+    // 管理権限のない人は、登録者の ID を名前に解決できない (任意 ID の確認経路を増やさない)
+    const forbidden = await page.request.get(
+      `/local/api/guilds/${E2E_GUILDS.member.id}/members?ids=${departed}`,
+    );
+    expect(forbidden.status()).toBe(400);
+  } finally {
+    await pool.query("DELETE FROM guild_api_tokens WHERE name=$1", [tokenName]);
+    await pool.end();
+    if (mine) await page.request.delete(`${tokensApi}/${mine}`);
   }
 });

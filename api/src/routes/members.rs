@@ -1,4 +1,5 @@
 //! 予定の詳細を開いたときだけ、作成者・更新者の表示名をまとめて解決する。
+//! 管理権限を持つ人は、Webhook / API トークンを登録した人の表示名も解決できる (#440)。
 use actix_web::{get, web};
 use futures_util::{StreamExt, TryStreamExt, stream};
 use serde::Deserialize;
@@ -56,11 +57,19 @@ pub async fn profiles(
     let participants: Vec<String> = sqlx::query_scalar("SELECT created_by FROM schedule_polls WHERE guild_id=$1 AND created_by=ANY($2) UNION SELECT v.user_id FROM schedule_poll_votes v JOIN schedule_poll_options o ON o.id=v.option_id JOIN schedule_polls p ON p.id=o.poll_id WHERE p.guild_id=$1 AND v.user_id=ANY($2) UNION SELECT actor_discord_user_id FROM event_history WHERE guild_id=$1 AND actor_discord_user_id=ANY($2)")
         .bind(member.guild_id()).bind(&ids).fetch_all(&state.pool).await?;
     authors.extend(participants);
+    // Webhook / API トークンを登録した人 (#440)。一覧 (登録者の ID) を見られるのは管理権限を持つ人だけなので、
+    // 解決できるのも同じ人に限る (一般メンバーに任意 ID の確認経路を増やさない)
+    if member.permissions().can_manage_server() {
+        let creators: Vec<String> = sqlx::query_scalar("SELECT created_by FROM guild_webhooks WHERE guild_id=$1 AND created_by=ANY($2) UNION SELECT created_by FROM guild_api_tokens WHERE guild_id=$1 AND created_by=ANY($2)")
+            .bind(member.guild_id()).bind(&ids).fetch_all(&state.pool).await?;
+        authors.extend(creators);
+    }
     authors.sort();
     authors.dedup();
     if authors.len() != ids.len() {
         return Err(ApiError::BadRequest(
-            "ids must be event authors or poll participants in this guild".into(),
+            "ids must be event authors, poll participants, or integration creators in this guild"
+                .into(),
         ));
     }
     let profiles = stream::iter(ids)

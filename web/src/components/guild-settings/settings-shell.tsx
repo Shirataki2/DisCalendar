@@ -54,9 +54,10 @@ export function GuildSettingsShell({
         <div className="flex flex-col gap-6 md:flex-row md:items-start">
           <nav
             aria-label={t("サーバー設定の項目")}
-            className="-mx-4 overflow-x-auto px-4 md:sticky md:top-0 md:mx-0 md:w-48 md:shrink-0 md:px-0"
+            className="md:sticky md:top-0 md:w-48 md:shrink-0"
           >
-            <ul className="flex gap-1 md:flex-col">
+            {/* スマホでは折り返して全項目を見せる (横スクロールだと端の項目に気づきにくい) */}
+            <ul className="flex flex-wrap gap-1 md:flex-col">
               {GUILD_SETTINGS_SECTIONS.map((section) => {
                 const href = guildSettingsPath(guildId, section.slug);
                 const current = pathname === href;
