@@ -10,6 +10,7 @@ import {
   useForm,
   useFormContext,
 } from "react-hook-form";
+import { ApiTokenSettings } from "@/components/api-token-settings";
 import { ExternalCalendarSettings } from "@/components/external-calendar-settings";
 import { NotificationsField } from "@/components/form/notifications-field";
 import { GuildDigestSettingsSection } from "@/components/guild-digest-settings";
@@ -470,6 +471,8 @@ function GuildSettingsForm({
         <ExternalCalendarSettings guildId={guildId} canManage={canManage} />
 
         {canManage && <WebhookSettings guildId={guildId} />}
+
+        {canManage && <ApiTokenSettings guildId={guildId} />}
 
         {canManage && <TrashSettings guildId={guildId} />}
 

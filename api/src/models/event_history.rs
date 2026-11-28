@@ -19,7 +19,10 @@ pub struct EventHistoryEntry {
     /// 操作した Discord ユーザー。利用者以外の操作なら null
     #[schema(example = "123456789012345678")]
     pub actor_discord_user_id: Option<String>,
-    /// web / bot / admin / mcp
+    /// 操作者の表示ラベル (API トークン名など)。無ければ null
+    #[schema(example = "配信スケジュール連携")]
+    pub actor_label: Option<String>,
+    /// web / bot / admin / mcp / api_token
     #[schema(example = "web")]
     pub source: String,
     /// create / update / delete / restore
@@ -40,7 +43,7 @@ pub async fn list(
     event_id: i32,
 ) -> sqlx::Result<Vec<EventHistoryEntry>> {
     sqlx::query_as(
-        "SELECT id, event_id, actor_discord_user_id, source, action, before, after, created_at
+        "SELECT id, event_id, actor_discord_user_id, actor_label, source, action, before, after, created_at
          FROM event_history
          WHERE guild_id = $1 AND event_id = $2
          ORDER BY id DESC

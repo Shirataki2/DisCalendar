@@ -28,6 +28,7 @@ function entry(
     id,
     event_id: 1,
     actor_discord_user_id: actor,
+    actor_label: null,
     source,
     action: "update",
     before: base,

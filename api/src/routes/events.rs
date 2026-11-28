@@ -40,7 +40,7 @@ const MEMBER_ACCESS_CONCURRENCY: usize = 4;
 /// 同じ予定への更新は予定単位のロックで直列化しているので、やり直しが要るのは
 /// ロックの外 (別プロセスの api、管理コンソール、Discord 側の手動操作) から
 /// 対応付けが変わったときだけ。何度も割り込まれるのは考えにくいので少なめでよい
-const UPDATE_SYNC_ATTEMPTS: u32 = 4;
+pub(crate) const UPDATE_SYNC_ATTEMPTS: u32 = 4;
 
 #[derive(Deserialize, IntoParams)]
 pub struct ListQuery {
@@ -1046,7 +1046,11 @@ fn ensure_can_create_events(member: &GuildMember) -> Result<(), ApiError> {
 }
 
 /// 予定の値から Discord スケジュールイベントのボディを組み立てる (#94)
-fn payload_for(site_base_url: &str, guild_id: &str, input: &EventInput) -> ScheduledEventPayload {
+pub(crate) fn payload_for(
+    site_base_url: &str,
+    guild_id: &str,
+    input: &EventInput,
+) -> ScheduledEventPayload {
     ScheduledEventPayload::new(
         site_base_url,
         guild_id,
@@ -1062,7 +1066,7 @@ fn payload_for(site_base_url: &str, guild_id: &str, input: &EventInput) -> Sched
 /// 予定のカバー画像 (#403) を Discord に送る形で取り出す。Discord イベントを新しく作るときに使う。
 /// 読み出せなかったら画像なしで作る (カバーのために連携そのものを失敗させない。
 /// カバーは添付欄から設定し直せる)
-async fn cover_image(
+pub(crate) async fn cover_image(
     state: &AppState,
     storage: &AttachmentStorage,
     guild_id: &str,
@@ -1117,7 +1121,7 @@ pub(crate) fn describe_scheduled_event_error(err: DiscordError) -> ApiError {
 /// イベントだけが残っている可能性がある。採番された ID が分からないので api からは消せず、
 /// 利用者には失敗として返すしかないため、後から手作業で片付けられるようログに残す
 /// (HTTP のステータスが返ってきた失敗は結果が確定しているので、この扱いはしない)
-fn describe_create_error(guild_id: &str, name: &str, err: DiscordError) -> ApiError {
+pub(crate) fn describe_create_error(guild_id: &str, name: &str, err: DiscordError) -> ApiError {
     if matches!(err, DiscordError::Http(_)) {
         tracing::warn!(guild_id, name, error = %err, "could not confirm whether a scheduled event was created: it may be left in discord");
     }
@@ -1130,7 +1134,7 @@ fn describe_create_error(guild_id: &str, name: &str, err: DiscordError) -> ApiEr
 /// 保存された予定が「消えた Discord イベント」を指してしまうので、**別の接続で対応付けを
 /// 確かめてから**消す。確かめられないときは消さない (孤児のイベントが残る方が、
 /// DB が実在しない ID を指すより直しやすい)
-async fn cleanup_unsaved_scheduled_event(
+pub(crate) async fn cleanup_unsaved_scheduled_event(
     state: &AppState,
     guild_id: &str,
     scheduled_event_id: &str,
@@ -1183,7 +1187,7 @@ async fn update_was_applied(
 /// どちらも、`COMMIT` の応答だけ失われて実際には保存されている場合があるので、
 /// **別の接続で保存されていないことを確かめてから**行う (確かめられないときは触らない)。
 /// 取り消し自体が失敗したときは warn ログだけ残す (次の編集で改めて反映される)
-async fn undo_scheduled_event_changes(
+pub(crate) async fn undo_scheduled_event_changes(
     state: &AppState,
     guild_id: &str,
     event_id: i32,
@@ -1239,7 +1243,7 @@ async fn undo_scheduled_event_changes(
 /// DB 側の失敗で対応付けを保存できなかったときの後始末と、連携の解除・予定の削除に伴う
 /// Discord 側の削除 (どちらも Discord 側の失敗で操作全体を止めない) に使う。
 /// 取り残したイベントは Discord 側で手動削除できる
-async fn cleanup_scheduled_event(
+pub(crate) async fn cleanup_scheduled_event(
     discord: &DiscordClient,
     guild_id: &str,
     scheduled_event_id: &str,

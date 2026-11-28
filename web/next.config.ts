@@ -35,6 +35,10 @@ const nextConfig: NextConfig = {
         source: "/serwist/:path*",
         headers: [{ key: "Cache-Control", value: "no-cache" }],
       },
+      {
+        source: "/hooks/:path*",
+        headers: [{ key: "Cache-Control", value: "no-store" }],
+      },
     ];
   },
   async redirects() {
@@ -62,6 +66,11 @@ const nextConfig: NextConfig = {
       {
         source: "/feeds/:path*",
         destination: `${API_URL}/feeds/:path*`,
+      },
+      // サーバー用 API トークン (#405)。外部スクリプト・CI が web オリジン経由で呼ぶ公開ルート
+      {
+        source: "/hooks/:path*",
+        destination: `${API_URL}/hooks/:path*`,
       },
     ];
   },

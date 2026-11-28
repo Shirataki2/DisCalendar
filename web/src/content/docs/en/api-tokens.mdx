@@ -1,0 +1,158 @@
+## Issue an API token
+
+In Server settings under **API tokens**, choose a token name, permission scope, and expiration, then select **Issue API token**.
+Viewing, issuing, rotating, revoking, and deleting tokens requires server management permissions. Up to 10 active tokens (and 20 total including revoked tokens) can exist per server.
+Changes take effect immediately without selecting the dialog's Save button.
+
+The token value returned when issuing or rotating (starting with `dct_`) is **shown only once**.
+Store it securely and never commit it to public repositories or client-side code. If lost, use **Rotate** to generate a new token (the previous token stops working immediately).
+
+### Scopes
+
+- **Create only (`create`)**: Can only create new events (`POST`). Cannot update or delete existing events.
+- **Create, update, and delete (`write`)**: Can create, update (`PUT`), and delete (`DELETE`, moves events to trash).
+
+Each token shows its last used timestamp and up to 20 recent call logs so you can inspect recent successes and errors.
+
+## Endpoints
+
+Send requests to `https://discalendar.app/hooks/...` with an `Authorization: Bearer <API token>` header.
+
+| Method | Path | Required scope | Description |
+|---|---|---|---|
+| `POST` | `/hooks/guilds/{guild_id}/events` | `create` / `write` | Create an event (`201 Created`). Optionally accepts `external_id` |
+| `PUT` | `/hooks/guilds/{guild_id}/events/{event_id}` | `write` | Update an event by event ID (`200 OK`) |
+| `DELETE` | `/hooks/guilds/{guild_id}/events/{event_id}` | `write` | Delete an event by event ID (`204 No Content`, moves to trash) |
+| `PUT` | `/hooks/guilds/{guild_id}/events/external/{external_id}` | `write` | Update an event by external ID, or create if absent (`200 OK` / `201 Created`) |
+| `DELETE` | `/hooks/guilds/{guild_id}/events/external/{external_id}` | `write` | Delete an event by external ID (`204 No Content`, moves to trash) |
+
+The same endpoints are documented in the OpenAPI spec (`/local/api/openapi.json`) and Swagger UI (`/local/api/docs/`).
+
+### Fields and limits
+
+Event fields and limits match the web calendar. Specify timestamps in JST without a time-zone suffix (`YYYY-MM-DDTHH:MM:SS`).
+
+- `name`: required, up to 32 characters
+- `description`: optional, up to 1,000 characters
+- `location`: optional, up to 200 characters (URLs must use `http` or `https`)
+- `color`: `#RRGGBB` format (e.g. `"#5865F2"`)
+- `is_all_day`: boolean (default `false`; for all-day events `end_at` is inclusive at `00:00:00`)
+- `start_at`, `end_at`: JST timestamps (`end_at >= start_at`)
+- `notifications`: optional, up to 10 items (`{ "num": 30, "unit": "minutes" }`, where `unit` is `minutes` / `hours` / `days` / `weeks` and `num` is 1–100)
+- `notification_mentions`: optional, up to 10 items (`{ "type": "everyone" }`, `{ "type": "role", "id": "..." }`, `{ "type": "user", "id": "..." }`, IDs as strings)
+- `discord_scheduled_event`: optional boolean (default `false`)
+- `external_id`: optional on `POST`, 1–128 characters using ASCII letters, digits, `.`, `_`, `-`, or `:`
+
+Events created or updated via a token appear in event history as `API token: <name>`, and trigger Discord notifications, Webhooks, and Discord scheduled event sync just like regular events.
+
+## Idempotency keys and external IDs
+
+### Preventing duplicates with `Idempotency-Key`
+
+When retrying a request after a network error, attach an `Idempotency-Key` header (1–128 printable ASCII characters without spaces).
+Re-sending the same key and payload returns the cached response without creating duplicates (with `Idempotency-Replayed: true` in the response headers).
+Reusing a key with different content or after the 24-hour retention window returns `409 Conflict`.
+
+### Updating and deleting by `external_id`
+
+Attaching an identifier from your own system (such as `yt:video-123` or `release:v1.2.0`) as `external_id` lets you update or delete the event later via `PUT /hooks/guilds/{guild_id}/events/external/{external_id}` and `DELETE /hooks/guilds/{guild_id}/events/external/{external_id}` without storing DisCalendar's numeric `event_id`.
+
+## Rate limits
+
+Each API token allows up to **60 requests per minute**. Repeated authentication failures are also rate-limited per IP address. Requests over the limit return `429 Too Many Requests`.
+
+## curl examples
+
+### Create an event
+
+```bash
+curl -X POST "https://discalendar.app/hooks/guilds/${GUILD_ID}/events" \
+  -H "Authorization: Bearer ${DISCALENDAR_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: release-2026-12-01" \
+  -d '{
+    "name": "Livestream event",
+    "description": "Scheduled stream for this week",
+    "color": "#5865F2",
+    "is_all_day": false,
+    "start_at": "2026-12-01T21:00:00",
+    "end_at": "2026-12-01T22:30:00",
+    "notifications": [{ "num": 30, "unit": "minutes" }],
+    "external_id": "stream:2026-12-01"
+  }'
+```
+
+### Update or delete by external ID
+
+```bash
+# Update (or create if missing)
+curl -X PUT "https://discalendar.app/hooks/guilds/${GUILD_ID}/events/external/stream:2026-12-01" \
+  -H "Authorization: Bearer ${DISCALENDAR_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Livestream event (rescheduled)",
+    "color": "#5865F2",
+    "is_all_day": false,
+    "start_at": "2026-12-01T21:30:00",
+    "end_at": "2026-12-01T23:00:00",
+    "notifications": [{ "num": 30, "unit": "minutes" }]
+  }'
+
+# Delete (moves to trash)
+curl -X DELETE "https://discalendar.app/hooks/guilds/${GUILD_ID}/events/external/stream:2026-12-01" \
+  -H "Authorization: Bearer ${DISCALENDAR_TOKEN}"
+```
+
+## GitHub Actions example
+
+Store `DISCALENDAR_GUILD_ID` and `DISCALENDAR_API_TOKEN` in repository Secrets to register or update events automatically from workflows.
+
+```yaml
+name: Register release event
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "Event title"
+        required: true
+      start_at:
+        description: "Start time in JST (YYYY-MM-DDTHH:MM:SS)"
+        required: true
+      end_at:
+        description: "End time in JST (YYYY-MM-DDTHH:MM:SS)"
+        required: true
+
+jobs:
+  notify-calendar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upsert DisCalendar event
+        env:
+          GUILD_ID: ${{ secrets.DISCALENDAR_GUILD_ID }}
+          API_TOKEN: ${{ secrets.DISCALENDAR_API_TOKEN }}
+          TITLE: ${{ inputs.title }}
+          START_AT: ${{ inputs.start_at }}
+          END_AT: ${{ inputs.end_at }}
+          EXTERNAL_ID: "gh:${{ github.repository }}:${{ github.run_id }}"
+        run: |
+          jq -n \
+            --arg name "$TITLE" \
+            --arg start_at "$START_AT" \
+            --arg end_at "$END_AT" \
+            '{
+              name: $name,
+              color: "#5865F2",
+              is_all_day: false,
+              start_at: $start_at,
+              end_at: $end_at,
+              notifications: [{ num: 30, unit: "minutes" }]
+            }' > payload.json
+
+          curl --fail-with-body -X PUT \
+            "https://discalendar.app/hooks/guilds/${GUILD_ID}/events/external/${EXTERNAL_ID}" \
+            -H "Authorization: Bearer ${API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -H "Idempotency-Key: gh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --data-binary @payload.json
+```

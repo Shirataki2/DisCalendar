@@ -1,6 +1,6 @@
 use utoipa::{
     Modify, OpenApi,
-    openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
+    openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme},
 };
 
 /// OpenAPI ドキュメント。paths / schemas は `utoipa_actix_web` がルート登録時に集める。
@@ -20,6 +20,8 @@ use utoipa::{
         (name = "shares", description = "予定の共有リンク"),
         (name = "push", description = "個人のプッシュ通知と端末"),
         (name = "webhooks", description = "予定変更の外部通知 (サーバー管理権限が必要)"),
+        (name = "api-tokens", description = "サーバー用 API トークンの管理 (サーバー管理権限が必要)"),
+        (name = "hooks", description = "サーバー用 API トークンによる外部からの予定操作 (Bearer 認証)"),
         (name = "feeds", description = "iCal フィード (外部カレンダーからの購読)"),
         (name = "admin", description = "管理コンソール (ADMIN_DISCORD_USER_IDS のユーザーのみ)"),
     ),
@@ -40,6 +42,17 @@ impl Modify for SecurityAddon {
                 "Better Auth のセッション cookie (本番では __Secure- 付き)。\
                  curl などからは同じ値を `Authorization: Bearer <value>` で渡してもよい",
             ))),
+        );
+        components.add_security_scheme(
+            "api_token",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .description(Some(
+                        "サーバー設定で発行した API トークン (`dct_...`) を `Authorization: Bearer <token>` で渡す",
+                    ))
+                    .build(),
+            ),
         );
     }
 }

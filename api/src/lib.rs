@@ -62,6 +62,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
     run_startup_migrations(&pool).await?;
     tokio::spawn(models::user_activity::complete_user_fks(pool.clone()));
+    tokio::spawn(models::api_tokens::run_retention(pool.clone()));
     tokio::spawn(mcp::run_retention(pool.clone()));
     tokio::spawn(auth_cleanup::run(pool.clone()));
     let sql_console_pool = setup_sql_console(&pool, &config).await?;
@@ -91,6 +92,10 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             .time_to_live(std::time::Duration::from_secs(24 * 3600))
             .build(),
         external_fetch_slots: tokio::sync::Semaphore::new(3),
+        api_token_rate_limits: moka::future::Cache::builder()
+            .max_capacity(100_000)
+            .time_to_live(std::time::Duration::from_secs(60))
+            .build(),
         started_at: chrono::Utc::now(),
     });
     if config.admin_discord_user_ids.is_empty() {

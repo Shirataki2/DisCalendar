@@ -1355,4 +1355,55 @@ export const english: Readonly<
     "Use it from a phone browser or Discord",
   "予定の追加・編集はスマホのブラウザからもでき、Discord の /create や /list コマンドでも同じカレンダーを扱えます。":
     "Add and edit events from a phone browser, or use the /create and /list commands in Discord for the same calendar.",
+  // サーバー用 API トークン (#405)
+  "API トークン": "API tokens",
+  "外部のスクリプトや GitHub Actions などから HTTP 経由で予定を作成・更新・削除するためのトークンです。操作はその場で反映されます。":
+    "Issue tokens for scripts or GitHub Actions to create, update, and delete events over HTTP. Changes take effect immediately.",
+  "API トークン（一度だけ表示）": "API token (shown only once)",
+  トークン名: "Token name",
+  "例: 配信スケジュール連携": "e.g., Stream schedule sync",
+  権限: "Scope",
+  作成のみ: "Create only",
+  "作成・更新・削除": "Create, update, and delete",
+  有効期限: "Expiration",
+  "30 日": "30 days",
+  "90 日": "90 days",
+  "365 日": "365 days",
+  無期限: "No expiration",
+  "API トークンを発行（有効 {count}/10）":
+    "Issue API token ({count}/10 active)",
+  失効済み: "Revoked",
+  期限切れ: "Expired",
+  "期限: {date}": "Expires: {date}",
+  "最終利用: {date}": "Last used: {date}",
+  "古いトークンは即座に使えなくなります。新しいトークンを再発行しますか？":
+    "The previous token will stop working immediately. Issue a new token?",
+  ローテーション: "Rotate",
+  "この API トークンを失効させますか？": "Revoke this API token?",
+  失効させる: "Revoke",
+  "この API トークンと呼び出しログを削除しますか？":
+    "Delete this API token and its call logs?",
+  "直近の呼び出しログ（最大20件）": "Recent call logs (up to 20)",
+  呼び出し履歴はありません: "No call history yet.",
+  "API トークン: {name}": "API token: {name}",
+  不明: "Unknown",
+  サーバー管理権限が必要です: "Server management permissions are required.",
+  トークン名を入力してください: "Enter a token name.",
+  "トークン名は 64 文字以内で入力してください":
+    "Token name must be 64 characters or fewer.",
+  トークン名に制御文字は使用できません:
+    "Token name must not contain control characters.",
+  "有効期限は 1〜3650 日の範囲で指定してください":
+    "Expiration must be between 1 and 3650 days.",
+  ギルドが見つかりません: "Server not found.",
+  "有効な API トークンは 1 サーバー 10 件までです":
+    "You can have up to 10 active API tokens per server.",
+  "API トークンは失効済みを含めて 1 サーバー 20 件までです。不要なトークンを削除してください":
+    "You can have up to 20 API tokens per server including revoked ones. Delete unused tokens first.",
+  "API トークンが見つかりません": "API token not found.",
+  "失効済みの API トークンはローテーションできません":
+    "Revoked API tokens cannot be rotated.",
+  "API トークンで予定を登録する": "Register events with API tokens",
+  "サーバー用の API トークンを発行し、curl や GitHub Actions などの外部スクリプトから予定を作成・更新・削除する方法。":
+    "How to issue server API tokens and create, update, or delete events from curl, GitHub Actions, or other scripts.",
 };

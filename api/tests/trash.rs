@@ -412,6 +412,12 @@ async fn rollback_purges_the_trash_before_dropping_the_columns(pool: PgPool) {
 
     // 後から入ったマイグレーションは新しい順に戻す
     sqlx::raw_sql(include_str!(
+        "../rollback/20261128000000_drop_guild_api_tokens.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
         "../rollback/20261121000000_drop_attachment_discord_cover.sql"
     ))
     .execute(&pool)

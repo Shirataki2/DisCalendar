@@ -78,7 +78,9 @@ pub async fn validate_targets(
         && user_count > 0
         && !discord.reserve_mention_lookups(actor_id, user_count).await
     {
-        return Err(ApiError::TooManyRequests);
+        return Err(ApiError::TooManyRequests(
+            "メンバーの確認が多すぎます。1分ほど待ってから再試行してください".into(),
+        ));
     }
     let members: Vec<bool> = stream::iter(mentions.iter().filter_map(|mention| match mention {
         NotificationMention::User { id } => Some(id),

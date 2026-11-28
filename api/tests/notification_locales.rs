@@ -48,6 +48,7 @@ async fn server_locale_requires_membership_and_management_permissions(pool: PgPo
         activity_days: moka::future::Cache::new(10),
         external_feeds: moka::future::Cache::new(10),
         external_fetch_slots: tokio::sync::Semaphore::new(4),
+        api_token_rate_limits: moka::future::Cache::new(100),
         admin: AdminConfig::default(),
         started_at: chrono::Utc::now(),
     });
@@ -171,6 +172,12 @@ async fn server_locale_requires_membership_and_management_permissions(pool: PgPo
         .unwrap();
     assert_eq!(title, "日本語の予定", "利用者の入力は翻訳しない");
     // 後から入ったマイグレーションも新しい順に戻してから検証する
+    sqlx::raw_sql(include_str!(
+        "../rollback/20261128000000_drop_guild_api_tokens.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::raw_sql(include_str!(
         "../rollback/20261121000000_drop_attachment_discord_cover.sql"
     ))

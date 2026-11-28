@@ -45,6 +45,7 @@ const CREATION_SOURCE_LABELS: Record<string, string> = {
   bot: "Bot のコマンド",
   admin: "管理コンソール",
   mcp: "AI アシスタント (MCP)",
+  api_token: "API トークン",
 };
 
 export const metadata: Metadata = {

@@ -45,6 +45,7 @@ const SOURCE_LABELS = {
   bot: "Bot から",
   admin: "管理コンソールから",
   mcp: "AI アシスタントから",
+  api_token: null,
 } as const;
 
 /** 予定の変更履歴 (#165)。新しい順に、更新は変わった項目だけを並べる */
@@ -178,6 +179,13 @@ function Actor({
   // 管理コンソールの操作者はサーバーのメンバーとは限らないので、名前を引かずに「運営」と出す
   if (entry.source === "admin") {
     return <span className="font-medium">{t("DisCalendar の運営")}</span>;
+  }
+  if (entry.source === "api_token") {
+    return (
+      <span className="font-medium">
+        {t("API トークン: {name}", { name: entry.actor_label ?? t("不明") })}
+      </span>
+    );
   }
   const id = entry.actor_discord_user_id;
   if (!id) return <span className="font-medium">{t("記録なし")}</span>;

@@ -12,6 +12,7 @@ pub mod admin_sql;
 pub mod admin_stats;
 pub mod admin_status;
 pub mod admin_users;
+pub mod api_tokens;
 pub mod attachments;
 pub mod digest;
 pub mod event_history;

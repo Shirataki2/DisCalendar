@@ -105,6 +105,16 @@ pub async fn attach_created(
     input: &EventInput,
     actor: &str,
 ) -> Result<(), ApiError> {
+    attach_created_with_actor(conn, guild, event, input, Some(actor)).await
+}
+
+pub async fn attach_created_with_actor(
+    conn: &mut PgConnection,
+    guild: &str,
+    event: i32,
+    input: &EventInput,
+    actor: Option<&str>,
+) -> Result<(), ApiError> {
     let Some(rule) = input.recurrence.as_ref().filter(|r| r.enabled()) else {
         return Ok(());
     };
@@ -196,6 +206,16 @@ pub async fn update(
     input: &EventInput,
     actor: &str,
 ) -> Result<Option<EventRow>, ApiError> {
+    update_with_actor(conn, guild, id, input, Some(actor)).await
+}
+
+pub async fn update_with_actor(
+    conn: &mut PgConnection,
+    guild: &str,
+    id: i32,
+    input: &EventInput,
+    actor: Option<&str>,
+) -> Result<Option<EventRow>, ApiError> {
     let mut input = input.clone();
     if input.notification_mentions.is_none() {
         let mentions: Option<serde_json::Value> = sqlx::query_scalar(
@@ -220,8 +240,9 @@ pub async fn update(
                     "Discordイベント連携を解除してから繰り返しを設定してください".into(),
                 ));
             }
-            let row = events::update(&mut *conn, guild, id, input, actor, now_jst()).await?;
-            attach_created(conn, guild, id, input, actor).await?;
+            let row =
+                events::update_with_actor(&mut *conn, guild, id, input, actor, now_jst()).await?;
+            attach_created_with_actor(conn, guild, id, input, actor).await?;
             return Ok(row);
         }
         return Ok(None);
@@ -238,7 +259,7 @@ pub async fn update(
                 "繰り返し条件の変更は「この回以降」を選択してください".into(),
             ));
         }
-        let row = events::update(&mut *conn, guild, id, input, actor, now_jst()).await?;
+        let row = events::update_with_actor(&mut *conn, guild, id, input, actor, now_jst()).await?;
         store::record_exception(conn, guild, id, false).await?;
         return Ok(row);
     }
@@ -320,12 +341,12 @@ pub async fn update(
             &rule,
             input.start_at,
             input.end_at,
-            &series.created_by,
+            series.created_by.as_deref(),
             series.created_at,
         )
         .await?;
         next.updated_at = Some(now_jst());
-        next.updated_by = Some(actor.to_owned());
+        next.updated_by = actor.map(str::to_owned);
         sqlx::query(
             "UPDATE event_series SET updated_at=$2,updated_by=$3,is_creation=false WHERE id=$1",
         )
@@ -423,7 +444,7 @@ pub async fn update(
         .execute(&mut *conn)
         .await?;
     if detached.contains(&id) {
-        events::update(&mut *conn, guild, id, input, actor, now_jst()).await?;
+        events::update_with_actor(&mut *conn, guild, id, input, actor, now_jst()).await?;
     }
     if let Some(next) = next {
         // 例外は日時・共通項目をそのまま保持し、通常回だけ新しいフォーム値を反映する。

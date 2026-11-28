@@ -8,12 +8,14 @@ mod admin_ops;
 mod admin_sql;
 mod admin_status;
 mod admin_users;
+mod api_tokens;
 mod attachments;
 pub(crate) mod events;
 mod external_calendars;
 mod feeds;
 mod guilds;
 mod health;
+mod hooks;
 mod imports;
 mod invite_clicks;
 mod member;
@@ -79,7 +81,22 @@ pub fn configure(cfg: &mut ServiceConfig) {
                 .service(webhooks::set_enabled)
                 .service(webhooks::remove)
                 .service(webhooks::rotate)
-                .service(webhooks::test_send),
+                .service(webhooks::test_send)
+                .service(api_tokens::list)
+                .service(api_tokens::create)
+                .service(api_tokens::rotate)
+                .service(api_tokens::revoke)
+                .service(api_tokens::remove),
+        )
+        // サーバー用 API トークンで呼び出す外部公開ルート (#405)
+        // `/external/{external_id}` は `/{event_id}` より先に登録する必要がある
+        .service(
+            scope("/hooks")
+                .service(hooks::create_event)
+                .service(hooks::upsert_by_external_id)
+                .service(hooks::delete_by_external_id)
+                .service(hooks::update_event)
+                .service(hooks::delete_event),
         )
         // iCal フィードの配信 (#95)。認証なしのデータ取得ルート (トークンが URL に入る)
         .service(feeds::download_feed)

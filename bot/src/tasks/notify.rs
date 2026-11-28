@@ -786,7 +786,7 @@ mod tests {
             &rule,
             start,
             start + Duration::hours(1),
-            "333",
+            Some("333"),
             now,
         )
         .await

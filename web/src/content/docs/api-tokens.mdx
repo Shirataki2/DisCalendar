@@ -1,0 +1,158 @@
+## API トークンを発行する
+
+サーバー設定の「API トークン」でトークン名・権限・有効期限を指定し、「API トークンを発行」を押します。
+発行・閲覧・ローテーション・失効・削除にはサーバー管理権限が必要です。有効なトークンは 1 サーバーあたり 10 件まで（失効済みを含めて 20 件まで）発行できます。
+操作はその場で反映され、サーバー設定の「保存」を押す必要はありません。
+
+発行時とローテーション時に表示されるトークン（`dct_` で始まる文字列）は **1 回だけ表示** されます。
+安全な場所に保存し、公開リポジトリやフロントエンドのコードには埋め込まないでください。紛失した場合は「ローテーション」で新しいトークンを再発行します（古いトークンは即座に使えなくなります）。
+
+### 権限
+
+- **作成のみ (`create`)**: 新しい予定の作成（`POST`）だけを行えます。既存の予定の更新・削除はできません。
+- **作成・更新・削除 (`write`)**: 予定の作成に加えて、更新（`PUT`）と削除（`DELETE`、ゴミ箱への移動）も行えます。
+
+各トークンには最終利用日時と直近 20 件の呼び出しログが表示され、いつどの操作が成功・失敗したかを確認できます。
+
+## エンドポイント
+
+リクエストは `https://discalendar.app/hooks/...` に対して、`Authorization: Bearer <APIトークン>` ヘッダを付けて送ります。
+
+| メソッド | パス | 必要な権限 | 内容 |
+|---|---|---|---|
+| `POST` | `/hooks/guilds/{guild_id}/events` | `create` / `write` | 予定を作成します（`201 Created`）。任意の `external_id` を付けられます |
+| `PUT` | `/hooks/guilds/{guild_id}/events/{event_id}` | `write` | 予定 ID を指定して更新します（`200 OK`） |
+| `DELETE` | `/hooks/guilds/{guild_id}/events/{event_id}` | `write` | 予定 ID を指定して削除します（`204 No Content`、ゴミ箱へ移動） |
+| `PUT` | `/hooks/guilds/{guild_id}/events/external/{external_id}` | `write` | 外部 ID を指定して更新、未登録なら新規作成します（`200 OK` / `201 Created`） |
+| `DELETE` | `/hooks/guilds/{guild_id}/events/external/{external_id}` | `write` | 外部 ID を指定して削除します（`204 No Content`、ゴミ箱へ移動） |
+
+OpenAPI 仕様（`/local/api/openapi.json`）と Swagger UI（`/local/api/docs/`）にも同じエンドポイントが掲載されています。
+
+### 入力項目と上限
+
+予定の入力項目と上限は Web からの作成と同じです。日時はタイムゾーンなしの日本時間（JST: `YYYY-MM-DDTHH:MM:SS`）で指定します。
+
+- `name`: 必須、32 文字以内
+- `description`: 任意、1000 文字以内
+- `location`: 任意、200 文字以内（URL の場合は `http` / `https` のみ）
+- `color`: `#RRGGBB` 形式（例: `"#5865F2"`）
+- `is_all_day`: 真偽値（既定 `false`。終日予定の `end_at` はその日を含む最終日の `00:00:00`）
+- `start_at`, `end_at`: JST 日時（`end_at >= start_at`）
+- `notifications`: 任意、最大 10 件（`{ "num": 30, "unit": "minutes" }`、`unit` は `minutes` / `hours` / `days` / `weeks`、`num` は 1〜100）
+- `notification_mentions`: 任意、最大 10 件（`{ "type": "everyone" }`、`{ "type": "role", "id": "..." }`、`{ "type": "user", "id": "..." }`、ID は文字列）
+- `discord_scheduled_event`: 任意（既定 `false`）
+- `external_id`: 任意（`POST` 時のみ）、1〜128 文字、半角英数字と `.` `_` `-` `:` のみ
+
+作成・更新された予定の変更履歴には「API トークン: \<トークン名\>」として記録され、Discord 通知・Webhook・Discord イベント連携は通常の予定と同じように動作します。
+
+## 冪等キーと外部 ID
+
+### `Idempotency-Key` による重複防止
+
+ネットワークエラーなどで同じリクエストを再送するときは、`Idempotency-Key` ヘッダ（1〜128 文字の空白を含まない ASCII 文字列）を付けてください。
+同じキーと内容で再送すると、予定を重複作成せずに前回のレスポンスを返します（レスポンスヘッダに `Idempotency-Replayed: true` が付きます）。
+同じキーで異なる内容を送った場合や、保持期間（24 時間）を過ぎたキーを再利用した場合は `409 Conflict` になります。
+
+### `external_id` による更新・削除
+
+外部システム側の ID（例: `yt:video-123` や `release:v1.2.0`）を `external_id` として付けておくと、DisCalendar の数値 `event_id` を控えなくても、あとから `PUT /hooks/guilds/{guild_id}/events/external/{external_id}` や `DELETE /hooks/guilds/{guild_id}/events/external/{external_id}` で同じ予定を更新・削除できます。
+
+## 頻度制限
+
+API トークンごとに **1 分あたり 60 リクエスト** まで受け付けます。認証に連続して失敗した場合も IP 単位で制限されます。超過時は `429 Too Many Requests` を返します。
+
+## curl の例
+
+### 予定を作成する
+
+```bash
+curl -X POST "https://discalendar.app/hooks/guilds/${GUILD_ID}/events" \
+  -H "Authorization: Bearer ${DISCALENDAR_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: release-2026-12-01" \
+  -d '{
+    "name": "配信イベント",
+    "description": "今週の配信予定です",
+    "color": "#5865F2",
+    "is_all_day": false,
+    "start_at": "2026-12-01T21:00:00",
+    "end_at": "2026-12-01T22:30:00",
+    "notifications": [{ "num": 30, "unit": "minutes" }],
+    "external_id": "stream:2026-12-01"
+  }'
+```
+
+### 外部 ID で更新・削除する
+
+```bash
+# 更新 (無ければ新規作成)
+curl -X PUT "https://discalendar.app/hooks/guilds/${GUILD_ID}/events/external/stream:2026-12-01" \
+  -H "Authorization: Bearer ${DISCALENDAR_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "配信イベント（時間変更）",
+    "color": "#5865F2",
+    "is_all_day": false,
+    "start_at": "2026-12-01T21:30:00",
+    "end_at": "2026-12-01T23:00:00",
+    "notifications": [{ "num": 30, "unit": "minutes" }]
+  }'
+
+# 削除 (ゴミ箱へ移動)
+curl -X DELETE "https://discalendar.app/hooks/guilds/${GUILD_ID}/events/external/stream:2026-12-01" \
+  -H "Authorization: Bearer ${DISCALENDAR_TOKEN}"
+```
+
+## GitHub Actions の例
+
+リポジトリの Secrets に `DISCALENDAR_GUILD_ID` と `DISCALENDAR_API_TOKEN` を登録しておくと、リリースや定期実行ワークフローから予定を自動登録できます。
+
+```yaml
+name: Register release event
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "Event title"
+        required: true
+      start_at:
+        description: "Start time in JST (YYYY-MM-DDTHH:MM:SS)"
+        required: true
+      end_at:
+        description: "End time in JST (YYYY-MM-DDTHH:MM:SS)"
+        required: true
+
+jobs:
+  notify-calendar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upsert DisCalendar event
+        env:
+          GUILD_ID: ${{ secrets.DISCALENDAR_GUILD_ID }}
+          API_TOKEN: ${{ secrets.DISCALENDAR_API_TOKEN }}
+          TITLE: ${{ inputs.title }}
+          START_AT: ${{ inputs.start_at }}
+          END_AT: ${{ inputs.end_at }}
+          EXTERNAL_ID: "gh:${{ github.repository }}:${{ github.run_id }}"
+        run: |
+          jq -n \
+            --arg name "$TITLE" \
+            --arg start_at "$START_AT" \
+            --arg end_at "$END_AT" \
+            '{
+              name: $name,
+              color: "#5865F2",
+              is_all_day: false,
+              start_at: $start_at,
+              end_at: $end_at,
+              notifications: [{ num: 30, unit: "minutes" }]
+            }' > payload.json
+
+          curl --fail-with-body -X PUT \
+            "https://discalendar.app/hooks/guilds/${GUILD_ID}/events/external/${EXTERNAL_ID}" \
+            -H "Authorization: Bearer ${API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -H "Idempotency-Key: gh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --data-binary @payload.json
+```
