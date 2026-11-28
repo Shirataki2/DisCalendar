@@ -675,6 +675,13 @@ pub async fn soft_delete_with_actor(
         return Ok(false);
     }
     super::event_links::delete(&mut *conn, guild_id, id).await?;
+    sqlx::query!(
+        "DELETE FROM event_external_ids WHERE guild_id = $1 AND event_id = $2",
+        guild_id,
+        id
+    )
+    .execute(&mut *conn)
+    .await?;
     sqlx::query!("DELETE FROM push_outbox WHERE event_id = $1", id)
         .execute(&mut *conn)
         .await?;

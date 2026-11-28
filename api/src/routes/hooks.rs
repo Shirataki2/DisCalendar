@@ -312,7 +312,15 @@ async fn validate_mentions_for_token(
             "メンバーの確認が多すぎます。1分ほど待ってから再試行してください".into(),
         ));
     }
-    notification_mentions::validate_targets(&state.discord, guild_id, None, Some(mentions)).await
+    // API トークンはサーバー管理権限で発行されるが、Discord の MENTION_EVERYONE 権限までは委譲しない。
+    // メンション可能なロールとサーバー所属ユーザーのみを許可する。
+    notification_mentions::validate_targets_for_guild(
+        &state.discord,
+        guild_id,
+        false,
+        Some(mentions),
+    )
+    .await
 }
 
 fn webhook_actor_id(token: &AuthenticatedToken) -> String {
@@ -812,7 +820,6 @@ async fn execute_delete(
         events::delete_permanently(&mut *tx, guild_id, event_id).await?;
     } else {
         events::soft_delete_with_actor(&mut tx, guild_id, event_id, None, now_jst()).await?;
-        api_tokens::unlink_external_id_by_event_id(&mut tx, guild_id, event_id).await?;
         event_history::record_with_label(
             &mut tx,
             guild_id,

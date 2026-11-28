@@ -39,7 +39,7 @@ Event fields and limits match the web calendar. Specify timestamps in JST withou
 - `is_all_day`: boolean (default `false`; for all-day events `end_at` is inclusive at `00:00:00`)
 - `start_at`, `end_at`: JST timestamps (`end_at >= start_at`)
 - `notifications`: optional, up to 10 items (`{ "num": 30, "unit": "minutes" }`, where `unit` is `minutes` / `hours` / `days` / `weeks` and `num` is 1–100)
-- `notification_mentions`: optional, up to 10 items (`{ "type": "everyone" }`, `{ "type": "role", "id": "..." }`, `{ "type": "user", "id": "..." }`, IDs as strings)
+- `notification_mentions`: optional, up to 10 items (`{ "type": "role", "id": "..." }`, `{ "type": "user", "id": "..." }`, IDs as strings. Via API tokens, only mentionable roles and server members are allowed; `@everyone` and non-mentionable roles are rejected)
 - `discord_scheduled_event`: optional boolean (default `false`)
 - `external_id`: optional on `POST`, 1–128 characters using ASCII letters, digits, `.`, `_`, `-`, or `:`
 
@@ -134,7 +134,7 @@ jobs:
           TITLE: ${{ inputs.title }}
           START_AT: ${{ inputs.start_at }}
           END_AT: ${{ inputs.end_at }}
-          EXTERNAL_ID: "gh:${{ github.repository }}:${{ github.run_id }}"
+          EXTERNAL_ID: "gh:${{ github.repository_id }}:${{ github.run_id }}"
         run: |
           jq -n \
             --arg name "$TITLE" \

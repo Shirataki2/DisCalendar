@@ -11,7 +11,7 @@ use discalendar_api::{
     discord::DiscordClient,
     models::{
         api_tokens::{self, AUTH_FAILURE_LIMIT_PER_MINUTE, RATE_LIMIT_PER_MINUTE},
-        event_history,
+        event_history, events, now_jst,
     },
     openapi::ApiDoc,
     routes,
@@ -43,8 +43,9 @@ async fn start_mock_discord() -> (String, actix_web::dev::ServerHandle) {
                             "icon": null,
                             "owner_id": "999999999999999999",
                             "roles": [
-                                {"id": id, "permissions": "0", "name": "@everyone", "color": 0, "position": 0, "managed": false},
-                                {"id": "888888888888888888", "permissions": "32", "name": "Manager", "color": 0, "position": 1, "managed": false}
+                                {"id": id, "permissions": "0", "name": "@everyone", "color": 0, "position": 0, "managed": false, "mentionable": false},
+                                {"id": "777777777777777777", "permissions": "0", "name": "NotifyRole", "color": 0, "position": 1, "managed": false, "mentionable": true},
+                                {"id": "888888888888888888", "permissions": "32", "name": "Manager", "color": 0, "position": 2, "managed": false, "mentionable": false}
                             ]
                         }))
                     } else {
@@ -373,6 +374,38 @@ async fn hooks_crud_idempotency_external_id_history_and_rate_limits(pool: PgPool
     .await;
     assert_eq!(invalid_res.status(), StatusCode::BAD_REQUEST);
 
+    // 通知メンション: @everyone とメンション不可ロールは 403、メンション可能ロールは 201
+    for mention in [
+        json!([{"type": "everyone"}]),
+        json!([{"type": "role", "id": "888888888888888888"}]),
+    ] {
+        let mut body = event_payload("一斉メンション不可");
+        body["notification_mentions"] = mention;
+        let res = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/hooks/guilds/{GUILD}/events"))
+                .insert_header((AUTHORIZATION, format!("Bearer {}", create_only.token)))
+                .set_json(&body)
+                .to_request(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+    let mut mentionable_body = event_payload("メンション可能ロール");
+    mentionable_body["notification_mentions"] =
+        json!([{"type": "role", "id": "777777777777777777"}]);
+    let mentionable_res = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/hooks/guilds/{GUILD}/events"))
+            .insert_header((AUTHORIZATION, format!("Bearer {}", create_only.token)))
+            .set_json(&mentionable_body)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(mentionable_res.status(), StatusCode::CREATED);
+
     // create_only トークンで作成 + 冪等キー
     let mut create_body = event_payload("配信予定");
     create_body["external_id"] = json!("yt:live-1");
@@ -497,6 +530,7 @@ async fn hooks_crud_idempotency_external_id_history_and_rate_limits(pool: PgPool
         webhook_actors,
         vec![
             format!("api_token:{}", create_only.id),
+            format!("api_token:{}", create_only.id),
             format!("api_token:{}", writer.id),
             format!("api_token:{}", writer.id),
         ]
@@ -523,7 +557,32 @@ async fn hooks_crud_idempotency_external_id_history_and_rate_limits(pool: PgPool
     .await;
     assert_eq!(upsert_recreate.status(), StatusCode::CREATED);
     let recreated: Value = test::read_body_json(upsert_recreate).await;
-    assert_ne!(recreated["id"].as_i64().unwrap() as i32, second_id);
+    let recreated_id = recreated["id"].as_i64().unwrap() as i32;
+    assert_ne!(recreated_id, second_id);
+
+    // Web / MCP / 管理コンソール共通の論理削除 (events::soft_delete) で消した場合も外部 ID が解除され再登録できる
+    let mut conn = pool.acquire().await.unwrap();
+    assert!(
+        events::soft_delete(&mut conn, GUILD, recreated_id, MANAGER_ID, now_jst())
+            .await
+            .unwrap()
+    );
+    drop(conn);
+    let upsert_after_web_delete = test::call_service(
+        &app,
+        test::TestRequest::put()
+            .uri(&format!("/hooks/guilds/{GUILD}/events/external/yt:live-2"))
+            .insert_header((AUTHORIZATION, format!("Bearer {}", writer.token)))
+            .set_json(event_payload("Web削除後の再登録"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(upsert_after_web_delete.status(), StatusCode::CREATED);
+    let after_web_delete: Value = test::read_body_json(upsert_after_web_delete).await;
+    assert_ne!(
+        after_web_delete["id"].as_i64().unwrap() as i32,
+        recreated_id
+    );
 
     // 24 時間経過した冪等キーは 409 になり、保持タスクで response_body が消える
     sqlx::query("UPDATE guild_api_token_operations SET created_at = now() - interval '25 hours'")

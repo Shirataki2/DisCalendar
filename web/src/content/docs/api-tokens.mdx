@@ -39,7 +39,7 @@ OpenAPI 仕様（`/local/api/openapi.json`）と Swagger UI（`/local/api/docs/`
 - `is_all_day`: 真偽値（既定 `false`。終日予定の `end_at` はその日を含む最終日の `00:00:00`）
 - `start_at`, `end_at`: JST 日時（`end_at >= start_at`）
 - `notifications`: 任意、最大 10 件（`{ "num": 30, "unit": "minutes" }`、`unit` は `minutes` / `hours` / `days` / `weeks`、`num` は 1〜100）
-- `notification_mentions`: 任意、最大 10 件（`{ "type": "everyone" }`、`{ "type": "role", "id": "..." }`、`{ "type": "user", "id": "..." }`、ID は文字列）
+- `notification_mentions`: 任意、最大 10 件（`{ "type": "role", "id": "..." }`、`{ "type": "user", "id": "..." }`、ID は文字列。API トークン経由ではメンション可能なロールとサーバー所属ユーザーのみ指定でき、`@everyone` やメンション不可ロールは指定できません）
 - `discord_scheduled_event`: 任意（既定 `false`）
 - `external_id`: 任意（`POST` 時のみ）、1〜128 文字、半角英数字と `.` `_` `-` `:` のみ
 
@@ -134,7 +134,7 @@ jobs:
           TITLE: ${{ inputs.title }}
           START_AT: ${{ inputs.start_at }}
           END_AT: ${{ inputs.end_at }}
-          EXTERNAL_ID: "gh:${{ github.repository }}:${{ github.run_id }}"
+          EXTERNAL_ID: "gh:${{ github.repository_id }}:${{ github.run_id }}"
         run: |
           jq -n \
             --arg name "$TITLE" \

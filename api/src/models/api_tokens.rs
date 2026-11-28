@@ -655,20 +655,6 @@ pub async fn link_external_id(
     Ok(())
 }
 
-/// 予定の削除時に外部 ID の紐付けを解除する
-pub async fn unlink_external_id_by_event_id(
-    conn: &mut PgConnection,
-    guild_id: &str,
-    event_id: i32,
-) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM event_external_ids WHERE guild_id = $1 AND event_id = $2")
-        .bind(guild_id)
-        .bind(event_id)
-        .execute(conn)
-        .await?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
