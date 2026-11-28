@@ -2,6 +2,7 @@
 
 import { CheckIcon, ChevronsUpDownIcon, SettingsIcon } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { DonationNotice } from "@/components/donation-notice";
 import { EventCalendar } from "@/components/event-calendar";
 import { FirstEventGuide } from "@/components/first-event-guide";
@@ -59,7 +60,9 @@ export function GuildDashboard({
   const eventSummaryQuery = useGuildEventSummaryQuery(guildId);
   // 取得できるまで・失敗したときは出さない (予定があるサーバーに一瞬でも出さないため)
   const showFirstEventGuide = eventSummaryQuery.data?.has_events === false;
-  const settingsHref = guildSettingsPath(guildId);
+  // サーバー設定から「カレンダーに戻る」で同じ日付を開けるよう、表示中の日付を設定ページへ渡す (#440)
+  const [displayDate, setDisplayDate] = useState(initialDate);
+  const settingsHref = guildSettingsPath(guildId, "", displayDate);
 
   const canEdit = canEditEvents(
     permissionsQuery.isError ? undefined : permissionsQuery.data,
@@ -110,6 +113,7 @@ export function GuildDashboard({
         canEdit={canEdit}
         initialDate={initialDate}
         initialEventId={initialEventId}
+        onDisplayDateChange={setDisplayDate}
         // 新規作成の事前通知の初期値はサーバー設定 (#181)。RSC で hydrate 済みなので通常は取れている
         defaultNotifications={configQuery.data?.default_notifications}
         notice={

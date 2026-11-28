@@ -33,7 +33,9 @@ test("予定がなければ案内から最初の予定を作れ、作ると案�
   await expect(settingsLink).toBeHidden();
   await guide.getByText("あわせて設定しておくと便利です").click();
   await settingsLink.click();
-  await expect(page).toHaveURL(new RegExp(`/dashboard/${guildId}/settings$`));
+  await expect(page).toHaveURL(
+    new RegExp(`/dashboard/${guildId}/settings(?:\\?|$)`),
+  );
   await expect(
     page.getByRole("heading", { name: "Discord への通知" }),
   ).toBeVisible();

@@ -94,6 +94,34 @@ test.describe("管理権限のあるギルド", () => {
   });
 });
 
+test("カレンダーで表示していた日付は、設定の節を切り替えても保たれ、「カレンダーに戻る」で開き直せる (#440)", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date("2026-10-15T12:00:00+09:00"));
+  await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+  await expect(
+    page.locator('[role="gridcell"][data-date="2026-10-20"]'),
+  ).toBeVisible();
+  // 翌月へ移ってから設定を開く
+  await page.getByRole("button", { name: "次", exact: true }).click();
+  await expect(
+    page.locator('[role="gridcell"][data-date="2026-11-20"]'),
+  ).toBeVisible();
+  await openSettings(page);
+  await expect(page).toHaveURL(/\/settings\?date=2026-11-/);
+  await page
+    .getByRole("navigation", { name: "サーバー設定の項目" })
+    .getByRole("link", { name: "削除した予定", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/settings\/trash\?date=2026-11-/);
+
+  await backToCalendar(page);
+  await expect(page).toHaveURL(/\?date=2026-11-/);
+  await expect(
+    page.locator('[role="gridcell"][data-date="2026-11-20"]'),
+  ).toBeVisible();
+});
+
 test.describe("サーバー ID のコピー (#440)", () => {
   test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 
@@ -146,9 +174,9 @@ test.describe("未保存の変更 (#440)", () => {
     await nav
       .getByRole("link", { name: "外部カレンダー", exact: true })
       .click();
-    await expect(page).toHaveURL(/\/settings\/calendars$/);
+    await expect(page).toHaveURL(/\/settings\/calendars(?:\?|$)/);
     await nav.getByRole("link", { name: "全般", exact: true }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings(?:\?|$)/);
 
     await checkbox.check();
     // 「編集を続ける」でとどまり、入力も残る
@@ -158,7 +186,7 @@ test.describe("未保存の変更 (#440)", () => {
     await expect(confirm).toBeVisible();
     await confirm.getByRole("button", { name: "編集を続ける" }).click();
     await expect(confirm).toBeHidden();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings(?:\?|$)/);
     await expect(checkbox).toBeChecked();
 
     // 再読み込みはブラウザ標準の確認 (beforeunload) で止まる
@@ -168,7 +196,7 @@ test.describe("未保存の変更 (#440)", () => {
     const dialog = await beforeUnload;
     expect(dialog.type()).toBe("beforeunload");
     await dialog.dismiss();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings(?:\?|$)/);
     await expect(checkbox).toBeChecked();
 
     // 「破棄して移動」でカレンダーへ移り、変更は保存されない
@@ -195,7 +223,7 @@ test.describe("未保存の変更 (#440)", () => {
     await nav
       .getByRole("link", { name: "外部カレンダー", exact: true })
       .click();
-    await expect(page).toHaveURL(/\/settings\/calendars$/);
+    await expect(page).toHaveURL(/\/settings\/calendars(?:\?|$)/);
 
     await nav.getByRole("link", { name: "全般", exact: true }).click();
     await checkbox.check();

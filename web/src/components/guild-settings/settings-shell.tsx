@@ -2,14 +2,16 @@
 
 import { CheckIcon, ChevronLeftIcon, CopyIcon } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import {
   GUILD_SETTINGS_SECTIONS,
+  guildCalendarPath,
   guildSettingsPath,
 } from "@/lib/guild-settings";
+import { calendarDateParam } from "@/lib/login-redirect";
 import { useCanManageServer } from "@/lib/query/guild";
 import { cn } from "@/lib/utils";
 
@@ -28,12 +30,14 @@ export function GuildSettingsShell({
 }) {
   const { t, language } = useLanguage();
   const pathname = usePathname();
+  // カレンダーで表示していた日付 (#440)。不正な値は捨てる
+  const date = calendarDateParam(useSearchParams().get("date"));
   const canManage = useCanManageServer(guildId);
   return (
     <main lang={language} className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
       <div className="mx-auto flex max-w-5xl flex-col gap-4">
         <Link
-          href={`/dashboard/${guildId}`}
+          href={guildCalendarPath(guildId, date)}
           className="inline-flex min-h-11 items-center gap-1 self-start text-sm underline-offset-4 hover:underline"
         >
           <ChevronLeftIcon aria-hidden className="size-4" />
@@ -64,8 +68,9 @@ export function GuildSettingsShell({
             {/* スマホでは折り返して全項目を見せる (横スクロールだと端の項目に気づきにくい) */}
             <ul className="flex flex-wrap gap-1 md:flex-col">
               {GUILD_SETTINGS_SECTIONS.map((section) => {
-                const href = guildSettingsPath(guildId, section.slug);
-                const current = pathname === href;
+                const href = guildSettingsPath(guildId, section.slug, date);
+                const current =
+                  pathname === guildSettingsPath(guildId, section.slug);
                 return (
                   <li key={section.slug} className="shrink-0">
                     <Link
