@@ -94,6 +94,41 @@ test.describe("管理権限のあるギルド", () => {
   });
 });
 
+test.describe("サーバー ID のコピー (#440)", () => {
+  test.use({ permissions: ["clipboard-read", "clipboard-write"] });
+
+  test("タイトルの横のボタンでサーバー ID を文字列のままコピーできる", async ({
+    page,
+  }) => {
+    await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+    const settings = await openSettings(page);
+    const button = settings.getByRole("button", {
+      name: "サーバー ID をコピー",
+    });
+    await button.click();
+    await expect(
+      settings.getByRole("button", { name: "コピーしました" }),
+    ).toBeVisible();
+    // Snowflake は Number の精度を超えるので、桁が崩れずにそのまま入っていること
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      E2E_GUILDS.admin.id,
+    );
+    // しばらくすると元の表示に戻る
+    await expect(button).toBeVisible();
+  });
+
+  test("管理権限がなくてもコピーできる", async ({ page }) => {
+    await page.goto(`/dashboard/${E2E_GUILDS.member.id}`);
+    const settings = await openSettings(page);
+    await settings
+      .getByRole("button", { name: "サーバー ID をコピー" })
+      .click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      E2E_GUILDS.member.id,
+    );
+  });
+});
+
 test.describe("未保存の変更 (#440)", () => {
   test("保存せずに別の節やカレンダーへ移ろうとすると確認し、破棄すると保存されない", async ({
     page,

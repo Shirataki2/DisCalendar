@@ -1425,4 +1425,9 @@ export const english: Readonly<
   "「全般」の変更はまだ保存されていません。このページを離れると、変更は失われます。":
     "Your changes in General have not been saved. They will be lost if you leave this page.",
   破棄して移動: "Discard and leave",
+  "サーバー ID をコピー": "Copy server ID",
+  "サーバー ID: {id}": "Server ID: {id}",
+  "サーバー ID をコピーしました": "Server ID copied",
+  "コピーできませんでした。ID を選択してコピーしてください:":
+    "Could not copy. Select the ID and copy it manually:",
 };

@@ -1,9 +1,11 @@
 "use client";
 
-import { ChevronLeftIcon } from "lucide-react";
+import { CheckIcon, ChevronLeftIcon, CopyIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useLanguage } from "@/components/language-provider";
+import { Button } from "@/components/ui/button";
 import {
   GUILD_SETTINGS_SECTIONS,
   guildSettingsPath,
@@ -37,11 +39,14 @@ export function GuildSettingsShell({
           <ChevronLeftIcon aria-hidden className="size-4" />
           {t("カレンダーに戻る")}
         </Link>
-        <div>
-          <h1 className="text-2xl font-bold">{t("サーバー設定")}</h1>
-          <p className="break-words text-sm text-muted-foreground">
-            {guildName}
-          </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold">{t("サーバー設定")}</h1>
+            <p className="break-words text-sm text-muted-foreground">
+              {guildName}
+            </p>
+          </div>
+          <CopyGuildIdButton guildId={guildId} />
         </div>
 
         {/* 管理権限が無ければ閲覧だけであることを先に伝える (変更は API 側でも 403 になる) */}
@@ -82,5 +87,62 @@ export function GuildSettingsShell({
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * サーバー ID (Discord の Snowflake。文字列のまま扱う) をクリップボードにコピーする。
+ * API トークンでの連携や問い合わせで ID を求められたときに、Discord の開発者モードを使わずに済むようにする
+ */
+function CopyGuildIdButton({ guildId }: { guildId: string }) {
+  const { t } = useLanguage();
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
+  // 「コピーしました」は数秒で元の表示に戻す
+  useEffect(() => {
+    if (state !== "copied") return;
+    const timer = setTimeout(() => setState("idle"), 2000);
+    return () => clearTimeout(timer);
+  }, [state]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(guildId);
+      setState("copied");
+    } catch {
+      // 権限が無い / 非セキュアなコンテキストなど。ID を表示して手動でコピーしてもらう
+      setState("failed");
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => void copy()}
+        title={t("サーバー ID: {id}", { id: guildId })}
+        className="min-h-9"
+      >
+        {state === "copied" ? (
+          <CheckIcon data-icon="inline-start" />
+        ) : (
+          <CopyIcon data-icon="inline-start" />
+        )}
+        {state === "copied" ? t("コピーしました") : t("サーバー ID をコピー")}
+      </Button>
+      {/* 結果を読み上げる (ボタンの文言の切り替えだけでは伝わらない支援技術向け) */}
+      <p role="status" className="text-xs text-muted-foreground">
+        {state === "copied" ? (
+          <span className="sr-only">{t("サーバー ID をコピーしました")}</span>
+        ) : state === "failed" ? (
+          <>
+            {t("コピーできませんでした。ID を選択してコピーしてください:")}{" "}
+            <span className="select-all font-mono">{guildId}</span>
+          </>
+        ) : null}
+      </p>
+    </div>
   );
 }

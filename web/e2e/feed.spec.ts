@@ -165,7 +165,9 @@ test.describe("管理権限のないギルド", () => {
     const dialog = await openSettings(page);
     const urlInput = dialog.getByRole("textbox", { name: "フィード URL" });
     await expect(urlInput).toHaveValue(new RegExp(`/feeds/${token}\\.ics$`));
-    await expect(dialog.getByRole("button", { name: "コピー" })).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: "コピー", exact: true }),
+    ).toBeVisible();
     await expect(dialog.getByRole("button", { name: "再発行" })).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "無効化" })).toHaveCount(0);
   });
