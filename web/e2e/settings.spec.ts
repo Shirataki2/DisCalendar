@@ -94,6 +94,86 @@ test.describe("管理権限のあるギルド", () => {
   });
 });
 
+test.describe("未保存の変更 (#440)", () => {
+  test("保存せずに別の節やカレンダーへ移ろうとすると確認し、破棄すると保存されない", async ({
+    page,
+  }) => {
+    await setRestricted(page, false);
+    await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+    const settings = await openSettings(page);
+    const checkbox = settings.getByRole("checkbox", { name: RESTRICTED_LABEL });
+    const nav = page.getByRole("navigation", { name: "サーバー設定の項目" });
+    const confirm = page.getByRole("alertdialog", {
+      name: "未保存の変更を破棄しますか？",
+    });
+
+    // 変更が無ければ確認せずに移れる
+    await nav
+      .getByRole("link", { name: "外部カレンダー", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/settings\/calendars$/);
+    await nav.getByRole("link", { name: "全般", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+
+    await checkbox.check();
+    // 「編集を続ける」でとどまり、入力も残る
+    await nav
+      .getByRole("link", { name: "外部カレンダー", exact: true })
+      .click();
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: "編集を続ける" }).click();
+    await expect(confirm).toBeHidden();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(checkbox).toBeChecked();
+
+    // 再読み込みはブラウザ標準の確認 (beforeunload) で止まる
+    // (取り消すと遷移が起きないので、reload の完了は待たない)
+    const beforeUnload = page.waitForEvent("dialog");
+    void page.reload({ timeout: 5_000 }).catch(() => {});
+    const dialog = await beforeUnload;
+    expect(dialog.type()).toBe("beforeunload");
+    await dialog.dismiss();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(checkbox).toBeChecked();
+
+    // 「破棄して移動」でカレンダーへ移り、変更は保存されない
+    await page.getByRole("link", { name: "カレンダーに戻る" }).click();
+    await confirm.getByRole("button", { name: "破棄して移動" }).click();
+    await expect(
+      page.getByRole("link", { name: "サーバー設定", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(RESTRICTED_NOTICE)).toHaveCount(0);
+    const config = await page.request.get(configApi);
+    expect(await config.json()).toMatchObject({ restricted: false });
+  });
+
+  test("保存した後や変更を取り消した後は確認しない", async ({ page }) => {
+    await setRestricted(page, false);
+    await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+    const settings = await openSettings(page);
+    const checkbox = settings.getByRole("checkbox", { name: RESTRICTED_LABEL });
+    const nav = page.getByRole("navigation", { name: "サーバー設定の項目" });
+
+    await checkbox.check();
+    await settings.getByRole("button", { name: "変更を取り消す" }).click();
+    await expect(checkbox).not.toBeChecked();
+    await nav
+      .getByRole("link", { name: "外部カレンダー", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/settings\/calendars$/);
+
+    await nav.getByRole("link", { name: "全般", exact: true }).click();
+    await checkbox.check();
+    await saveSettings(page, settings);
+    await page.getByRole("link", { name: "カレンダーに戻る" }).click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(
+      page.getByRole("link", { name: "サーバー設定", exact: true }),
+    ).toBeVisible();
+    await setRestricted(page, false);
+  });
+});
+
 test.describe("通知の設定 (#181)", () => {
   test("通知先チャンネルを選んで保存すると、再読込後も選ばれている", async ({
     page,

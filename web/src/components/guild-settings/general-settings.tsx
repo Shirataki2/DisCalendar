@@ -13,6 +13,16 @@ import { NotificationsField } from "@/components/form/notifications-field";
 import { GuildDigestSettingsSection } from "@/components/guild-digest-settings";
 import { SettingsHint } from "@/components/guild-settings/settings-hint";
 import { useLanguage } from "@/components/language-provider";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -37,6 +47,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useLeaveConfirmation } from "@/hooks/use-leave-confirmation";
 import { describeApiError } from "@/lib/api";
 import type {
   GuildChannel,
@@ -108,6 +119,8 @@ export function GuildGeneralSettings({ guildId }: { guildId: string }) {
   } = form;
   const [error, setError] = useState<string | Error | null>(null);
   const [saved, setSaved] = useState(false);
+  // 未保存の変更があるまま別の節やカレンダーへ移ろうとしたら確認する (保存は節ごとなので、移ると消える)
+  const leaveConfirmation = useLeaveConfirmation(isDirty);
 
   // 開くたびに設定を取り直す (staleTime 内だとマウントしただけでは再取得されない)。
   // 画面を開く前に `/init` や別のブラウザで変わっていた分を、古い値のまま保存で送り返さないため
@@ -415,6 +428,36 @@ export function GuildGeneralSettings({ guildId }: { guildId: string }) {
           </Button>
         </div>
       </form>
+
+      {/* フォームの外に置く (ポータルでも React のイベントはフォームまで伝わり、送信を起こしうるため) */}
+      <AlertDialog
+        open={leaveConfirmation.pendingHref !== null}
+        onOpenChange={(open) => {
+          if (!open) leaveConfirmation.stay();
+        }}
+      >
+        <AlertDialogContent lang={language}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("未保存の変更を破棄しますか？")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                "「全般」の変更はまだ保存されていません。このページを離れると、変更は失われます。",
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("編集を続ける")}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={leaveConfirmation.leave}
+            >
+              {t("破棄して移動")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </FormProvider>
   );
 }

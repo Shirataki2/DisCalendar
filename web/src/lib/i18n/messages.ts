@@ -1422,4 +1422,7 @@ export const english: Readonly<
     "No webhooks or API tokens are registered.",
   "Webhook {webhooks} 件 · API トークン {tokens} 件":
     "{webhooks} webhook(s) · {tokens} API token(s)",
+  "「全般」の変更はまだ保存されていません。このページを離れると、変更は失われます。":
+    "Your changes in General have not been saved. They will be lost if you leave this page.",
+  破棄して移動: "Discard and leave",
 };
