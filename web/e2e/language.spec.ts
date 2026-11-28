@@ -282,10 +282,24 @@ test("英語の設定で選択肢・通知入力・エラーと読み上げ言�
     calendarSettings.getByLabel("Reminder timing (unit)").first(),
   ).toContainText("day before");
   await page.keyboard.press("Escape");
+  // サーバー設定はページ (#440)。全般に未保存の変更があると節の移動で確認が出るので、外部カレンダーを先に見る
   await page
-    .getByRole("button", { name: "Server settings", exact: true })
+    .getByRole("link", { name: "Server settings", exact: true })
     .click();
-  const guildSettings = page.getByRole("dialog", { name: "Server settings" });
+  const guildSettings = page.getByRole("main");
+  const sections = page.getByRole("navigation", {
+    name: "Server settings sections",
+  });
+  await sections
+    .getByRole("link", { name: "External calendars", exact: true })
+    .click();
+  await guildSettings
+    .getByRole("region", { name: "Overlay external calendars" })
+    .getByRole("button", { name: /^#/ })
+    .click();
+  await expect(color).toBeVisible();
+  await page.keyboard.press("Escape");
+  await sections.getByRole("link", { name: "General", exact: true }).click();
   await guildSettings.getByLabel("Reminder channel", { exact: true }).click();
   await expect(selectionMenu).toHaveAttribute("lang", "en");
   await page
@@ -293,12 +307,6 @@ test("英語の設定で選択肢・通知入力・エラーと読み上げ言�
     .first()
     .click();
   await expect(selectionMenu).toHaveCount(0);
-  await guildSettings
-    .getByRole("region", { name: "Overlay external calendars" })
-    .getByRole("button", { name: /^#/ })
-    .click();
-  await expect(color).toBeVisible();
-  await page.keyboard.press("Escape");
   await expect(
     guildSettings.getByRole("button", { name: "Add reminder" }),
   ).toBeVisible();

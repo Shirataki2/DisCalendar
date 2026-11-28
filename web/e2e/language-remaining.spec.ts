@@ -72,10 +72,15 @@ test("設定の編集中も別タブで言語を切り替え、値とAPIエラ�
   await page.goto(`/dashboard/${guild}`);
   const other = await context.newPage();
   await other.goto("/login");
+  // サーバー設定はページ (#440)。外部カレンダーの節を開く
   await page
-    .getByRole("button", { name: "Server settings", exact: true })
+    .getByRole("link", { name: "Server settings", exact: true })
     .click();
-  const dialog = page.getByRole("dialog");
+  await page
+    .getByRole("navigation", { name: "Server settings sections" })
+    .getByRole("link", { name: "External calendars", exact: true })
+    .click();
+  const dialog = page.getByRole("main");
   const external = dialog.locator(
     "section[aria-labelledby=external-calendar-heading]",
   );
@@ -339,10 +344,14 @@ test.describe("海外のブラウザでもJSTを維持する", () => {
     );
     await page.goto(`/dashboard/${guild}`);
     await page
-      .getByRole("button", { name: "Server settings", exact: true })
+      .getByRole("link", { name: "Server settings", exact: true })
+      .click();
+    await page
+      .getByRole("navigation", { name: "Server settings sections" })
+      .getByRole("link", { name: "External calendars", exact: true })
       .click();
     const external = page
-      .getByRole("dialog")
+      .getByRole("main")
       .locator("section[aria-labelledby=external-calendar-heading]");
     await expect(external).toContainText("Oct 3, 2026, 8:30 PM (Japan time)");
   });
