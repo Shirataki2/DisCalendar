@@ -16,10 +16,24 @@ export function useExternalDisplayErrors(guildId: string) {
   });
 }
 
+/** まだ一度も取得していない購読先があるときに、取得状態を取り直す間隔 */
+const PENDING_FETCH_POLL_MS = 3000;
+
+/**
+ * 登録済みの外部カレンダー (サーバー設定の「外部カレンダー」)。
+ * 設定はカレンダーとは別のページなので、カレンダー側の取得が終わっても知らせが届かない。
+ * まだ一度も取得していない (結果もエラーも無い) 購読先があるうちは、取得状態を数秒おきに取り直す
+ */
 export function useExternalCalendars(guildId: string) {
   return useQuery({
     queryKey: queryKeys.guild.externalCalendars(guildId),
     queryFn: () => api.guilds.externalCalendars(guildId),
+    refetchInterval: (query) =>
+      query.state.data?.some(
+        (calendar) => !calendar.last_fetched_at && !calendar.last_error,
+      )
+        ? PENDING_FETCH_POLL_MS
+        : false,
   });
 }
 

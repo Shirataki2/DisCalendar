@@ -16,7 +16,7 @@ description: DisCalendar の LP (トップページ) と使い方 (/docs) に貼
 |---|---|---|---|
 | `lp/calendar.png` | LP のヒーロー / `docs/calendar.mdx` | 月表示のカレンダー全体 (サイドバー・ヘッダ・ツールバー込み) | カレンダー、日時の表記、ナビゲーション、配色を変えたとき |
 | `lp/dialog.png` | LP / `docs/edit.mdx` | 予定の編集ダイアログ | 予定フォームの項目・レイアウトを変えたとき |
-| `lp/settings.png` | LP / `docs/edit.mdx` | サーバー設定ダイアログ (restricted を選んだ状態) | サーバー設定の文言・項目を変えたとき |
+| `lp/settings.png` | LP / `docs/edit.mdx` | サーバー設定ページの「全般」(restricted を選んだ状態) | サーバー設定の文言・項目を変えたとき |
 | `docs/serverselect.png` | `docs/login.mdx` / `docs/invite.mdx` | サーバー選択 (参加済み + 招待できるサーバー) | サーバー選択やヘッダ・サイドバーを変えたとき |
 | `docs/popover.png` | `docs/edit.mdx` | 予定のポップオーバー (背景に月表示が写る) | ポップオーバーの中身か、**カレンダーの日時の表記**を変えたとき |
 | `docs/create-dialog.png` | `docs/calendar.mdx` | 予定の作成ダイアログ (入力済み) | 予定フォームを変えたとき |

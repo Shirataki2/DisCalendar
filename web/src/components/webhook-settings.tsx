@@ -1,28 +1,28 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useId, useState } from "react";
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, describeApiError } from "@/lib/api";
+import { useGuildWebhooksQuery } from "@/lib/query/guild";
+import { queryKeys } from "@/lib/query/keys";
+
+/** 作成者ごとの一覧からこの Webhook の行へ飛ぶためのアンカー */
+export const webhookAnchorId = (id: string) => `webhook-${id}`;
 
 export function WebhookSettings({ guildId }: { guildId: string }) {
   const { t, language } = useLanguage();
   const id = useId();
   const client = useQueryClient();
-  const key = ["guild", guildId, "webhooks"];
+  const key = queryKeys.guild.webhooks(guildId);
   const [url, setUrl] = useState("");
   const [kind, setKind] = useState<"json" | "discord">("json");
   const [secret, setSecret] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const query = useQuery({
-    queryKey: key,
-    queryFn: () => api.webhooks.list(guildId),
-    refetchInterval: 5000,
-    staleTime: 0,
-  });
+  const query = useGuildWebhooksQuery(guildId);
   // シークレットを Query / Mutation キャッシュに保存しない。
   const mutation = useMutation({
     mutationFn: async (action: () => Promise<void>) => {
@@ -37,9 +37,9 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
       aria-labelledby={`${id}-title`}
       className="grid gap-3 border-t pt-4"
     >
-      <h3 id={`${id}-title`} className="text-sm font-medium">
+      <h2 id={`${id}-title`} className="text-base font-semibold">
         Webhook
-      </h3>
+      </h2>
       <p className="text-sm text-muted-foreground">
         {t(
           "予定の作成・変更・削除を外部に通知します。説明を含む予定の内容が登録した URL に送られます。 操作はその場で反映されます。",
@@ -137,7 +137,11 @@ export function WebhookSettings({ guildId }: { guildId: string }) {
           </Button>
         </div>
         {query.data?.map((hook) => (
-          <div key={hook.id} className="grid gap-2 rounded-md border p-3">
+          <div
+            key={hook.id}
+            id={webhookAnchorId(hook.id)}
+            className="grid scroll-mt-4 gap-2 rounded-md border p-3"
+          >
             <p className="break-all text-sm font-medium">
               #{hook.id} {hook.url} ·{" "}
               {hook.kind === "json" ? "JSON" : "Discord"}

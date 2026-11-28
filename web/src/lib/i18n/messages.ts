@@ -617,8 +617,8 @@ export const english: Readonly<
   "ロール一覧を取得できませんでした。「再読込」で再試行してください。変更していないロール設定はそのまま保存されます":
     "Could not load roles. Select Reload to try again. Unchanged role settings will be preserved when saving.",
   選択できるロールはありません: "No roles available.",
-  "設定を取り直せませんでした ({error})。古い設定を上書きしないよう、保存はできません。ダイアログを開き直してください":
-    "Could not refresh settings ({error}). Saving is disabled to prevent overwriting newer settings. Close and reopen this dialog.",
+  "設定を取り直せませんでした ({error})。古い設定を上書きしないよう、保存はできません。ページを読み込み直してください":
+    "Could not refresh settings ({error}). Saving is disabled to prevent overwriting newer settings. Reload the page.",
   再読込: "Reload",
   "Discord への通知": "Discord reminders",
   "Bot が通知先チャンネルに予定の開始時刻と事前通知を投稿します。Discord の /init と同じ設定です。":
@@ -688,8 +688,8 @@ export const english: Readonly<
     "Summaries are posted to the reminder channel. Times are in Japan Standard Time (JST). Select Save summaries to apply these settings.",
   "先に通知先を設定してください。上の「通知先チャンネル」を選んで「保存」するか、Discord で /init を実行します。":
     "First configure a reminder channel above and select Save, or run /init in Discord.",
-  "まとめ投稿の設定を取得できませんでした。ダイアログを開き直してください。":
-    "Could not load summary settings. Close and reopen this dialog.",
+  "まとめ投稿の設定を取得できませんでした。ページを読み込み直してください。":
+    "Could not load summary settings. Reload the page.",
   "まとめ投稿の設定を読み込み中…": "Loading summary settings…",
   まとめ投稿の設定: "Summary settings",
   "毎日、今日の予定を投稿する": "Post today's events every day",
@@ -866,8 +866,8 @@ export const english: Readonly<
     "Control who can edit (restricted mode)",
   "サーバー設定で restricted モードを有効にすると、「管理者」「サーバー管理」「ロールの管理」「メッセージの管理」のいずれかの権限、または編集を許可されたロールを持つメンバーが予定を追加・編集・削除できます。閲覧はメンバー全員ができます。":
     "Enable restricted mode so only members with Administrator, Manage Server, Manage Roles, or Manage Messages permissions, or an approved role, can create, edit, and delete events. All members can view events.",
-  "サーバー設定ダイアログ。通知・投稿の言語、編集制限と編集ロール、Discord への通知、今日・今週のまとめ投稿、配信用のフィード URL、重ね表示する外部カレンダーの登録、Webhook の設定、削除した予定の一覧がある":
-    "Server settings for notification and post language, editing permissions, roles, Discord reminders, daily and weekly summaries, feed URLs, external calendar overlays, Webhooks, and deleted events (Japanese interface).",
+  "サーバー設定のページ。左に全般・外部カレンダー・Webhook と API トークン・削除した予定の項目が並び、全般には通知・投稿の言語、編集制限と編集ロール、Discord への通知、今日・今週のまとめ投稿の設定がある":
+    "The server settings page. Sections for General, External calendars, Webhooks & API tokens, and Deleted events are listed on the left; General covers notification and post language, editing permissions and roles, Discord reminders, and daily and weekly summaries (Japanese interface).",
   "Discord へ自動で通知": "Automatic Discord reminders",
   "予定ごとに「30 分前」「1 日前」のような事前通知を最大 10 件まで設定できます。時刻になると Bot がサーバー設定で選んだチャンネルに埋め込みメッセージを投稿するので、リマインドの手間がありません。":
     "Set up to 10 advance reminders per event, such as 30 minutes or 1 day before. The bot posts an embed in your selected channel at the scheduled time.",
@@ -1406,4 +1406,20 @@ export const english: Readonly<
   "API トークンで予定を登録する": "Register events with API tokens",
   "サーバー用の API トークンを発行し、curl や GitHub Actions などの外部スクリプトから予定を作成・更新・削除する方法。":
     "How to issue server API tokens and create, update, or delete events from curl, GitHub Actions, or other scripts.",
+  // サーバー設定ページ
+  サーバー設定の項目: "Server settings sections",
+  全般: "General",
+  外部カレンダー: "External calendars",
+  "Webhook・API トークン": "Webhooks & API tokens",
+  保存しました: "Saved",
+  変更を取り消す: "Discard changes",
+  "この項目は管理権限を持つメンバーだけが確認・変更できます":
+    "Only members with management permissions can view or change this section.",
+  登録したメンバーごとの一覧: "By member",
+  "このサーバーに登録された Webhook と API トークンを、登録したメンバーごとにまとめて表示します。":
+    "Webhooks and API tokens registered in this server, grouped by the member who registered them.",
+  "登録された Webhook と API トークンはありません":
+    "No webhooks or API tokens are registered.",
+  "Webhook {webhooks} 件 · API トークン {tokens} 件":
+    "{webhooks} webhook(s) · {tokens} API token(s)",
 };

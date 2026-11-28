@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import Link from "next/link";
 import { useId, useState } from "react";
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, describeApiError } from "@/lib/api";
 import type { GuildApiToken, GuildApiTokenScope } from "@/lib/api/types";
+import { useGuildApiTokensQuery } from "@/lib/query/guild";
+import { queryKeys } from "@/lib/query/keys";
 
 const MAX_ACTIVE_TOKENS = 10;
 const MAX_TOTAL_TOKENS = 20;
@@ -16,7 +18,9 @@ const NAME_MAX_CHARS = 64;
 
 type ExpiryOption = "30" | "90" | "365" | "none";
 
-function tokenStatus(token: GuildApiToken): "revoked" | "expired" | "active" {
+export function tokenStatus(
+  token: GuildApiToken,
+): "revoked" | "expired" | "active" {
   if (token.revoked_at) return "revoked";
   if (token.expires_at && new Date(token.expires_at).getTime() <= Date.now()) {
     return "expired";
@@ -24,17 +28,20 @@ function tokenStatus(token: GuildApiToken): "revoked" | "expired" | "active" {
   return "active";
 }
 
-function formatJst(value: string, language: "ja" | "en"): string {
+export function formatJst(value: string, language: "ja" | "en"): string {
   return new Date(value).toLocaleString(language === "en" ? "en-US" : "ja-JP", {
     timeZone: "Asia/Tokyo",
   });
 }
 
+/** 作成者ごとの一覧からこのトークンの行へ飛ぶためのアンカー */
+export const apiTokenAnchorId = (id: string) => `api-token-${id}`;
+
 export function ApiTokenSettings({ guildId }: { guildId: string }) {
   const { t, language } = useLanguage();
   const id = useId();
   const client = useQueryClient();
-  const key = ["guild", guildId, "api-tokens"];
+  const key = queryKeys.guild.apiTokens(guildId);
 
   const [name, setName] = useState("");
   const [scope, setScope] = useState<GuildApiTokenScope>("create");
@@ -43,11 +50,7 @@ export function ApiTokenSettings({ guildId }: { guildId: string }) {
   const [issuedToken, setIssuedToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const query = useQuery({
-    queryKey: key,
-    queryFn: () => api.apiTokens.list(guildId),
-    staleTime: 0,
-  });
+  const query = useGuildApiTokensQuery(guildId);
 
   const mutation = useMutation({
     mutationFn: async (action: () => Promise<void>) => {
@@ -72,9 +75,9 @@ export function ApiTokenSettings({ guildId }: { guildId: string }) {
       aria-labelledby={`${id}-title`}
       className="grid gap-3 border-t pt-4"
     >
-      <h3 id={`${id}-title`} className="text-sm font-medium">
+      <h2 id={`${id}-title`} className="text-base font-semibold">
         {t("API トークン")}
-      </h3>
+      </h2>
       <p className="text-sm text-muted-foreground">
         {t(
           "外部のスクリプトや GitHub Actions などから HTTP 経由で予定を作成・更新・削除するためのトークンです。操作はその場で反映されます。",
@@ -215,7 +218,11 @@ export function ApiTokenSettings({ guildId }: { guildId: string }) {
         {tokens.map((token) => {
           const status = tokenStatus(token);
           return (
-            <div key={token.id} className="grid gap-2 rounded-md border p-3">
+            <div
+              key={token.id}
+              id={apiTokenAnchorId(token.id)}
+              className="grid scroll-mt-4 gap-2 rounded-md border p-3"
+            >
               <p className="break-all text-sm font-medium">
                 {token.name}{" "}
                 <span className="font-mono text-xs text-muted-foreground">

@@ -2,8 +2,31 @@ import { createServer } from "node:http";
 import { expect, test } from "@playwright/test";
 import { eventOn } from "./calendar";
 import { E2E_GUILDS } from "./fixtures";
+import { backToCalendar, openGuildSettings } from "./guild-settings";
 
 test.use({ serviceWorkers: "block" });
+
+/** このファイルのテストが登録する購読先の表示名 (途中で失敗して残った分を次の実行の前に消す) */
+const TEST_CALENDAR_NAMES = [
+  "大会日程",
+  "取得失敗",
+  "遅い購読先",
+  "確認用",
+  "上限確認",
+];
+
+test.beforeAll(async ({ request }) => {
+  const base = `/local/api/guilds/${E2E_GUILDS.admin.id}/external-calendars`;
+  const response = await request.get(base);
+  expect(response.status()).toBe(200);
+  for (const calendar of (await response.json()) as {
+    id: number;
+    name: string;
+  }[]) {
+    if (TEST_CALENDAR_NAMES.includes(calendar.name))
+      await request.delete(`${base}/${calendar.id}`);
+  }
+});
 
 test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", async ({ page }) => {
   const title = `E2E 外部予定 ${Date.now()}`;
@@ -57,8 +80,7 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
   try {
     await page.clock.setFixedTime(new Date("2026-10-01T12:00:00+09:00"));
     await page.goto(`/dashboard/${guildId}?date=2026-10-01`);
-    await page.getByRole("button", { name: "サーバー設定" }).click();
-    const dialog = page.getByRole("dialog", { name: "サーバー設定" });
+    const dialog = await openGuildSettings(page, "外部カレンダー");
     const section = dialog.getByRole("region", {
       name: "外部カレンダーを重ねて表示する",
     });
@@ -76,7 +98,7 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
       (item: { name: string }) => item.name === "大会日程",
     );
     created.push(first.id);
-    await page.keyboard.press("Escape");
+    await backToCalendar(page);
     await expect(eventOn(page, title)).toBeVisible();
     await expect(page.getByText("一部省略", { exact: true })).toBeVisible();
     const chip = page
@@ -91,7 +113,7 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
     await expect(popover.getByRole("button", { name: "編集" })).toHaveCount(0);
     await page.keyboard.press("Escape");
 
-    await page.getByRole("button", { name: "サーバー設定" }).click();
+    await openGuildSettings(page, "外部カレンダー");
     const refreshed = page.waitForResponse((response) =>
       response.url().includes(`${base}/${first.id}/refresh`),
     );
@@ -102,9 +124,9 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
     await expect(
       section.getByRole("listitem").filter({ hasText: "大会日程" }),
     ).not.toContainText("取得できません");
-    await page.keyboard.press("Escape");
+    await backToCalendar(page);
     await expect(eventOn(page, title)).toBeVisible();
-    await page.getByRole("button", { name: "サーバー設定" }).click();
+    await openGuildSettings(page, "外部カレンダー");
 
     await section.getByLabel("表示名").fill("取得失敗");
     await section
@@ -125,7 +147,7 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
     });
     expect(duplicate.status()).toBe(400);
 
-    await page.keyboard.press("Escape");
+    await backToCalendar(page);
     await expect(
       page
         .getByRole("list", { name: "外部カレンダーの凡例" })
@@ -211,6 +233,7 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
   }
 });
 
+// 設定はカレンダーとは別のページなので、取得中の購読先があるあいだは設定側が取得状態を取り直す
 test("表示中の取得が完了したら、開いている設定の取得状態も更新する", async ({
   page,
 }) => {
@@ -241,7 +264,7 @@ test("表示中の取得が完了したら、開いている設定の取得状�
   try {
     await page.goto(`/dashboard/${guildId}`);
     await expect.poll(() => !!finish).toBe(true);
-    await page.getByRole("button", { name: "サーバー設定" }).click();
+    await openGuildSettings(page, "外部カレンダー");
     const section = page.getByRole("region", {
       name: "外部カレンダーを重ねて表示する",
     });
@@ -278,8 +301,7 @@ test.describe("390px の外部カレンダー", () => {
           .getByRole("list", { name: "外部カレンダーの凡例" })
           .getByText("取得できません"),
       ).toBeVisible();
-      await page.getByRole("button", { name: "サーバー設定" }).click();
-      const dialog = page.getByRole("dialog", { name: "サーバー設定" });
+      const dialog = await openGuildSettings(page, "外部カレンダー");
       await expect(dialog.getByLabel("ICS URL")).toBeVisible();
       expect(
         await page.evaluate(
@@ -324,7 +346,7 @@ test("表示期間の展開エラーを開いている設定にも表示する",
     expect(added.status()).toBe(201);
     id = (await added.json()).id;
     await page.reload();
-    await page.getByRole("button", { name: "サーバー設定" }).click();
+    await openGuildSettings(page, "外部カレンダー");
     const item = page.getByRole("listitem").filter({ hasText: "上限確認" });
     await expect(item).toContainText("表示中の期間を展開できません");
     await expect(item).toContainText("1000");

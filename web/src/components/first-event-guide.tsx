@@ -13,8 +13,8 @@ interface Props {
   canEdit: boolean;
   /** 作成ダイアログを既定の値で開く */
   onCreate: () => void;
-  /** サーバー設定ダイアログ (通知先チャンネル) を開く */
-  onOpenSettings: () => void;
+  /** サーバー設定 (通知先チャンネルのある「全般」) のページ */
+  settingsHref: string;
 }
 
 /** 閉じたことを覚えておく localStorage のキー (サーバーごと) */
@@ -41,7 +41,7 @@ export function FirstEventGuide({
   guildId,
   canEdit,
   onCreate,
-  onOpenSettings,
+  settingsHref,
 }: Props) {
   const { t } = useLanguage();
   // 予定の有無を取得してから (クライアントで) 描画するので、初回から保存値を読んでよい
@@ -102,14 +102,13 @@ export function FirstEventGuide({
                 {t(
                   "通知先チャンネル: 予定の開始時刻や事前通知を Discord のチャンネルに投稿します。",
                 )}
-                <button
-                  type="button"
-                  onClick={onOpenSettings}
+                <Link
+                  href={settingsHref}
                   className="ml-1 inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-4"
                 >
                   <SettingsIcon className="size-3" aria-hidden />
                   {t("通知先を設定する")}
-                </button>
+                </Link>
               </li>
               <li>
                 {t(

@@ -21,10 +21,13 @@
   スキーマと API との変換は `web/src/lib/event-form.ts` にあり、上限値（タイトル 32 文字、説明 1000 文字、通知 10 件）は
   `api/src/models/events.rs` と揃える。
 - 予定をクリックすると概要ポップオーバー（`event-popover.tsx`、旧 SimpleEdit.vue 相当）から編集・削除できる。
-- サーバー設定ダイアログは `web/src/components/guild-settings-dialog.tsx`（旧 ServerSetting.vue 相当）。restricted
-  （予定の編集を管理権限を持つユーザーに限定）の切り替えと、Discord 側で権限を変えた後の「再読込」ができる。
-  ギルド設定と自分の権限は `dashboard/[id]/page.tsx`（RSC）が取得して TanStack Query に hydrate し、
-  `guild-dashboard.tsx` がそこから編集可否を求めるので、保存するとカレンダーの編集可否がその場で切り替わる。
+- サーバー設定はページ `/dashboard/[id]/settings`（旧 ServerSetting.vue 相当。項目が増えたのでダイアログから分けた）。
+  節ごとにページを分け（全般 / `calendars` 外部カレンダー / `integrations` Webhook・API トークン / `trash` 削除した予定。
+  一覧は `web/src/lib/guild-settings.ts`）、中身は `web/src/components/guild-settings/` にある。
+  全般は restricted（予定の編集を管理権限を持つユーザーに限定）・編集ロール・通知・まとめの設定と、Discord 側で権限を変えた後の「再読込」。
+  Webhook・API トークンの節には、登録したメンバー（`created_by`）ごとにまとめた一覧を先頭に置く。
+  ギルド設定と自分の権限はカレンダー（`dashboard/[id]/page.tsx`）と設定（`dashboard/[id]/settings/layout.tsx`）の RSC が取得して
+  TanStack Query に hydrate し、`guild-dashboard.tsx` がそこから編集可否を求めるので、保存した設定はカレンダーに戻るとそのまま反映されている。
 - ダッシュボード（`/dashboard`、`/dashboard/[id]`）の枠は `app/dashboard/layout.tsx` → `dashboard-shell.tsx`
   （アプリバー + ナビゲーションドロワー。PC では常設サイドバーで開閉を cookie `dashboard_sidebar` に覚え、スマホでは Sheet）、
   `dashboard-nav.tsx`（リンク一覧。旧 NavDrawer.vue と同じ並び）、`dashboard-footer.tsx`（固定フッタ。バージョンは

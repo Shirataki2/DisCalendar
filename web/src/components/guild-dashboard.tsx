@@ -2,13 +2,11 @@
 
 import { CheckIcon, ChevronsUpDownIcon, SettingsIcon } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
 import { DonationNotice } from "@/components/donation-notice";
 import { EventCalendar } from "@/components/event-calendar";
 import { FirstEventGuide } from "@/components/first-event-guide";
-import { GuildSettingsDialog } from "@/components/guild-settings-dialog";
 import { useLanguage } from "@/components/language-provider";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Guild } from "@/lib/api/types";
+import { guildSettingsPath } from "@/lib/guild-settings";
 import {
   canEditEvents,
   useGuildConfigQuery,
@@ -42,9 +41,9 @@ export interface GuildChoice {
 }
 
 /**
- * ギルドのカレンダー画面 (見出し + カレンダー + サーバー設定ダイアログ)。
+ * ギルドのカレンダー画面 (見出し + カレンダー)。サーバー設定は別ページ (`/dashboard/[id]/settings`)。
  * restricted 設定と自分の権限は TanStack Query のキャッシュから読むので、
- * サーバー設定ダイアログで保存するとカレンダーの編集可否がその場で切り替わる
+ * サーバー設定で保存してから戻ると、カレンダーの編集可否が切り替わっている
  */
 export function GuildDashboard({
   guild,
@@ -60,7 +59,7 @@ export function GuildDashboard({
   const eventSummaryQuery = useGuildEventSummaryQuery(guildId);
   // 取得できるまで・失敗したときは出さない (予定があるサーバーに一瞬でも出さないため)
   const showFirstEventGuide = eventSummaryQuery.data?.has_events === false;
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsHref = guildSettingsPath(guildId);
 
   const canEdit = canEditEvents(
     permissionsQuery.isError ? undefined : permissionsQuery.data,
@@ -90,17 +89,19 @@ export function GuildDashboard({
         )}
         <div className="flex min-w-0 items-center gap-1">
           <GuildSwitcher currentGuildId={guildId} guilds={guildChoices} />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
+          {/* 別ページへの移動なので、ボタンの見た目のリンクにする */}
+          <Link
+            href={settingsHref}
             aria-label={t("サーバー設定")}
             title={t("サーバー設定")}
-            onClick={() => setSettingsOpen(true)}
-            className="shrink-0"
+            className={buttonVariants({
+              variant: "ghost",
+              size: "icon",
+              className: "shrink-0",
+            })}
           >
             <SettingsIcon />
-          </Button>
+          </Link>
         </div>
       </div>
       <EventCalendar
@@ -118,7 +119,7 @@ export function GuildDashboard({
                   guildId={guildId}
                   canEdit={canEdit}
                   onCreate={openCreate}
-                  onOpenSettings={() => setSettingsOpen(true)}
+                  settingsHref={settingsHref}
                 />
               )
             : // 最初の予定の案内と重ならないよう、出さないときだけ支援のお知らせの候補にする (#371)。
@@ -134,11 +135,6 @@ export function GuildDashboard({
           // Bot の招待し直しやロール付与の直後でも待たずに反映できるようにする (#122)
           onRefresh: () => refreshPermissions.mutateAsync(),
         }}
-      />
-      <GuildSettingsDialog
-        guildId={guildId}
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
       />
     </main>
   );

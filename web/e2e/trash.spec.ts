@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import { calendarToday, dayCell, eventOn, isoDate } from "./calendar";
 import { E2E_GUILDS, E2E_USER } from "./fixtures";
+import { backToCalendar, openGuildSettings } from "./guild-settings";
 
 // 削除した予定 (ゴミ箱、#159)。サーバー設定の一覧から元に戻す・完全に削除する。
 // admin ギルドではテストユーザーがオーナー、member ギルドでは権限のない一般メンバー (Discord モックの定義)
@@ -8,12 +9,7 @@ import { E2E_GUILDS, E2E_USER } from "./fixtures";
 const guildId = E2E_GUILDS.admin.id;
 const stamp = Date.now().toString(36);
 
-async function openSettings(page: Page) {
-  await page.getByRole("button", { name: "サーバー設定" }).click();
-  const dialog = page.getByRole("dialog", { name: "サーバー設定" });
-  await expect(dialog).toBeVisible();
-  return dialog;
-}
+const openSettings = (page: Page) => openGuildSettings(page, "削除した予定");
 
 /** API で date の 10:00〜11:00 に予定を作る (ブラウザと同じ cookie で叩く)。作った予定を返す */
 async function createApiEvent(page: Page, name: string, date: string) {
@@ -77,8 +73,7 @@ test.describe("管理権限のあるギルド", () => {
     );
     await expect(item).toHaveCount(0);
 
-    await page.keyboard.press("Escape");
-    await expect(dialog).toBeHidden();
+    await backToCalendar(page);
     await expect(eventOn(dayCell(page, today), title)).toBeVisible();
 
     const cleanup = await page.request.delete(
@@ -195,7 +190,9 @@ test.describe("管理権限のないギルド", () => {
     await expect(page.getByText(E2E_GUILDS.member.name)).toBeVisible();
     const dialog = await openSettings(page);
     await expect(
-      dialog.getByRole("heading", { name: "通知", exact: false }).first(),
+      dialog.getByText(
+        "この項目は管理権限を持つメンバーだけが確認・変更できます",
+      ),
     ).toBeVisible();
     await expect(
       dialog.getByRole("heading", { name: "削除した予定" }),

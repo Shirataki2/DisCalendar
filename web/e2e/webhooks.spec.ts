@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { expect, test } from "@playwright/test";
 import { E2E_GUILDS, E2E_USER } from "./fixtures";
+import { openGuildSettings } from "./guild-settings";
 
 // Webhook の本文は Postgres の to_jsonb で組み立てる (shared/webhook_outbox.rs) ため、日時の小数秒の末尾ゼロが落ちる
 // (API 応答 `...41.781290` に対して本文は `...41.78129`)。同じ日時なので比較の前に末尾ゼロを揃える (#307)
@@ -48,8 +49,7 @@ test("Webhook の登録・署名付き配信・ログ・変更と削除・権限
   let eventId: number | undefined;
   try {
     await page.goto(`/dashboard/${guild}`);
-    await page.getByRole("button", { name: "サーバー設定" }).click();
-    const dialog = page.getByRole("dialog", { name: "サーバー設定" });
+    const dialog = await openGuildSettings(page, "Webhook・API トークン");
     await dialog
       .getByLabel("Webhook URL", { exact: true })
       .fill(`http://webhook.test:${address.port}/secret-path`);
@@ -66,6 +66,18 @@ test("Webhook の登録・署名付き配信・ログ・変更と削除・権限
     hookId = hook.id;
     expect(JSON.stringify(hooks)).not.toContain(secret);
     expect(JSON.stringify(hooks)).not.toContain("secret-path");
+    // 登録したメンバーごとの一覧に、自分の名前と (パスを伏せた) URL が出て、下の Webhook の行へ飛べる
+    const mine = dialog
+      .getByRole("region", { name: "登録したメンバーごとの一覧" })
+      .getByRole("listitem")
+      .filter({ hasText: E2E_USER.name })
+      .first();
+    const hookLink = mine.getByRole("link", {
+      name: `http://webhook.test:${address.port}/…`,
+    });
+    await expect(hookLink).toHaveAttribute("href", `#webhook-${hook.id}`);
+    await expect(mine).not.toContainText("secret-path");
+    await expect(dialog.locator(`#webhook-${hook.id}`)).toBeVisible();
     const input = {
       name: `Webhook ${Date.now()}`,
       description: "説明も通知",

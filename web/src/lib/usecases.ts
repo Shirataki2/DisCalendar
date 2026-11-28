@@ -123,7 +123,7 @@ export const USECASE_PAGES: readonly UsecasePage[] = [
     ],
     image: {
       src: settingsShot,
-      alt: "サーバー設定ダイアログ。通知・投稿の言語、編集制限と編集ロール、Discord への通知、今日・今週のまとめ投稿、配信用のフィード URL、重ね表示する外部カレンダーの登録、Webhook の設定、削除した予定の一覧がある",
+      alt: "サーバー設定のページ。左に全般・外部カレンダー・Webhook と API トークン・削除した予定の項目が並び、全般には通知・投稿の言語、編集制限と編集ロール、Discord への通知、今日・今週のまとめ投稿の設定がある",
     },
   },
 ];

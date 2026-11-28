@@ -44,7 +44,7 @@ async function loadGuildChoices() {
 
 // ギルド情報・restricted 設定・自分の権限をまとめて取る。
 // メンバーでない / Bot 未参加なら API が 403 を返すので、ここで弾かれる。
-// 設定と権限はクライアント側 (サーバー設定ダイアログ) でも更新・再取得するため、
+// 設定と権限はクライアント側 (サーバー設定ページ) でも更新・再取得するため、
 // TanStack Query のキャッシュに入れてブラウザへ hydrate する
 async function loadGuild(
   guildId: string,
