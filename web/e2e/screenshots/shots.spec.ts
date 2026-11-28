@@ -83,7 +83,8 @@ test.describe("カレンダー", () => {
 });
 
 test.describe("ダイアログ", () => {
-  // 予定のフォームとサーバー設定 (通知の節 #181 で伸びた) は縦に長いので、スクロールバーが出ない高さにする
+  // 予定のフォームとサーバー設定 (通知の節 #181 で伸びた) は縦に長いので、スクロールバーが出ない高さにする。
+  // サーバー設定はページになったが、撮り方 (高い画面で全体を写す) は同じなのでここに置く
   test.use({ viewport: { width: 1400, height: 1600 }, deviceScaleFactor: 2 });
 
   test("lp/dialog.png (予定の編集)", async ({ page }) => {
@@ -164,45 +165,37 @@ test.describe("ダイアログ", () => {
       },
     );
     expect(digest.status(), await digest.text()).toBe(200);
-    // iCal フィード (#95) は発行済みの状態 (URL とコピーボタンが出ている) を見せる。
-    // 撮影用 DB は毎回初期化されるので、ここで発行しても次の撮影には残らない
-    const issued = await page.request.post(`/local/api/guilds/${guildId}/feed`);
-    expect(issued.status()).toBe(200);
     await openCalendar(page);
-    await page.getByRole("button", { name: "サーバー設定" }).click();
+    await page.getByRole("link", { name: "サーバー設定", exact: true }).click();
 
-    const dialog = page.getByRole("dialog", { name: "サーバー設定" });
-    await expect(dialog).toBeVisible();
-    const feedUrl = dialog.getByRole("textbox", { name: "フィード URL" });
-    await expect(feedUrl).toBeVisible();
+    // サーバー設定はページ (節ごとに分かれている)。左の項目一覧と「全般」の本文を写す
+    const settings = page.getByRole("main");
+    await expect(
+      settings.getByRole("heading", { level: 1, name: "サーバー設定" }),
+    ).toBeVisible();
     // 「限定する」を選び、通知先チャンネル (#181) を選んだ状態を見せる (保存はしないので DB は変わらない)
-    await dialog
+    await settings
       .getByRole("checkbox", {
         name: "予定の編集を管理権限または指定ロールのあるメンバーに限定する",
       })
       .check();
-    await dialog
+    await settings
       .getByRole("checkbox", { name: "カレンダー運営", exact: true })
       .check();
-    await dialog.getByRole("combobox", { name: "通知先チャンネル" }).click();
+    await settings.getByRole("combobox", { name: "通知先チャンネル" }).click();
     await page
       .getByRole("listbox")
       .getByRole("option", { name: `#${E2E_CHANNELS.notices.name}` })
       .click();
-    await blur(dialog);
+    await blur(settings);
     await settle(page);
-    // URL はブラウザのオリジンで組み立てられる (撮影環境では localhost:3100) ので、
-    // 表示だけ本番のドメインに差し替える (トークンはそのまま。見た目以外は変えない)。
-    // React の制御された input は再描画で値が戻るので、他の操作を終えた直後に書き換える
-    await feedUrl.evaluate((input: HTMLInputElement) => {
-      input.value = input.value.replace(
-        window.location.origin,
-        "https://discalendar.app",
-      );
-    });
     await page.screenshot({
       path: assetPath("lp/settings.png"),
-      clip: await clipAround(page, [dialog], { x: 48, y: 40 }),
+      // main は画面いっぱいに広がるので、中身 (幅を絞った枠) の周りで切る
+      clip: await clipAround(page, [settings.locator("> div")], {
+        x: 32,
+        y: 24,
+      }),
     });
   });
 });
@@ -243,8 +236,9 @@ function assetPath(name: string): string {
 async function openCalendar(page: Page) {
   await page.goto(`/dashboard/${guildId}`);
   await expect(page.getByRole("grid")).toBeVisible();
-  // 月内に必ずある予定 (13〜15 日と 21 日) が出るまで待つ
-  await expect(eventOn(page, "合宿")).toBeVisible();
+  // 月内に必ずある予定 (13〜15 日と 21 日) が出るまで待つ。
+  // 13〜15 日が週をまたぐ月は「合宿」が 2 つに分かれて表示されるので、先頭だけを見る
+  await expect(eventOn(page, "合宿").first()).toBeVisible();
   await expect(eventOn(page, "企画会議")).toBeVisible();
   await prepare(page);
 }

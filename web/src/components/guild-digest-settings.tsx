@@ -66,9 +66,9 @@ export function GuildDigestSettingsSection({
   };
   return (
     <section aria-labelledby="guild-digest-heading" className="grid gap-4">
-      <h3 id="guild-digest-heading" className="text-sm font-medium">
+      <h2 id="guild-digest-heading" className="text-base font-semibold">
         {t("予定のまとめを投稿する")}
-      </h3>
+      </h2>
       <p className="text-sm text-muted-foreground">
         {t(
           "通知先チャンネルへ投稿します。時刻は日本時間 (JST) です。この節は「まとめ投稿を保存」で反映します。",
@@ -84,7 +84,7 @@ export function GuildDigestSettingsSection({
       {query.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {t(
-            "まとめ投稿の設定を取得できませんでした。ダイアログを開き直してください。",
+            "まとめ投稿の設定を取得できませんでした。ページを読み込み直してください。",
           )}
         </p>
       ) : !values ? (

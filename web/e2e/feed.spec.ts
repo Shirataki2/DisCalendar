@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import { DATABASE_URL } from "./env";
 import { E2E_GUILDS } from "./fixtures";
+import { openGuildSettings } from "./guild-settings";
 import {
   deleteEventsNamed,
   deleteFeedToken,
@@ -8,7 +9,7 @@ import {
   setFeedToken,
 } from "./seed";
 
-// iCal フィード (#95)。サーバー設定ダイアログからの発行・再発行・無効化と、認証なしの配信 (/feeds/<token>.ics)。
+// iCal フィード (#95)。サーバー設定 (外部カレンダー) からの発行・再発行・無効化と、認証なしの配信 (/feeds/<token>.ics)。
 // admin ギルドではテストユーザーがオーナー、member ギルドでは権限のない一般メンバー (Discord モックの定義)
 
 /** 発行された URL の形 (web のオリジン + /feeds/<64 文字の 16 進>.ics) */
@@ -18,12 +19,7 @@ const FEED_URL = /\/feeds\/[0-9a-f]{64}\.ics$/;
 const stamp = Date.now().toString(36);
 const feedTitle = `E2E フィード予定 ${stamp}`;
 
-async function openSettings(page: Page) {
-  await page.getByRole("button", { name: "サーバー設定" }).click();
-  const dialog = page.getByRole("dialog", { name: "サーバー設定" });
-  await expect(dialog).toBeVisible();
-  return dialog;
-}
+const openSettings = (page: Page) => openGuildSettings(page, "外部カレンダー");
 
 /** 折り返し (CRLF + 空白) を戻して 1 行ずつにする */
 function unfold(ics: string): string[] {
@@ -107,9 +103,8 @@ test.describe("管理権限のあるギルド", () => {
     expect((await anonymous.get(reissued)).status()).toBe(404);
 
     // 再読込しても未発行のまま (キャッシュだけの変更ではない)
-    await dialog.getByRole("button", { name: "キャンセル" }).click();
     await page.reload();
-    const reopened = await openSettings(page);
+    const reopened = page.getByRole("main");
     await expect(
       reopened.getByRole("button", { name: "フィード URL を発行" }),
     ).toBeVisible();
@@ -170,7 +165,9 @@ test.describe("管理権限のないギルド", () => {
     const dialog = await openSettings(page);
     const urlInput = dialog.getByRole("textbox", { name: "フィード URL" });
     await expect(urlInput).toHaveValue(new RegExp(`/feeds/${token}\\.ics$`));
-    await expect(dialog.getByRole("button", { name: "コピー" })).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: "コピー", exact: true }),
+    ).toBeVisible();
     await expect(dialog.getByRole("button", { name: "再発行" })).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "無効化" })).toHaveCount(0);
   });

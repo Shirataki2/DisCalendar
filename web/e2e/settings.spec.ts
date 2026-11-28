@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { E2E_CHANNELS, E2E_GUILDS } from "./fixtures";
+import { backToCalendar, openGuildSettings } from "./guild-settings";
 
 // サーバー設定 (restricted モード・通知の設定 #181) の切替と、管理権限のないユーザーの表示。
 // admin ギルドではテストユーザーがオーナー、member ギルドでは権限のない一般メンバー (Discord モックの定義)
@@ -12,12 +13,7 @@ const NOTIFY_AT_START_LABEL = "開始時刻に通知する";
 const CHANNEL_LABEL = "通知先チャンネル";
 const configApi = `/local/api/guilds/${E2E_GUILDS.admin.id}/config`;
 
-async function openSettings(page: Page) {
-  await page.getByRole("button", { name: "サーバー設定" }).click();
-  const dialog = page.getByRole("dialog", { name: "サーバー設定" });
-  await expect(dialog).toBeVisible();
-  return dialog;
-}
+const openSettings = (page: Page) => openGuildSettings(page);
 
 /**
  * 各テストの開始時に API で restricted を決め打ちにする (ブラウザと同じ cookie で叩く)。
@@ -43,14 +39,16 @@ async function resetNotificationSettings(page: Page) {
   expect(res.status()).toBe(200);
 }
 
-/** 「保存」を押して PUT の完了とダイアログが閉じるのを待つ */
+/** 「保存」を押して PUT の完了と「保存しました」の表示を待つ (ページに留まる) */
 async function saveSettings(page: Page, dialog: ReturnType<Page["getByRole"]>) {
   const saved = page.waitForResponse(
     (res) => res.url().includes(configApi) && res.request().method() === "PUT",
   );
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   expect((await saved).status()).toBe(200);
-  await expect(dialog).toBeHidden();
+  await expect(
+    dialog.getByRole("status").filter({ hasText: /^保存しました$/ }),
+  ).toBeVisible();
 }
 
 test.describe("管理権限のあるギルド", () => {
@@ -69,11 +67,11 @@ test.describe("管理権限のあるギルド", () => {
     await saveSettings(page, dialog);
 
     await page.reload();
-    const reopened = await openSettings(page);
+    const reopened = page.getByRole("main");
     await expect(
       reopened.getByRole("checkbox", { name: RESTRICTED_LABEL }),
     ).toBeChecked();
-    await reopened.getByRole("button", { name: "キャンセル" }).click();
+    await backToCalendar(page);
     // 管理権限があるので restricted でも編集できる (注意書きも出ない)
     await expect(page.getByRole("button", { name: "新規作成" })).toBeEnabled();
     await expect(page.getByText(RESTRICTED_NOTICE)).toHaveCount(0);
@@ -86,14 +84,156 @@ test.describe("管理権限のあるギルド", () => {
     const checkbox = dialog.getByRole("checkbox", { name: RESTRICTED_LABEL });
     await expect(checkbox).toBeChecked();
     await checkbox.uncheck();
-    await dialog.getByRole("button", { name: "保存", exact: true }).click();
-    await expect(dialog).toBeHidden();
+    await saveSettings(page, dialog);
 
     await page.reload();
-    const reopened = await openSettings(page);
+    const reopened = page.getByRole("main");
     await expect(
       reopened.getByRole("checkbox", { name: RESTRICTED_LABEL }),
     ).not.toBeChecked();
+  });
+});
+
+test("カレンダーで表示していた日付は、設定の節を切り替えても保たれ、「カレンダーに戻る」で開き直せる (#440)", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date("2026-10-15T12:00:00+09:00"));
+  await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+  await expect(
+    page.locator('[role="gridcell"][data-date="2026-10-20"]'),
+  ).toBeVisible();
+  // 翌月へ移ってから設定を開く
+  await page.getByRole("button", { name: "次", exact: true }).click();
+  await expect(
+    page.locator('[role="gridcell"][data-date="2026-11-20"]'),
+  ).toBeVisible();
+  await openSettings(page);
+  await expect(page).toHaveURL(/\/settings\?date=2026-11-/);
+  await page
+    .getByRole("navigation", { name: "サーバー設定の項目" })
+    .getByRole("link", { name: "削除した予定", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/settings\/trash\?date=2026-11-/);
+
+  await backToCalendar(page);
+  await expect(page).toHaveURL(/\?date=2026-11-/);
+  await expect(
+    page.locator('[role="gridcell"][data-date="2026-11-20"]'),
+  ).toBeVisible();
+});
+
+test.describe("サーバー ID のコピー (#440)", () => {
+  test.use({ permissions: ["clipboard-read", "clipboard-write"] });
+
+  test("タイトルの横のボタンでサーバー ID を文字列のままコピーできる", async ({
+    page,
+  }) => {
+    await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+    const settings = await openSettings(page);
+    const button = settings.getByRole("button", {
+      name: "サーバー ID をコピー",
+    });
+    await button.click();
+    await expect(
+      settings.getByRole("button", { name: "コピーしました" }),
+    ).toBeVisible();
+    // Snowflake は Number の精度を超えるので、桁が崩れずにそのまま入っていること
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      E2E_GUILDS.admin.id,
+    );
+    // しばらくすると元の表示に戻る
+    await expect(button).toBeVisible();
+  });
+
+  test("管理権限がなくてもコピーできる", async ({ page }) => {
+    await page.goto(`/dashboard/${E2E_GUILDS.member.id}`);
+    const settings = await openSettings(page);
+    await settings
+      .getByRole("button", { name: "サーバー ID をコピー" })
+      .click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      E2E_GUILDS.member.id,
+    );
+  });
+});
+
+test.describe("未保存の変更 (#440)", () => {
+  test("保存せずに別の節やカレンダーへ移ろうとすると確認し、破棄すると保存されない", async ({
+    page,
+  }) => {
+    await setRestricted(page, false);
+    await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+    const settings = await openSettings(page);
+    const checkbox = settings.getByRole("checkbox", { name: RESTRICTED_LABEL });
+    const nav = page.getByRole("navigation", { name: "サーバー設定の項目" });
+    const confirm = page.getByRole("alertdialog", {
+      name: "未保存の変更を破棄しますか？",
+    });
+
+    // 変更が無ければ確認せずに移れる
+    await nav
+      .getByRole("link", { name: "外部カレンダー", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/settings\/calendars(?:\?|$)/);
+    await nav.getByRole("link", { name: "全般", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings(?:\?|$)/);
+
+    await checkbox.check();
+    // 「編集を続ける」でとどまり、入力も残る
+    await nav
+      .getByRole("link", { name: "外部カレンダー", exact: true })
+      .click();
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: "編集を続ける" }).click();
+    await expect(confirm).toBeHidden();
+    await expect(page).toHaveURL(/\/settings(?:\?|$)/);
+    await expect(checkbox).toBeChecked();
+
+    // 再読み込みはブラウザ標準の確認 (beforeunload) で止まる
+    // (取り消すと遷移が起きないので、reload の完了は待たない)
+    const beforeUnload = page.waitForEvent("dialog");
+    void page.reload({ timeout: 5_000 }).catch(() => {});
+    const dialog = await beforeUnload;
+    expect(dialog.type()).toBe("beforeunload");
+    await dialog.dismiss();
+    await expect(page).toHaveURL(/\/settings(?:\?|$)/);
+    await expect(checkbox).toBeChecked();
+
+    // 「破棄して移動」でカレンダーへ移り、変更は保存されない
+    await page.getByRole("link", { name: "カレンダーに戻る" }).click();
+    await confirm.getByRole("button", { name: "破棄して移動" }).click();
+    await expect(
+      page.getByRole("link", { name: "サーバー設定", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(RESTRICTED_NOTICE)).toHaveCount(0);
+    const config = await page.request.get(configApi);
+    expect(await config.json()).toMatchObject({ restricted: false });
+  });
+
+  test("保存した後や変更を取り消した後は確認しない", async ({ page }) => {
+    await setRestricted(page, false);
+    await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
+    const settings = await openSettings(page);
+    const checkbox = settings.getByRole("checkbox", { name: RESTRICTED_LABEL });
+    const nav = page.getByRole("navigation", { name: "サーバー設定の項目" });
+
+    await checkbox.check();
+    await settings.getByRole("button", { name: "変更を取り消す" }).click();
+    await expect(checkbox).not.toBeChecked();
+    await nav
+      .getByRole("link", { name: "外部カレンダー", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/settings\/calendars(?:\?|$)/);
+
+    await nav.getByRole("link", { name: "全般", exact: true }).click();
+    await checkbox.check();
+    await saveSettings(page, settings);
+    await page.getByRole("link", { name: "カレンダーに戻る" }).click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(
+      page.getByRole("link", { name: "サーバー設定", exact: true }),
+    ).toBeVisible();
+    await setRestricted(page, false);
   });
 });
 
@@ -129,20 +269,20 @@ test.describe("通知の設定 (#181)", () => {
     await expect(select).toContainText(`#${E2E_CHANNELS.notices.name}`);
     await saveSettings(page, dialog);
 
-    // 保存した通知先は API (GET /config) と再読込後のダイアログの両方に反映される
+    // 保存した通知先は API (GET /config) と再読込後の設定ページの両方に反映される
     const config = await page.request.get(configApi);
     expect(await config.json()).toMatchObject({
       notification_channel_id: E2E_CHANNELS.notices.id,
     });
     await page.reload();
-    const reopened = await openSettings(page);
+    const reopened = page.getByRole("main");
     await expect(
       reopened.getByRole("combobox", { name: CHANNEL_LABEL }),
     ).toContainText(`#${E2E_CHANNELS.notices.name}`);
-    await reopened.getByRole("button", { name: "キャンセル" }).click();
+    await backToCalendar(page);
 
-    // ページを開いたまま別の経路 (`/init` 相当。ここでは API) で通知先が変わっても、
-    // 次にダイアログを開いたときは取り直した設定で始まる (古い値を保存で送り返さない)。
+    // カレンダーを開いたまま別の経路 (`/init` 相当。ここでは API) で通知先が変わっても、
+    // 次に設定を開いたときは取り直した設定で始まる (古い値を保存で送り返さない)。
     // 次の実行では最初の状態が違っても同じ手順で通る
     const changed = await page.request.put(configApi, {
       data: {
@@ -236,7 +376,7 @@ test.describe("通知の設定 (#181)", () => {
     });
 
     // 新規作成ダイアログの通知欄がサーバー既定になっている
-    await page.reload();
+    await page.goto(`/dashboard/${E2E_GUILDS.admin.id}`);
     await page.getByRole("button", { name: "新規作成" }).click();
     const create = page.getByRole("dialog", { name: "予定を作成" });
     await expect(create).toBeVisible();
@@ -248,13 +388,12 @@ test.describe("通知の設定 (#181)", () => {
     ).toContainText("分前");
     await create.getByRole("button", { name: "キャンセル" }).click();
 
-    // 再読込後の設定ダイアログにも残っている
+    // 開き直した設定ページにも残っている
     const reopened = await openSettings(page);
     await expect(
       reopened.getByRole("checkbox", { name: NOTIFY_AT_START_LABEL }),
     ).not.toBeChecked();
     await expect(reopened.getByLabel("通知のタイミング (数値)")).toHaveCount(3);
-    await reopened.getByRole("button", { name: "キャンセル" }).click();
 
     // 他のテスト (予定の作成の既定の通知) のために元に戻す
     await resetNotificationSettings(page);
@@ -426,7 +565,7 @@ test.describe("予定のまとめ投稿 (#172)", () => {
         .getByRole("checkbox", { name: "予定が無い日は投稿しない" })
         .uncheck();
       if (width === 1280) {
-        // 時刻欄の Enter で親フォームを送信して閉じず、この節だけを保存する。
+        // 時刻欄の Enter で親フォーム (全般の「保存」) を送信せず、この節だけを保存する。
         await section.getByLabel("毎週の投稿時刻 (JST)").press("Enter");
       } else {
         await section
@@ -454,9 +593,8 @@ test.describe("予定のまとめ投稿 (#172)", () => {
       await page.screenshot({
         path: testInfo.outputPath(`digest-${width}.png`),
       });
-      await dialog.getByRole("button", { name: "キャンセル" }).click();
       await page.reload();
-      const reopened = await openSettings(page);
+      const reopened = page.getByRole("main");
       await expect(reopened.getByLabel("毎日の投稿時刻 (JST)")).toHaveValue(
         "09:15",
       );

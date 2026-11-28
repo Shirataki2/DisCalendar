@@ -84,13 +84,10 @@ export function TrashSettings({ guildId }: { guildId: string }) {
   };
 
   return (
-    <section
-      aria-labelledby={`${id}-title`}
-      className="grid gap-3 border-t pt-4"
-    >
-      <h3 id={`${id}-title`} className="text-sm font-medium">
+    <section aria-labelledby={`${id}-title`} className="grid gap-3">
+      <h2 id={`${id}-title`} className="text-base font-semibold">
         {t("削除した予定")}
-      </h3>
+      </h2>
       <p className="text-sm text-muted-foreground">
         {t(
           "削除した予定は 30 日間ここに残り、元に戻せます。30 日を過ぎると自動で完全に削除されます。操作はその場で反映されます。",

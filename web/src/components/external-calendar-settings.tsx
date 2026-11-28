@@ -74,9 +74,9 @@ export function ExternalCalendarSettings({
   return (
     <section aria-labelledby="external-calendar-heading" className="grid gap-3">
       <div>
-        <h3 id="external-calendar-heading" className="text-sm font-medium">
+        <h2 id="external-calendar-heading" className="text-base font-semibold">
           {t("外部カレンダーを重ねて表示する")}
-        </h3>
+        </h2>
         <p className="text-sm text-muted-foreground">
           {t(
             "登録した ICS の予定を読み取り専用で表示します。通知や共有には含まれません",

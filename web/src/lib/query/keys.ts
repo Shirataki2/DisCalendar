@@ -76,6 +76,10 @@ export const queryKeys = {
       ["guild", guildId, "event-summary"] as const,
     /** 通知先に選べるチャンネル (#181) */
     channels: (guildId: string) => ["guild", guildId, "channels"] as const,
+    /** 登録済みの Webhook。作成者ごとの一覧と Webhook の節で共有する */
+    webhooks: (guildId: string) => ["guild", guildId, "webhooks"] as const,
+    /** サーバー用 API トークン (#405)。作成者ごとの一覧と API トークンの節で共有する */
+    apiTokens: (guildId: string) => ["guild", guildId, "api-tokens"] as const,
   },
   /** 管理コンソール。通常画面とは別のエンドポイントなので、キャッシュも別に持つ */
   admin: {

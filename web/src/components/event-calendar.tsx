@@ -119,6 +119,11 @@ interface Props {
   initialDate?: string;
   initialEventId?: number;
   /**
+   * 表示中の日付 (表示範囲の基準日。月表示なら 1 日) が変わったとき。YYYY-MM-DD (端末のローカル日付)。
+   * サーバー設定へ移って戻ったときに、同じ日付を開き直すのに使う (#440)
+   */
+  onDisplayDateChange?: (date: string) => void;
+  /**
    * 新規作成の事前通知の初期値 (サーバー設定の「新しい予定の既定の事前通知」、#181)。
    * 未指定なら (管理コンソールなど) 旧フォームの既定 (1 日前と 1 時間前)
    */
@@ -283,6 +288,7 @@ export function EventCalendar({
   canEdit,
   initialDate,
   initialEventId,
+  onDisplayDateChange,
   defaultNotifications,
   eventsSource = dashboardEventsSource,
   settingsOverride,
@@ -452,6 +458,7 @@ export function EventCalendar({
   const handleDatesSet = (info: DatesSetInfo) => {
     setRange(datesSetToRange(info, settingsOverride === undefined));
     setQuickAdd(null);
+    onDisplayDateChange?.(format(info.view.currentStart, "yyyy-MM-dd"));
   };
 
   // ドラッグ移動 / リサイズ。FullCalendar 側は既に動いているので、保存に失敗したら戻す

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { eventOn } from "./calendar";
 import { DATABASE_URL } from "./env";
 import { E2E_GUILDS } from "./fixtures";
+import { backToCalendar } from "./guild-settings";
 import { deleteEventsNamed, deleteGuildEvents } from "./seed";
 
 // 予定がまだないサーバーで、最初の予定作りを手助けする案内 (#377)。
@@ -25,17 +26,20 @@ test("予定がなければ案内から最初の予定を作れ、作ると案�
   const guide = page.getByRole("region", { name: GUIDE_TITLE });
   await expect(guide).toBeVisible();
 
-  // 補足は折りたたんであり、通知先の設定はサーバー設定ダイアログで行う
-  const settingsButton = guide.getByRole("button", {
+  // 補足は折りたたんであり、通知先の設定はサーバー設定ページ (全般) で行う
+  const settingsLink = guide.getByRole("link", {
     name: "通知先を設定する",
   });
-  await expect(settingsButton).toBeHidden();
+  await expect(settingsLink).toBeHidden();
   await guide.getByText("あわせて設定しておくと便利です").click();
-  await settingsButton.click();
-  const settings = page.getByRole("dialog", { name: "サーバー設定" });
-  await expect(settings).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(settings).toBeHidden();
+  await settingsLink.click();
+  await expect(page).toHaveURL(
+    new RegExp(`/dashboard/${guildId}/settings(?:\\?|$)`),
+  );
+  await expect(
+    page.getByRole("heading", { name: "Discord への通知" }),
+  ).toBeVisible();
+  await backToCalendar(page);
 
   await guide.getByRole("button", { name: "最初の予定を作る" }).click();
   const dialog = page.getByRole("dialog", { name: "予定を作成" });

@@ -17,7 +17,7 @@ import { syncAdminGuildConfig } from "./admin-cache";
 import { queryKeys } from "./keys";
 
 // 初回の値は dashboard/[id]/page.tsx (RSC) が取得して hydrate するので、
-// クライアントでは再取得 (サーバー設定ダイアログの「再読込」や staleTime 経過後) にだけ API を呼ぶ
+// クライアントでは再取得 (サーバー設定の「再読込」や staleTime 経過後) にだけ API を呼ぶ
 
 /** ギルド設定 (restricted かどうか) */
 export function useGuildConfigQuery(guildId: string) {
@@ -117,7 +117,7 @@ export function useUpdateGuildConfig(guildId: string) {
 }
 
 /**
- * iCal フィードの発行状況 (#95)。RSC では事前取得せず、サーバー設定ダイアログを開いたときに取る。
+ * iCal フィードの発行状況 (#95)。RSC では事前取得せず、サーバー設定 (外部カレンダー) を開いたときに取る。
  * 未発行なら data は null (undefined は未取得)
  */
 export function useGuildFeedQuery(guildId: string) {
@@ -148,7 +148,7 @@ export function useIssueGuildFeed(guildId: string) {
 }
 
 /**
- * 通知先に選べるチャンネルの一覧 (#181)。サーバー設定ダイアログを開いたときに取る。
+ * 通知先に選べるチャンネルの一覧 (#181)。サーバー設定 (全般) を開いたときに取る。
  * api 側で 1 分キャッシュしているので、Discord でチャンネルや権限を変えた直後は少し遅れて反映される
  */
 export function useGuildChannelsQuery(guildId: string, enabled = true) {
@@ -234,7 +234,7 @@ export function useMemberProfilesInChunks(
   });
 }
 
-/** 設定ダイアログを開いている間に取得する。Discord 側はギルドの既存キャッシュを共有する。 */
+/** サーバー設定 (全般) を開いている間に取得する。Discord 側はギルドの既存キャッシュを共有する。 */
 export function useGuildRolesQuery(
   guildId: string,
   enabled: boolean,
@@ -269,4 +269,38 @@ export function useUpdateGuildDigest(guildId: string) {
     onSuccess: (settings) =>
       queryClient.setQueryData(queryKeys.guild.digest(guildId), settings),
   });
+}
+
+/**
+ * 登録済みの Webhook (管理権限が必要)。配信ログと連続失敗の回数を追えるよう 5 秒ごとに取り直す。
+ * 作成者ごとの一覧と Webhook の節で同じキャッシュを使う
+ */
+export function useGuildWebhooksQuery(guildId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.guild.webhooks(guildId),
+    queryFn: () => api.webhooks.list(guildId),
+    enabled,
+    refetchInterval: 5000,
+    staleTime: 0,
+  });
+}
+
+/** サーバー用 API トークン (#405、管理権限が必要)。作成者ごとの一覧と API トークンの節で同じキャッシュを使う */
+export function useGuildApiTokensQuery(guildId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.guild.apiTokens(guildId),
+    queryFn: () => api.apiTokens.list(guildId),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+/**
+ * サーバーの設定を変更できるか (`can_manage_server`)。取得中は undefined、取得に失敗したときは false に倒す
+ * (Bot が外れて 403 になっても、直前に成功した「権限あり」を使い続けないため)
+ */
+export function useCanManageServer(guildId: string): boolean | undefined {
+  const permissions = useMyPermissionsQuery(guildId);
+  if (permissions.isError) return false;
+  return permissions.data?.can_manage_server;
 }

@@ -1,21 +1,18 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CheckIcon, CopyIcon, InfoIcon, RefreshCwIcon } from "lucide-react";
-import Link from "next/link";
-import { useEffect, useId, useState } from "react";
+import { InfoIcon, RefreshCwIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
   Controller,
   FormProvider,
   useForm,
   useFormContext,
 } from "react-hook-form";
-import { ApiTokenSettings } from "@/components/api-token-settings";
-import { ExternalCalendarSettings } from "@/components/external-calendar-settings";
 import { NotificationsField } from "@/components/form/notifications-field";
 import { GuildDigestSettingsSection } from "@/components/guild-digest-settings";
+import { SettingsHint } from "@/components/guild-settings/settings-hint";
 import { useLanguage } from "@/components/language-provider";
-import { TrashSettings } from "@/components/trash-settings";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,20 +26,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Field,
   FieldContent,
   FieldDescription,
   FieldLabel,
 } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -59,7 +47,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { WebhookSettings } from "@/components/webhook-settings";
+import { useLeaveConfirmation } from "@/hooks/use-leave-confirmation";
 import { describeApiError } from "@/lib/api";
 import type {
   GuildChannel,
@@ -70,8 +58,6 @@ import {
   channelLabel,
   describeMissingPermissions,
 } from "@/lib/channel-permissions";
-import { docPath } from "@/lib/docs";
-import { buildFeedUrl } from "@/lib/feed-url";
 import {
   configToFormValues,
   formValuesToConfigInput,
@@ -81,90 +67,15 @@ import {
 import {
   useGuildChannelsQuery,
   useGuildConfigQuery,
-  useGuildFeedQuery,
   useGuildRolesQuery,
-  useIssueGuildFeed,
   useMyPermissionsQuery,
   useRefreshMyPermissions,
-  useRevokeGuildFeed,
   useUpdateGuildConfig,
 } from "@/lib/query/guild";
-
-interface Props {
-  guildId: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
 
 const RESTRICTED_CHECKBOX_ID = "guild-settings-restricted";
 const NOTIFY_AT_START_CHECKBOX_ID = "guild-settings-notify-at-start";
 const CHANNEL_SELECT_ID = "guild-settings-channel";
-
-/** ホバー・キーボードのフォーカスに加え、タッチではタップで補足を開く。 */
-function SettingsHint({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  const { t } = useLanguage();
-  const [open, setOpen] = useState(false);
-  const triggerId = useId();
-  return (
-    <TooltipProvider>
-      <Tooltip open={open} onOpenChange={setOpen} triggerId={triggerId}>
-        <TooltipTrigger
-          id={triggerId}
-          type="button"
-          aria-label={t("{label}の補足", { label })}
-          aria-describedby={open ? `${triggerId}-content` : undefined}
-          closeOnClick={false}
-          onClick={() => setOpen(true)}
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring"
-        >
-          <InfoIcon aria-hidden className="size-4" />
-        </TooltipTrigger>
-        <TooltipContent
-          id={`${triggerId}-content`}
-          role="tooltip"
-          className="max-w-[min(20rem,calc(100vw-2rem))] leading-relaxed"
-        >
-          {children}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
-
-/**
- * サーバー設定ダイアログ (旧 ServerSetting.vue 相当)。
- * restricted モードの切り替えと通知の設定 (#181) は「保存」で反映し、
- * iCal フィード (#95) の発行・無効化はその場で反映する
- */
-export function GuildSettingsDialog({ guildId, open, onOpenChange }: Props) {
-  const { language } = useLanguage();
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={onOpenChange}
-      // 旧 v-dialog persistent と同じく外側クリックでは閉じない
-      disablePointerDismissal
-    >
-      {/* フィードの節 (#95) が増えて背が高くなったので、低い画面ではダイアログ内でスクロールさせる (予定ダイアログと同じ) */}
-      <DialogContent
-        lang={language}
-        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl"
-      >
-        {/* Base UI の Dialog は閉じると Popup を unmount するので、開くたびに設定値から初期化される */}
-        <GuildSettingsForm
-          guildId={guildId}
-          onClose={() => onOpenChange(false)}
-        />
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 /** 設定を取れていないときのフォーム初期値 (通常は RSC で hydrate 済みなので使われない) */
 const FALLBACK_CONFIG: Omit<GuildConfig, "guild_id"> = {
@@ -177,13 +88,11 @@ const FALLBACK_CONFIG: Omit<GuildConfig, "guild_id"> = {
   notification_channel_configured: false,
 };
 
-function GuildSettingsForm({
-  guildId,
-  onClose,
-}: {
-  guildId: string;
-  onClose: () => void;
-}) {
+/**
+ * サーバー設定の「全般」(旧 ServerSetting.vue 相当): 投稿の言語、restricted モードと編集ロール、
+ * Discord への通知 (#181)、予定のまとめ。まとめ以外は「保存」でまとめて反映する
+ */
+export function GuildGeneralSettings({ guildId }: { guildId: string }) {
   const { t, language } = useLanguage();
   const configQuery = useGuildConfigQuery(guildId);
   const permissionsQuery = useMyPermissionsQuery(guildId);
@@ -209,9 +118,12 @@ function GuildSettingsForm({
     formState: { isSubmitting, isDirty, dirtyFields },
   } = form;
   const [error, setError] = useState<string | Error | null>(null);
+  const [saved, setSaved] = useState(false);
+  // 未保存の変更があるまま別の節やカレンダーへ移ろうとしたら確認する (保存は節ごとなので、移ると消える)
+  const leaveConfirmation = useLeaveConfirmation(isDirty);
 
   // 開くたびに設定を取り直す (staleTime 内だとマウントしただけでは再取得されない)。
-  // ダイアログを開く前に `/init` や別のブラウザで変わっていた分を、古い値のまま保存で送り返さないため
+  // 画面を開く前に `/init` や別のブラウザで変わっていた分を、古い値のまま保存で送り返さないため
   const { refetch: refetchConfig } = configQuery;
   useEffect(() => {
     void refetchConfig();
@@ -227,7 +139,7 @@ function GuildSettingsForm({
     refreshPermissions.isPending ||
     rolesQuery.isFetching;
   const saving = updateConfig.isPending || isSubmitting;
-  // 開いたときの設定の取り直し (下の refetchConfig) が終わるまで、また取り直せなかったときは保存させない。
+  // 開いたときの設定の取り直し (上の refetchConfig) が終わるまで、また取り直せなかったときは保存させない。
   // 古いキャッシュの値をそのまま送ると、別の経路で変わった通知先や既定の事前通知を取り消してしまう
   const syncing = configQuery.isFetching;
   const syncFailed = configQuery.isError;
@@ -247,8 +159,14 @@ function GuildSettingsForm({
     }
   };
 
+  // 保存後にまた編集を始めたら「保存しました」を消す
+  useEffect(() => {
+    if (isDirty) setSaved(false);
+  }, [isDirty]);
+
   const save = handleSubmit(async (values) => {
     setError(null);
+    setSaved(false);
     try {
       const rolesChanged = !!dirtyFields.editorRoleIds;
       if (
@@ -263,10 +181,11 @@ function GuildSettingsForm({
         );
         return;
       }
-      await updateConfig.mutateAsync(
+      const updated = await updateConfig.mutateAsync(
         formValuesToConfigInput(values, rolesChanged),
       );
-      onClose();
+      reset(configToFormValues(updated));
+      setSaved(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause : new Error());
     }
@@ -275,19 +194,6 @@ function GuildSettingsForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={save} noValidate className="flex flex-col gap-4">
-        <DialogHeader>
-          <DialogTitle>{t("サーバー設定")}</DialogTitle>
-          <DialogDescription>
-            {t("予定の編集権限・通知・外部カレンダーへの連携を設定します")}
-          </DialogDescription>
-        </DialogHeader>
-
-        {permissionsQuery.data && !canManage && (
-          <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-            {t("サーバーの設定の変更には管理権限が必要です")}
-          </p>
-        )}
-
         <Field>
           <FieldLabel htmlFor="guild-locale">
             {t("サーバーの通知・投稿の言語")}
@@ -459,27 +365,10 @@ function GuildSettingsForm({
           configured={config?.notification_channel_configured}
         />
 
-        <Separator />
-
-        <FeedSection
-          guildId={guildId}
-          canManage={canManage}
-          onError={setError}
-        />
-
-        <Separator />
-        <ExternalCalendarSettings guildId={guildId} canManage={canManage} />
-
-        {canManage && <WebhookSettings guildId={guildId} />}
-
-        {canManage && <ApiTokenSettings guildId={guildId} />}
-
-        {canManage && <TrashSettings guildId={guildId} />}
-
         {syncFailed && (
           <p role="alert" className="text-sm text-destructive">
             {t(
-              "設定を取り直せませんでした ({error})。古い設定を上書きしないよう、保存はできません。ダイアログを開き直してください",
+              "設定を取り直せませんでした ({error})。古い設定を上書きしないよう、保存はできません。ページを読み込み直してください",
               { error: describeApiError(configQuery.error, language) },
             )}
           </p>
@@ -496,7 +385,14 @@ function GuildSettingsForm({
           </div>
         )}
 
-        <DialogFooter className="sticky -bottom-4 z-10 bg-popover">
+        {saved && (
+          <p role="status" className="text-sm text-muted-foreground">
+            {t("保存しました")}
+          </p>
+        )}
+
+        {/* 長いページの途中からでも押せるよう、下端に貼り付ける */}
+        <div className="sticky -bottom-4 z-10 flex flex-col-reverse gap-2 border-t bg-background py-3 sm:-bottom-6 sm:flex-row sm:justify-end">
           <Button
             type="button"
             variant="outline"
@@ -513,10 +409,14 @@ function GuildSettingsForm({
           <Button
             type="button"
             variant="outline"
-            disabled={saving}
-            onClick={onClose}
+            disabled={saving || !isDirty}
+            onClick={() => {
+              setError(null);
+              if (config) reset(configToFormValues(config));
+              else reset();
+            }}
           >
-            {t("キャンセル")}
+            {t("変更を取り消す")}
           </Button>
           <Button
             type="submit"
@@ -526,8 +426,38 @@ function GuildSettingsForm({
           >
             {saving ? t("保存中…") : syncing ? t("確認中…") : t("保存")}
           </Button>
-        </DialogFooter>
+        </div>
       </form>
+
+      {/* フォームの外に置く (ポータルでも React のイベントはフォームまで伝わり、送信を起こしうるため) */}
+      <AlertDialog
+        open={leaveConfirmation.pendingHref !== null}
+        onOpenChange={(open) => {
+          if (!open) leaveConfirmation.stay();
+        }}
+      >
+        <AlertDialogContent lang={language}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("未保存の変更を破棄しますか？")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                "「全般」の変更はまだ保存されていません。このページを離れると、変更は失われます。",
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("編集を続ける")}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={leaveConfirmation.leave}
+            >
+              {t("破棄して移動")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </FormProvider>
   );
 }
@@ -556,9 +486,12 @@ function NotificationSection({
       className="flex flex-col gap-4"
     >
       <div className="flex items-center gap-1">
-        <h3 id="guild-settings-notifications" className="text-sm font-medium">
+        <h2
+          id="guild-settings-notifications"
+          className="text-base font-semibold"
+        >
           {t("Discord への通知")}
-        </h3>
+        </h2>
         <SettingsHint label={t("Discord への通知")}>
           {t(
             "Bot が通知先チャンネルに予定の開始時刻と事前通知を投稿します。Discord の /init と同じ設定です。",
@@ -807,211 +740,4 @@ function groupByCategory(
     }
   }
   return groups;
-}
-/** 再発行と無効化は取り消せないので、実行前に確認する */
-type FeedConfirmation = "reissue" | "revoke";
-
-/**
- * iCal フィード (#95) の節。URL の閲覧・コピーはメンバー全員、発行・再発行・無効化は管理権限を持つ人だけ
- * (API 側でも同じ条件で 403 になる)。「保存」とは独立に、押した時点で API を呼んで反映する
- */
-function FeedSection({
-  guildId,
-  canManage,
-  onError,
-}: {
-  guildId: string;
-  canManage: boolean;
-  onError: (message: string | Error | null) => void;
-}) {
-  const { t, language } = useLanguage();
-  const feedQuery = useGuildFeedQuery(guildId);
-  const issueFeed = useIssueGuildFeed(guildId);
-  const revokeFeed = useRevokeGuildFeed(guildId);
-  const [confirmation, setConfirmation] = useState<FeedConfirmation | null>(
-    null,
-  );
-  const [copied, setCopied] = useState(false);
-  // URL はこのページを開いているオリジンで組み立てる (ローカル / staging / 本番のどれでも設定なしで合う)。
-  // ダイアログの中身は開いたときにだけ描画されるので、ここで window を読んでも SSR とずれない
-  const [origin] = useState(() =>
-    typeof window === "undefined" ? "" : window.location.origin,
-  );
-
-  const busy = issueFeed.isPending || revokeFeed.isPending;
-  const feed = feedQuery.data;
-  const url = feed ? buildFeedUrl(origin, feed.token) : null;
-
-  // 「コピーしました」は数秒で元の表示に戻す
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  const run = async (action: () => Promise<unknown>) => {
-    onError(null);
-    try {
-      await action();
-    } catch (cause) {
-      onError(cause instanceof Error ? cause : new Error());
-    }
-  };
-
-  const copy = async () => {
-    if (!url) return;
-    onError(null);
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-    } catch {
-      // 権限が無い / 非セキュアなコンテキストなど。入力欄は選択できるので手動コピーを案内する
-      onError("コピーできませんでした。URL を選択してコピーしてください");
-    }
-  };
-
-  const confirm = () => {
-    const action = confirmation;
-    setConfirmation(null);
-    if (action === "reissue") void run(() => issueFeed.mutateAsync());
-    if (action === "revoke") void run(() => revokeFeed.mutateAsync());
-  };
-
-  return (
-    <section
-      aria-labelledby="guild-settings-feed"
-      className="flex flex-col gap-2"
-    >
-      <div className="flex flex-col gap-1">
-        <h3 id="guild-settings-feed" className="text-sm font-medium">
-          {t("外部カレンダーで購読する")}
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          {t(
-            "URL を知っている人は誰でも予定を読めます。共有する相手にご注意ください",
-          )}
-        </p>
-      </div>
-
-      {feedQuery.isPending ? (
-        <p className="text-sm text-muted-foreground">{t("確認中…")}</p>
-      ) : feedQuery.isError ? (
-        <p role="alert" className="text-sm text-destructive">
-          {describeApiError(feedQuery.error, language)}
-        </p>
-      ) : feed && url ? (
-        <>
-          <div className="flex gap-2">
-            <Input
-              readOnly
-              value={url}
-              aria-label={t("フィード URL")}
-              onFocus={(event) => event.currentTarget.select()}
-              className="font-mono text-xs"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={copy}
-              className="shrink-0"
-            >
-              {copied ? (
-                <CheckIcon data-icon="inline-start" />
-              ) : (
-                <CopyIcon data-icon="inline-start" />
-              )}
-              {copied ? t("コピーしました") : t("コピー")}
-            </Button>
-          </div>
-          {canManage && (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => setConfirmation("reissue")}
-              >
-                {issueFeed.isPending ? t("再発行中…") : t("再発行")}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => setConfirmation("revoke")}
-              >
-                {revokeFeed.isPending ? t("無効化中…") : t("無効化")}
-              </Button>
-            </div>
-          )}
-        </>
-      ) : canManage ? (
-        <div>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={() => void run(() => issueFeed.mutateAsync())}
-          >
-            {issueFeed.isPending ? t("発行中…") : t("フィード URL を発行")}
-          </Button>
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          {t(
-            "まだ発行されていません。管理権限を持つメンバーがこの画面から発行できます",
-          )}
-        </p>
-      )}
-
-      <FieldDescription>
-        <Link
-          href={docPath("subscribe")}
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-2"
-        >
-          {t("「外部カレンダーで見る」")}
-        </Link>
-        <SettingsHint label={t("外部カレンダーでの購読")}>
-          {t(
-            "Google カレンダーや Apple カレンダーなどに予定を表示できます。反映までの時間は各サービスの更新間隔によります。",
-          )}
-        </SettingsHint>
-      </FieldDescription>
-
-      <AlertDialog
-        open={confirmation !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmation(null);
-        }}
-      >
-        <AlertDialogContent lang={language}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmation === "revoke"
-                ? t("フィード URL を無効化しますか?")
-                : t("フィード URL を再発行しますか?")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmation === "revoke"
-                ? t(
-                    "今の URL は使えなくなり、購読しているカレンダーには予定が届かなくなります。もう一度使うには改めて発行します",
-                  )
-                : t(
-                    "新しい URL に置き換わり、今の URL は使えなくなります。購読している人には新しい URL を登録し直してもらってください",
-                  )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("キャンセル")}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={confirm}>
-              {confirmation === "revoke" ? t("無効化") : t("再発行")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </section>
-  );
 }

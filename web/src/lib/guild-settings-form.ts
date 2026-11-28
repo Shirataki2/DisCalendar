@@ -3,7 +3,7 @@ import type { GuildConfig, GuildConfigInput } from "@/lib/api/types";
 import { NOTIFICATIONS_MAX, notificationSchema } from "@/lib/event-form";
 import { resolveLanguage } from "@/lib/i18n";
 
-// サーバー設定ダイアログ (guild-settings-dialog.tsx) のフォームと API との相互変換 (#181)。
+// サーバー設定の「全般」(components/guild-settings/general-settings.tsx) のフォームと API との相互変換 (#181)。
 // 通知の上限値は予定ダイアログ (event-form.ts) と同じ
 
 export const guildSettingsSchema = z.object({

@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { Pool } from "pg";
 import { setEditorRoles } from "./discord-mock";
 import { DATABASE_URL } from "./env";
@@ -9,6 +9,7 @@ import {
   E2E_MANAGER_ROLE_ID,
   E2E_USER_ROLE_ID,
 } from "./fixtures";
+import { backToCalendar, openGuildSettings } from "./guild-settings";
 
 // 同じケースで複数回ロールを付け替えるため、再確認の制限時間を含める。
 test.setTimeout(120_000);
@@ -54,12 +55,27 @@ async function setAccess(
     .toEqual([canManage, canEdit]);
 }
 async function openSettings(page: Page) {
-  await page.getByRole("button", { name: "サーバー設定" }).click();
-  const dialog = page.getByRole("dialog", { name: "サーバー設定" });
+  const settings = await openGuildSettings(page);
   await expect(
-    dialog.getByRole("button", { name: "保存", exact: true }),
+    settings.getByRole("button", { name: "保存", exact: true }),
   ).toBeEnabled();
-  return dialog;
+  return settings;
+}
+/** 設定ページを読み込み直して、保存済みの値から始め直す (ダイアログを開き直していた代わり) */
+async function reopenSettings(page: Page) {
+  await page.reload();
+  const settings = page.getByRole("main");
+  await expect(
+    settings.getByRole("button", { name: "保存", exact: true }),
+  ).toBeEnabled();
+  return settings;
+}
+/** 「保存」を押し、保存できた (ページに「保存しました」が出る) ところまで待つ */
+async function save(settings: Locator) {
+  await settings.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    settings.getByRole("status").filter({ hasText: /^保存しました$/ }),
+  ).toBeVisible();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -220,9 +236,8 @@ test("チェック一覧を保存・再表示でき、OFFで保持し25件で追
   await expect(
     dialog.getByRole("checkbox", { name: role.name, exact: true }),
   ).toBeChecked();
-  await dialog.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(dialog).toBeHidden();
-  dialog = await openSettings(page);
+  await save(dialog);
+  dialog = await reopenSettings(page);
   const checkbox = dialog.getByRole("checkbox", {
     name: role.name,
     exact: true,
@@ -230,7 +245,7 @@ test("チェック一覧を保存・再表示でき、OFFで保持し25件で追
   await expect(checkbox).toBeChecked();
   await dialog.getByRole("checkbox", { name: restrictedLabel }).uncheck();
   await expect(checkbox).toBeDisabled();
-  await dialog.getByRole("button", { name: "保存", exact: true }).click();
+  await save(dialog);
   expect(
     (await (await page.request.get(configUrl)).json()).editor_role_ids,
   ).toEqual([role.id]);
@@ -240,7 +255,7 @@ test("チェック一覧を保存・再表示でき、OFFで保持し25件で追
       editor_role_ids: E2E_EDITOR_ROLES.slice(0, 25).map((r) => r.id),
     },
   });
-  dialog = await openSettings(page);
+  dialog = await reopenSettings(page);
   await expect(
     dialog.getByRole("checkbox", {
       name: E2E_EDITOR_ROLES[25].name,
@@ -272,8 +287,7 @@ test("付与・剥奪後の再読込で画面が変わり、一般メンバー�
   });
   await page.goto(`/dashboard/${guild.id}`);
   await expect(page.getByRole("button", { name: "新規作成" })).toBeDisabled();
-  await page.getByRole("button", { name: "サーバー設定" }).click();
-  const dialog = page.getByRole("dialog", { name: "サーバー設定" });
+  let dialog = await openGuildSettings(page);
   await expect(
     dialog.getByRole("button", { name: "保存", exact: true }),
   ).toBeDisabled();
@@ -284,21 +298,30 @@ test("付与・剥奪後の再読込で画面が変わり、一般メンバー�
   for (const ids of [[role.id], []]) {
     await setEditorRoles(guild.id, ids);
     await expect(async () => {
+      const refreshed = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`${permissionUrl}/refresh`) &&
+          response.request().method() === "POST",
+      );
       await dialog.getByRole("button", { name: "再読込", exact: true }).click();
+      const permissions = await (await refreshed).json();
       await expect(
         dialog.getByRole("button", { name: "再読込", exact: true }),
       ).toBeEnabled();
-      // モーダル背後のボタンも同じクエリの更新を受ける。
-      if (ids.length)
-        await expect(
-          page.getByRole("button", { name: "新規作成", includeHidden: true }),
-        ).toBeEnabled({ timeout: 500 });
-      else
-        await expect(
-          page.getByRole("button", { name: "新規作成", includeHidden: true }),
-        ).toBeDisabled({ timeout: 500 });
+      expect(permissions.can_edit_events).toBe(ids.length > 0);
     }).toPass({ timeout: 20_000, intervals: [1100] });
     await expect(dialog.getByText(/編集を許可するロール/)).toHaveCount(0);
+    // 取り直した権限で、カレンダー画面の編集可否も切り替わる
+    await backToCalendar(page);
+    if (ids.length)
+      await expect(
+        page.getByRole("button", { name: "新規作成" }),
+      ).toBeEnabled();
+    else
+      await expect(
+        page.getByRole("button", { name: "新規作成" }),
+      ).toBeDisabled();
+    dialog = await openGuildSettings(page);
   }
   expect(roleRequests).toEqual([]);
 });
@@ -334,11 +357,11 @@ test("削除済みロールは解除でき、一覧取得失敗は削除と誤�
     dialog.getByText(`削除されたロール (ID: ${role.id})`, { exact: true }),
   ).toBeVisible();
   // 無関係な保存で削除済みロールを勝手に消さない。
-  await dialog.getByRole("button", { name: "保存", exact: true }).click();
+  await save(dialog);
   expect(
     (await (await page.request.get(configUrl)).json()).editor_role_ids,
   ).toEqual([role.id]);
-  dialog = await openSettings(page);
+  dialog = await reopenSettings(page);
   await dialog
     .getByRole("checkbox", { name: E2E_EDITOR_ROLES[1].name, exact: true })
     .check();
@@ -352,8 +375,7 @@ test("削除済みロールは解除でき、一覧取得失敗は削除と誤�
   });
   await deletedRole.click();
   await expect(deletedRole).toBeHidden();
-  await dialog.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(dialog).toBeHidden();
+  await save(dialog);
   await page.route(`**${rolesUrl}`, (route) =>
     route.fulfill({
       status: 502,
@@ -361,7 +383,7 @@ test("削除済みロールは解除でき、一覧取得失敗は削除と誤�
       body: JSON.stringify({ error: "discord_error", message: "test" }),
     }),
   );
-  dialog = await openSettings(page);
+  dialog = await reopenSettings(page);
   await expect(dialog.getByRole("alert")).toContainText(
     "ロール一覧を取得できませんでした",
   );
@@ -396,8 +418,13 @@ test("設定保存後は権限を取り直し、取得失敗時に古い編集�
   await dialog.getByRole("checkbox", { name: restrictedLabel }).uncheck();
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   expect((await refreshed).status()).toBe(502);
-  await expect(dialog).toBeHidden();
-  await expect(page.getByRole("button", { name: "新規作成" })).toBeDisabled();
+  // 権限を取り直せないので、直前の「管理権限あり」を使わず変更できない側に倒す
+  await expect(
+    dialog.getByText("サーバーの設定の変更には管理権限が必要です"),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "保存", exact: true }),
+  ).toBeDisabled();
   expect((await (await page.request.get(configUrl)).json()).restricted).toBe(
     false,
   );

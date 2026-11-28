@@ -8,6 +8,10 @@ describe("ログイン後のカレンダーへの復帰", () => {
     "/dashboard/123/polls",
     "/dashboard/123/polls/42",
     "/dashboard/123456789012345678",
+    "/dashboard/123456789012345678/settings",
+    "/dashboard/123/settings/calendars",
+    "/dashboard/123/settings/integrations",
+    "/dashboard/123/settings/trash",
   ])("カレンダーのパス %s を保持する", (path) => {
     expect(dashboardReturnPath(path)).toBe(path);
   });
@@ -29,6 +33,9 @@ describe("ログイン後のカレンダーへの復帰", () => {
     "/admin",
     "/dashboard/123/polls/0",
     "/dashboard/123/polls/42/other",
+    "/dashboard/123/settings/other",
+    "/dashboard/123/settings/trash/1",
+    "/dashboard/settings",
     "/dashboard/123?next=https://example.com",
     "/dashboard/123?date=2026-02-31&event=42",
     "/dashboard/123?date=2026-12-31&event=0",
