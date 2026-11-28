@@ -17,12 +17,14 @@ import type {
   AttachmentUrl,
   ChangeScope,
   CoverResult,
+  CreateGuildApiTokenInput,
   EventAttachment,
   EventHistoryEntry,
   ExternalCalendar,
   ExternalCalendarInput,
   ExternalCalendarResult,
   Guild,
+  GuildApiToken,
   GuildChannel,
   GuildConfig,
   GuildConfigInput,
@@ -33,6 +35,7 @@ import type {
   GuildWebhook,
   ImportEventInput,
   ImportPreview,
+  IssuedGuildApiToken,
   MemberProfile,
   MyPermissions,
   OpsResult,
@@ -326,6 +329,28 @@ export function createApi(request: ApiFetcher) {
       test: (guildId: string, id: string) =>
         request<void>(`/guilds/${guildId}/webhooks/${id}/test`, {
           method: "POST",
+        }),
+    },
+    apiTokens: {
+      list: (guildId: string) =>
+        request<GuildApiToken[]>(`/guilds/${guildId}/api-tokens`),
+      create: (guildId: string, body: CreateGuildApiTokenInput) =>
+        request<IssuedGuildApiToken>(`/guilds/${guildId}/api-tokens`, {
+          method: "POST",
+          body,
+        }),
+      rotate: (guildId: string, id: string) =>
+        request<IssuedGuildApiToken>(
+          `/guilds/${guildId}/api-tokens/${id}/rotate`,
+          { method: "POST" },
+        ),
+      revoke: (guildId: string, id: string) =>
+        request<void>(`/guilds/${guildId}/api-tokens/${id}/revoke`, {
+          method: "POST",
+        }),
+      remove: (guildId: string, id: string) =>
+        request<void>(`/guilds/${guildId}/api-tokens/${id}`, {
+          method: "DELETE",
         }),
     },
     guilds: {

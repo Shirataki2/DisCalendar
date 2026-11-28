@@ -100,7 +100,9 @@ pub async fn mention_profiles(
         .reserve_mention_lookups(&member.user.discord_user_id, ids.len() as u32)
         .await
     {
-        return Err(ApiError::TooManyRequests);
+        return Err(ApiError::TooManyRequests(
+            "メンバーの確認が多すぎます。1分ほど待ってから再試行してください".into(),
+        ));
     }
     let resolved = stream::iter(ids)
         .map(|id| {

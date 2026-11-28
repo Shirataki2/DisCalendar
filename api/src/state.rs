@@ -1,4 +1,11 @@
-use std::{collections::HashSet, sync::Arc, time::Instant};
+use std::{
+    collections::HashSet,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+    time::Instant,
+};
 
 use sqlx::PgPool;
 
@@ -26,6 +33,8 @@ pub struct AppState {
     pub activity_days: moka::future::Cache<String, chrono::NaiveDate>,
     pub external_feeds: moka::future::Cache<i64, crate::external_calendars::CachedFeed>,
     pub external_fetch_slots: tokio::sync::Semaphore,
+    /// API トークン (#405) 用の頻度制限カウンタ (60 秒窓)
+    pub api_token_rate_limits: moka::future::Cache<String, Arc<AtomicU32>>,
     pub admin: AdminConfig,
     /// プロセスの起動時刻 (`GET /admin/status` の稼働時間、#37)
     pub started_at: chrono::DateTime<chrono::Utc>,
@@ -75,4 +84,19 @@ impl AdminConfig {
 pub struct KnownWords {
     pub words: Arc<HashSet<String>>,
     pub loaded_at: Instant,
+}
+
+impl AppState {
+    /// API トークン用 60 秒固定上限の頻度制限を 1 件消費する。超過時は `false`
+    pub async fn reserve_api_token_rate_limit(&self, key: &str, limit: u32) -> bool {
+        let counter = self
+            .api_token_rate_limits
+            .get_with(key.to_owned(), async { Arc::new(AtomicU32::new(0)) })
+            .await;
+        counter
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+                (used < limit).then_some(used + 1)
+            })
+            .is_ok()
+    }
 }

@@ -69,7 +69,52 @@ pub async fn validate_targets(
             true,
         )
     };
-    validate_roles(mentions, &guild, can_mention_everyone)?;
+    validate_targets_with_guild(
+        discord,
+        guild_id,
+        &guild,
+        can_mention_everyone,
+        actor_id,
+        mentions,
+    )
+    .await
+}
+
+/// 操作ユーザーを持たない経路 (API トークンなど) 向けに、一斉メンション可否を明示して検証する。
+pub async fn validate_targets_for_guild(
+    discord: &DiscordClient,
+    guild_id: &str,
+    can_mention_everyone: bool,
+    mentions: Option<&[NotificationMention]>,
+) -> Result<(), ApiError> {
+    let Some(mentions) = mentions.filter(|m| !m.is_empty()) else {
+        return Ok(());
+    };
+    validate(mentions)?;
+    let guild = discord
+        .guild(guild_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Bot がサーバーに参加していません".into()))?;
+    validate_targets_with_guild(
+        discord,
+        guild_id,
+        &guild,
+        can_mention_everyone,
+        None,
+        mentions,
+    )
+    .await
+}
+
+async fn validate_targets_with_guild(
+    discord: &DiscordClient,
+    guild_id: &str,
+    guild: &crate::discord::GuildSnapshot,
+    can_mention_everyone: bool,
+    actor_id: Option<&str>,
+    mentions: &[NotificationMention],
+) -> Result<(), ApiError> {
+    validate_roles(mentions, guild, can_mention_everyone)?;
     let user_count = mentions
         .iter()
         .filter(|m| matches!(m, NotificationMention::User { .. }))
@@ -78,7 +123,9 @@ pub async fn validate_targets(
         && user_count > 0
         && !discord.reserve_mention_lookups(actor_id, user_count).await
     {
-        return Err(ApiError::TooManyRequests);
+        return Err(ApiError::TooManyRequests(
+            "メンバーの確認が多すぎます。1分ほど待ってから再試行してください".into(),
+        ));
     }
     let members: Vec<bool> = stream::iter(mentions.iter().filter_map(|mention| match mention {
         NotificationMention::User { id } => Some(id),

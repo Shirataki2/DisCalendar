@@ -18,7 +18,7 @@ pub struct Series {
     pub end_before: Option<NaiveDateTime>,
     pub version: i32,
     pub created_at: NaiveDateTime,
-    pub created_by: String,
+    pub created_by: Option<String>,
     pub updated_at: Option<NaiveDateTime>,
     pub updated_by: Option<String>,
     pub generated_from: Option<NaiveDateTime>,
@@ -127,7 +127,7 @@ pub async fn create_series(
     rule: &Rule,
     start: NaiveDateTime,
     end: NaiveDateTime,
-    actor: &str,
+    actor: Option<&str>,
     now: NaiveDateTime,
 ) -> Result<Series, anyhow::Error> {
     let mut rule = rule.clone();

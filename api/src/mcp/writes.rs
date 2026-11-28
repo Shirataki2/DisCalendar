@@ -682,6 +682,7 @@ mod tests {
             activity_days: moka::future::Cache::new(1),
             external_feeds: moka::future::Cache::new(1),
             external_fetch_slots: tokio::sync::Semaphore::new(3),
+            api_token_rate_limits: moka::future::Cache::new(100),
             admin: Default::default(),
             started_at: chrono::Utc::now(),
         })

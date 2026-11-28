@@ -414,6 +414,17 @@ pub async fn create<'e>(
     created_at: NaiveDateTime,
     created_by: &str,
 ) -> sqlx::Result<EventRow> {
+    create_with_actor(executor, guild_id, input, created_at, Some(created_by)).await
+}
+
+/// 操作者 (`created_by`) を省略可能にした予定作成 (API トークン経由など)
+pub async fn create_with_actor<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+    input: &EventInput,
+    created_at: NaiveDateTime,
+    created_by: Option<&str>,
+) -> sqlx::Result<EventRow> {
     let notifications = Notification::encode_all(&input.notifications);
     let mentions = input
         .notification_mentions
@@ -515,6 +526,18 @@ pub async fn update_if_unlinked<'e>(
     updated_by: &str,
     updated_at: NaiveDateTime,
 ) -> sqlx::Result<Option<EventRow>> {
+    update_if_unlinked_with_actor(executor, guild_id, id, input, Some(updated_by), updated_at).await
+}
+
+/// 操作者 (`updated_by`) を省略可能にした未連携予定更新 (API トークン経由など)
+pub async fn update_if_unlinked_with_actor<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+    id: i32,
+    input: &EventInput,
+    updated_by: Option<&str>,
+    updated_at: NaiveDateTime,
+) -> sqlx::Result<Option<EventRow>> {
     let notifications = Notification::encode_all(&input.notifications);
     let mentions = input
         .notification_mentions
@@ -557,6 +580,18 @@ pub async fn update<'e>(
     id: i32,
     input: &EventInput,
     updated_by: &str,
+    updated_at: NaiveDateTime,
+) -> sqlx::Result<Option<EventRow>> {
+    update_with_actor(executor, guild_id, id, input, Some(updated_by), updated_at).await
+}
+
+/// 操作者 (`updated_by`) を省略可能にした予定更新 (API トークン経由など)
+pub async fn update_with_actor<'e>(
+    executor: impl PgExecutor<'e>,
+    guild_id: &str,
+    id: i32,
+    input: &EventInput,
+    updated_by: Option<&str>,
     updated_at: NaiveDateTime,
 ) -> sqlx::Result<Option<EventRow>> {
     let notifications = Notification::encode_all(&input.notifications);
@@ -612,6 +647,17 @@ pub async fn soft_delete(
     deleted_by: &str,
     deleted_at: NaiveDateTime,
 ) -> sqlx::Result<bool> {
+    soft_delete_with_actor(conn, guild_id, id, Some(deleted_by), deleted_at).await
+}
+
+/// 操作者 (`deleted_by`) を省略可能にした論理削除 (API トークン経由など)
+pub async fn soft_delete_with_actor(
+    conn: &mut sqlx::PgConnection,
+    guild_id: &str,
+    id: i32,
+    deleted_by: Option<&str>,
+    deleted_at: NaiveDateTime,
+) -> sqlx::Result<bool> {
     let result = sqlx::query!(
         r#"
         UPDATE events
@@ -629,6 +675,13 @@ pub async fn soft_delete(
         return Ok(false);
     }
     super::event_links::delete(&mut *conn, guild_id, id).await?;
+    sqlx::query!(
+        "DELETE FROM event_external_ids WHERE guild_id = $1 AND event_id = $2",
+        guild_id,
+        id
+    )
+    .execute(&mut *conn)
+    .await?;
     sqlx::query!("DELETE FROM push_outbox WHERE event_id = $1", id)
         .execute(&mut *conn)
         .await?;

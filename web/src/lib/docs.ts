@@ -86,6 +86,12 @@ export const DOC_PAGES: readonly DocPage[] = [
       "Webhook の登録、Discord への通知、JSON 本文と署名の検証方法。",
   },
   {
+    slug: "api-tokens",
+    title: "API トークンで予定を登録する",
+    description:
+      "サーバー用の API トークンを発行し、curl や GitHub Actions などの外部スクリプトから予定を作成・更新・削除する方法。",
+  },
+  {
     slug: "mcp",
     title: "Codexとの接続",
     description:

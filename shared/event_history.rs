@@ -55,6 +55,8 @@ pub enum Source {
     Admin,
     /// AI アシスタント (MCP)
     Mcp,
+    /// サーバー用 API トークン (#405)
+    ApiToken,
 }
 
 impl Source {
@@ -64,6 +66,7 @@ impl Source {
             Self::Bot => "bot",
             Self::Admin => "admin",
             Self::Mcp => "mcp",
+            Self::ApiToken => "api_token",
         }
     }
 }
@@ -136,11 +139,37 @@ pub async fn record(
     action: Action,
     before: Option<&Value>,
 ) -> sqlx::Result<()> {
-    record_many(
+    record_with_label(
+        conn,
+        guild_id,
+        event_id,
+        actor_discord_user_id,
+        None,
+        source,
+        action,
+        before,
+    )
+    .await
+}
+
+/// [`record`] に操作者の表示ラベル (`actor_label`、例: API トークン名) を添えて記録する
+#[allow(clippy::too_many_arguments)]
+pub async fn record_with_label(
+    conn: &mut PgConnection,
+    guild_id: &str,
+    event_id: i32,
+    actor_discord_user_id: Option<&str>,
+    actor_label: Option<&str>,
+    source: Source,
+    action: Action,
+    before: Option<&Value>,
+) -> sqlx::Result<()> {
+    record_many_with_label(
         conn,
         guild_id,
         &[(event_id, before.cloned())],
         actor_discord_user_id,
+        actor_label,
         source,
         action,
     )
@@ -157,6 +186,28 @@ pub async fn record_many(
     source: Source,
     action: Action,
 ) -> sqlx::Result<()> {
+    record_many_with_label(
+        conn,
+        guild_id,
+        entries,
+        actor_discord_user_id,
+        None,
+        source,
+        action,
+    )
+    .await
+}
+
+/// [`record_many`] に操作者の表示ラベル (`actor_label`) を添えて記録する
+pub async fn record_many_with_label(
+    conn: &mut PgConnection,
+    guild_id: &str,
+    entries: &[(i32, Option<Value>)],
+    actor_discord_user_id: Option<&str>,
+    actor_label: Option<&str>,
+    source: Source,
+    action: Action,
+) -> sqlx::Result<()> {
     if entries.is_empty() {
         return Ok(());
     }
@@ -170,8 +221,8 @@ pub async fn record_many(
              FROM UNNEST($1::int[], $6::jsonb[]) AS b(event_id, before)
              JOIN events e ON e.id = b.event_id AND e.guild_id = $2
          )
-         INSERT INTO event_history (event_id, guild_id, actor_discord_user_id, source, action, before, after)
-         SELECT c.id, c.guild_id, $3, $4, $5, c.before - 'description_hash',
+         INSERT INTO event_history (event_id, guild_id, actor_discord_user_id, actor_label, source, action, before, after)
+         SELECT c.id, c.guild_id, $3, $7, $4, $5, c.before - 'description_hash',
                 CASE WHEN $5 = 'delete' THEN NULL
                      ELSE (c.snap - 'description_hash') || jsonb_build_object(
                          'description_changed',
@@ -187,6 +238,7 @@ pub async fn record_many(
     .bind(source.as_str())
     .bind(action.as_str())
     .bind(&befores)
+    .bind(actor_label)
     .fetch_all(&mut *conn)
     .await?;
     if !recorded.is_empty() {

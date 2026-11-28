@@ -102,7 +102,9 @@ export interface EventHistoryEntry {
   event_id: number;
   /** 操作した Discord ユーザー。利用者以外の操作なら null */
   actor_discord_user_id: string | null;
-  source: "web" | "bot" | "admin" | "mcp";
+  /** 操作者の表示ラベル (API トークン名など)。無ければ null */
+  actor_label: string | null;
+  source: "web" | "bot" | "admin" | "mcp" | "api_token";
   action: "create" | "update" | "delete" | "restore";
   /** create では null */
   before: EventSnapshot | null;
@@ -1017,3 +1019,49 @@ export interface PollInput {
   expected_version?: number;
 }
 export type PollAnnouncement = "sent" | "not_configured" | "failed";
+
+/** サーバー用 API トークン (#405) の権限スコープ */
+export type GuildApiTokenScope = "create" | "write";
+
+/** API トークンの直近の呼び出しログ */
+export interface GuildApiTokenLog {
+  id: number;
+  method: string;
+  action: string;
+  event_id: number | null;
+  external_id: string | null;
+  status: number;
+  error_kind: string | null;
+  called_at: string;
+}
+
+/** サーバー用 API トークン (ハッシュ・平文は含まない) */
+export interface GuildApiToken {
+  id: string;
+  name: string;
+  token_prefix: string;
+  scope: GuildApiTokenScope;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  created_by: string;
+  created_at: string;
+  logs: GuildApiTokenLog[];
+}
+
+export interface CreateGuildApiTokenInput {
+  name: string;
+  scope: GuildApiTokenScope;
+  expires_in_days: number | null;
+}
+
+/** 発行・ローテーション時に 1 回だけ返る平文トークン */
+export interface IssuedGuildApiToken {
+  id: string;
+  name: string;
+  token_prefix: string;
+  scope: GuildApiTokenScope;
+  expires_at: string | null;
+  created_at: string;
+  token: string;
+}
