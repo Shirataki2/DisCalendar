@@ -21,13 +21,13 @@ export function calendarEventParam(
   return Number.isSafeInteger(id) && id <= 2_147_483_647 ? id : undefined;
 }
 
-/** 外部 URL や管理画面を受け入れず、カレンダー内の戻り先だけを保持する。 */
+/** 外部 URL や管理画面を受け入れず、カレンダー内 (サーバー設定 #440 を含む) の戻り先だけを保持する。 */
 export function dashboardReturnPath(value: string | null): string {
   if (!value?.startsWith("/dashboard")) return "/dashboard";
   const url = new URL(value, "https://discalendar.invalid");
   if (
     url.origin !== "https://discalendar.invalid" ||
-    !/^\/dashboard(?:\/(?:all|[0-9]{1,20}(?:\/polls(?:\/[1-9][0-9]{0,9})?)?))?$/.test(
+    !/^\/dashboard(?:\/(?:all|[0-9]{1,20}(?:\/polls(?:\/[1-9][0-9]{0,9})?|\/settings(?:\/(?:calendars|integrations|trash))?)?))?$/.test(
       url.pathname,
     ) ||
     `${url.pathname}${url.search}` !== value

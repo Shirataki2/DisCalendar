@@ -3,6 +3,7 @@ import {
   HydrationBoundary,
   QueryClient,
 } from "@tanstack/react-query";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { GuildSettingsShell } from "@/components/guild-settings/settings-shell";
@@ -10,7 +11,7 @@ import { GuildUnavailable } from "@/components/guild-unavailable";
 import { Message } from "@/components/language-provider";
 import { ApiError } from "@/lib/api";
 import { serverApi } from "@/lib/api/server";
-import { loginUrl } from "@/lib/login-redirect";
+import { loginUrl, RETURN_TO_HEADER } from "@/lib/login-redirect";
 import { queryKeys } from "@/lib/query/keys";
 
 /**
@@ -44,7 +45,15 @@ export default async function GuildSettingsLayout({
     guildName = guild.name ?? id;
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
-      redirect(loginUrl(`/dashboard/${id}/settings`));
+      // 開こうとしていた節 (proxy が渡すパス) に戻す。取れなければ設定の先頭
+      const returnTo = (await headers()).get(RETURN_TO_HEADER);
+      redirect(
+        loginUrl(
+          returnTo?.startsWith(`/dashboard/${id}/settings`)
+            ? returnTo
+            : `/dashboard/${id}/settings`,
+        ),
+      );
     }
     return (
       <GuildUnavailable

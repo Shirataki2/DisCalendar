@@ -13,6 +13,7 @@ const TEST_CALENDAR_NAMES = [
   "遅い購読先",
   "確認用",
   "上限確認",
+  "設定から登録",
 ];
 
 test.beforeAll(async ({ request }) => {
@@ -229,6 +230,55 @@ test("外部 ICS の重ね表示・再取得・失敗表示・権限境界", asy
     expect(unsupported.events).toEqual([]);
   } finally {
     for (const id of created) await page.request.delete(`${base}/${id}`);
+    await new Promise<void>((resolve) => receiver.close(() => resolve()));
+  }
+});
+
+test("設定ページで登録すると、カレンダーに戻らなくても最初の取得が行われる (#440)", async ({
+  page,
+}) => {
+  let requests = 0;
+  const receiver = createServer((_req, res) => {
+    requests += 1;
+    res.writeHead(200, { "content-type": "text/calendar" });
+    res.end(
+      "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:settings-first-fetch\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20261001T100000\r\nDTEND:20261001T110000\r\nSUMMARY:設定から登録した予定\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+    );
+  });
+  await new Promise<void>((resolve) =>
+    receiver.listen(0, "127.0.0.1", resolve),
+  );
+  const address = receiver.address();
+  if (!address || typeof address === "string")
+    throw new Error("ICS モックの起動に失敗");
+  const guildId = E2E_GUILDS.admin.id;
+  try {
+    await page.goto(`/dashboard/${guildId}`);
+    const settings = await openGuildSettings(page, "外部カレンダー");
+    const section = settings.getByRole("region", {
+      name: "外部カレンダーを重ねて表示する",
+    });
+    await section.getByLabel("表示名").fill("設定から登録");
+    await section
+      .getByLabel("ICS URL")
+      .fill(`http://webhook.test:${address.port}/first.ics`);
+    await section.getByRole("button", { name: "追加" }).click();
+    const item = section
+      .getByRole("listitem")
+      .filter({ hasText: "設定から登録" });
+    await expect(item).toBeVisible();
+    // 登録の直後に取得が走り、「まだ取得していません」から最終取得の日時に変わる
+    await expect(item).not.toContainText("まだ取得していません");
+    await expect(item).not.toContainText("取得できません");
+    expect(requests).toBe(1);
+  } finally {
+    const base = `/local/api/guilds/${guildId}/external-calendars`;
+    for (const calendar of (await (await page.request.get(base)).json()) as {
+      id: number;
+      name: string;
+    }[])
+      if (calendar.name === "設定から登録")
+        await page.request.delete(`${base}/${calendar.id}`);
     await new Promise<void>((resolve) => receiver.close(() => resolve()));
   }
 });
